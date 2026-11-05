@@ -20,6 +20,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -70,6 +72,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
 import '../../../helpers/clock_instant.dart';
+import '../../../helpers/no_pending_booking_actions.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/stub_bookings_day.dart';
 
@@ -968,6 +971,13 @@ Future<void> _pump(
       retry: beauticaProviderRetry,
       overrides: <Object>[
         ...overrides,
+        // The master nav's setup-hint dots (2026-10-30) are covered by
+        // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so this
+        // screen suite never reaches the real schedule/catalogue APIs through them.
+        masterNavSetupHintsProvider.overrideWithValue(
+          BookingLinkSetupHints.none,
+        ),
+        kNoPendingBookingActionsOverride,
         _fakeWorkingHours(),
         _noBookings(bookings),
       ].cast(),
@@ -1178,6 +1188,10 @@ Future<ProviderContainer> _pumpGuarded(
     retry: beauticaProviderRetry,
     overrides: <Object>[
       ...overrides,
+      // The master nav's setup-hint dots (2026-10-30) are covered by
+      // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so this
+      // screen suite never reaches the real schedule/catalogue APIs through them.
+      masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
       _fakeWorkingHours(),
       _noBookings(),
     ].cast(),
@@ -2306,6 +2320,10 @@ void main() {
           ProviderScope(
             retry: beauticaProviderRetry,
             overrides: <Object>[
+              masterNavSetupHintsProvider.overrideWithValue(
+                BookingLinkSetupHints.none,
+              ),
+              kNoPendingBookingActionsOverride,
               ..._withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
                 _template(),
               ]),
@@ -2764,6 +2782,10 @@ void main() {
           ProviderScope(
             retry: beauticaProviderRetry,
             overrides: <Object>[
+              masterNavSetupHintsProvider.overrideWithValue(
+                BookingLinkSetupHints.none,
+              ),
+              kNoPendingBookingActionsOverride,
               authProvider.overrideWith(
                 () => _FixedAuth(UserRole.independentMaster),
               ),
@@ -2831,6 +2853,10 @@ void main() {
         ProviderScope(
           retry: beauticaProviderRetry,
           overrides: <Object>[
+            masterNavSetupHintsProvider.overrideWithValue(
+              BookingLinkSetupHints.none,
+            ),
+            kNoPendingBookingActionsOverride,
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),

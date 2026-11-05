@@ -90,6 +90,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
@@ -315,6 +317,12 @@ void main() {
     final ProviderContainer container = makeTestContainer(
       retry: (_, _) => null,
       overrides: <Object>[
+        // Setup-hint dots (2026-10-30) are covered by
+        // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+        // real schedule/catalogue reads (5-min cache timers) never run.
+        masterNavSetupHintsProvider.overrideWithValue(
+          BookingLinkSetupHints.none,
+        ),
         // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
         portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
         authProvider.overrideWith(auth),

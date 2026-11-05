@@ -346,6 +346,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
                   scheduleRoute: widget.navScheduleRoute,
                   profileRoute: widget.navProfileRoute,
                   bookingsRoute: widget.navBookingsRoute,
+                  // INDEPENDENT_MASTER-gated inside the hint providers.
+                  showSetupHints: true,
+                  // «Записи» pending-actions badge on the INDEPENDENT_MASTER
+                  // bar only — the SALON_MASTER mount overrides the bookings
+                  // route, and gets no badge and no request.
+                  showBookingsBadge: widget.navBookingsRoute == null,
                 )
           : null,
       floatingActionButton: asyncServices.maybeWhen(

@@ -57,6 +57,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../../../helpers/stub_bookings_day.dart';
 
@@ -198,6 +200,12 @@ Future<_CountingFakeScheduleRepository> _pumpScreen(WidgetTester tester) async {
     ProviderScope(
       retry: beauticaProviderRetry,
       overrides: <Object>[
+        // Setup-hint dots (2026-10-30) are covered by
+        // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+        // real schedule/catalogue reads (5-min cache timers) never run.
+        masterNavSetupHintsProvider.overrideWithValue(
+          BookingLinkSetupHints.none,
+        ),
         authProvider.overrideWith(_StubAuthNotifier.new),
         masterProfileProvider.overrideWith(_StubMasterProfile.new),
         scheduleRepositoryProvider.overrideWith((ref, scope) => fakeRepo),

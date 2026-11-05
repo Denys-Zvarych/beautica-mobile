@@ -1036,6 +1036,22 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                         // is moot; a LATER empty stretch (paging further with
                         // a narrow filter) gets its own fresh budget.
                         _autoContinueAttempts = 0;
+                        if (state.hasMore && !state.isLoadingMore) {
+                          // Post-frame FILL CHECK. `_onScroll` is otherwise
+                          // the only `loadMore` trigger, and it only runs when
+                          // the scroll pixels CHANGE. A reload that shrinks the
+                          // list (the «Виконано» invalidate keeps page 0 only)
+                          // clamps the offset to the new max extent WITHOUT
+                          // notifying listeners, leaving the viewport resting
+                          // on the tail spinner; a drag at max extent under
+                          // clamping physics moves no pixels, so the spinner
+                          // would stay forever. Re-running `_onScroll` after
+                          // layout reuses its threshold, cooldown and
+                          // `hasClients` guards; the notifier dedupes.
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) _onScroll();
+                          });
+                        }
                       }
                       if (state.items.isEmpty && state.hasMore) {
                         // mobile-perf HIGH-1 fix — server pages remain and
@@ -1207,6 +1223,23 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                                   'master-archive-retry-cooldown',
                                 ),
                                 seconds: cooldown,
+                                // Fired from the ticker's TIMER once the
+                                // window closes. Without it nothing re-arms
+                                // the fetch: the tail swaps to the spinner but
+                                // `_onScroll` only runs when the pixels CHANGE,
+                                // so a list resting at max extent would spin
+                                // with no request in flight. Post-frame, so
+                                // the check sees the spinner's (shorter)
+                                // layout; `_onScroll` keeps its cooldown,
+                                // threshold and `hasClients` guards, and the
+                                // notifier dedupes.
+                                onElapsed: () {
+                                  WidgetsBinding.instance.addPostFrameCallback((
+                                    _,
+                                  ) {
+                                    if (mounted) _onScroll();
+                                  });
+                                },
                               );
                             }
                             return const MyBookingsLoadMoreSpinner();

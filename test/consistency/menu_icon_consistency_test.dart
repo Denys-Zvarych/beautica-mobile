@@ -50,6 +50,8 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../helpers/pump_app.dart';
 import '../helpers/fakes/fake_media_upload_repository.dart';
@@ -125,6 +127,10 @@ class _FakeServiceRepository extends Fake implements ServiceRepository {
 /// always present (not gated on AsyncValue state), so we only need the
 /// profile and service providers to be non-null.
 List<Object> _masterProfileOverrides() => [
+  // Setup-hint dots (2026-10-30) are covered by
+  // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+  // real schedule/catalogue reads (5-min cache timers) never run.
+  masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
   portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
   authProvider.overrideWith(() => _StubAuthNotifier()),

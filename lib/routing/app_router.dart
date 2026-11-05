@@ -3203,6 +3203,8 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    showBookingsBadge: true,
+    bookingsBadgeAsOwnerMaster: true,
   ),
   VelvetBottomNavBar(
     activeIndex: 1,
@@ -3210,6 +3212,8 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    showBookingsBadge: true,
+    bookingsBadgeAsOwnerMaster: true,
   ),
   VelvetBottomNavBar(
     activeIndex: 2,
@@ -3217,6 +3221,8 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    showBookingsBadge: true,
+    bookingsBadgeAsOwnerMaster: true,
   ),
   VelvetBottomNavBar(
     activeIndex: 3,
@@ -3224,6 +3230,8 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    showBookingsBadge: true,
+    bookingsBadgeAsOwnerMaster: true,
   ),
 ];
 

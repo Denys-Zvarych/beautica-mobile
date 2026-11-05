@@ -50,6 +50,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -176,6 +178,12 @@ void main() {
         ProviderScope(
           retry: beauticaProviderRetry,
           overrides: <Object>[
+            // Setup-hint dots (2026-10-30) are covered by
+            // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+            // real schedule/catalogue reads (5-min cache timers) never run.
+            masterNavSetupHintsProvider.overrideWithValue(
+              BookingLinkSetupHints.none,
+            ),
             authProvider.overrideWith(_StubAuthNotifier.new),
             masterRepositoryProvider.overrideWithValue(fakeRepo),
             serviceRepositoryProvider.overrideWithValue(_emptyServiceRepo()),
@@ -215,84 +223,87 @@ void main() {
     //   disposal link that resembles an ever-pending timer, making
     //   pumpAndSettle() hang indefinitely. Bounded pumps are used instead,
     //   each annotated with its purpose (mobile-qa M6 exception).
-    testWidgets(
-      'REGRESSION: pull-to-refresh invalidates masterProfileProvider and '
-      're-fetches the profile from the repository',
-      (tester) async {
-        final fakeRepo = _CountingFakeMasterRepository();
+    testWidgets('REGRESSION: pull-to-refresh invalidates masterProfileProvider and '
+        're-fetches the profile from the repository', (tester) async {
+      final fakeRepo = _CountingFakeMasterRepository();
 
-        await tester.pumpWidget(
-          ProviderScope(
-            retry: beauticaProviderRetry,
-            overrides: <Object>[
-              authProvider.overrideWith(_StubAuthNotifier.new),
-              masterRepositoryProvider.overrideWithValue(fakeRepo),
-              serviceRepositoryProvider.overrideWithValue(_emptyServiceRepo()),
-            ].cast(),
-            child: MaterialApp.router(
-              routerConfig: _buildRouter(),
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
-              supportedLocales: AppLocalizations.supportedLocales,
-              locale: const Locale('uk'),
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            // Setup-hint dots (2026-10-30) are covered by
+            // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+            // real schedule/catalogue reads (5-min cache timers) never run.
+            masterNavSetupHintsProvider.overrideWithValue(
+              BookingLinkSetupHints.none,
             ),
+            authProvider.overrideWith(_StubAuthNotifier.new),
+            masterRepositoryProvider.overrideWithValue(fakeRepo),
+            serviceRepositoryProvider.overrideWithValue(_emptyServiceRepo()),
+          ].cast(),
+          child: MaterialApp.router(
+            routerConfig: _buildRouter(),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
           ),
-        );
+        ),
+      );
 
-        // — Settle to loaded state —
-        await tester.pump(); // start async providers
-        await tester.pump(); // fake futures resolve → AsyncData
-        // MasterProfileScreen has a 1100 ms entrance AnimationController.
-        // Advance past it so the body content is fully laid out and the
-        // SingleChildScrollView (inside ProfileScaffold) is scrollable.
-        await tester.pump(const Duration(milliseconds: 1200));
+      // — Settle to loaded state —
+      await tester.pump(); // start async providers
+      await tester.pump(); // fake futures resolve → AsyncData
+      // MasterProfileScreen has a 1100 ms entrance AnimationController.
+      // Advance past it so the body content is fully laid out and the
+      // SingleChildScrollView (inside ProfileScaffold) is scrollable.
+      await tester.pump(const Duration(milliseconds: 1200));
 
-        // Confirm we are in the loaded state.
-        expect(
-          find.byKey(const Key('master-profile-name')),
-          findsOneWidget,
-          reason: 'Profile must be in loaded state before the refresh gesture',
-        );
+      // Confirm we are in the loaded state.
+      expect(
+        find.byKey(const Key('master-profile-name')),
+        findsOneWidget,
+        reason: 'Profile must be in loaded state before the refresh gesture',
+      );
 
-        // Baseline.
-        final int baselineCount = fakeRepo.getMyProfileCallCount;
+      // Baseline.
+      final int baselineCount = fakeRepo.getMyProfileCallCount;
 
-        // — Trigger pull-to-refresh —
-        // ProfileScaffold uses _buildScrollable() → AppRefreshIndicator wrapping
-        // a SingleChildScrollView. We locate the Scrollable inside the
-        // MaterialApp body so we don't accidentally drag on the route overlay.
-        final scrollableFinder = find.descendant(
-          of: find.byType(Scaffold),
-          matching: find.byType(Scrollable),
-        );
-        expect(
-          scrollableFinder,
-          findsWidgets,
-          reason: 'A Scrollable must exist inside the loaded profile scaffold',
-        );
+      // — Trigger pull-to-refresh —
+      // ProfileScaffold uses _buildScrollable() → AppRefreshIndicator wrapping
+      // a SingleChildScrollView. We locate the Scrollable inside the
+      // MaterialApp body so we don't accidentally drag on the route overlay.
+      final scrollableFinder = find.descendant(
+        of: find.byType(Scaffold),
+        matching: find.byType(Scrollable),
+      );
+      expect(
+        scrollableFinder,
+        findsWidgets,
+        reason: 'A Scrollable must exist inside the loaded profile scaffold',
+      );
 
-        await tester.fling(scrollableFinder.first, const Offset(0, 400), 800);
-        // Pump 1: RefreshIndicator intercepts the gesture, calls onRefresh.
-        await tester.pump();
-        // Pump 2: onRefresh runs (invalidate + await masterProfileProvider.future).
-        // The fake resolves synchronously so the future completes here.
-        await tester.pump();
-        // Pump 3: Riverpod notifier state transitions + keepAlive link setup.
-        await tester.pump(const Duration(milliseconds: 50));
-        // Pump 4: Material RefreshIndicator 250 ms dismiss animation.
-        await tester.pump(const Duration(milliseconds: 300));
+      await tester.fling(scrollableFinder.first, const Offset(0, 400), 800);
+      // Pump 1: RefreshIndicator intercepts the gesture, calls onRefresh.
+      await tester.pump();
+      // Pump 2: onRefresh runs (invalidate + await masterProfileProvider.future).
+      // The fake resolves synchronously so the future completes here.
+      await tester.pump();
+      // Pump 3: Riverpod notifier state transitions + keepAlive link setup.
+      await tester.pump(const Duration(milliseconds: 50));
+      // Pump 4: Material RefreshIndicator 250 ms dismiss animation.
+      await tester.pump(const Duration(milliseconds: 300));
 
-        expect(
-          fakeRepo.getMyProfileCallCount,
-          greaterThan(baselineCount),
-          reason:
-              'pull-to-refresh must invalidate masterProfileProvider and '
-              're-fetch getMyProfile. '
-              'If this assertion fails, the onRefresh callback is missing the '
-              'ref.invalidate(masterProfileProvider) call OR ProfileScaffold '
-              'is not wired to AppRefreshIndicator when onRefresh is provided.',
-        );
-      },
-    );
+      expect(
+        fakeRepo.getMyProfileCallCount,
+        greaterThan(baselineCount),
+        reason:
+            'pull-to-refresh must invalidate masterProfileProvider and '
+            're-fetch getMyProfile. '
+            'If this assertion fails, the onRefresh callback is missing the '
+            'ref.invalidate(masterProfileProvider) call OR ProfileScaffold '
+            'is not wired to AppRefreshIndicator when onRefresh is provided.',
+      );
+    });
 
     // ── 3. AppRefreshIndicator (RefreshIndicator) present in loaded state ───
     testWidgets('RefreshIndicator is present in the loaded state layout', (
@@ -304,6 +315,12 @@ void main() {
         ProviderScope(
           retry: beauticaProviderRetry,
           overrides: <Object>[
+            // Setup-hint dots (2026-10-30) are covered by
+            // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+            // real schedule/catalogue reads (5-min cache timers) never run.
+            masterNavSetupHintsProvider.overrideWithValue(
+              BookingLinkSetupHints.none,
+            ),
             authProvider.overrideWith(_StubAuthNotifier.new),
             masterRepositoryProvider.overrideWithValue(fakeRepo),
             serviceRepositoryProvider.overrideWithValue(_emptyServiceRepo()),

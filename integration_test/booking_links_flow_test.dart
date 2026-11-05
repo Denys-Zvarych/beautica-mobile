@@ -346,6 +346,9 @@ void main() {
         ])
         ..bookingLinksMasterBookableFollowsServices = true
         ..bulkCreatePersists = true
+        // The seeded Mon+Tue template must count under the 180-day
+        // bookability rule (effective-schedule derived from it).
+        ..deriveEffectiveScheduleFromWeekly = true
         ..clearServices();
       final GoRouter router = await _bootAs(
         tester,

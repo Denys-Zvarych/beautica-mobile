@@ -56,7 +56,7 @@ import '../../master/presentation/widgets/section_scaffold.dart';
 import '../../salon/application/salon_service_catalog_notifier.dart';
 import '../../schedule/application/own_schedule_scope.dart';
 import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
-import '../../schedule/presentation/weekly_schedule_notifier.dart';
+import '../../schedule/presentation/effective_schedule_notifier.dart';
 import '../../services/data/master_service_catalog_provider.dart';
 import '../../services/presentation/service_catalogue_invalidation.dart';
 import '../domain/booking_link.dart';
@@ -248,8 +248,11 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     final Future<Object?> refreshed;
     switch ((link.kind, hint)) {
       case (BookingLinkKind.master, BookingLinkSetupHint.schedule):
-        final provider = weeklyScheduleProvider(
+        // The exact readiness window the hints read (see
+        // [masterReadinessRange]) — one member, never the family.
+        final provider = effectiveScheduleProvider(
           ref.read(ownScheduleScopeProvider),
+          masterReadinessRange(kyivToday(ref.read(clockProvider))),
         );
         ref.invalidate(provider);
         refreshed = ref.read(provider.future);

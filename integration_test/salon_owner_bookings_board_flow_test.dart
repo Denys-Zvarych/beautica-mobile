@@ -79,6 +79,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.d
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -337,6 +338,12 @@ FakeBackend _salonBookingBackend(UserRole role, {String? ownMasterRowId}) =>
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  // [_atKyivHour] reads `beauticaZone` (via `kyivToday`) BEFORE boot in the
+  // pending-actions badge flows; without this a `--plain-name` run of one of
+  // them throws "initBeauticaTimeZones() must be called". Idempotent — the
+  // harness boot calls it again.
+  setUpAll(initBeauticaTimeZones);
 
   setUp(() {
     installOverflowGuard();
@@ -2487,7 +2494,8 @@ void main() {
 
   // ══════════════════════════════════════════════════════════════════════
   // Phase 395 (24.7c) — the red pending-actions badge on the board's «Архів»
-  // icon, for SALON_OWNER and SALON_ADMIN (Step 2.7 Rule 3b). The count comes
+  // icon — and (2026-11-05) on the shell's «Записи» nav tile — for
+  // SALON_OWNER and SALON_ADMIN (Step 2.7 Rule 3b). The count comes
   // off GET /bookings/salon/{id}/pending-actions/count, computed by the fake
   // from its OWN seeded board + archive rows (never a settable integer).
   // ══════════════════════════════════════════════════════════════════════
@@ -2537,6 +2545,20 @@ void main() {
             bookingsTab.hitTestable(),
             timeout: const Duration(seconds: 20),
           );
+
+          // 2026-11-05 — the «Записи» NAV badge shows the same count on the
+          // landing «Салон» tab, before the board was ever opened.
+          final Finder navBadge = find.descendant(
+            of: bookingsTab,
+            matching: find.byKey(const Key('salon-nav-bookings-badge')),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.descendant(of: navBadge, matching: find.text('1')),
+            timeout: const Duration(seconds: 20),
+          );
+          expect(fb.getPendingActionsCountCalls, 1);
+
           await tester.tap(bookingsTab);
           await tester.pump();
           await AppHarness.pumpUntilFound(
@@ -2553,7 +2575,11 @@ void main() {
             find.descendant(of: badge, matching: find.text('1')),
             timeout: const Duration(seconds: 20),
           );
-          expect(fb.getPendingActionsCountCalls, greaterThanOrEqualTo(1));
+          expect(
+            fb.getPendingActionsCountCalls,
+            1,
+            reason: 'the board «Архів» badge reuses the nav badge read',
+          );
 
           // ── Close it from the drill-in. ──────────────────────────────────
           final Finder card = find.byKey(
@@ -2587,6 +2613,16 @@ void main() {
             tester,
             () => badge.evaluate().isEmpty,
             description: 'the archive badge to clear after the close',
+          );
+          await AppHarness.pumpUntilCondition(
+            tester,
+            () => navBadge.evaluate().isEmpty,
+            description: 'the nav «Записи» badge to clear after the close',
+          );
+          expect(
+            bookingsTab,
+            findsOneWidget,
+            reason: 'anti-vacuity: the nav tile stays, only its badge left',
           );
           expect(
             find.byKey(const Key('master-bookings-open-archive')),

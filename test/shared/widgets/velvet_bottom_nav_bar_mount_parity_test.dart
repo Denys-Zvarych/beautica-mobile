@@ -56,6 +56,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -90,6 +91,8 @@ import 'package:mocktail/mocktail.dart';
 import '../../helpers/no_unread_notifications.dart';
 import '../../helpers/overflow_guard.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Never-resolving fakes — the bar is static chrome rendered OUTSIDE every
@@ -165,7 +168,19 @@ Future<void> _pumpWithBottomInset(
       key: UniqueKey(),
       // Phase 363 — «Мій профіль» now mounts the live notification bell; pin the
       // global count to zero so its real notifier starts no poll timer.
-      overrides: withDefaultNoUnread(overrides).cast(),
+      // Setup-hint dots (2026-10-30) pinned off: the real schedule/catalogue
+      // reads would leave 5-min cache timers pending.
+      overrides: withDefaultNoUnread(<Object>[
+        masterNavSetupHintsProvider.overrideWithValue(
+          BookingLinkSetupHints.none,
+        ),
+        // «Записи» pending-actions badge (2026-11-05) pinned to zero: the real
+        // count would issue a Dio request whose timer outlives the tree.
+        pendingBookingActionsCountProvider.overrideWith(
+          (ref, scope) async => 0,
+        ),
+        ...overrides,
+      ]).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

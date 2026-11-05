@@ -667,6 +667,9 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             profileRoute: profileRoute,
             servicesRoute: servicesRoute,
             bookingsRoute: bookingsRoute,
+            showSetupHints: !isSalonMaster,
+            // SALON_MASTER: no «Записи» pending-actions badge, no request.
+            showBookingsBadge: !isSalonMaster,
           ),
       body: SafeArea(
         child: Column(

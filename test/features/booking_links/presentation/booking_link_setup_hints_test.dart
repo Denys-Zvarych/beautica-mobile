@@ -27,6 +27,8 @@ import 'package:beautica_mobile/features/booking_links/data/booking_links_reposi
 import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/booking_link_screen.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -37,7 +39,8 @@ import 'package:beautica_mobile/features/schedule/data/schedule_repository_provi
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
-import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -58,13 +61,119 @@ class _MockLinksRepo extends Mock implements BookingLinksRepository {}
 
 class _MockRosterRepo extends Mock implements SalonRosterScheduleRepository {}
 
-/// Weekly templates read from a mutable test-owned flag.
-class _FakeWeekly extends WeeklyScheduleNotifier {
-  _FakeWeekly(this._read);
-  final Future<List<WeeklySchedule>> Function() _read;
+/// The master's resolved effective days, read from a mutable test-owned
+/// world. Since 2026-10-30 (architect ruling) the master readiness rule reads
+/// `effectiveScheduleProvider` over the 180-day bookability window — the
+/// server has already applied overrides-then-template, so each ruling case is
+/// expressed as the days the backend resolves for it.
+class _FakeEffective extends EffectiveScheduleNotifier {
+  _FakeEffective(this._read);
+  final Future<List<EffectiveDay>> Function(
+    ScheduleScope scope,
+    ScheduleRange range,
+  )
+  _read;
 
   @override
-  Future<List<WeeklySchedule>> build(ScheduleScope scope) => _read();
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) =>
+      _read(scope, range);
+}
+
+/// The signed-in user's master row: `u1` → `m1`, `u2` → `m2` (whose load can
+/// be held open with [_FakeProfile.u2Gate] to model an account switch).
+class _FakeProfile extends MasterProfile {
+  _FakeProfile(this._u2Gate);
+  final Future<void>? Function() _u2Gate;
+
+  @override
+  Future<Master> build() async {
+    final String? userId = ref.watch(authProvider.select(authUserIdOrNull));
+    if (userId == 'u2') await _u2Gate();
+    return Master(
+      id: userId == 'u2' ? 'm2' : 'm1',
+      firstName: 'Олена',
+      lastName: 'Т',
+      reviewCount: 0,
+      type: MasterType.independentMaster,
+    );
+  }
+}
+
+/// How the backend resolves the master's 180-day window, per ruling case.
+enum _MasterDays {
+  /// A template with working hours → template days with intervals.
+  template,
+
+  /// No template at all → every day NO_SCHEDULE.
+  none,
+
+  /// A template whose every day is off → template days, no intervals.
+  allDaysOffTemplate,
+
+  /// A template whose `validTo` is in the past → NO_SCHEDULE in the window.
+  expiredTemplate,
+
+  /// A template starting > 180 days out → NO_SCHEDULE in the window.
+  farFutureTemplate,
+
+  /// No template, one CUSTOM_HOURS override with intervals → bookable.
+  customHoursOnly,
+
+  /// No template, one explicit-times CUSTOM_HOURS override → bookable.
+  customTimesOnly,
+
+  /// No template, one DAY_OFF override → not bookable.
+  dayOffOverrideOnly,
+}
+
+List<EffectiveDay> _resolve(_MasterDays world) {
+  EffectiveDay day(
+    int d,
+    EffectiveSource source, {
+    bool working = false,
+    bool times = false,
+  }) => EffectiveDay(
+    date: DateTime(2026, 6, d),
+    source: source,
+    intervals: working && !times
+        ? <WorkInterval>[
+            WorkInterval(
+              start: const TimeOfDay(hour: 9, minute: 0),
+              end: const TimeOfDay(hour: 18, minute: 0),
+            ),
+          ]
+        : const <WorkInterval>[],
+    times: times
+        ? const <TimeOfDay>[TimeOfDay(hour: 10, minute: 0)]
+        : const <TimeOfDay>[],
+  );
+  final List<EffectiveDay> empty = <EffectiveDay>[
+    for (int d = 15; d <= 21; d++) day(d, EffectiveSource.noSchedule),
+  ];
+  return switch (world) {
+    _MasterDays.template => <EffectiveDay>[
+      day(15, EffectiveSource.template, working: true),
+      day(16, EffectiveSource.template),
+    ],
+    _MasterDays.none ||
+    _MasterDays.expiredTemplate ||
+    _MasterDays.farFutureTemplate => empty,
+    _MasterDays.allDaysOffTemplate => <EffectiveDay>[
+      for (int d = 15; d <= 21; d++) day(d, EffectiveSource.template),
+    ],
+    _MasterDays.customHoursOnly => <EffectiveDay>[
+      ...empty.skip(1),
+      day(22, EffectiveSource.overrideCustom, working: true),
+    ],
+    _MasterDays.customTimesOnly => <EffectiveDay>[
+      ...empty.skip(1),
+      day(22, EffectiveSource.overrideCustom, working: true, times: true),
+    ],
+    _MasterDays.dayOffOverrideOnly => <EffectiveDay>[
+      ...empty.skip(1),
+      day(22, EffectiveSource.overrideDayOff),
+    ],
+  };
 }
 
 class _FakeMySalons extends MySalons {
@@ -104,12 +213,6 @@ const SalonCatalogService _salonService = SalonCatalogService(
   name: 'Манікюр',
   durationLabel: '60 хв',
   priceDisplay: '500 ₴',
-);
-
-final WeeklySchedule _template = WeeklySchedule(
-  validFrom: DateTime(2026, 1, 1),
-  validTo: null,
-  days: const <TemplateDay>[],
 );
 
 Key _hint(String which, String slug) =>
@@ -161,6 +264,14 @@ void main() {
 
   // Mutable "world" the fakes read — flipped to simulate setting things up.
   late bool hasSchedule;
+  // Overrides [hasSchedule] when set — one of the ruling cases.
+  _MasterDays? masterDays;
+  // Per-master world (overrides [masterDays]) for the account-switch test.
+  Map<String, _MasterDays>? masterDaysByMaster;
+  // When true the REAL own-schedule scope is used (it follows the profile).
+  bool realOwnScope = false;
+  Completer<void>? u2ProfileGate;
+  ScheduleRange? masterRange;
   late bool hasServices;
   late bool hasSalonSchedule;
   late bool hasSalonServices;
@@ -172,7 +283,7 @@ void main() {
   DateTime? fixedToday;
   int masterCatalogFetches = 0;
   int salonCatalogFetches = 0;
-  int weeklyFetches = 0;
+  int masterScheduleFetches = 0;
   List<Salon> mySalons = const <Salon>[
     Salon(id: 'salon-a', name: 'Lumière', isPrimary: true),
   ];
@@ -182,6 +293,11 @@ void main() {
     roster = _MockRosterRepo();
     pushed = <String>[];
     hasSchedule = true;
+    masterDays = null;
+    masterDaysByMaster = null;
+    realOwnScope = false;
+    u2ProfileGate = null;
+    masterRange = null;
     hasServices = true;
     hasSalonSchedule = true;
     hasSalonServices = true;
@@ -193,7 +309,7 @@ void main() {
     fixedToday = null;
     masterCatalogFetches = 0;
     salonCatalogFetches = 0;
-    weeklyFetches = 0;
+    masterScheduleFetches = 0;
     mySalons = const <Salon>[
       Salon(id: 'salon-a', name: 'Lumière', isPrimary: true),
     ];
@@ -231,16 +347,30 @@ void main() {
       overrides: <Object>[
         authProvider.overrideWith(() => FixedRoleAuth(role, salonId: salonId)),
         bookingLinksRepositoryProvider.overrideWithValue(links),
-        ownScheduleScopeProvider.overrideWithValue(
-          const ScheduleScope.own(masterId: 'm1'),
+        if (!realOwnScope)
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'm1'),
+          ),
+        masterProfileProvider.overrideWith(
+          () => _FakeProfile(() => u2ProfileGate?.future),
         ),
-        weeklyScheduleProvider.overrideWith2(
-          (_) => _FakeWeekly(() async {
-            weeklyFetches++;
-            await gate?.future;
-            if (failReads) throw const NetworkFailure();
-            return hasSchedule ? <WeeklySchedule>[_template] : const [];
-          }),
+        effectiveScheduleProvider.overrideWith2(
+          (_) =>
+              _FakeEffective((ScheduleScope scope, ScheduleRange range) async {
+                masterScheduleFetches++;
+                masterRange = range;
+                await gate?.future;
+                if (failReads) throw const NetworkFailure();
+                final String masterId = switch (scope) {
+                  OwnScheduleScope(:final String masterId) => masterId,
+                  SalonMasterScheduleScope(:final String masterId) => masterId,
+                };
+                return _resolve(
+                  masterDaysByMaster?[masterId] ??
+                      masterDays ??
+                      (hasSchedule ? _MasterDays.template : _MasterDays.none),
+                );
+              }),
         ),
         mySalonsProvider.overrideWith(
           () => _FakeMySalons(() {
@@ -357,6 +487,46 @@ void main() {
       expect(find.byKey(const ValueKey<String>('error')), findsNothing);
     });
 
+    // Architect ruling 2026-10-30 — the master "has a schedule" verdict is the
+    // backend's bookability: some WORKING day in [todayKyiv, +180).
+    for (final (_MasterDays world, bool hint) in <(_MasterDays, bool)>[
+      (_MasterDays.template, false),
+      (_MasterDays.none, true),
+      (_MasterDays.allDaysOffTemplate, true),
+      (_MasterDays.expiredTemplate, true),
+      (_MasterDays.farFutureTemplate, true),
+      (_MasterDays.customHoursOnly, false),
+      (_MasterDays.customTimesOnly, false),
+      (_MasterDays.dayOffOverrideOnly, true),
+    ]) {
+      testWidgets('bookability rule: ${world.name} → schedule hint=$hint', (
+        tester,
+      ) async {
+        masterDays = world;
+        await pump(tester, role: UserRole.independentMaster, link: _master);
+        expect(
+          find.byKey(_hint('schedule', _master.keyId)),
+          hint ? findsOneWidget : findsNothing,
+        );
+      });
+    }
+
+    testWidgets('readiness window is [todayKyiv, todayKyiv + 180) — the '
+        'backend horizon', (tester) async {
+      fixedToday = DateTime(2026, 6, 15);
+      await pump(tester, role: UserRole.independentMaster, link: _master);
+      expect(masterRange, isNotNull);
+      expect(masterRange!.from, DateTime(2026, 6, 15));
+      // Inclusive `to` = today + 179 → 180 days in all.
+      expect(masterRange!.to, DateTime(2026, 12, 11));
+      // Calendar-field arithmetic (UTC) so a DST hour cannot skew the count.
+      DateTime utc(DateTime d) => DateTime.utc(d.year, d.month, d.day);
+      expect(
+        utc(masterRange!.to).difference(utc(masterRange!.from)).inDays + 1,
+        kMasterReadinessHorizonDays,
+      );
+    });
+
     testWidgets('readiness still loading → no hint yet', (tester) async {
       hasSchedule = false;
       gate = Completer<void>();
@@ -375,10 +545,11 @@ void main() {
           ownScheduleScopeProvider.overrideWithValue(
             const ScheduleScope.own(masterId: 'm1'),
           ),
-          weeklyScheduleProvider.overrideWith2(
-            (_) => _FakeWeekly(() async {
+          masterProfileProvider.overrideWith(() => _FakeProfile(() => null)),
+          effectiveScheduleProvider.overrideWith2(
+            (_) => _FakeEffective((_, _) async {
               await gate!.future;
-              return const <WeeklySchedule>[];
+              return _resolve(_MasterDays.none);
             }),
           ),
           masterServiceCatalogProvider.overrideWith(
@@ -475,11 +646,15 @@ void main() {
       gate = Completer<void>(); // hold the refetch open
       router.pop();
       // Let the pop transition finish so the post-return invalidate has run.
-      for (int i = 0; i < 40 && weeklyFetches < 2; i++) {
+      for (int i = 0; i < 40 && masterScheduleFetches < 2; i++) {
         // fixed-wait-ok: stepping the pop transition frame by frame until the post-return refetch starts (bounded, condition-driven)
         await tester.pump(const Duration(milliseconds: 100));
       }
-      expect(weeklyFetches, 2, reason: 'refetch is genuinely in flight');
+      expect(
+        masterScheduleFetches,
+        2,
+        reason: 'refetch is genuinely in flight',
+      );
       // Refetch in flight: previous hint stays, generic note does NOT appear.
       expect(find.byKey(_hint('schedule', _master.keyId)), findsOneWidget);
       expect(find.byKey(_setup(_master.keyId)), findsNothing);
@@ -538,7 +713,7 @@ void main() {
       // What the weekly editor's save does: the upstream re-emits while the
       // setup page is still on screen.
       hasSchedule = true;
-      container.invalidate(weeklyScheduleProvider);
+      container.invalidate(effectiveScheduleProvider);
       await tester.pumpAndSettle();
       // The readiness answer is already the NEW one while the page is open
       // for any LIVE (unpaused) watcher — the screen's offstage card is
@@ -549,7 +724,7 @@ void main() {
       );
       addTearDown(live.close);
       hasSchedule = true;
-      container.invalidate(weeklyScheduleProvider);
+      container.invalidate(effectiveScheduleProvider);
       await tester.pumpAndSettle();
       expect(
         container.read(
@@ -592,7 +767,7 @@ void main() {
       );
 
       gate = Completer<void>();
-      container.invalidate(weeklyScheduleProvider); // upstream refreshing
+      container.invalidate(effectiveScheduleProvider); // upstream refreshing
       container.invalidate(
         bookingLinkSetupHintsProvider(BookingLinkKind.master, '', 'u1'),
       );
@@ -639,6 +814,45 @@ void main() {
       expect(find.byKey(_hint('services', _master.keyId)), findsOneWidget);
     });
 
+    testWidgets("account switch A → B: A's schedule hint never shows for B "
+        "while B's profile loads (old master id retained)", (tester) async {
+      // Real own scope: it follows `masterProfileProvider.value?.id`, which
+      // RETAINS m1 while u2's profile is in flight.
+      realOwnScope = true;
+      masterDaysByMaster = <String, _MasterDays>{
+        'm1': _MasterDays.none, // A: schedule missing → hint
+        'm2': _MasterDays.template, // B: set up → no hint
+      };
+      await pump(tester, role: UserRole.independentMaster, link: _master);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsOneWidget);
+
+      u2ProfileGate = Completer<void>();
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+      expect(
+        container.read(ownScheduleScopeProvider),
+        const ScheduleScope.own(masterId: 'm1'),
+      );
+      (container.read(authProvider.notifier) as FixedRoleAuth).switchUser('u2');
+      await tester.pump();
+      await tester.pump();
+      expect(
+        container.read(ownScheduleScopeProvider),
+        const ScheduleScope.own(masterId: 'm1'),
+        reason: 'precondition: the stale master id is still retained',
+      );
+      expect(
+        find.byKey(_hint('schedule', _master.keyId)),
+        findsNothing,
+        reason: "B's profile is loading; A's schedule answer must not show",
+      );
+
+      u2ProfileGate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
+    });
+
     testWidgets('schedule hint invalidates ONLY the schedule member (+links): '
         'the services catalogue is not refetched', (tester) async {
       hasSchedule = false;
@@ -647,14 +861,14 @@ void main() {
         role: UserRole.independentMaster,
         link: _master,
       );
-      final int weeklyBefore = weeklyFetches;
+      final int weeklyBefore = masterScheduleFetches;
       final int catalogBefore = masterCatalogFetches;
       await tester.ensureVisible(find.byKey(_hint('schedule', _master.keyId)));
       await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
       router.pop();
       await tester.pumpAndSettle();
-      expect(weeklyFetches, weeklyBefore + 1);
+      expect(masterScheduleFetches, weeklyBefore + 1);
       expect(masterCatalogFetches, catalogBefore);
     });
 
@@ -666,7 +880,7 @@ void main() {
         role: UserRole.independentMaster,
         link: _master,
       );
-      final int weeklyBefore = weeklyFetches;
+      final int weeklyBefore = masterScheduleFetches;
       final int catalogBefore = masterCatalogFetches;
       await tester.ensureVisible(find.byKey(_hint('services', _master.keyId)));
       await tester.tap(find.byKey(_hint('services', _master.keyId)));
@@ -675,7 +889,7 @@ void main() {
       router.pop();
       await tester.pumpAndSettle();
       expect(masterCatalogFetches, catalogBefore + 1);
-      expect(weeklyFetches, weeklyBefore);
+      expect(masterScheduleFetches, weeklyBefore);
       expect(find.byKey(_hint('services', _master.keyId)), findsNothing);
     });
 

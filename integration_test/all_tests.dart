@@ -158,6 +158,7 @@ import 'salon_logo_cover_owner_test.dart' as salon_logo_cover_owner;
 import 'salon_logo_surfaces_flow_test.dart' as salon_logo_surfaces_flow;
 import 'own_avatar_surface_matrix_test.dart' as own_avatar_surface_matrix;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
+import 'master_setup_hint_dots_flow_test.dart' as master_setup_hint_dots;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
 import 'master_profile_address_block_flow_test.dart'
@@ -562,6 +563,9 @@ void main() {
     master_appointment_child_booking_actions.main,
   );
   group('master_home_add_services_flow', master_home_add_services.main);
+  // 2026-10-30 — master-nav setup-hint dots: both on → add a service →
+  // «Послуги» clears → save a working weekday → «Графік» clears.
+  group('master_setup_hint_dots_flow', master_setup_hint_dots.main);
   // Track 7.x Wave B — the PROVIDER leave-client-feedback journey (detail →
   // «ВІДГУК ПРО КЛІЄНТА» → submit) against a real HTTP boundary (Step 2.7
   // Rule 3b).

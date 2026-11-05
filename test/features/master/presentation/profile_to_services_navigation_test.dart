@@ -51,12 +51,15 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import '../../../helpers/no_unread_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 import '../../../helpers/fakes/fake_media_upload_repository.dart';
 
 // ---------------------------------------------------------------------------
@@ -162,6 +165,12 @@ ProviderScope _buildApp({
   return ProviderScope(
     retry: beauticaProviderRetry,
     overrides: [
+      // The master nav's setup-hint dots (2026-10-30) are covered by
+      // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so this
+      // suite never reaches the real schedule/catalogue APIs through them.
+      masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
+      // «Записи» nav badge (2026-11-05) — no real pending-actions request.
+      pendingBookingActionsCountProvider.overrideWith((ref, scope) async => 0),
       // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
       portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
       // Phase 363 — the profile header now mounts the live notification bell,

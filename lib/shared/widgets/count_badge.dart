@@ -13,7 +13,26 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 class CountBadge extends StatelessWidget {
   // ignore: use_key_in_widget_constructors — `key` is routed to the pill, see _badgeKey.
   const CountBadge({required this.count, this.color, this.maxCount, Key? key})
-    : _badgeKey = key ?? const Key('master-bookings-filter-badge');
+    : _badgeKey = key ?? const Key('master-bookings-filter-badge'),
+      _dot = false;
+
+  /// 2026-10-30 — additive numberless variant: a [dotSize] mocha dot with the
+  /// same `base`-coloured ring as the pill, for a "something to do here" hint
+  /// (the master nav's setup dots). Never red — red stays the «Архів»
+  /// pending-actions count. Excluded from semantics like the pill; the host
+  /// announces the hint itself.
+  // ignore: use_key_in_widget_constructors — `key` is routed to the dot, see _badgeKey.
+  const CountBadge.dot({this.color, Key? key})
+    : count = 1,
+      maxCount = null,
+      _badgeKey = key ?? const Key('count-badge-dot'),
+      _dot = true;
+
+  /// Outer diameter of [CountBadge.dot], ring included (5 dp fill inside a
+  /// 1.5 dp ring each side).
+  static const double dotSize = 8;
+
+  final bool _dot;
 
   /// Keyed on the pill itself (not on this widget) so the key is absent from
   /// the tree when the badge is hidden, exactly as before the promotion.
@@ -42,6 +61,18 @@ class CountBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (_dot) {
+      return ExcludeSemantics(
+        child: Container(
+          key: _badgeKey,
+          width: dotSize,
+          height: dotSize,
+          decoration: color == null
+              ? _defaultDecoration
+              : _defaultDecoration.copyWith(color: color),
+        ),
+      );
+    }
     if (count <= 0) return const SizedBox.shrink();
     final int? cap = maxCount;
     final String label = (cap != null && count > cap) ? '$cap+' : '$count';
@@ -61,6 +92,9 @@ class CountBadge extends StatelessWidget {
 }
 
 /// Anchors a [CountBadge] to the top-right corner of [child]. Hidden at 0.
+///
+/// [dot] (2026-10-30, additive, default `false`) swaps the count pill for a
+/// [CountBadge.dot], shown whenever `dot` is true regardless of [count].
 class CountBadgeAnchor extends StatelessWidget {
   const CountBadgeAnchor({
     required this.child,
@@ -68,14 +102,20 @@ class CountBadgeAnchor extends StatelessWidget {
     this.badgeColor,
     this.maxCount,
     this.badgeKey,
+    this.dot = false,
     super.key,
   });
+
+  /// Dot overlap past the child's top-right corner — tucked onto a 22 dp icon's
+  /// corner rather than floating off it like the larger pill.
+  static const double _dotInset = -1;
 
   final Widget child;
   final int count;
   final Color? badgeColor;
   final int? maxCount;
   final Key? badgeKey;
+  final bool dot;
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +123,13 @@ class CountBadgeAnchor extends StatelessWidget {
       clipBehavior: Clip.none,
       children: <Widget>[
         child,
-        if (count > 0)
+        if (dot)
+          Positioned(
+            top: _dotInset,
+            right: _dotInset,
+            child: CountBadge.dot(key: badgeKey, color: badgeColor),
+          )
+        else if (count > 0)
           Positioned(
             top: -4,
             right: -4,

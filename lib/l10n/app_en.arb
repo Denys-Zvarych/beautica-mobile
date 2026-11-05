@@ -6685,6 +6685,23 @@
   "@masterNavTabProfile": {
     "description": "VelvetBottomNavBar tile 3 label on the master surface."
   },
+  "masterNavSetupHintServices": "Add your services",
+  "@masterNavSetupHintServices": {
+    "description": "Semantics hint on the master nav «Послуги» tile while its setup dot shows (INDEPENDENT_MASTER with no active services)."
+  },
+  "masterNavSetupHintSchedule": "Set up your schedule",
+  "@masterNavSetupHintSchedule": {
+    "description": "Semantics hint on the master nav «Графік» tile while its setup dot shows (INDEPENDENT_MASTER with no working day in the next 180 days — the backend bookability rule)."
+  },
+  "navBookingsPendingHint": "Needs action: {count}",
+  "@navBookingsPendingHint": {
+    "description": "Semantics hint on the «Записи» bottom-nav tab (master bar + salon owner/admin bar) while its red pending-actions badge shows {count} bookings awaiting a provider action (close or rate the client). The badge itself is excluded from semantics; this hint announces it.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "salonBookingsTitle": "Salon bookings",
   "salonBookingsColumnFreeDay": "Free day",
   "salonBookingsColumnDayOff": "Day off",

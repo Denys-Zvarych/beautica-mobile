@@ -82,6 +82,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
@@ -357,6 +359,12 @@ void main() {
       // route RESOLUTION is.
       retry: (int retryCount, Object error) => null,
       overrides: [
+        // The master nav's setup-hint dots (2026-10-30) are covered by
+        // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so this
+        // suite never reaches the real schedule/catalogue APIs through them.
+        masterNavSetupHintsProvider.overrideWithValue(
+          BookingLinkSetupHints.none,
+        ),
         authProvider.overrideWith(() => _FixedAuthNotifier(user)),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),

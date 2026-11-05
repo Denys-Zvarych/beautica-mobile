@@ -43,6 +43,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -166,6 +168,12 @@ void main() {
         ProviderContainer(
           retry: beauticaProviderRetry,
           overrides: [
+            // The master nav's setup-hint dots (2026-10-30) are covered by
+            // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so this
+            // suite never reaches the real schedule/catalogue APIs through them.
+            masterNavSetupHintsProvider.overrideWithValue(
+              BookingLinkSetupHints.none,
+            ),
             if (clock != null) clockProvider.overrideWithValue(clock),
             serviceRepositoryProvider.overrideWithValue(repo),
             // approvedCategoriesProvider fetches directly; override it so the list's

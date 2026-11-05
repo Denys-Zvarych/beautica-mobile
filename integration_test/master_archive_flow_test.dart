@@ -22,7 +22,7 @@
 // partition predicate (`FakeBackend._partitionOf` — CONFIRMED classifies as
 // PAST only once `endsAt` has elapsed against `serverNow`).
 //
-// Four scenarios:
+// Scenarios:
 //   1. PRIMARY JOURNEY — master logs in, opens «Мої записи», taps the header
 //      archive button, sees past bookings INCLUDING an elapsed-unclosed
 //      (`awaitingClosure`) one, filters to «Підтверджено», closes it via
@@ -49,6 +49,10 @@
 //      screen, fed by the REAL fake-backed HTTP boundary, renders the
 //      correct headers for real server rows — not merely that it renders
 //      whatever a mock was told to hand it.
+//   (5. is the «Архів» badge flow, documented on its own test.)
+//   6. PAST-PAGE-0 CLOSE — «Виконано» on a raw-page-1 row reloads page 0
+//      only; the screen's post-frame fill check must refetch page 1 with no
+//      gesture so the viewport is not stranded on the tail spinner.
 //
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears
 // only via `l10n.<key>` content assertions, never a raw literal.
@@ -753,6 +757,28 @@ void main() {
       await AppHarness.pumpUntilFound(tester, badgeText('2'));
       expect(fb.getPendingActionsCountCalls, greaterThanOrEqualTo(1));
 
+      // 2026-11-05 — the «Записи» NAV tile badge reads the SAME family key,
+      // so it shows the same count, from the same single request.
+      final Finder navBadge = find.byKey(
+        const Key('master-nav-bookings-badge'),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-nav-tile-1')),
+          matching: navBadge,
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: navBadge, matching: find.text('2')),
+        findsOneWidget,
+      );
+      expect(
+        fb.getPendingActionsCountCalls,
+        1,
+        reason: 'nav badge + «Архів» badge share one request',
+      );
+
       // ── Archive: complete booking-1 (2 -> 2), rate both clients. ─────────
       await tester.tap(find.byKey(const Key('master-bookings-open-archive')));
       await AppHarness.settle(tester);
@@ -791,11 +817,147 @@ void main() {
         () => badge.evaluate().isEmpty,
         description: 'the archive badge to clear after everything is closed',
       );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => navBadge.evaluate().isEmpty,
+        description: 'the nav «Записи» badge to clear with the archive badge',
+      );
+      expect(
+        find.byKey(const Key('master-nav-tile-1')),
+        findsOneWidget,
+        reason:
+            'anti-vacuity: the nav tile is still there, only its badge left',
+      );
       expect(
         find.byKey(const Key('master-bookings-open-archive')),
         findsOneWidget,
         reason: 'anti-vacuity: the icon is still there, only the badge left',
       );
+    },
+  );
+
+  // ==========================================================================
+  // 6. «Виконано» PAST PAGE 0 — the reload must refill, not strand the tail
+  //    (fix/archive-reload-pagination-stall, 2026-11-05)
+  // ==========================================================================
+  //
+  // The post-close invalidate rebuilds the archive to page 0 only; the scroll
+  // offset clamps to the shorter list without notifying listeners, so the
+  // viewport rested on the tail spinner and — under clamping physics — no drag
+  // could ever re-fire `_onScroll`. The fix is the screen's post-frame fill
+  // check. Widget-tier twin + mutation proof: `master_archive_screen_test.dart`
+  // group «Виконано» past page 0.
+  testWidgets(
+    'MASTER «Архів»: closing a row that sits on raw page 1 reloads page 0 and '
+    'then refetches page 1 with NO further gesture; the tail spinner clears '
+    'and the list scrolls again, showing the closed row as closed',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+
+      // 3 raw pages of 20 (server page size), every row elapsed CONFIRMED +
+      // awaitingClosure. `startsAt,desc` puts index i on page i ~/ 20, so
+      // `booking-1` (the only id whose PATCH /complete the fake wires) at
+      // index 25 sits on raw page 1.
+      const int kTarget = 25;
+      String idAt(int i) => i == kTarget ? 'booking-1' : 'row-$i';
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        for (int i = 0; i < 60; i++)
+          <String, dynamic>{
+            ...fb.datasetBookingRow(
+              id: idAt(i),
+              status: 'CONFIRMED',
+              startsAt: elapsedStart(1 + i),
+            ),
+            'awaitingClosure': true,
+          },
+      ]);
+
+      await openArchive(tester, fb);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-row-0')),
+      );
+
+      final Finder list = find.byKey(const Key('master-archive-list'));
+      final Finder scrollable = find
+          .descendant(of: list, matching: find.byType(Scrollable))
+          .first;
+      ScrollPosition position() =>
+          tester.state<ScrollableState>(scrollable).position;
+      final Finder spinner = find.byKey(
+        const Key('my_bookings_load_more_spinner'),
+      );
+
+      // ── Page 1 via a real gesture. ────────────────────────────────────
+      int mark = fb.myBookingsPageRequests.length;
+      await tester.drag(list, const Offset(0, -4000));
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.myBookingsPageRequests.sublist(mark).contains(1),
+        description: 'harness precondition: the drag loads raw page 1',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-row-20')),
+      );
+
+      // ── Close the page-1 row. ─────────────────────────────────────────
+      final Finder completeTarget = find.byKey(
+        const Key('master-booking-card-complete-booking-1'),
+      );
+      await tester.scrollUntilVisible(
+        completeTarget,
+        200,
+        scrollable: scrollable,
+      );
+      await tester.ensureVisible(completeTarget);
+      await tester.pump();
+      await tester.tap(completeTarget);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('complete-booking-dialog')),
+      );
+
+      mark = fb.myBookingsPageRequests.length;
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.completeBookingCalls == 1,
+        description: 'the PATCH /complete to land',
+      );
+
+      // ── The refill: page 0 reload, then page 1 with no gesture. ───────
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () {
+          final List<int> since = fb.myBookingsPageRequests.sublist(mark);
+          final int reload = since.indexOf(0);
+          return reload != -1 && since.sublist(reload + 1).contains(1);
+        },
+        description:
+            'page 1 re-fetched after the page-0 reload with NO gesture — the '
+            'shrunk list left the viewport on the tail spinner',
+      );
+      await AppHarness.pumpUntilGone(tester, spinner);
+
+      // ── And the list scrolls again. ───────────────────────────────────
+      final double before = position().pixels;
+      await tester.drag(list, const Offset(0, -300));
+      await tester.pump();
+      expect(
+        position().pixels,
+        greaterThan(before),
+        reason: 'a downward drag must move the list after the refill',
+      );
+
+      // The refilled page is fresh server data: the closed row is back, and
+      // closed.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('master-booking-card-booking-1')),
+        200,
+        scrollable: scrollable,
+      );
+      expect(completeTarget, findsNothing);
     },
   );
 }

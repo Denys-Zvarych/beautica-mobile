@@ -246,7 +246,11 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
           ),
         ],
       ),
-      bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
+      bottomNavBar: const VelvetBottomNavBar(
+        activeIndex: 3,
+        showSetupHints: true,
+        showBookingsBadge: true,
+      ),
       // Pull-to-refresh: invalidate the master profile and the services list
       // (the profile screen displays live service counts and category cards).
       // Riverpod 3.x note: invalidate + await .future — never gate on value==null.

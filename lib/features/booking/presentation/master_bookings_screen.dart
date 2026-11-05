@@ -263,7 +263,11 @@ class MasterBookingsScreen extends ConsumerWidget {
       navServicesRoute == null &&
           navScheduleRoute == null &&
           navProfileRoute == null
-      ? const VelvetBottomNavBar(activeIndex: 1)
+      ? const VelvetBottomNavBar(
+          activeIndex: 1,
+          showSetupHints: true,
+          showBookingsBadge: true,
+        )
       : VelvetBottomNavBar(
           activeIndex: 1,
           servicesRoute: navServicesRoute,
@@ -288,15 +292,10 @@ class MasterBookingsScreen extends ConsumerWidget {
     final UserRole? role = ref.watch(
       authProvider.select(authUserRoleSettledOrNull),
     );
-    final PendingActionsScope? badgeScope = switch (role) {
-      UserRole.independentMaster => const PendingActionsScope.me(
-        asMaster: false,
-      ),
-      UserRole.salonOwner when asOwnerMaster => const PendingActionsScope.me(
-        asMaster: true,
-      ),
-      _ => null,
-    };
+    final PendingActionsScope? badgeScope = pendingActionsScopeForRole(
+      role,
+      asOwnerMaster: asOwnerMaster,
+    );
     // `.select(pendingActionsBadgeCount)`: the screen rebuilds only when the
     // DISPLAYED `int?` changes. The helper is pure over the same AsyncValue, so
     // semantics are unchanged (null while loading / on error; a refresh keeps
