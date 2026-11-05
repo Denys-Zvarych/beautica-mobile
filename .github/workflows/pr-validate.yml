@@ -350,6 +350,12 @@ jobs:
         shell: bash
         run: ./scripts/forbid_google_services_json.sh
 
+      # Phase 410 (R.3 D10): no Sentry PII switch, no session replay, no
+      # sentry_dio/sentry_logging, no DSN in config/env/*.json.
+      - name: Forbid Sentry PII options
+        shell: bash
+        run: ./scripts/forbid_sentry_pii_options.sh
+
       # 2026-06-24: a ServiceForm test must override approvedCategoriesProvider.
       # why: docs/ci/static-guards.md#unmocked-approved-categories
       - name: Forbid unmocked approvedCategoriesProvider in ServiceForm tests

@@ -67,6 +67,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/diagnostics/crash_reporting_enabled_provider.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/navigation/single_flight.dart';
 import '../../../core/icons/app_icon.dart';
@@ -402,6 +403,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
           const SizedBox(height: VelvetSpacing.md),
           _reveal(_anim2, const _NotificationsToggleRow()),
+          // Phase 410 (R.3 D8) — crash-report opt-out, every role. Reveals
+          // with the notifications row (shares its interval).
+          const SizedBox(height: VelvetSpacing.md),
+          _reveal(_anim2, const _CrashReportsToggleRow()),
           // Beautica OTP task Phase B5 — "Change password" entry point. Opens
           // the SAME generalized ResetOtpVerificationScreen the forgot-password
           // flow uses (RouteNames.changePassword), bound to the authenticated
@@ -668,6 +673,34 @@ class _NotificationsToggleRowState
       onChanged: interactive
           ? (_) => ref.read(notificationSettingsOpenerProvider)()
           : null,
+    );
+  }
+}
+
+/// Phase 410 (R.3 D8) — «Надсилати звіти про збої». The shared
+/// [SettingsToggleRow] in controlled mode, bound to
+/// [crashReportingEnabledProvider]. Until the stored flag is read the row
+/// shows the decided default (ON) and is inert; a read failure also resolves
+/// to ON (the provider never errors), so there is no separate error state.
+class _CrashReportsToggleRow extends ConsumerWidget {
+  const _CrashReportsToggleRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final bool? enabled = ref.watch(crashReportingEnabledProvider).value;
+    return SettingsToggleRow(
+      key: const Key('row-crash-reports'),
+      switchKey: const Key('switch-crash-reports'),
+      icon: Icons.bug_report_outlined,
+      label: l10n.accountCrashReportsLabel,
+      subtitle: l10n.accountCrashReportsSubtitle,
+      value: enabled ?? true,
+      onChanged: enabled == null
+          ? null
+          : (bool v) => unawaited(
+              ref.read(crashReportingEnabledProvider.notifier).setEnabled(v),
+            ),
     );
   }
 }

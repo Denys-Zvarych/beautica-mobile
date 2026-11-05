@@ -10,6 +10,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'core/config/app_config.dart';
 import 'core/config/env_guard.dart';
+import 'core/diagnostics/crash_reporting.dart';
 import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
@@ -64,6 +65,14 @@ Future<void> main() async {
   // before any other startup work — a prod build pointed at staging (or the
   // reverse) must die here, not after it has touched the network.
   EnvGuard.assertConsistent();
+
+  // Phase 410 (R.3 D3) — crash reporting right after the (synchronous,
+  // await-free) EnvGuard that phase 408 pins FIRST, and before
+  // assertSecureUrl, so a startup failure below (assertSecureUrl, fonts, cert
+  // pinning) is reported. A no-op in debug / local / no-DSN builds
+  // (`shouldEnableCrashReporting`). No `appRunner`, no `runZonedGuarded`: the
+  // SDK chains `FlutterError.onError` and `PlatformDispatcher.onError`.
+  await StartupTrace.async(StartupSlice.crashReporting, initCrashReporting);
 
   // MS-SECURE-URL: throws StateError in release/profile mode if
   // BEAUTICA_BASE_URL is not HTTPS (or a loopback/private-LAN address).
@@ -182,6 +191,9 @@ Future<void> main() async {
   // scheduling until allowFirstFrame() is called.
   // SplashScreen.initState also calls remove() as a safety net (idempotent).
   FlutterNativeSplash.remove();
+
+  // Phase 410 step 7 — staging-only smoke canary (BEAUTICA_CRASH_SMOKE=true).
+  scheduleCrashSmokeIfRequested();
 
   // P1-STARTUP-1 (perf MEDIUM, Phase 2.20 audit): moved from before runApp().
   // The Android manifest and iOS Info.plist lock orientation at OS level

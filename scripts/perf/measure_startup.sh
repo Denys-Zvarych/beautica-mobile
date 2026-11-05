@@ -49,6 +49,13 @@
 #   STARTUP_WARM_SETTLE_S   default 2     (wait after BACK for the activity to be destroyed)
 #   STARTUP_LAUNCH_TIMEOUT_S default 60    (per `am start -W`; timeout = launch failed)
 #   ANDROID_SERIAL          default device (set up by connect_adb.sh)
+#   BEAUTICA_PERF_SENTRY_DSN default unset (opt-in). When set (shape
+#                           https://<key>@<host>/<project>, e.g. the dummy
+#                           https://k@o0.ingest.sentry.io/0) the profile build gets
+#                           --dart-define=BEAUTICA_SENTRY_DSN=<it>, so
+#                           initCrashReporting() runs as in a release build and the
+#                           boot:crashReporting slice measures the real SDK init
+#                           (phase 410). Unset: the gate skips Sentry entirely.
 #
 # Each device run appends "date,sha,model,cold_ms,warm_ms" to
 # ~/.cache/beautica-history/startup-history-v2.csv (dir 700, file 600; skipped
@@ -311,10 +318,22 @@ series_warm() {
 # without a VM-service attach (works through a remote adb server).
 install_profile_no_trace() {
   local serial="$1" apk="$MOBILE_DIR/build/app/outputs/flutter-apk/app-staging-profile.apk"
+  set_sentry_args
   echo "==> Build + install profile APK (--no-trace) on $serial"
-  ( cd "$MOBILE_DIR" && timeout --kill-after=10 900 flutter build apk --profile --flavor staging --dart-define-from-file=config/env/staging.json ) || { echo "ERROR: flutter build apk --profile failed" >&2; exit 1; }
+  ( cd "$MOBILE_DIR" && timeout --kill-after=10 900 flutter build apk --profile --flavor staging --dart-define-from-file=config/env/staging.json "${SENTRY_ARGS[@]}" ) || { echo "ERROR: flutter build apk --profile failed" >&2; exit 1; }
   [[ -f "$apk" ]] || { echo "ERROR: $apk not produced" >&2; exit 1; }
   timeout --kill-after=10 300 adb -s "$serial" install -r "$apk" || { echo "ERROR: adb install failed" >&2; exit 1; }
+}
+
+# set_sentry_args -> sets SENTRY_ARGS to the extra flutter args for the opt-in
+# BEAUTICA_PERF_SENTRY_DSN (empty when unset). Exits 64 on a malformed DSN.
+SENTRY_ARGS=()
+set_sentry_args() {
+  SENTRY_ARGS=()
+  local dsn="${BEAUTICA_PERF_SENTRY_DSN:-}"
+  [[ -n "$dsn" ]] || return 0
+  [[ "$dsn" =~ ^https://[A-Za-z0-9]+@[A-Za-z0-9.-]+/[0-9]+$ ]] || die64 "BEAUTICA_PERF_SENTRY_DSN must look like https://<key>@<host>/<project>"
+  SENTRY_ARGS=("--dart-define=BEAUTICA_SENTRY_DSN=$dsn")
 }
 
 main() {
@@ -376,11 +395,17 @@ main() {
   info="$MOBILE_DIR/build/start_up_info.json"
   timeline="$MOBILE_DIR/build/start_up_timeline.json"
   rm -f -- "$info" "$timeline" "${FLUTTER_TEST_OUTPUTS_DIR:+$FLUTTER_TEST_OUTPUTS_DIR/start_up_timeline.json}"
+  set_sentry_args
+  if (( ${#SENTRY_ARGS[@]} )); then
+    echo "==> BEAUTICA_PERF_SENTRY_DSN set: profile build initialises Sentry (see boot:crashReporting)"
+  else
+    echo "NOTE: BEAUTICA_PERF_SENTRY_DSN unset: Sentry is gated off; boot:crashReporting is the gate check only"
+  fi
   if (( no_trace )); then
     install_profile_no_trace "$serial"
   else
     echo "==> Install + trace (profile, --trace-startup) on $serial"
-    ( cd "$MOBILE_DIR" && flutter run --profile --trace-startup --flavor staging --dart-define-from-file=config/env/staging.json -d "$serial" )
+    ( cd "$MOBILE_DIR" && flutter run --profile --trace-startup --flavor staging --dart-define-from-file=config/env/staging.json "${SENTRY_ARGS[@]}" -d "$serial" )
   fi
 
   # --- discarded warm-up launch (dexopt) ---
