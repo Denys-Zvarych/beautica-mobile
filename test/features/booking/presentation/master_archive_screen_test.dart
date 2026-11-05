@@ -36,6 +36,7 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
@@ -165,6 +166,26 @@ class _SettableAuthNotifier extends AuthNotifier {
     _session = session;
     state = AsyncData<AuthSession>(session);
   }
+}
+
+/// A SALON_OWNER session — `bookingTransitionsEnabledProvider` resolves `true`
+/// for it, so «Виконано» renders on the salon-scoped archive. Used only by the
+/// salon case of the page-0 reload refill regression group.
+const User _stubSalonOwner = User(
+  id: 'salon-owner-archive-test-1',
+  email: 'owner@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Ганна',
+  lastName: 'Власниця',
+);
+
+class _SalonOwnerAuthNotifier extends AuthNotifier {
+  /// [SynchronousFuture] for the same phase 342 D6 reason as
+  /// [_IndependentMasterAuthNotifier] — see its doc.
+  @override
+  Future<AuthSession> build() => SynchronousFuture<AuthSession>(
+    const AuthSession.authenticated(user: _stubSalonOwner, accessToken: 'tok'),
+  );
 }
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
@@ -414,6 +435,10 @@ void main() {
     // which is a claim about a NETWORK CALL and therefore unobservable from
     // the rendered sheet.
     List<int>? catalogueBuilds,
+    // Appended AFTER the harness's own overrides; empty by default, so every
+    // existing call site is unchanged. The page-1-refill-FAILURE test pins
+    // `clockProvider` to a fake clock it advances in lockstep with `pump`.
+    List<Object> extraOverrides = const <Object>[],
   }) async {
     final GoRouter router = GoRouter(
       initialLocation: '/from',
@@ -481,6 +506,7 @@ void main() {
           catalogueBuilds?.add(1);
           return services;
         }),
+        ...extraOverrides,
       ],
     );
     await tester.pump();
@@ -3973,6 +3999,427 @@ void main() {
           reason:
               'the notifier remembers that page 1 just failed, so an '
               'identical call inside the cooldown must NOT re-issue it',
+        );
+      },
+    );
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // REGRESSION (fix/archive-reload-pagination-stall, 2026-11-05) — «Виконано»
+  // on a row PAST page 0 left the tail spinner on screen for ever.
+  //
+  // The post-close `ref.invalidate(masterArchiveProvider)` rebuilds to page 0
+  // only. The scroll offset clamps to the shorter list WITHOUT notifying
+  // listeners, so the viewport rests on `MyBookingsLoadMoreSpinner`, and under
+  // clamping physics a further downward drag moves no pixels — `_onScroll`,
+  // then the only `loadMore` trigger, never ran again. The fix is the
+  // post-frame fill check in the `data:` branch of `master_archive_screen.dart`.
+  //
+  // Mutation-verified 2026-11-05: deleting that `addPostFrameCallback` block
+  // turns both tests below RED at the "page 1 refetched with no gesture"
+  // assertion; restored byte-identical (md5 checked).
+  // ═════════════════════════════════════════════════════════════════════════
+  group('«Виконано» past page 0 — the reload must refill, not strand the '
+      'tail spinner', () {
+    const String kSalonId = 'salon-9';
+    const int kPageSize = 20;
+    const int kTotalPages = 3;
+    const String kTarget = 'p1-5';
+
+    late List<int> requestedPages;
+    // Armed right before the close confirm: the NEXT page-1 request (the
+    // refill) is parked here, so the stranded-spinner frame is OBSERVABLE
+    // instead of resolving inside the same pump.
+    late bool holdNextPageOne;
+    late Completer<void> releaseHeldPageOne;
+    // Armed right before the close confirm by the FAILURE test: every page-1
+    // request from then on fails asynchronously (a real Dio failure is never
+    // synchronous — see M13), until [failPageOne] is cleared.
+    late bool failPageOne;
+
+    Future<PageResponse<Booking>> answer(Invocation invocation) async {
+      final int page = invocation.namedArguments[#page] as int;
+      requestedPages.add(page);
+      if (page == 1 && failPageOne) throw const NetworkFailure();
+      if (page == 1 && holdNextPageOne) {
+        holdNextPageOne = false;
+        await releaseHeldPageOne.future;
+      }
+      return PageResponse<Booking>(
+        items: <Booking>[
+          for (int i = 0; i < kPageSize; i++)
+            _booking(
+              id: 'p$page-$i',
+              status: BookingStatus.confirmed,
+              awaitingClosure: true,
+            ),
+        ],
+        page: page,
+        totalPages: kTotalPages,
+        totalElements: kPageSize * kTotalPages,
+      );
+    }
+
+    void reset() {
+      requestedPages = <int>[];
+      holdNextPageOne = false;
+      failPageOne = false;
+      releaseHeldPageOne = Completer<void>();
+      when(() => repo.completeBooking(kTarget)).thenAnswer((_) async {});
+    }
+
+    void stubMine() {
+      reset();
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer(answer);
+    }
+
+    void stubSalon() {
+      reset();
+      when(
+        () => repo.getSalonBookings(
+          salonId: kSalonId,
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer(answer);
+    }
+
+    /// Explicit 16 ms frames until [done] holds — never `pumpAndSettle`: the
+    /// tail `CircularProgressIndicator` animates for ever, and a settle would
+    /// fire no `Timer` either. Returns whether [done] was reached.
+    Future<bool> pumpFramesUntil(
+      WidgetTester tester,
+      bool Function() done, {
+      int maxFrames = 60,
+    }) async {
+      for (int i = 0; i < maxFrames && !done(); i++) {
+        // fixed-wait-ok: advancing one display frame, polled against [done].
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      return done();
+    }
+
+    ScrollPosition position(WidgetTester tester) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(const Key('master-archive-list')),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    /// Lands page 0, drags in page 1, brings the page-1 [kTarget] row into
+    /// view and opens its close dialog. Returns the [requestedPages] mark
+    /// taken just before the confirm tap the caller fires.
+    Future<int> openCloseDialogOnPageOneRow(WidgetTester tester) async {
+      await tester.pumpUntilFound(find.byKey(const ValueKey<String>('p0-0')));
+      expect(requestedPages, <int>[0]);
+
+      // ── Page 1 via a real gesture. ──
+      await tester.drag(
+        find.byKey(const Key('master-archive-list')),
+        const Offset(0, -4000),
+      );
+      expect(
+        await pumpFramesUntil(tester, () => requestedPages.contains(1)),
+        isTrue,
+        reason: 'harness precondition: the drag must load page 1',
+      );
+      await tester.pump();
+      expect(requestedPages, <int>[0, 1]);
+
+      // ── Bring a PAGE-1 row into view and close it. ──
+      final Finder target = find.byKey(
+        const Key('master-booking-card-complete-$kTarget'),
+      );
+      await tester.scrollUntilVisible(
+        target,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const Key('master-archive-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.ensureVisible(target);
+      await tester.pump();
+      expect(
+        requestedPages,
+        <int>[0, 1],
+        reason:
+            'harness precondition: reaching the page-1 row must not itself '
+            'pull page 2, or the reload below starts from a different shape',
+      );
+
+      await tester.tap(target);
+      await tester.pumpUntilFound(
+        find.byKey(const Key('complete-booking-dialog')),
+      );
+
+      return requestedPages.length;
+    }
+
+    Future<void> runScenario(WidgetTester tester) async {
+      final int mark = await openCloseDialogOnPageOneRow(tester);
+      holdNextPageOne = true;
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+
+      // ── The reload lands page 0 only; the refill must follow by itself. ──
+      final bool refilled = await pumpFramesUntil(
+        tester,
+        () => requestedPages.length >= mark + 2,
+      );
+      verify(() => repo.completeBooking(kTarget)).called(1);
+      expect(
+        requestedPages.sublist(mark),
+        <int>[0, 1],
+        reason:
+            'after the page-0 reload, page 1 must be re-fetched with NO '
+            'further gesture — the shrunk list left the viewport on the tail '
+            'spinner, where no scroll notification will ever fire again',
+      );
+      expect(refilled, isTrue);
+
+      // POSITIVE CONTROL: the refill is parked, so this is the exact frame
+      // the bug left on screen for ever — the viewport resting on the tail.
+      expect(
+        find.byKey(const Key('my_bookings_load_more_spinner')),
+        findsOneWidget,
+        reason:
+            'harness precondition: the reload must actually strand the '
+            'viewport on the tail spinner, or the refill proves nothing',
+      );
+      final ScrollPosition stranded = position(tester);
+      expect(stranded.pixels, stranded.maxScrollExtent);
+
+      releaseHeldPageOne.complete();
+      expect(
+        await pumpFramesUntil(
+          tester,
+          () => find
+              .byKey(const Key('my_bookings_load_more_spinner'))
+              .evaluate()
+              .isEmpty,
+        ),
+        isTrue,
+        reason: 'the refilled page must push the tail spinner off screen',
+      );
+      expect(
+        requestedPages.sublist(mark),
+        <int>[0, 1],
+        reason: 'one refill, deduped — not a fetch per frame',
+      );
+
+      // ── And the list scrolls again. ──
+      final double before = position(tester).pixels;
+      await tester.drag(
+        find.byKey(const Key('master-archive-list')),
+        const Offset(0, -300),
+      );
+      await tester.pump();
+      expect(
+        position(tester).pixels,
+        greaterThan(before),
+        reason: 'a downward drag must move the list after the refill',
+      );
+    }
+
+    testWidgets(
+      'MINE (independent master) — closing a page-1 row refetches page 1 '
+      'with no gesture, clears the tail spinner, and the list scrolls again',
+      (WidgetTester tester) async {
+        stubMine();
+        await pump(tester);
+        await runScenario(tester);
+      },
+    );
+
+    testWidgets(
+      'SALON (owner, salon scope) — the same screen refills the same way '
+      'through the salon read',
+      (WidgetTester tester) async {
+        stubSalon();
+        await pump(
+          tester,
+          auth: _SalonOwnerAuthNotifier.new,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+            showMasterAttribution: true,
+          ),
+        );
+        await runScenario(tester);
+        verifyNever(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        );
+      },
+    );
+
+    // ── The refill FAILS ────────────────────────────────────────────────
+    //
+    // The fill check re-runs `_onScroll` after EVERY data build with
+    // `hasMore && !isLoadingMore` — and a failed `loadMore` restores exactly
+    // that shape. So a failing refill is the one input that could turn the
+    // fill check into a once-per-frame fetch loop; `retryNotBefore` is what
+    // must stop it. One clock for both halves (M15): `clockProvider` is pinned
+    // to [fakeNow], advanced in lockstep with every pump, so the notifier's
+    // deadline and `CooldownTicker`'s fake-async `Timer` agree.
+    //
+    // Mutation-verified 2026-11-05: `retryNotBefore: null` in
+    // `MasterArchiveNotifier.loadMore`'s catch arm turns both tests below RED
+    // with a page-1 request on EVERY frame (`[0, 1, 1, 1, …]`).
+    //
+    // When the cooldown elapses, the tail `MyBookingsRetryCooldown`'s
+    // `onElapsed` re-runs the fill check post-frame, so page 1 is retried
+    // automatically — no drag needed (the second test below pins that).
+    late DateTime fakeNow;
+
+    Future<void> advance(WidgetTester tester, Duration by) async {
+      fakeNow = fakeNow.add(by);
+      // fixed-wait-ok: advancing the fake clock and the fake-async zone
+      // together by an exact amount — the quantity under test IS time.
+      await tester.pump(by);
+    }
+
+    Future<int> closeWithFailingRefill(WidgetTester tester) async {
+      // Seeded from the host clock (noon UTC of today) so the start can never
+      // go stale. Every fixture booking is dated 2000, so any present-day
+      // instant reads them as past.
+      // instant-ok: this read only SEEDS the pinned clock below; no fixture is derived from it, so app and fixtures share one clock.
+      final DateTime hostNow = DateTime.now().toUtc();
+      fakeNow = DateTime.utc(hostNow.year, hostNow.month, hostNow.day, 12);
+      stubMine();
+      await pump(
+        tester,
+        extraOverrides: <Object>[
+          clockProvider.overrideWithValue(() => fakeNow),
+        ],
+      );
+      final int mark = await openCloseDialogOnPageOneRow(tester);
+      failPageOne = true;
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      for (int i = 0; i < 60; i++) {
+        if (find
+            .byKey(const Key('master-archive-retry-cooldown'))
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+        await advance(tester, const Duration(milliseconds: 16));
+      }
+      verify(() => repo.completeBooking(kTarget)).called(1);
+      expect(
+        requestedPages.sublist(mark),
+        <int>[0, 1],
+        reason:
+            'harness precondition: the page-0 reload landed and the fill '
+            'check fired exactly one page-1 refill, which failed',
+      );
+      return mark;
+    }
+
+    testWidgets(
+      'REFILL FAILS — the tail parks on the retry cooldown, not a permanent '
+      'spinner, and the fill check does not re-fire during the cooldown',
+      (WidgetTester tester) async {
+        final int mark = await closeWithFailingRefill(tester);
+
+        expect(
+          find.byKey(const Key('master-archive-retry-cooldown')),
+          findsOneWidget,
+          reason: 'a failed refill must surface the cooldown at the tail',
+        );
+        expect(
+          find.byKey(const Key('my_bookings_load_more_spinner')),
+          findsNothing,
+        );
+
+        // STORM PROBE: 120 explicit frames (~1.9 s, inside the 5 s
+        // `kLoadMoreFailureBackoff`), each one a fresh chance for the fill
+        // check or the scroll listener to re-fire; plus a real downward drag
+        // at the tail halfway through.
+        for (int i = 0; i < 60; i++) {
+          await advance(tester, const Duration(milliseconds: 16));
+        }
+        await tester.drag(
+          find.byKey(const Key('master-archive-list')),
+          const Offset(0, -300),
+        );
+        for (int i = 0; i < 60; i++) {
+          await advance(tester, const Duration(milliseconds: 16));
+        }
+        expect(
+          requestedPages.sublist(mark),
+          <int>[0, 1],
+          reason:
+              'inside the cooldown NOTHING may re-issue page 1 — not the '
+              'post-frame fill check (which runs after every data build), '
+              'not the scroll listener',
+        );
+        expect(
+          find.byKey(const Key('master-archive-retry-cooldown')),
+          findsOneWidget,
+          reason: 'the cooldown holds for its whole window',
+        );
+      },
+    );
+
+    testWidgets(
+      'REFILL FAILS — once the cooldown elapses, the stranded tail retries '
+      'page 1 automatically, exactly once, and page 1 lands',
+      (WidgetTester tester) async {
+        final int mark = await closeWithFailingRefill(tester);
+        failPageOne = false;
+
+        // Past `kLoadMoreFailureBackoff` (5 s), in 100 ms steps so the
+        // ticker's 1 Hz Timer fires on schedule. NO drag: the cooldown's
+        // `onElapsed` must re-run the fill check by itself.
+        for (int i = 0; i < 60; i++) {
+          await advance(tester, const Duration(milliseconds: 100));
+        }
+        expect(
+          find.byKey(const Key('master-archive-retry-cooldown')),
+          findsNothing,
+          reason: 'harness precondition: the cooldown window has elapsed',
+        );
+        // Settle frames, each a fresh chance for a duplicate retry.
+        for (int i = 0; i < 30; i++) {
+          await advance(tester, const Duration(milliseconds: 16));
+        }
+        expect(
+          requestedPages.sublist(mark),
+          <int>[0, 1, 1],
+          reason:
+              'after the cooldown, page 1 must be retried automatically '
+              'exactly once — with no drag — or the viewport stays parked on '
+              'a spinner with nothing in flight',
+        );
+        expect(
+          find.byKey(const Key('my_bookings_load_more_spinner')),
+          findsNothing,
+          reason: 'the retried page pushes the tail off screen',
         );
       },
     );

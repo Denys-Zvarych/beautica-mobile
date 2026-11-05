@@ -5512,6 +5512,13 @@ final class FakeBackend {
   final List<bool> myBookingsAsMasterFlags = <bool>[];
   final List<bool> bookedDaysAsMasterFlags = <bool>[];
 
+  /// The `page` query param of EVERY `GET /bookings/me` call, in order
+  /// (absent → 0). Unlike the last-write-wins [lastMyBookingsQuery], this lets
+  /// a flow attribute a specific page fetch to a specific moment — e.g. the
+  /// «Архів» page-1 refill that must follow a page-0-only reload with no
+  /// gesture (`master_archive_flow_test.dart` scenario 6).
+  final List<int> myBookingsPageRequests = <int>[];
+
   /// Phase 383 (24.1f) — backend 354's `asMaster=true` narrowing. When
   /// non-null, a `GET /bookings/me?asMaster=true` over a seeded
   /// [seedManyBookingsDataset] is answered from ONLY the rows whose `id` is
@@ -10341,6 +10348,13 @@ final class FakeBackend {
           Map<String, dynamic>.from(req.queryParameters),
         );
         myBookingsAsMasterFlags.add(asMaster);
+        myBookingsPageRequests.add(
+          _intQueryParam(
+            Map<String, dynamic>.from(req.queryParameters),
+            'page',
+            0,
+          ),
+        );
         if (_bookingsDataset != null) {
           final Set<String>? ownIds = ownerMasterRowBookingIds;
           return _slicedBookingsPageEnvelope(
