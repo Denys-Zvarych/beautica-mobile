@@ -23,6 +23,13 @@
 // feeds the rail. A test overriding `portfolioCacheTtlProvider` itself, or
 // `portfolioProvider` wholesale (e.g. `FixedPortfolioNotifier`), wins.
 //
+// PR #131 (CI fix) — it ALSO defaults `pendingBookingActionsCountProvider` to
+// `0` ([withDefaultNoPendingActions], the same pin `pumpApp` /
+// `pumpRoutedApp` apply): the master nav bar's «Записи» tile and
+// `SalonShellScreen` now watch the count, and the real provider's Dio request
+// leaves a timer pending at the same invariant check. A test overriding the
+// count family or `bookingRepositoryProvider` itself wins.
+//
 // It also installs [beauticaProviderRetry] — the production retry predicate,
 // the same default `pumpApp` / `pumpRoutedApp` use — and registers
 // `container.dispose` via `addTearDown`, so the caller must NOT dispose again.
@@ -38,6 +45,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 
+import 'no_pending_booking_actions.dart';
 import 'no_reported_targets.dart';
 import 'no_unread_notifications.dart';
 
@@ -52,9 +60,11 @@ ProviderContainer makeTestContainer({
       beauticaProviderRetry,
 }) {
   final ProviderContainer container = ProviderContainer(
-    overrides: withDefaultNoPortfolioCacheTtl(
-      withDefaultNoSalonProfileCacheWindow(
-        withDefaultNoReportedTargets(withDefaultNoUnread(overrides)),
+    overrides: withDefaultNoPendingActions(
+      withDefaultNoPortfolioCacheTtl(
+        withDefaultNoSalonProfileCacheWindow(
+          withDefaultNoReportedTargets(withDefaultNoUnread(overrides)),
+        ),
       ),
     ).cast<Override>(),
     retry: retry,
