@@ -1,5 +1,5 @@
 // Phase 393 (24.7a) — E2E wire-up proof for `pendingBookingActionsCountProvider`
-// (Step 2.7 Rule 3b). No badge UI exists yet (395); this pins the whole data
+// (Step 2.7 Rule 3b). Pins the whole data
 // path — provider -> repository -> generated client -> Dio -> FakeBackend — so
 // 395 builds on a verified count.
 //
@@ -7,6 +7,9 @@
 // rows (`computedMePendingActionsCount` / `computedSalonPendingActionsCount`,
 // the same two backend-357 legs), plus an independent literal so a fake that
 // computes 0 for everything cannot satisfy the test.
+//
+// 2026-11-05 — also pins the «Записи» NAV badge (master + salon bars) on the
+// same family key, sharing the one request.
 //
 // Run ALONE: `flutter test integration_test/pending_actions_count_wiring_test.dart
 // -d flutter-tester`.
@@ -82,6 +85,18 @@ void main() {
 
         final GoRouter router = await AppHarness.boot(tester, fb);
         await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+        // 2026-11-05 — the «Записи» nav badge already shows the count on the
+        // landing tab («Профіль»), before «Записи» was ever opened.
+        final Finder navBadge = find.byKey(
+          const Key('master-nav-bookings-badge'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.descendant(of: navBadge, matching: find.text('3')),
+        );
+        expect(fb.getPendingActionsCountCalls, 1);
+
         await tester.tap(find.byKey(const Key('master-nav-tile-1')));
         await AppHarness.settle(tester);
         AppHarness.expectLocation(router, RouteNames.masterBookings);
@@ -107,7 +122,15 @@ void main() {
 
         expect(count, fb.computedMePendingActionsCount(asMaster: false));
         expect(count, 3, reason: 'independent of the fake own computation');
-        expect(fb.getPendingActionsCountCalls, 1);
+        expect(
+          fb.getPendingActionsCountCalls,
+          1,
+          reason: 'profile -> bookings tab switch reuses the nav badge read',
+        );
+        expect(
+          find.descendant(of: navBadge, matching: find.text('3')),
+          findsOneWidget,
+        );
       });
     },
   );
@@ -183,6 +206,18 @@ void main() {
         expect(count, fb.computedSalonPendingActionsCount());
         expect(count, 2, reason: 'independent of the fake own computation');
         expect(fb.getPendingActionsCountCalls, 1);
+
+        // 2026-11-05 — the salon «Записи» nav badge reads the SAME key.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon-nav-tile-1')),
+            matching: find.descendant(
+              of: find.byKey(const Key('salon-nav-bookings-badge')),
+              matching: find.text('2'),
+            ),
+          ),
+          findsOneWidget,
+        );
       });
     },
   );

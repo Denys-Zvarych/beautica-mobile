@@ -16,6 +16,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/time/clock_provider.dart';
+import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/booking_providers.dart';
 import '../domain/pending_actions_scope.dart';
@@ -86,3 +87,21 @@ Future<int> pendingBookingActionsCount(
 /// refresh shows nothing rather than a stale number.
 int? pendingActionsBadgeCount(AsyncValue<int> count) =>
     count.hasError ? null : count.value;
+
+/// The [PendingActionsScope] a pending-actions badge reads for the session
+/// [role] (PROMOTED from `MasterBookingsScreen.build`, 2026-11-05, so the
+/// «Архів» badge and the master nav «Записи» badge pick the SAME family key):
+///   INDEPENDENT_MASTER                    -> `.me(asMaster: false)`
+///   SALON_OWNER + [asOwnerMaster]         -> `.me(asMaster: true)` (own bookings)
+///   anything else (incl. SALON_MASTER,
+///   a still-settling `null` role)         -> `null`: no badge, no request.
+PendingActionsScope? pendingActionsScopeForRole(
+  UserRole? role, {
+  required bool asOwnerMaster,
+}) => switch (role) {
+  UserRole.independentMaster => const PendingActionsScope.me(asMaster: false),
+  UserRole.salonOwner when asOwnerMaster => const PendingActionsScope.me(
+    asMaster: true,
+  ),
+  _ => null,
+};

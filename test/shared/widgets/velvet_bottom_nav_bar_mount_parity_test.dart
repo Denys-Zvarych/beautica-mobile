@@ -56,6 +56,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -172,6 +173,11 @@ Future<void> _pumpWithBottomInset(
       overrides: withDefaultNoUnread(<Object>[
         masterNavSetupHintsProvider.overrideWithValue(
           BookingLinkSetupHints.none,
+        ),
+        // «Записи» pending-actions badge (2026-11-05) pinned to zero: the real
+        // count would issue a Dio request whose timer outlives the tree.
+        pendingBookingActionsCountProvider.overrideWith(
+          (ref, scope) async => 0,
         ),
         ...overrides,
       ]).cast(),

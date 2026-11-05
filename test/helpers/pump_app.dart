@@ -32,6 +32,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'no_pending_booking_actions.dart';
 import 'no_reported_targets.dart';
 import 'no_unread_notifications.dart';
 import 'overflow_guard.dart';
@@ -92,8 +93,8 @@ extension PumpApp on WidgetTester {
         // ProviderScope.overrides accepts List<Override>; we cast so callers
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls
-        overrides: withDefaultNoReportedTargets(
-          withDefaultNoUnread(overrides),
+        overrides: withDefaultNoPendingActions(
+          withDefaultNoReportedTargets(withDefaultNoUnread(overrides)),
         ).cast(),
         retry: retry,
         child: MaterialApp(
@@ -124,8 +125,8 @@ extension PumpApp on WidgetTester {
     installOverflowGuard();
     await pumpWidget(
       ProviderScope(
-        overrides: withDefaultNoReportedTargets(
-          withDefaultNoUnread(overrides),
+        overrides: withDefaultNoPendingActions(
+          withDefaultNoReportedTargets(withDefaultNoUnread(overrides)),
         ).cast(),
         retry: retry,
         child: MaterialApp.router(
