@@ -237,7 +237,7 @@ final u = SentryUser(id: x);"
   expect_pass clean_env config/env/prod.json '{"BEAUTICA_ENV": "prod"}'
   # --- scripts/ is out of scope (perf passes a dummy DSN) ---
   expect_pass scripts_not_scanned scripts/perf/x.sh 'DSN=https://k@o0.ingest.sentry.io/0'
-  echo "forbid_sentry_pii_options self-test: OK"
+  echo "SELF-TEST OK: forbid_sentry_pii_options.sh"
   exit 0
 fi
 
