@@ -1283,10 +1283,10 @@ jobs:
           fi
 
   # End-to-end integration tests (Fix 4, 2026-06-02): the real app on a headless emulator.
-  # Phase 401 D3/D4: selective PRs run the selected flows; FULL runs the two parts.
+  # Phase 401 D3/D4: selective PRs run the selected flows here; FULL (entry=parts) runs the shards.
   # why: docs/ci/emulator-integration.md#job-integration
   integration:
-    name: Integration tests (emulator)
+    name: Integration entry + selected flows (emulator)
     runs-on: ubuntu-latest
     needs: plan
     if: >-
@@ -1294,23 +1294,26 @@ jobs:
       && (needs.plan.outputs.mode == 'full' || needs.plan.outputs.integration_count != '0')
     # Backstop for the per-invocation `timeout`s (else GitHub's 6 h default).
     # why: docs/ci/emulator-integration.md#integration-timeout
-    timeout-minutes: 180
+    timeout-minutes: 120
+    outputs:
+      entry: ${{ steps.out.outputs.entry }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           persist-credentials: false
 
+      # FULL mode builds nothing here (the shards do): setup is selective-only.
       - name: Set up Java 17
+        if: needs.plan.outputs.mode == 'selective'
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # Audit S-L4: the ONE shared Flutter + pub get + build_runner setup (same
-      # commands as before, same order; the pub-cache key now also covers
-      # pubspec.yaml / api/pubspec.yaml / build.yaml).
+      # Audit S-L4: the ONE shared Flutter + pub get + build_runner setup.
       - name: Set up Flutter, pub get, codegen
+        if: needs.plan.outputs.mode == 'selective'
         uses: ./.github/actions/flutter-setup
 
       # Phase 401 (selective PRs only). The plan job's lists; the generator and
@@ -1363,6 +1366,7 @@ jobs:
       # why: docs/ci/emulator-integration.md#gradle-cache
       - name: Restore Gradle cache
         id: gradle-cache
+        if: needs.plan.outputs.mode == 'selective'
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
         with:
           path: |
@@ -1372,10 +1376,11 @@ jobs:
           restore-keys: |
             gradle-it-${{ runner.os }}-
 
-      # entry=selected only after a clean trusted generator run; else `parts` (400 D7).
-      # S1/S3 hardening; P3 bound = clamp(420 + 45 * flows, 600, 1500) s.
+      # entry=selected only after a clean trusted generator run; else `parts` = the shards (400 D7).
+      # S1/S3 hardening; cap = one shard (19 flows / 74 tests), else the shards;
+      # bound = clamp(480 + 20 * tests, 600, 1500) s (the APK is pre-built; 1500 = the shard bound).
       # why: docs/ci/emulator-integration.md#choose-entry
-      - name: Choose integration entry (selected flows or the two parts)
+      - name: Choose integration entry (selected flows or the full suite)
         id: entry
         if: needs.plan.outputs.mode == 'selective'
         shell: bash
@@ -1383,42 +1388,45 @@ jobs:
           set -uo pipefail
           t="$GITHUB_WORKSPACE/trusted/tool/ci"
           gen="$t/affected_tests/bin/gen_integration_entry.dart"
-          entry=parts; count=0; bound=1500
+          entry=parts; count=0; tests=0; bound=1500
           rm -rf integration_test/ci_selected_tests.dart
-          if [ -f "$gen" ] && [ -f "$t/run_it_attempt.sh" ]; then
+          if [ -f "$gen" ] && [ -f "$t/run_it_attempt.sh" ] && [ -f "$t/prebuild_it_apk.sh" ]; then
             pk="$RUNNER_TEMP/empty_package_config.json"
             echo '{"configVersion":2,"packages":[]}' >"$pk"
             out="$(dart --packages="$pk" "$gen" --selection "$RUNNER_TEMP/sel/selection.json" --repo "$GITHUB_WORKSPACE")" || out=""
             if [ "$(printf '%s\n' "$out" | grep -c '^entry=')" = 1 ] &&
                [ "$(printf '%s\n' "$out" | sed -n 's/^entry=//p')" = selected ]; then
               c="$(printf '%s\n' "$out" | sed -n 's/^count=//p')"
-              if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -ge 1 ] && [ "$c" -le 40 ]; then
-                entry=selected; count="$c"
+              n="$(printf '%s\n' "$out" | sed -n 's/^tests=//p')"
+              if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -ge 1 ] && [ "$c" -le 19 ] &&
+                 [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le 74 ]; then
+                entry=selected; count="$c"; tests="$n"
               fi
             fi
           else
-            echo "::warning::base commit has no gen_integration_entry.dart / run_it_attempt.sh; running the two parts"
+            echo "::warning::base commit has no gen_integration_entry.dart / run_it_attempt.sh / prebuild_it_apk.sh; running the full sharded suite"
           fi
           f=integration_test/ci_selected_tests.dart
           if [ "$entry" != "selected" ] || [ -L "$f" ] || [ ! -f "$f" ] || [ ! -s "$f" ]; then
-            entry=parts; count=0
+            entry=parts; count=0; tests=0
             rm -rf "$f"
           fi
           if [ "$entry" = selected ]; then
-            bound=$((420 + 45 * count))
+            bound=$((480 + 20 * tests))
             [ "$bound" -lt 600 ] && bound=600
             [ "$bound" -gt 1500 ] && bound=1500
           fi
           {
             echo "entry=$entry"
             echo "count=$count"
+            echo "tests=$tests"
             echo "bound=$bound"
           } | tee -a "$GITHUB_OUTPUT"
           {
             echo "### Integration entry: \`$entry\`"
             if [ "$entry" = "selected" ]; then
               echo
-              echo "$count flow(s), per-attempt bound ${bound}s"
+              echo "$count flow(s), $tests testWidgets, per-attempt bound ${bound}s"
               echo
               echo '```dart'
               cat "$f"
@@ -1426,125 +1434,51 @@ jobs:
             fi
           } >>"$GITHUB_STEP_SUMMARY"
 
+      # The job output the shards and the verdict read: FULL mode is always `parts`.
+      - name: Publish integration entry
+        id: out
+        shell: bash
+        env:
+          MODE: ${{ needs.plan.outputs.mode }}
+          ENTRY: ${{ steps.entry.outputs.entry }}
+        run: |
+          if [ "$MODE" != "selective" ]; then
+            e=parts
+          elif [ "$ENTRY" = "selected" ] || [ "$ENTRY" = "parts" ]; then
+            e="$ENTRY"
+          else
+            echo "::error::selective run without a valid integration entry ('$ENTRY')"; exit 1
+          fi
+          echo "entry=$e" | tee -a "$GITHUB_OUTPUT"
+
       # KVM is required for hardware-accelerated emulator boot on the runner.
       - name: Enable KVM
+        if: steps.entry.outputs.entry == 'selected'
         uses: ./.github/actions/enable-kvm
 
       # Preinstall the platform :add_2_calendar needs; a Gradle download can fail mid-build.
       # why: docs/ci/patrol.md#sdk-preinstall
       - name: Install Android SDK platform
+        if: steps.entry.outputs.entry == 'selected'
         uses: ./.github/actions/android-sdk-platform
 
-      # 2026-07-07: upstream emulator ColorBuffer crash AFTER the tests; gate on log
-      # content, retry with a fresh boot, separate boots per part.
-      # why: docs/ci/emulator-integration.md#root-cause-2026-07-07
-      - name: Run integration tests — part 1 (attempt 1)
-        id: it-part1-attempt-1
-        if: steps.entry.outputs.entry != 'selected'
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          # ram-size/heap-size (2026-07-01): harmless baseline bump.
-          # why: docs/ci/emulator-integration.md#ram-size
-          ram-size: 4096M
-          heap-size: 512M
-          # One aggregating file per invocation (directory mode cannot relaunch).
-          # EXTERNAL `timeout` (2026-08-17): no in-isolate bound survives event-loop starvation.
-          # why: docs/ci/emulator-integration.md#external-timeout
-          script: |
-            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part1.dart > part1.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part1.log; echo "PART 1: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
-            cat part1.log
-            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-
-      - name: Run integration tests — part 1 (attempt 2)
-        id: it-part1-attempt-2
-        if: steps.it-part1-attempt-1.outcome == 'failure'
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          ram-size: 4096M
-          heap-size: 512M
-          script: |
-            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part1.dart > part1.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part1.log; echo "PART 1: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
-            cat part1.log
-            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-
-      - name: Run integration tests — part 1 (attempt 3)
-        id: it-part1-attempt-3
-        if: steps.it-part1-attempt-1.outcome == 'failure' && steps.it-part1-attempt-2.outcome == 'failure'
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          ram-size: 4096M
-          heap-size: 512M
-          script: |
-            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part1.dart > part1.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part1.log; echo "PART 1: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
-            cat part1.log
-            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part1.log && { echo "PART 1: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part1.log || { echo "PART 1: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 1: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-
-      - name: Run integration tests — part 2 (attempt 1)
-        id: it-part2-attempt-1
-        if: steps.entry.outputs.entry != 'selected'
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          ram-size: 4096M
-          heap-size: 512M
-          script: |
-            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part2.dart > part2.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part2.log; echo "PART 2: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
-            cat part2.log
-            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-
-      - name: Run integration tests — part 2 (attempt 2)
-        id: it-part2-attempt-2
-        if: steps.it-part2-attempt-1.outcome == 'failure'
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          ram-size: 4096M
-          heap-size: 512M
-          script: |
-            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part2.dart > part2.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part2.log; echo "PART 2: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
-            cat part2.log
-            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
-
-      - name: Run integration tests — part 2 (attempt 3)
-        id: it-part2-attempt-3
-        if: steps.it-part2-attempt-1.outcome == 'failure' && steps.it-part2-attempt-2.outcome == 'failure'
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_6
-          ram-size: 4096M
-          heap-size: 512M
-          script: |
-            timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part2.dart > part2.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part2.log; echo "PART 2: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
-            cat part2.log
-            grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
+      # The debug APK, built ONCE outside the attempt bound (no cold build inside it);
+      # each attempt's `flutter test` is then a warm incremental build (Dart recompile +
+      # repack, ~1-2 min, inside the attempt bound: -Pdart-defines order differs).
+      # why: docs/ci/emulator-integration.md#prebuild-apk
+      - name: Pre-build the integration APK — selected flows
+        id: it-sel-build
+        if: steps.entry.outputs.entry == 'selected'
+        timeout-minutes: 15
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/trusted/tool/ci/prebuild_it_apk.sh" integration_test/ci_selected_tests.dart
 
       # Selected-flow attempts: pass/fail in base-owned run_it_attempt.sh (P3/P5/P7),
       # judged from the JSON test protocol, never stdout.
       # why: docs/ci/emulator-integration.md#selected-attempts
       - name: Run integration tests — selected flows (attempt 1)
         id: it-sel-attempt-1
-        if: steps.entry.outputs.entry == 'selected'
+        if: steps.entry.outputs.entry == 'selected' && steps.it-sel-build.outcome == 'success'
         continue-on-error: true
         env:
           SEL_BOUND: ${{ steps.entry.outputs.bound }}
@@ -1553,6 +1487,8 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
+          emulator-boot-timeout: 300
           # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
@@ -1572,6 +1508,8 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
+          emulator-boot-timeout: 300
           # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
@@ -1591,6 +1529,8 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
+          emulator-boot-timeout: 300
           # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
@@ -1608,62 +1548,215 @@ jobs:
           SEL1: ${{ steps.it-sel-attempt-1.outcome }}
           SEL2: ${{ steps.it-sel-attempt-2.outcome }}
           SEL3: ${{ steps.it-sel-attempt-3.outcome }}
-          P1A1: ${{ steps.it-part1-attempt-1.outcome }}
-          P1A2: ${{ steps.it-part1-attempt-2.outcome }}
-          P1A3: ${{ steps.it-part1-attempt-3.outcome }}
-          P2A1: ${{ steps.it-part2-attempt-1.outcome }}
-          P2A2: ${{ steps.it-part2-attempt-2.outcome }}
-          P2A3: ${{ steps.it-part2-attempt-3.outcome }}
         run: |
-          if [[ "$ENTRY" == "selected" ]]; then
-            if [[ "$SEL1" == "success" || "$SEL2" == "success" || "$SEL3" == "success" ]]; then
-              echo "SELECTED FLOWS: passed."
-              exit 0
-            fi
-            echo "SELECTED FLOWS: no attempt passed (a real regression, a deterministic failure that skipped the last attempt, or the known upstream emulator flake — see the attempt logs)."
-            exit 1
+          if [[ "$ENTRY" != "selected" ]]; then
+            echo "Full suite: judged by the integration-shard legs and the 'Integration tests (emulator)' verdict job."
+            exit 0
           fi
-          if [[ "$P1A1" == "success" || "$P1A2" == "success" || "$P1A3" == "success" ]]; then
-            echo "PART 1: passed."
-            part1_ok=1
-          else
-            echo "PART 1: all 3 attempts failed."
-            part1_ok=0
+          if [[ "$SEL1" == "success" || "$SEL2" == "success" || "$SEL3" == "success" ]]; then
+            echo "SELECTED FLOWS: passed."
+            exit 0
           fi
-          if [[ "$P2A1" == "success" || "$P2A2" == "success" || "$P2A3" == "success" ]]; then
-            echo "PART 2: passed."
-            part2_ok=1
-          else
-            echo "PART 2: all 3 attempts failed."
-            part2_ok=0
-          fi
-          if [[ "$part1_ok" == "1" && "$part2_ok" == "1" ]]; then
-            echo "Both parts passed."
-          else
-            echo "At least one part failed all 3 attempts — either a real test" \
-                 "regression, or an exceptionally unlucky run of the known" \
-                 "upstream emulator flake (docs/ci_investigation_notes.md)." \
-                 "Check the attempt logs above: a genuine test failure shows" \
-                 "'EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK'; the known flake" \
-                 "shows every assertion passing followed by 'adb: device" \
-                 "offline' / 'Failed to find ColorBuffer' / 'No supported" \
-                 "devices connected'."
-            exit 1
-          fi
+          echo "SELECTED FLOWS: no attempt passed (a real regression, a deterministic failure that skipped the last attempt, or the known upstream emulator flake — see the attempt logs)."
+          exit 1
 
-      # P2: SAVE only outside pull_request (push to dev/main, dispatch, nightly):
-      # a PR run can never poison what other runs restore. Skipped on an exact hit.
+  # FULL suite (entry=parts): 8 generated shards of all_tests.dart, ~74 testWidgets each.
+  # why: docs/ci/emulator-integration.md#integration-shards
+  integration-shard:
+    name: Integration shard ${{ matrix.shard }}/8 (emulator)
+    runs-on: ubuntu-latest
+    needs: [plan, integration]
+    if: needs.integration.outputs.entry == 'parts'
+    # setup + pre-build (<= 15) + 3 x (boot <= 5 + 1500 s bound); a ceiling, not a budget.
+    # why: docs/ci/emulator-integration.md#integration-timeout
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      # All 8 legs in ONE wave (two waves could outrun the 205-min ci-gate wait);
+      # 8 + the PR's other jobs stay within the account-wide 20-job limit.
+      max-parallel: 8
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    env:
+      IT_SHARD: ${{ matrix.shard }}
+      IT_SHARDS: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter, pub get, codegen
+        uses: ./.github/actions/flutter-setup
+
+      # P2: RESTORE only on pull_request; shard 1 saves outside pull_request.
+      # why: docs/ci/emulator-integration.md#gradle-cache
+      - name: Restore Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-it-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-it-${{ runner.os }}-
+
+      # PR-tree generator (tool/ci/** forces FULL, so in selective mode it equals base); fail closed.
+      # why: docs/ci/emulator-integration.md#integration-shards
+      - name: Generate the shard entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf integration_test/ci_shard_tests.dart
+          pk="$RUNNER_TEMP/empty_package_config.json"
+          echo '{"configVersion":2,"packages":[]}' >"$pk"
+          dart --packages="$pk" tool/ci/affected_tests/bin/gen_integration_entry.dart \
+            --shard "$IT_SHARD/$IT_SHARDS" --repo "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/shard.out"
+          [ "$(sed -n 's/^entry=//p' "$RUNNER_TEMP/shard.out")" = shard ]
+          {
+            echo "### Integration shard $IT_SHARD/$IT_SHARDS"
+            sed -n 's/^\(count\|tests\)=/\1: /p' "$RUNNER_TEMP/shard.out"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Enable KVM
+        uses: ./.github/actions/enable-kvm
+
+      # why: docs/ci/patrol.md#sdk-preinstall
+      - name: Install Android SDK platform
+        uses: ./.github/actions/android-sdk-platform
+
+      # The debug APK, built ONCE outside the attempt bound (no cold build inside it);
+      # each attempt is a warm incremental build (~1-2 min, inside the bound).
+      # why: docs/ci/emulator-integration.md#prebuild-apk
+      - name: Pre-build the integration APK — shard
+        id: it-shard-build
+        timeout-minutes: 15
+        shell: bash
+        run: bash tool/ci/prebuild_it_apk.sh integration_test/ci_shard_tests.dart
+
+      # Fresh boot per attempt; JSON verdict + deterministic-skip in run_it_attempt.sh.
+      # why: docs/ci/emulator-integration.md#integration-shards
+      - name: Run integration tests — shard (attempt 1)
+        id: it-shard-attempt-1
+        if: success()
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
+          emulator-boot-timeout: 300
+          ram-size: 4096M
+          heap-size: 512M
+          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # why: docs/ci/patrol.md#patrol-gpu-guest
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          script: |
+            bash tool/ci/run_it_attempt.sh integration_test/ci_shard_tests.dart shard.log 1500 "$RUNNER_TEMP/it-shard" "SHARD $IT_SHARD"
+
+      - name: Run integration tests — shard (attempt 2)
+        id: it-shard-attempt-2
+        if: steps.it-shard-attempt-1.outcome == 'failure'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
+          emulator-boot-timeout: 300
+          ram-size: 4096M
+          heap-size: 512M
+          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # why: docs/ci/patrol.md#patrol-gpu-guest
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          script: |
+            bash tool/ci/run_it_attempt.sh integration_test/ci_shard_tests.dart shard.log 1500 "$RUNNER_TEMP/it-shard" "SHARD $IT_SHARD"
+
+      - name: Run integration tests — shard (attempt 3)
+        id: it-shard-attempt-3
+        if: steps.it-shard-attempt-1.outcome == 'failure' && steps.it-shard-attempt-2.outcome == 'failure' && steps.it-shard-attempt-2.outputs.deterministic != 'true'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
+          emulator-boot-timeout: 300
+          ram-size: 4096M
+          heap-size: 512M
+          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # why: docs/ci/patrol.md#patrol-gpu-guest
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          script: |
+            bash tool/ci/run_it_attempt.sh integration_test/ci_shard_tests.dart shard.log 1500 "$RUNNER_TEMP/it-shard" "SHARD $IT_SHARD"
+
+      - name: Verify the shard passed on some attempt
+        if: always()
+        env:
+          A1: ${{ steps.it-shard-attempt-1.outcome }}
+          A2: ${{ steps.it-shard-attempt-2.outcome }}
+          A3: ${{ steps.it-shard-attempt-3.outcome }}
+        run: |
+          if [[ "$A1" == "success" || "$A2" == "success" || "$A3" == "success" ]]; then
+            echo "SHARD $IT_SHARD/$IT_SHARDS: passed."
+            exit 0
+          fi
+          echo "SHARD $IT_SHARD/$IT_SHARDS: no attempt passed — a real test regression ('FAILED'; the same failing set twice skips attempt 3)," \
+               "two timeouts in a row (deterministic, skips attempt 3), or the emulator died every time ('CRASHED ... retryable' / missing JSON)." \
+               "See docs/ci/emulator-integration.md#integration-shards."
+          exit 1
+
+      # P2: SAVE only outside pull_request, and from ONE leg (no 8-way save race); also
+      # on a red shard: the build ran (attempt 1 not skipped), so the cache is warm.
+      # !cancelled(), not always(): a cancelled run never spends time on a save.
       - name: Save Gradle cache
-        if: success() && github.event_name != 'pull_request' && steps.gradle-cache.outputs.cache-hit != 'true'
+        if: ${{ !cancelled() && steps.it-shard-attempt-1.outcome != 'skipped' && github.event_name != 'pull_request' && steps.gradle-cache.outputs.cache-hit != 'true' && matrix.shard == 1 }}
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          # N1: the key computed by the restore step, not a second hashFiles() after
-          # the build (an input that changed meanwhile would save under a different
-          # key than the one restored: key drift).
+          # N1: the restore step's own key, never a second hashFiles() (key drift).
           key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
+
+  # Integration verdict (fan-in): selected flows, or EVERY shard. ci-gate needs it.
+  # why: docs/ci/emulator-integration.md#integration-verdict
+  integration-verify:
+    name: Integration tests (emulator)
+    runs-on: ubuntu-latest
+    needs: [plan, integration, integration-shard]
+    if: ${{ !cancelled() && needs.integration.result != 'skipped' }}
+    timeout-minutes: 5
+    steps:
+      - name: Verify the integration verdict
+        shell: bash
+        env:
+          INTEGRATION: ${{ needs.integration.result }}
+          ENTRY: ${{ needs.integration.outputs.entry }}
+          SHARDS: ${{ needs.integration-shard.result }}
+        run: |
+          if [ "$INTEGRATION" != "success" ]; then
+            echo "integration (entry + selected flows) job: $INTEGRATION"; exit 1
+          fi
+          case "$ENTRY" in
+            selected) echo "SELECTED FLOWS: passed." ;;
+            parts)
+              if [ "$SHARDS" != "success" ]; then
+                echo "FULL suite: integration-shard = '$SHARDS' (every one of the 8 legs must pass; skipped is RED)"; exit 1
+              fi
+              echo "FULL suite: all 8 shards passed." ;;
+            *) echo "unknown integration entry '$ENTRY' (fail closed)"; exit 1 ;;
+          esac
 
   # Profile-mode drive (2026-06-18, finding 6): logout flow with asserts stripped.
   # Gated (dispatch / run-patrol). No screenshots: FLAG_SECURE makes them black.
@@ -1679,8 +1772,8 @@ jobs:
        (github.event_name == 'pull_request' &&
         contains(github.event.pull_request.labels.*.name, 'run-patrol')))
     # Without this the job inherits GitHub's 6-HOUR default (it boots an
-    # emulator like `integration`). Set between patrol (45) and integration (180):
-    # it drives ONE profile-mode test file, not the six-invocation suite.
+    # emulator like `integration`). Set between patrol (45) and a shard (120):
+    # it drives ONE profile-mode test file, not a sharded suite leg.
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -1962,9 +2055,9 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [plan, gates-fast, gates, selector-tests, unit, tz-sweeps, goldens, apk, coverage, test, tests-ran, integration, integration-profile, patrol]
+    needs: [plan, gates-fast, gates, selector-tests, unit, tz-sweeps, goldens, apk, coverage, test, tests-ran, integration, integration-shard, integration-verify, integration-profile, patrol]
     runs-on: ubuntu-latest
-    # 205 min: a noop mirror waits for the real run (integration 180 + queue).
+    # 205 min: a noop mirror waits for the real run (integration entry + a 120-min shard + queue).
     # why: docs/ci/README.md#ci-gate-timeout
     timeout-minutes: 205
     permissions:
@@ -2009,7 +2102,7 @@ jobs:
           done
           [ -n "$id" ] || { echo "::error::no real pr-validate run found for PR #$PR_NUMBER @ $HEAD_SHA to mirror after ~3 min (fail closed)"; exit 1; }
           echo "Mirroring run $id"
-          # 12000 s = 200 min > the slowest real job (integration, 180 min) plus
+          # 12000 s = 200 min > the slowest real path (integration entry + shard, ~140 min) plus
           # queue time (job timeouts start counting only once a runner is assigned).
           # Exit status of watch is advisory; the verdict is re-read below.
           timeout --signal=KILL 12000 gh run watch "$id" --interval 60 --exit-status >/dev/null || echo "::warning::watch of run $id ended non-zero or timed out"

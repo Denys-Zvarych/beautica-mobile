@@ -91,7 +91,7 @@ void main() {
       final s = pl.step(
         'integration',
         'Choose integration entry (selected '
-            'flows or the two parts)',
+            'flows or the full suite)',
       );
       expect(s['if'], "needs.plan.outputs.mode == 'selective'");
     });
@@ -99,7 +99,7 @@ void main() {
     test(
       'selective: the REAL Choose step writes the entry for the one flow',
       () {
-        final out = pl.select({'integration_test/x_test.dart': '// c2\n'});
+        final out = pl.select({'integration_test/x_test.dart': _flow('c2')});
         final r = pl.chooseEntry(
           out,
           partFlows: [
@@ -142,6 +142,59 @@ void main() {
       expect(File(r.entryPath).existsSync(), isFalse);
     });
 
+    // 2026-11-06: the entry flows on as the `integration` job output; the
+    // `integration-shard` matrix runs iff it is `parts`.
+    group('entry -> Publish integration entry -> integration-shard if', () {
+      String publish(String mode, String? entry) {
+        final o = File(p.join(pl.ws, 'publish_out'))..writeAsStringSync('');
+        final r = pl.runStep(
+          'integration',
+          'Publish integration entry',
+          env: {'MODE': mode, 'ENTRY': entry ?? '', 'GITHUB_OUTPUT': o.path},
+          cwd: pl.ws,
+        );
+        expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+        return o.readAsStringSync().trim().replaceFirst('entry=', '');
+      }
+
+      bool shardsRun(String jobEntry) {
+        expect(
+          (jobs['integration-shard'] as YamlMap)['if'],
+          "needs.integration.outputs.entry == 'parts'",
+        );
+        return jobEntry == 'parts';
+      }
+
+      final twoParts = [
+        ['x', for (var i = 0; i < 9; i++) 'p1_$i'],
+        [for (var i = 0; i < 10; i++) 'p2_$i'],
+      ];
+
+      test('selected (REAL Choose step) -> entry=selected -> no shards', () {
+        final out = pl.select({'integration_test/x_test.dart': _flow('pub1')});
+        final r = pl.chooseEntry(out, partFlows: twoParts);
+        expect(r.outputs['entry'], 'selected', reason: r.log);
+        expect(shardsRun(publish('selective', r.outputs['entry'])), isFalse);
+      });
+
+      test('D3 fallback (REAL Choose step) -> entry=parts -> shards', () {
+        final out = pl.select({'integration_test/x_test.dart': '// pub2\n'});
+        final r = pl.chooseEntry(
+          out,
+          partFlows: [
+            ['x'],
+            ['y', 'z'],
+          ],
+        );
+        expect(r.outputs['entry'], 'parts', reason: r.log);
+        expect(shardsRun(publish('selective', r.outputs['entry'])), isTrue);
+      });
+
+      test('FULL (Choose step skipped) -> entry=parts -> shards', () {
+        expect(shardsRun(publish('full', null)), isTrue);
+      });
+    });
+
     group('audit cycle 1: Choose step against hostile / broken generators', () {
       final parts = [
         ['x', for (var i = 0; i < 9; i++) 'p1_$i'],
@@ -149,7 +202,7 @@ void main() {
       ];
       var n = 0;
       Map<String, String> one() =>
-          pl.select({'integration_test/x_test.dart': '// audit ${n++}\n'});
+          pl.select({'integration_test/x_test.dart': _flow('audit ${n++}')});
 
       String fake(String body) =>
           "import 'dart:io';\n"
@@ -171,6 +224,7 @@ void main() {
           );
           expect(r.outputs['entry'], 'parts', reason: r.log);
           expect(r.outputs['bound'], '1500');
+          expect(r.outputs['tests'], '0');
           expect(File(r.entryPath).existsSync(), isFalse);
         },
       );
@@ -191,9 +245,14 @@ void main() {
           "  print('entry=selected');",
           "  print('entry=selected'); print('count=abc');",
           "  print('entry=selected'); print('count=0');",
-          "  print('entry=selected'); print('count=41');",
-          "  print('entry=selected'); print('count=2'); print('entry=parts');",
-          "  print('entry=parts'); print('count=2');",
+          "  print('entry=selected'); print('count=20'); print('tests=20');",
+          "  print('entry=selected'); print('count=2');",
+          "  print('entry=selected'); print('count=2'); print('tests=abc');",
+          "  print('entry=selected'); print('count=2'); print('tests=0');",
+          "  print('entry=selected'); print('count=2'); print('tests=75');",
+          "  print('entry=selected'); print('count=2'); print('tests=2'); "
+              "print('entry=parts');",
+          "  print('entry=parts'); print('count=2'); print('tests=2');",
         ]) {
           final r = pl.chooseEntry(
             one(),
@@ -205,30 +264,61 @@ void main() {
         }
       });
 
-      test('P3: bound = clamp(420 + 45 * count, 600, 1500)', () {
+      test('P3 (perf cycle 3 P2): bound = clamp(480 + 20 * tests, 600, '
+          '1500), driven by tests=, not count=', () {
         const want = {
           1: '600',
-          3: '600',
-          4: '600',
-          5: '645',
-          10: '870',
-          24: '1500',
-          25: '1500',
-          40: '1500',
+          5: '600',
+          6: '600',
+          7: '620',
+          40: '1280',
+          50: '1480',
+          51: '1500',
+          66: '1500',
+          74: '1500',
         };
-        want.forEach((count, bound) {
+        want.forEach((tests, bound) {
           final r = pl.chooseEntry(
             one(),
             partFlows: parts,
             fakeGenerator: writes(
-              "  print('entry=selected'); print('count=$count');",
+              "  print('entry=selected'); print('count=3'); "
+              "print('tests=$tests');",
             ),
           );
           expect(r.outputs['entry'], 'selected', reason: r.log);
-          expect(r.outputs['count'], '$count');
-          expect(r.outputs['bound'], bound, reason: 'count=$count');
+          expect(r.outputs['count'], '3');
+          expect(r.outputs['tests'], '$tests');
+          expect(r.outputs['bound'], bound, reason: 'tests=$tests');
+          expect(r.summary, contains('$tests testWidgets'));
           expect(r.summary, contains('per-attempt bound ${bound}s'));
         });
+      });
+
+      test('the caps are one shard: count=19 + tests=74 is the largest '
+          'selected run', () {
+        final r = pl.chooseEntry(
+          one(),
+          partFlows: parts,
+          fakeGenerator: writes(
+            "  print('entry=selected'); print('count=19'); print('tests=74');",
+          ),
+        );
+        expect(r.outputs['entry'], 'selected', reason: r.log);
+      });
+
+      test('base without prebuild_it_apk.sh -> parts even if the generator '
+          'says selected', () {
+        final r = pl.chooseEntry(
+          one(),
+          partFlows: parts,
+          withPrebuildScript: false,
+          fakeGenerator: writes(
+            "  print('entry=selected'); print('count=2'); print('tests=2');",
+          ),
+        );
+        expect(r.outputs['entry'], 'parts', reason: r.log);
+        expect(File(r.entryPath).existsSync(), isFalse);
       });
 
       test('base without run_it_attempt.sh -> parts even if the generator '
@@ -237,7 +327,9 @@ void main() {
           one(),
           partFlows: parts,
           withAttemptScript: false,
-          fakeGenerator: writes("  print('entry=selected'); print('count=2');"),
+          fakeGenerator: writes(
+            "  print('entry=selected'); print('count=2'); print('tests=2');",
+          ),
         );
         expect(r.outputs['entry'], 'parts', reason: r.log);
         expect(File(r.entryPath).existsSync(), isFalse);
@@ -304,6 +396,9 @@ void main() {
                 ..writeAsStringSync('{ not json'),
         );
         expect(r.outputs['entry'], 'selected', reason: r.log);
+        // perf cycle 2 P1: the REAL generator's tests= drives the bound.
+        expect(r.outputs['tests'], '1');
+        expect(r.outputs['bound'], '600');
       });
     });
 
@@ -410,3 +505,8 @@ void main() {
     });
   }, skip: skip);
 }
+
+/// A flow source with ONE testWidgets (the generator's `tests=`; the
+/// workflow refuses `selected` with tests=0). [tag] keeps commits distinct.
+String _flow(String tag) =>
+    "// $tag\nvoid main() {\n  testWidgets('t', (t) async {});\n}\n";

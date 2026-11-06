@@ -43,18 +43,17 @@ void main() {
       expect(entryFor(names('a', 6), 10, 10), 'selected');
     });
 
-    test(
-      'real-sized part (57 flows): 40 (70.2%) -> parts, 39 (68.4%) -> selected',
-      () {
-        expect(entryFor(names('a', 40), 57, 73), 'parts');
-        expect(entryFor(names('a', 39), 57, 73), 'selected');
-      },
-    );
+    test('a 27-flow part (under the flow cap): 19 (70.4%) -> parts, 18 (66.7%) '
+        '-> selected', () {
+      expect(entryFor(names('a', 19), 27, 73), 'parts');
+      expect(entryFor(names('a', 18), 27, 73), 'selected');
+    });
 
-    test('P4 cap is independent of D3: 41 of a 200-flow part -> parts, '
-        '40 -> selected', () {
-      expect(entryFor(names('a', 41), 200, 200), 'parts');
-      expect(entryFor(names('a', 40), 200, 200), 'selected');
+    test('P4 flow cap (one shard, ${gen.maxSelectedFlows}) is independent of '
+        'D3: cap + 1 of a 200-flow part -> parts, cap -> selected', () {
+      expect(gen.maxSelectedFlows, 19);
+      expect(entryFor(names('a', gen.maxSelectedFlows + 1), 200, 200), 'parts');
+      expect(entryFor(names('a', gen.maxSelectedFlows), 200, 200), 'selected');
     });
 
     test(
@@ -76,13 +75,76 @@ void main() {
     });
 
     test('flows that live in NEITHER part never count toward D3', () {
-      final extra = names('zz', 20);
+      final extra = names('zz', gen.maxSelectedFlows);
       expect(entryFor(extra, 10, 10), 'selected');
     });
 
     test('a custom threshold moves the boundary (0.5: 2/4 -> parts)', () {
       expect(entryFor(names('a', 2), 4, 4, t: 0.5), 'parts');
       expect(entryFor(names('a', 1), 4, 4, t: 0.5), 'selected');
+    });
+  });
+
+  // mobile-perf cycle 2 P1: the testWidgets of the selection are summed
+  // (`tests`, the workflow's bound input) and capped at one shard.
+  group('P4 test cap + tests=', () {
+    ({String entry, int count, int tests}) withTests(Map<String, int> w) {
+      final d = gen.decide(
+        selectionJson: sel(w.keys),
+        partSources: [partSrc(names('a', 200)), partSrc(names('b', 200))],
+        testsOf: (f) =>
+            w[RegExp(
+              r'integration_test/(\w+)_test\.dart',
+            ).firstMatch(f)!.group(1)!]!,
+      );
+      return (entry: d.entry, count: d.count, tests: d.tests);
+    }
+
+    test('tests = the sum of testWidgets of the selected flows', () {
+      expect(withTests({'x1': 3, 'x2': 5, 'x3': 0}), (
+        entry: 'selected',
+        count: 3,
+        tests: 8,
+      ));
+    });
+
+    test('exactly ${gen.maxSelectedTests} tests -> selected; one more -> '
+        'parts (count/tests reset to 0)', () {
+      expect(gen.maxSelectedTests, 74);
+      expect(withTests({'x1': 70, 'x2': 4}).entry, 'selected');
+      expect(withTests({'x1': 70, 'x2': 5}), (
+        entry: 'parts',
+        count: 0,
+        tests: 0,
+      ));
+    });
+
+    test('the test cap bites with few flows; the flow cap with few tests', () {
+      expect(withTests({'x1': 75}).entry, 'parts');
+      expect(
+        withTests({
+          for (var i = 0; i <= gen.maxSelectedFlows; i++) 'y$i': 1,
+        }).entry,
+        'parts',
+      );
+    });
+
+    test('--force-selected skips the test cap too', () {
+      final d = gen.decide(
+        selectionJson: sel(['x1']),
+        partSources: ['', ''],
+        forceSelected: true,
+        testsOf: (_) => 500,
+      );
+      expect((d.entry, d.tests), ('selected', 500));
+    });
+
+    test('no testsOf -> tests 0 (the workflow then refuses `selected`)', () {
+      final d = gen.decide(
+        selectionJson: sel(['x1']),
+        partSources: [partSrc(names('a', 10)), partSrc(names('b', 10))],
+      );
+      expect((d.entry, d.tests), ('selected', 0));
     });
   });
 
@@ -155,6 +217,7 @@ void main() {
       List<String> extra = const [],
       bool part1 = true,
       bool part2 = true,
+      Map<String, String> flowSrc = const {},
     }) {
       final sf = File(p.join(tmp.path, 'selection.json'))
         ..writeAsStringSync(selJson);
@@ -173,7 +236,9 @@ void main() {
       for (final n in RegExp(
         r'integration_test/(\w+_test\.dart)',
       ).allMatches(selJson).map((m) => m.group(1)!)) {
-        File(p.join(tmp.path, 'integration_test', n)).createSync();
+        File(p.join(tmp.path, 'integration_test', n))
+          ..createSync()
+          ..writeAsStringSync(flowSrc[n] ?? '');
       }
       return Process.runSync(Platform.resolvedExecutable, [
         p.join(pkg, 'bin', 'gen_integration_entry.dart'),
@@ -198,6 +263,39 @@ void main() {
         expect(out(r), 'entry=parts', reason: '${r.stderr}');
         expect(entry().existsSync(), isFalse);
       }
+    });
+
+    String widgets(int n, {int commented = 0}) =>
+        "void main() {\n${"  testWidgets('t', (t) async {});\n" * n}"
+        "${"  // testWidgets('off', (t) async {});\n" * commented}"
+        "  test('plain', () {});\n}\n";
+
+    test('selected prints entry / count / tests (testWidgets of the selected '
+        'files; comments and plain test() not counted)', () {
+      final r = runGen(
+        sel(['a0', 'a1']),
+        flowSrc: {
+          'a0_test.dart': widgets(3, commented: 2),
+          'a1_test.dart': widgets(4),
+        },
+      );
+      expect((r.stdout as String).trim().split('\n'), [
+        'entry=selected',
+        'count=2',
+        'tests=7',
+      ]);
+    });
+
+    test('more than maxSelectedTests testWidgets -> parts, no file', () {
+      final r = runGen(
+        sel(['a0', 'a1']),
+        flowSrc: {
+          'a0_test.dart': widgets(gen.maxSelectedTests),
+          'a1_test.dart': widgets(1),
+        },
+      );
+      expect((r.stdout as String).trim(), 'entry=parts');
+      expect(entry().existsSync(), isFalse);
     });
 
     test('--force-selected ignores unreadable parts and D3', () {
@@ -285,23 +383,41 @@ void main() {
     }
 
     late List<YamlMap> steps;
+    late List<YamlMap> shardSteps;
+    late String shardIf;
     setUpAll(() {
       if (!wfFile.existsSync()) return;
       final jobs =
           (loadYaml(wfFile.readAsStringSync()) as YamlMap)['jobs'] as YamlMap;
-      steps = ((jobs['integration'] as YamlMap)['steps'] as YamlList)
-          .cast<YamlMap>()
-          .toList();
+      List<YamlMap> of(String j) =>
+          ((jobs[j] as YamlMap)['steps'] as YamlList).cast<YamlMap>().toList();
+      steps = of('integration');
+      shardSteps = of('integration-shard');
+      shardIf = (jobs['integration-shard'] as YamlMap)['if'].toString();
     });
 
     /// Which run families execute for [entry] (null = entry step skipped,
-    /// i.e. a non-selective plan), attempt 1 all failing afterwards.
-    Set<String> families(String? entry, {required bool allAttemptsFail}) {
-      final ctx = <String, String>{'steps.entry.outputs.entry': ?entry};
+    /// i.e. a non-selective plan), attempt 1 all failing afterwards. The
+    /// shard family (2026-11-06) is the `integration-shard` matrix, gated on
+    /// the `integration` job's published entry (FULL / not selected = parts).
+    Set<String> families(
+      String? entry, {
+      required bool allAttemptsFail,
+      bool buildOk = true,
+    }) {
+      final ctx = <String, String>{
+        'steps.entry.outputs.entry': ?entry,
+        // The selected pre-build runs iff entry=selected (its own `if:`).
+        if (entry == 'selected')
+          'steps.it-sel-build.outcome': buildOk ? 'success' : 'failure',
+        'needs.integration.outputs.entry': entry == 'selected'
+            ? 'selected'
+            : 'parts',
+      };
       final ran = <String>{};
-      for (final fam in ['it-part1', 'it-part2', 'it-sel']) {
+      void walk(String fam, List<YamlMap> from) {
         for (var k = 1; k <= 3; k++) {
-          final s = steps.singleWhere((s) => s['id'] == '$fam-attempt-$k');
+          final s = from.singleWhere((s) => s['id'] == '$fam-attempt-$k');
           final cond = (s['if'] ?? 'success()').toString();
           if (cond == 'success()' || eval(cond, ctx)) {
             ran.add('$fam-$k');
@@ -313,11 +429,24 @@ void main() {
           }
         }
       }
+
+      walk('it-sel', steps);
+      if (eval(shardIf, ctx)) walk('it-shard', shardSteps);
       return ran;
     }
 
     test('entry=selected -> only the selected family runs', () {
       expect(families('selected', allAttemptsFail: false), {'it-sel-1'});
+    });
+
+    test('entry=selected but the pre-build failed -> no attempt runs (the '
+        'verify step then fails: no attempt passed)', () {
+      expect(
+        families('selected', allAttemptsFail: true, buildOk: false),
+        isEmpty,
+      );
+      final b = steps.singleWhere((s) => s['id'] == 'it-sel-build');
+      expect(b['if'], "steps.entry.outputs.entry == 'selected'");
     });
 
     test(
@@ -331,20 +460,20 @@ void main() {
       },
     );
 
-    for (final e in <String?>['parts', null, '']) {
+    for (final e in <String?>['parts', null]) {
       test(
-        'entry=${e ?? "<step skipped: full mode>"} -> only the part runs',
+        'entry=${e ?? "<step skipped: full mode>"} -> only the shards run',
         () {
           final ran = families(e, allAttemptsFail: false);
-          expect(ran, {'it-part1-1', 'it-part2-1'});
+          expect(ran, {'it-shard-1'});
         },
       );
     }
 
-    test('entry=parts + attempts fail -> part retries run, none selected', () {
+    test('entry=parts + attempts fail -> shard retries run, none selected', () {
       final ran = families('parts', allAttemptsFail: true);
       expect(ran.where((r) => r.startsWith('it-sel')), isEmpty);
-      expect(ran, containsAll(['it-part1-2', 'it-part2-2']));
+      expect(ran, containsAll(['it-shard-2', 'it-shard-3']));
     });
   });
 }

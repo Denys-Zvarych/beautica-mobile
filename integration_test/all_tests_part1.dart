@@ -1,5 +1,9 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 1 of 2 (2026-07-01 split).
 //
+// 2026-11-06: CI no longer runs the parts; the full suite runs as 8 shards
+// generated from all_tests.dart. The parts remain the selective-PR D3
+// reference (gen_integration_entry.dart). History below.
+//
 // WHY THIS FILE EXISTS (supersedes the single all_tests.dart CI entrypoint)
 // --------------------------------------------------------------------
 // `integration_test/all_tests.dart` aggregated every flow into ONE
