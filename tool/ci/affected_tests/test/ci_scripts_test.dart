@@ -1150,8 +1150,7 @@ exec "\$@"
       expect(host, isNot(contains('usb ok')), reason: 'OOM lines only');
       expect(calls.readAsStringSync(), contains('adb logcat -d -t 2000'));
       expect(calls.readAsStringSync(), contains('sudo -n dmesg -T'));
-      final left = Process.runSync('pgrep', ['-f', 'sleep 300']);
-      expect('${left.stdout}'.trim(), isEmpty, reason: 'logcat stream left');
+      expect(_leftSleep300(), isEmpty, reason: 'logcat stream left');
 
       final bad = go(['run', d, '--', 'bash', '-c', 'exit 3']);
       expect(bad.exitCode, 3);
@@ -1211,8 +1210,7 @@ exec "\$@"
       expect(out, contains('emulator process after the run: 4300000'));
       expect(out, contains('min available 120 MiB'));
       expect(calls.readAsStringSync(), contains('adb logcat -d -t 2000'));
-      final left = Process.runSync('pgrep', ['-f', 'sleep 300']);
-      expect('${left.stdout}'.trim(), isEmpty, reason: 'adb left running');
+      expect(_leftSleep300(), isEmpty, reason: 'adb left running');
     });
 
     test('host never fails; bad usage / unknown subcommand exit 2', () {
@@ -1481,6 +1479,16 @@ ProcessResult _gen(List<String> args) {
     p.join(Directory.current.path, 'bin', 'gen_integration_entry.dart'),
     ...args,
   ]);
+}
+
+// Real `sleep 300` processes only: `pgrep -x sleep` matches the process name,
+// so a shell whose command line merely contains "sleep 300" is ignored.
+List<String> _leftSleep300() {
+  final r = Process.runSync('pgrep', ['-a', '-x', 'sleep']);
+  return [
+    for (final l in '${r.stdout}'.split('\n'))
+      if (RegExp(r'^\d+ sleep 300$').hasMatch(l.trim())) l.trim(),
+  ];
 }
 
 String _fixture(String name) => File(

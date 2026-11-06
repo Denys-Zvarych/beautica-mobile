@@ -1681,9 +1681,11 @@ jobs:
           emulator-boot-timeout: 300
           ram-size: 4096M
           heap-size: 512M
-          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
+          # -gpu guest: no guest renderer, so lavapipe+swangle (host CPU). -feature -Vulkan: the emulator died
+          # at fixed tests in 8/8 shards, memory healthy (run 42243856309); hides guest Vulkan -> Impeller GLES.
           # why: docs/ci/patrol.md#patrol-gpu-guest
-          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # why: docs/ci/emulator-integration.md#emulator-device-loss
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           script: |
@@ -1709,9 +1711,11 @@ jobs:
           emulator-boot-timeout: 300
           ram-size: 4096M
           heap-size: 512M
-          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
+          # -gpu guest: no guest renderer, so lavapipe+swangle (host CPU). -feature -Vulkan: the emulator died
+          # at fixed tests in 8/8 shards, memory healthy (run 42243856309); hides guest Vulkan -> Impeller GLES.
           # why: docs/ci/patrol.md#patrol-gpu-guest
-          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # why: docs/ci/emulator-integration.md#emulator-device-loss
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           script: |
@@ -1737,9 +1741,11 @@ jobs:
           emulator-boot-timeout: 300
           ram-size: 4096M
           heap-size: 512M
-          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
+          # -gpu guest: no guest renderer, so lavapipe+swangle (host CPU). -feature -Vulkan: the emulator died
+          # at fixed tests in 8/8 shards, memory healthy (run 42243856309); hides guest Vulkan -> Impeller GLES.
           # why: docs/ci/patrol.md#patrol-gpu-guest
-          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # why: docs/ci/emulator-integration.md#emulator-device-loss
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           script: |

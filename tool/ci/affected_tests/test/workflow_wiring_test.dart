@@ -1467,8 +1467,8 @@ void main() {
     });
 
     test('shard attempts: ONE run_it_attempt.sh call on the generated entry '
-        '(PR tree, 1500 s bound, own state dir, label SHARD K), -gpu guest, '
-        'identical, chained with the deterministic skip', () {
+        '(PR tree, 1500 s bound, own state dir, label SHARD K), -gpu guest '
+        '-feature -Vulkan, identical, chained with the deterministic skip', () {
       final a1 = (shardById('it-shard-attempt-1')['with'] as YamlMap)['script']
           .toString()
           .trim();
@@ -1495,7 +1495,14 @@ void main() {
         expect(
           w['emulator-options'],
           '-no-window -no-snapshot -noaudio -no-boot-anim -camera-back none '
-          '-gpu guest',
+          '-gpu guest -feature -Vulkan',
+          reason: 'attempt $k',
+        );
+        // PR #137 run 42243856309: the emulator process died at fixed tests
+        // with healthy memory; hiding guest Vulkan makes Impeller use GLES.
+        expect(
+          w['emulator-options'].toString(),
+          endsWith(' -feature -Vulkan'),
           reason: 'attempt $k',
         );
         expect(

@@ -416,6 +416,31 @@ Run 42230622003 (2026-11-06, commit 94418332) — what it settled:
   (Patrol runner-up, 10/10) and check logcat.txt; `<gone>` without OOM => a
   host renderer crash, same lever.
 
+Run 42243856309 (2026-11-06, commit f12c49b0) — the emulator process dies:
+
+- **Dead, not stalled.** In all 8 shards and all 21 attempts `it_diag` printed
+  `emulator process after the run: <gone>` and `adb devices: <no emulator
+  listed>`.
+- **Not OOM.** MemAvailable stayed >= 8.2 GB in every attempt.
+- **Deterministic per shard**, identical across 3 attempts: shard 5 always dies
+  after `auth_login_flow INDEPENDENT_MASTER login navigates to /master/profile`,
+  shard 2 after `admin_own_profile_flow`, the other shards on their first test.
+- **The guest sees Vulkan.** The emulator logs `system image does not support
+  guest rendering. Falling back to 'lavapipe' ... vulkan_mode_selected:lavapipe
+  gles_mode_selected:swangle`, so the guest exposes Vulkan backed by host-CPU
+  lavapipe through gfxstream.
+- **Hypothesis (unconfirmed):** Flutter's Impeller picks its Vulkan backend on
+  API 34 when the device exposes Vulkan, and specific screens hit a
+  gfxstream/lavapipe path that kills the emulator process (`<gone>` without
+  OOM = host renderer crash, as predicted above).
+- **Lever:** the three shard attempt steps now pass `-feature -Vulkan`, which
+  hides Vulkan from the guest so Impeller falls back to OpenGLES (swangle).
+  Only the `integration-shard` job carries it; the other emulator jobs are
+  unchanged. Self-test: workflow_wiring_test `shard attempts: ...` pins the
+  full `emulator-options` string. Read the next run as: shards pass => Vulkan
+  path confirmed; still `<gone>` at the same tests => not Vulkan, try
+  `-gpu swangle_indirect`.
+
 <a id="integration-verdict"></a>
 
 ### integration-verify: the verdict (fan-in)
