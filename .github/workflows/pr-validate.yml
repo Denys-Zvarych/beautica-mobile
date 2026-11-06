@@ -1489,7 +1489,7 @@ jobs:
           profile: pixel_6
           # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
           emulator-boot-timeout: 300
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M
@@ -1510,7 +1510,7 @@ jobs:
           profile: pixel_6
           # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
           emulator-boot-timeout: 300
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M
@@ -1531,7 +1531,7 @@ jobs:
           profile: pixel_6
           # Bounded boot (default 600 s) so the job ceiling covers 3 attempts.
           emulator-boot-timeout: 300
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M
@@ -1567,7 +1567,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [plan, integration]
     if: needs.integration.outputs.entry == 'parts'
-    # setup + pre-build (<= 15) + 3 x (boot <= 5 + 1500 s bound); a ceiling, not a budget.
+    # setup + pre-build (<= 15) + 3 x attempt (step cap 35); a ceiling, not a budget.
     # why: docs/ci/emulator-integration.md#integration-timeout
     timeout-minutes: 120
     strategy:
@@ -1664,6 +1664,9 @@ jobs:
       # why: docs/ci/emulator-integration.md#integration-shards
       - name: Run integration tests — shard (attempt 1)
         id: it-shard-attempt-1
+        # Step cap: boot 5 + 1500 s bound (+60 s kill) + bounded diagnostics, so no hang
+        # can eat the job ceiling again. why: docs/ci/emulator-integration.md#emulator-device-loss
+        timeout-minutes: 35
         if: success()
         continue-on-error: true
         env:
@@ -1678,7 +1681,7 @@ jobs:
           emulator-boot-timeout: 300
           ram-size: 4096M
           heap-size: 512M
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
@@ -1689,6 +1692,9 @@ jobs:
 
       - name: Run integration tests — shard (attempt 2)
         id: it-shard-attempt-2
+        # Step cap: boot 5 + 1500 s bound (+60 s kill) + bounded diagnostics, so no hang
+        # can eat the job ceiling again. why: docs/ci/emulator-integration.md#emulator-device-loss
+        timeout-minutes: 35
         if: steps.it-shard-attempt-1.outcome == 'failure'
         continue-on-error: true
         env:
@@ -1703,7 +1709,7 @@ jobs:
           emulator-boot-timeout: 300
           ram-size: 4096M
           heap-size: 512M
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
@@ -1714,6 +1720,9 @@ jobs:
 
       - name: Run integration tests — shard (attempt 3)
         id: it-shard-attempt-3
+        # Step cap: boot 5 + 1500 s bound (+60 s kill) + bounded diagnostics, so no hang
+        # can eat the job ceiling again. why: docs/ci/emulator-integration.md#emulator-device-loss
+        timeout-minutes: 35
         if: steps.it-shard-attempt-1.outcome == 'failure' && steps.it-shard-attempt-2.outcome == 'failure' && steps.it-shard-attempt-2.outputs.deterministic != 'true'
         continue-on-error: true
         env:
@@ -1728,7 +1737,7 @@ jobs:
           emulator-boot-timeout: 300
           ram-size: 4096M
           heap-size: 512M
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
@@ -1940,7 +1949,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_6
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M
@@ -2000,7 +2009,7 @@ jobs:
           target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_6
-          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # -gpu guest: this image has no guest renderer, so it runs lavapipe+swangle (host CPU), not swiftshader.
           # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M

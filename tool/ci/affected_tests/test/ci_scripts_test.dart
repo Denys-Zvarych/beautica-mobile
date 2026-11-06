@@ -1073,10 +1073,14 @@ exec "\$@"
         Process.runSync('chmod', ['+x', f.path]);
       }
 
-      // adb: streaming logcat blocks until killed; -d dumps and exits.
+      // adb: streaming logcat blocks until killed; -d dumps and exits;
+      // devices lists the emulator.
       fake(
         'adb',
         'echo "adb \$*" >>"${calls.path}"\n'
+            'if [ "\$1" = "devices" ]; then '
+            'printf "List of devices attached\\nemulator-5554\\toffline\\n"; '
+            'exit 0; fi\n'
             'if [ "\$2" = "-d" ]; then echo "TAIL-LINE"; exit 0; fi\n'
             'echo "STREAM-LINE"; exec sleep 300',
       );
@@ -1126,6 +1130,10 @@ exec "\$@"
       expect(ok.exitCode, 0, reason: '${ok.stdout}${ok.stderr}');
       expect('${ok.stdout}', contains('CMD-OUT'));
       expect(
+        '${ok.stdout}',
+        contains('adb devices after the run: emulator-5554 offline'),
+      );
+      expect(
         File(p.join(d, 'logcat.txt')).readAsStringSync(),
         contains('STREAM-LINE'),
       );
@@ -1147,6 +1155,64 @@ exec "\$@"
 
       final bad = go(['run', d, '--', 'bash', '-c', 'exit 3']);
       expect(bad.exitCode, 3);
+    });
+
+    // PR #137 run 42230622003: with the emulator offline, `adb logcat -d`
+    // waits for the device forever; all 8 shards hung 52 min after their
+    // verdict. Every post-run adb call must be bounded.
+    test('run returns (rc kept) when adb blocks forever on an offline device; '
+        'prints the device / emulator / memory verdict aid', () {
+      File(p.join(w.path, 'bin', 'adb')).writeAsStringSync(
+        '#!/usr/bin/env bash\n'
+        'echo "adb \$*" >>"${calls.path}"\n'
+        'if [ "\$1" = "devices" ]; then exec sleep 300; fi\n'
+        'echo "- waiting for device -" >&2; exec sleep 300\n',
+      );
+      final d = p.join(w.path, 'diag', 'attempt-2');
+      final sw = Stopwatch()..start();
+      final r = Process.runSync(
+        'timeout',
+        [
+          '--signal=KILL',
+          '60',
+          'bash',
+          script,
+          'run',
+          d,
+          '--',
+          'bash',
+          '-c',
+          'echo CMD-OUT; exit 4',
+        ],
+        workingDirectory: w.path,
+        environment: {
+          'PATH': '${p.join(w.path, 'bin')}:${Platform.environment['PATH']}',
+          'IT_DIAG_INTERVAL': '1',
+          'IT_DIAG_ADB_TIMEOUT': '2',
+        },
+      );
+      sw.stop();
+      expect(
+        r.exitCode,
+        4,
+        reason:
+            'rc kept, not a timeout kill (137): '
+            '${r.stdout}${r.stderr}',
+      );
+      expect(sw.elapsed.inSeconds, lessThan(30));
+      expect(
+        File(p.join(d, 'logcat-tail.txt')).readAsStringSync(),
+        contains('gave up after 2s'),
+      );
+      final out = '${r.stdout}';
+      expect(out, contains('CMD-OUT'));
+      expect(out, contains('=== free -m'), reason: 'host ran after adb');
+      expect(out, contains('adb devices after the run: <no emulator listed>'));
+      expect(out, contains('emulator process after the run: 4300000'));
+      expect(out, contains('min available 120 MiB'));
+      expect(calls.readAsStringSync(), contains('adb logcat -d -t 2000'));
+      final left = Process.runSync('pgrep', ['-f', 'sleep 300']);
+      expect('${left.stdout}'.trim(), isEmpty, reason: 'adb left running');
     });
 
     test('host never fails; bad usage / unknown subcommand exit 2', () {

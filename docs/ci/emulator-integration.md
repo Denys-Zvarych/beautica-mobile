@@ -381,6 +381,41 @@ naming `qemu-system-x86_64` / `java` or `available` near 0 in host-mem.txt
 => memory; neither => look at logcat.txt's last lines for a guest-side
 crash (kernel panic, system_server death) instead.
 
+Run 42230622003 (2026-11-06, commit 94418332) — what it settled:
+
+- **The post-verdict hang.** All 8 shards printed `SHARD K: CRASHED ...
+  retryable` at ~14:15, then hung 52 min until cancelled; none printed
+  host.txt's `=== free -m`, so the hang sat between the attempt's exit and
+  `host`: `adb logcat -d -t 2000`. adb's shell commands (logcat included)
+  loop on "- waiting for device -" while the device is offline, forever.
+  Fixed: every post-run adb call is `timeout`-bounded (`IT_DIAG_ADB_TIMEOUT`,
+  20 s), the background jobs are SIGKILLed, `host` is bounded (60 s), and each
+  shard attempt step has `timeout-minutes: 35` (boot 5 + 1500 s bound + 60 s
+  kill-after + diagnostics; 15 + 3 x 35 <= 120). Self-test: ci_scripts_test
+  `it_diag.sh run returns ... when adb blocks forever` (hangs against the old
+  script).
+- **The daemon memory hypothesis is refuted as the trigger.** The daemons were
+  stopped and Gradle ran daemon-less, and every shard still lost its device.
+- **`-gpu guest` is not in effect.** The api-34 `default` image has no guest
+  renderer: `Falling back to 'lavapipe' mode ... vulkan lavapipe gles
+  swangle`, i.e. host-CPU rendering (Patrol's 10/10 experiment ran the same
+  fallback, so its result still stands as "lavapipe+swangle is stable for
+  Patrol").
+- **Timing.** Each attempt rebuilds `assembleStagingDebug` (73-100 s) with the
+  emulator up; `qemu ... I/O thread spun for 1000 iterations` appears 4-11 s
+  after the APK install (= app launch) in 7 of 8 shards; 5 shards then pass 0
+  tests, 3 pass 1-11. The device stays `offline` (not gone) for the ~80 s the
+  tool keeps running.
+- **Not settled:** emulator alive-but-stalled vs dead, swap, OOM, guest
+  logcat — the hang ate host.txt and the cancel skipped the artifact upload.
+  `it_diag.sh run` now also prints three lines to the step log: `adb devices`
+  state, the emulator process (alive / `<gone>`), and min MemAvailable / max
+  swap used. Read them as: emulator `<gone>` + OOM lines or available near 0
+  => lower `ram-size` (3072M); alive + swap used => same; alive, no swap,
+  available healthy => a guest/render stall, try `-gpu swangle_indirect`
+  (Patrol runner-up, 10/10) and check logcat.txt; `<gone>` without OOM => a
+  host renderer crash, same lever.
+
 <a id="integration-verdict"></a>
 
 ### integration-verify: the verdict (fan-in)

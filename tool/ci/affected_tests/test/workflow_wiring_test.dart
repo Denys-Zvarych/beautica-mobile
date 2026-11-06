@@ -1486,6 +1486,12 @@ void main() {
         // PR #137: per-attempt diagnostics dir, from step-level env.
         expect((st['env'] as YamlMap)['IT_ATTEMPT'], k, reason: 'attempt $k');
         expect(st['continue-on-error'], isTrue);
+        // PR #137 run 42230622003: a post-verdict hang ate the job ceiling.
+        // Step cap >= boot 5 + 1500 s bound + 60 s kill-after, and the
+        // pre-build (15) + 3 caps stay within the 120-min job ceiling.
+        expect(st['timeout-minutes'], 35, reason: 'attempt $k');
+        expect(5 + (1500 + 60) / 60, lessThan(st['timeout-minutes'] as int));
+        expect(15 + 3 * (st['timeout-minutes'] as int), lessThanOrEqualTo(120));
         expect(
           w['emulator-options'],
           '-no-window -no-snapshot -noaudio -no-boot-anim -camera-back none '

@@ -13,16 +13,33 @@
 #       (free -m + top RSS, every IT_DIAG_INTERVAL s, default 15) to
 #       <dir>/host-mem.txt while <command> runs; afterwards dumps
 #       `adb logcat -d -t 2000` to <dir>/logcat-tail.txt and runs `host <dir>`
-#       (the emulator is still up at that point, so its RSS is visible). Exits
+#       (the emulator is still up at that point, so its RSS is visible), then
+#       prints a 3-line verdict aid to the step log (adb device state,
+#       emulator process alive/gone, min MemAvailable / max swap used). Exits
 #       with <command>'s exit code -- the diagnostics never change a verdict.
+#       Every adb call after the command is BOUNDED (IT_DIAG_ADB_TIMEOUT):
+#       `adb logcat` waits for the device forever ("- waiting for device -")
+#       once the emulator is offline, which hung all 8 shards of PR #137 run
+#       42230622003 for 52 min after their verdict.
 #   it_diag.sh host <dir>
 #       Prints (and saves to <dir>/host.txt) free -m, the kernel OOM-killer
 #       lines and the top RSS processes. Never fails.
 #
 # env: ADB (default `adb`), IT_DIAG_INTERVAL (seconds, default 15),
+#      IT_DIAG_ADB_TIMEOUT (seconds per post-run adb call, default 20),
 #      IT_DIAG_ANDROID_DIR (Gradle project for --stop, default `android`).
 set -uo pipefail
 adb_bin="${ADB:-adb}"
+adb_t="${IT_DIAG_ADB_TIMEOUT:-20}"
+[[ "$adb_t" =~ ^[1-9][0-9]*$ ]] || adb_t=20
+# adb with a hard bound: never waits for an offline/vanished device.
+adb_bounded() { timeout --signal=KILL "$adb_t" "$adb_bin" "$@"; }
+# Kill a background job (and its direct children), never wait unbounded.
+stop_bg() {
+  pkill -KILL -P "$1" 2>/dev/null || true
+  kill -KILL "$1" 2>/dev/null || true
+  wait "$1" 2>/dev/null || true
+}
 
 top_rss() { ps -eo rss,comm --sort=-rss 2>/dev/null | head -15 || true; }
 
@@ -57,10 +74,20 @@ case "${1:-}" in
     sampler_pid=$!
     rc=0
     "$@" || rc=$?
-    kill "$sampler_pid" "$logcat_pid" 2>/dev/null || true
-    wait "$sampler_pid" "$logcat_pid" 2>/dev/null || true
-    "$adb_bin" logcat -d -t 2000 >"$dir/logcat-tail.txt" 2>&1 </dev/null || true
-    bash "${BASH_SOURCE[0]}" host "$dir" || true
+    stop_bg "$sampler_pid"
+    stop_bg "$logcat_pid"
+    adb_bounded logcat -d -t 2000 >"$dir/logcat-tail.txt" 2>&1 </dev/null \
+      || echo "it_diag: adb logcat -d gave up after ${adb_t}s (device offline/gone)" >>"$dir/logcat-tail.txt"
+    timeout --signal=KILL 60 bash "${BASH_SOURCE[0]}" host "$dir" || true
+    # Verdict aid: offline + emulator alive = guest stall (host contention);
+    # emulator gone = host-side crash (renderer / OOM killer, see host.txt).
+    dev="$(adb_bounded devices 2>/dev/null | grep -E '^emulator-' | tr '\t' ' ' | paste -sd ';' -)"
+    emu="$(ps -eo pid,stat,etimes,rss,args 2>/dev/null | grep -E '[q]emu-system' | cut -c1-120 | head -1)"
+    echo "it_diag: adb devices after the run: ${dev:-<no emulator listed>}"
+    echo "it_diag: emulator process after the run: ${emu:-<gone>}"
+    awk '$1=="Mem:"{if(min==""||$NF<min)min=$NF} $1=="Swap:"{if($3>max)max=$3}
+      END{printf "it_diag: host during the run: min available %s MiB, max swap used %s MiB\n",(min==""?"?":min),(max==""?"?":max)}' \
+      "$dir/host-mem.txt" 2>/dev/null || true
     exit "$rc"
     ;;
   host)
@@ -70,7 +97,7 @@ case "${1:-}" in
       echo "=== free -m"
       free -m 2>/dev/null || true
       echo "=== kernel OOM killer (dmesg)"
-      sudo -n dmesg -T 2>/dev/null | grep -iE 'oom|killed process' | tail -20 || true
+      timeout --signal=KILL 20 sudo -n dmesg -T 2>/dev/null | grep -iE 'oom|killed process' | tail -20 || true
       echo "=== top RSS (KiB)"
       top_rss
     } 2>&1 | tee "$dir/host.txt" || true
