@@ -16,6 +16,14 @@
 #
 # env: FLUTTER (flutter binary, default `flutter`), GITHUB_OUTPUT (optional).
 #
+# `--no-enable-impeller` (2026-11-06): the emulator's gfxstream host renderer
+# (lavapipe+swangle software fallback, `Failed to find ColorBuffer`) dies on the
+# in-process app-tree teardown/rebuild between tests (integration_test/support/
+# app_harness.dart:758-786) while the app runs Impeller-GLES (manifest
+# `ImpellerBackend=opengles`); Skia avoids it. The flag is hidden-but-honoured
+# in Flutter 3.41.x (deprecated -> stop-gap). Patrol is unaffected (fresh
+# process per test). See docs/ci/emulator-integration.md#emulator-device-loss.
+#
 # Verdict source (audit cycle 4, SEC LOW): the MACHINE-READABLE JSON test protocol
 # that the HOST-side flutter_tools runner writes via `--file-reporter json:<file>`
 # (<state-dir>/events.json) -- NOT the human-readable stdout. A test's print()
@@ -112,7 +120,7 @@ events="$state/events.json"
 rm -f "$events"
 
 started=$SECONDS
-timeout --signal=TERM --kill-after=60 "$bound" "$flutter_bin" test --reporter=github --file-reporter="json:$events" "$entry" >"$log" 2>&1
+timeout --signal=TERM --kill-after=60 "$bound" "$flutter_bin" test --no-enable-impeller --reporter=github --file-reporter="json:$events" "$entry" >"$log" 2>&1
 rc=$?
 elapsed=$((SECONDS - started))
 if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then

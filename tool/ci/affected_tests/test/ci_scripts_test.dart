@@ -156,7 +156,9 @@ exec "\$@"
         'the state dir; NO --dart-define (audit 4: the nonce is gone)', () {
       run(pass);
       final args = File(p.join(w.path, 'flutter_args')).readAsStringSync();
-      expect(args, contains('test --reporter=github '));
+      expect(args, startsWith('test --'), reason: 'subcommand is argv[1]');
+      expect(args, contains('--no-enable-impeller'));
+      expect(args, contains('--reporter=github'));
       expect(
         args,
         contains('--file-reporter=json:${p.join(w.path, 'state')}/events.json'),
@@ -1155,6 +1157,39 @@ exec "\$@"
       final bad = go(['run', d, '--', 'bash', '-c', 'exit 3']);
       expect(bad.exitCode, 3);
     });
+
+    test(
+      'run: emu-crash-*.db dumps are copied into the diag dir; none is fine',
+      () {
+        final crashDir = Directory(p.join(w.path, 'crash'))..createSync();
+        File(p.join(crashDir.path, 'emu-crash-1.db')).writeAsStringSync('DUMP');
+        final env = {
+          'PATH': '${p.join(w.path, 'bin')}:${Platform.environment['PATH']}',
+          'IT_DIAG_INTERVAL': '1',
+          'IT_DIAG_CRASH_GLOB': p.join(crashDir.path, 'emu-crash-*.db'),
+        };
+        final d = p.join(w.path, 'diag', 'crash-1');
+        final r = Process.runSync(
+          'bash',
+          [script, 'run', d, '--', 'true'],
+          workingDirectory: w.path,
+          environment: env,
+        );
+        expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+        expect(File(p.join(d, 'emu-crash-1.db')).readAsStringSync(), 'DUMP');
+
+        File(p.join(crashDir.path, 'emu-crash-1.db')).deleteSync();
+        final d2 = p.join(w.path, 'diag', 'crash-2');
+        final r2 = Process.runSync(
+          'bash',
+          [script, 'run', d2, '--', 'true'],
+          workingDirectory: w.path,
+          environment: env,
+        );
+        expect(r2.exitCode, 0, reason: '${r2.stdout}${r2.stderr}');
+        expect(File(p.join(d2, 'emu-crash-1.db')).existsSync(), isFalse);
+      },
+    );
 
     // PR #137 run 42230622003: with the emulator offline, `adb logcat -d`
     // waits for the device forever; all 8 shards hung 52 min after their

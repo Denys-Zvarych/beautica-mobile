@@ -441,6 +441,22 @@ Run 42243856309 (2026-11-06, commit f12c49b0) — the emulator process dies:
   path confirmed; still `<gone>` at the same tests => not Vulkan, try
   `-gpu swangle_indirect`.
 
+Run 42248335898 (2026-11-06) — `-feature -Vulkan` was a no-op:
+
+- All 8 shards CRASHED again (emulator gone, `Failed to find ColorBuffer`).
+  `-feature -Vulkan` changed nothing because the app already forces Impeller
+  GLES (manifest `ImpellerBackend=opengles`), so Vulkan was never the path.
+- **Fix:** `--no-enable-impeller` on the shard runner
+  (`tool/ci/run_it_attempt.sh`): Skia avoids the gfxstream death on the
+  in-process app-tree teardown/rebuild between tests
+  (`integration_test/support/app_harness.dart:758-786`). The flag is
+  hidden-but-honoured in Flutter 3.41.x (deprecated, stop-gap). Patrol is
+  unaffected (fresh process per test).
+- `it_diag.sh run` now also copies `/tmp/android-runner/emu-crash-*.db` into
+  the diag directory (artifact `it-diag-shard-K`).
+- **Fallback if still failing:** `-gpu swiftshader_indirect` on the shard
+  `emulator-options`.
+
 <a id="integration-verdict"></a>
 
 ### integration-verify: the verdict (fan-in)

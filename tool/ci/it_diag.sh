@@ -14,6 +14,7 @@
 #       <dir>/host-mem.txt while <command> runs; afterwards dumps
 #       `adb logcat -d -t 2000` to <dir>/logcat-tail.txt and runs `host <dir>`
 #       (the emulator is still up at that point, so its RSS is visible), then
+#       copies /tmp/android-runner/emu-crash-*.db (if any) into <dir>, then
 #       prints a 3-line verdict aid to the step log (adb device state,
 #       emulator process alive/gone, min MemAvailable / max swap used). Exits
 #       with <command>'s exit code -- the diagnostics never change a verdict.
@@ -27,7 +28,9 @@
 #
 # env: ADB (default `adb`), IT_DIAG_INTERVAL (seconds, default 15),
 #      IT_DIAG_ADB_TIMEOUT (seconds per post-run adb call, default 20),
-#      IT_DIAG_ANDROID_DIR (Gradle project for --stop, default `android`).
+#      IT_DIAG_ANDROID_DIR (Gradle project for --stop, default `android`),
+#      IT_DIAG_CRASH_GLOB (emulator crash dumps to keep, default
+#      /tmp/android-runner/emu-crash-*.db).
 set -uo pipefail
 adb_bin="${ADB:-adb}"
 adb_t="${IT_DIAG_ADB_TIMEOUT:-20}"
@@ -79,6 +82,12 @@ case "${1:-}" in
     adb_bounded logcat -d -t 2000 >"$dir/logcat-tail.txt" 2>&1 </dev/null \
       || echo "it_diag: adb logcat -d gave up after ${adb_t}s (device offline/gone)" >>"$dir/logcat-tail.txt"
     timeout --signal=KILL 60 bash "${BASH_SOURCE[0]}" host "$dir" || true
+    # Emulator crash dumps (host renderer death): keep them in the uploaded
+    # artifact. Tolerates none; bounded; never changes the verdict.
+    for crash in ${IT_DIAG_CRASH_GLOB:-/tmp/android-runner/emu-crash-*.db}; do
+      [ -f "$crash" ] || continue
+      timeout --signal=KILL 30 cp -- "$crash" "$dir/" 2>/dev/null || true
+    done
     # Verdict aid: offline + emulator alive = guest stall (host contention);
     # emulator gone = host-side crash (renderer / OOM killer, see host.txt).
     dev="$(adb_bounded devices 2>/dev/null | grep -E '^emulator-' | tr '\t' ' ' | paste -sd ';' -)"
