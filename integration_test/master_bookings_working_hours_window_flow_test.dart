@@ -162,6 +162,12 @@ void main() {
       // ═══════════════════════════════════════════════════════════════════
       // PART 1 — TODAY: no published hours → the gray state, unconditionally
       // ═══════════════════════════════════════════════════════════════════
+      // The gray state renders only once the effective-schedule response
+      // lands; on a cold CI emulator `settle` can return before it does.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-bookings-no-schedule')),
+      );
       expect(
         find.byKey(const Key('master-bookings-no-schedule')),
         findsOneWidget,
@@ -199,6 +205,9 @@ void main() {
       );
       expect(find.byType(MasterScheduleScreen), findsOneWidget);
 
+      // The week strip is gated behind the schedule screen's own
+      // effective-schedule + weekly fetch (spinner until both resolve).
+      await AppHarness.pumpUntilFound(tester, find.byType(WeekStripDay));
       final Iterable<WeekStripDay> stripCells = tester.widgetList<WeekStripDay>(
         find.byType(WeekStripDay),
       );
@@ -223,6 +232,12 @@ void main() {
       // the bounded timeline, no gray state
       // ═══════════════════════════════════════════════════════════════════
       await _selectRailDay(tester, bookingDay);
+      // The timeline replaces the gray state only once this day's
+      // effective-schedule response lands — wait for it, not for `settle`.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(BookingsTimelineGrid),
+      );
 
       expect(
         find.byKey(const Key('master-bookings-no-schedule')),

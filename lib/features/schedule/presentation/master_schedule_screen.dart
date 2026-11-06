@@ -1611,7 +1611,15 @@ class _SelectedDayView extends StatelessWidget {
         // a discrete set of bookable starts, not a span). The derived window is
         // already shown as the secondary summary in [_dayPanel] above.
         else if (day.isExplicitTimes)
-          _DiscreteTimesView(times: day.times)
+          // Perf: isolate the chip block's raster layer, matching the interval
+          // grid below.
+          RepaintBoundary(
+            child: _DiscreteTimesView(
+              times: day.times,
+              date: day.date,
+              bookingsQuery: bookingsQuery,
+            ),
+          )
         // Working INTERVAL day → the 42-cell hour grid (unchanged).
         else
           RepaintBoundary(child: _bookedTimeGrid(l10n)),
@@ -1796,12 +1804,27 @@ class _SelectedDayView extends StatelessWidget {
 // secondary context, per the phase doc).
 // ─────────────────────────────────────────────────────────────────────────────
 class _DiscreteTimesView extends StatelessWidget {
-  const _DiscreteTimesView({required this.times});
+  const _DiscreteTimesView({
+    required this.times,
+    this.date,
+    this.bookingsQuery,
+  });
 
   /// The resolved discrete start times — sorted + de-duped by the mapper.
   /// Non-empty by construction (this widget renders only for an EXPLICIT_TIMES
   /// working day; an empty list is a day-off and routes to [_DayOffEmptyState]).
   final List<TimeOfDay> times;
+
+  /// The day the [times] belong to — the Kyiv midnight the booked spans are
+  /// measured from. Required for the booked overlay; `null` (with
+  /// [bookingsQuery] `null`) renders every chip available, exactly as before.
+  final DateTime? date;
+
+  /// The day's bookings family key (same as [_SelectedDayView.bookingsQuery]).
+  /// `null` → no booked overlay. Otherwise a start chip whose minute is covered
+  /// by a CONFIRMED / COMPLETED booking's Kyiv span reads [SlotState.booked],
+  /// the same colour + label as the interval grid's booked cells.
+  final BookingsDayQuery? bookingsQuery;
 
   /// `HH:MM` zero-padded — matches the editor chip / window-label formatting and
   /// the per-chip render key.
@@ -1821,8 +1844,56 @@ class _DiscreteTimesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final BookingsDayQuery? query = bookingsQuery;
+    final DateTime? d = date;
+    if (query == null || d == null) {
+      return _chips(context, const <(int, int)>[]);
+    }
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, Widget? _) {
+        final List<Booking> bookings = ref.watch(
+          bookingsDayProvider(query).select(
+            (AsyncValue<BookingsDayState> s) =>
+                s.value?.items ?? const <Booking>[],
+          ),
+        );
+        return _chips(context, bookedSpans(d, bookings));
+      },
+    );
+  }
+
+  /// The chips to render: [times] plus, for every booked span that covers NONE
+  /// of them (e.g. a 10:00–11:00 booking on a 09:00 / 13:00 / 15:00 day), one
+  /// extra chip at the span's Kyiv start — booked by construction, since the
+  /// span covers its own start minute. Sorted + de-duped. When every span hits
+  /// a chip (or there are no spans) this returns [times] unchanged.
+  static List<TimeOfDay> _displayTimes(
+    List<TimeOfDay> times,
+    List<(int, int)> spans,
+  ) {
+    final Set<int> extraMins = <int>{};
+    for (final (int, int) span in spans) {
+      final List<(int, int)> one = <(int, int)>[span];
+      final bool hitsChip = times.any(
+        (TimeOfDay t) =>
+            overlapsBooking(one, t.hour * 60 + t.minute, cellLen: 1),
+      );
+      if (!hitsChip) extraMins.add(span.$1);
+    }
+    if (extraMins.isEmpty) return times;
+    final List<int> mins = <int>{
+      for (final TimeOfDay t in times) t.hour * 60 + t.minute,
+      ...extraMins,
+    }.toList()..sort();
+    return <TimeOfDay>[
+      for (final int m in mins) TimeOfDay(hour: m ~/ 60, minute: m % 60),
+    ];
+  }
+
+  Widget _chips(BuildContext context, List<(int, int)> spans) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String joined = times.map(_fmt).join(', ');
+    final List<TimeOfDay> shown = _displayTimes(times, spans);
+    final String joined = shown.map(_fmt).join(', ');
     return Padding(
       key: const Key('schedule-discrete-times'),
       padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
@@ -1840,21 +1911,11 @@ class _DiscreteTimesView extends StatelessWidget {
                 spacing: VelvetSpacing.sm,
                 runSpacing: VelvetSpacing.sm,
                 children: <Widget>[
-                  for (final TimeOfDay t in times)
+                  for (final TimeOfDay t in shown)
                     SizedBox(
                       key: Key('schedule-discrete-chip-${_fmt(t)}'),
                       width: _chipWidth,
-                      // Same chip as the interval grid: a working start →
-                      // SlotState.available (green). `onTap: null` keeps it
-                      // read-only, mirroring the grid render.
-                      child: SlotChip(
-                        cell: SlotCell(time: t, state: SlotState.available),
-                        stateLabel: slotCellLabel(
-                          l10n,
-                          SlotCell(time: t, state: SlotState.available),
-                        ),
-                        onTap: null,
-                      ),
+                      child: _chip(l10n, t, spans),
                     ),
                 ],
               ),
@@ -1862,6 +1923,28 @@ class _DiscreteTimesView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  /// Same chip as the interval grid: a working start → [SlotState.available]
+  /// (green); a start covered by a booked span → [SlotState.booked] (via the
+  /// shared [overlapsBooking] with a 1-minute cell, i.e. "span covers this
+  /// start"). `onTap: null` keeps it read-only, mirroring the grid render.
+  static Widget _chip(
+    AppLocalizations l10n,
+    TimeOfDay t,
+    List<(int, int)> spans,
+  ) {
+    final SlotCell cell = SlotCell(
+      time: t,
+      state: overlapsBooking(spans, t.hour * 60 + t.minute, cellLen: 1)
+          ? SlotState.booked
+          : SlotState.available,
+    );
+    return SlotChip(
+      cell: cell,
+      stateLabel: slotCellLabel(l10n, cell),
+      onTap: null,
     );
   }
 }

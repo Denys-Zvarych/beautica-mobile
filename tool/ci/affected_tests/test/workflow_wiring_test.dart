@@ -1301,6 +1301,14 @@ void main() {
         final env = byId('it-sel-attempt-$k')['env'] as YamlMap;
         expect(env['SEL_BOUND'], r'${{ steps.entry.outputs.bound }}');
         expect(byId('it-sel-attempt-$k')['continue-on-error'], isTrue);
+        // -gpu guest: no host-side ColorBuffer crash on app relaunch (mirrors
+        // the Patrol job; why: docs/ci/patrol.md#patrol-gpu-guest).
+        expect(
+          (byId('it-sel-attempt-$k')['with'] as YamlMap)['emulator-options'],
+          '-no-window -no-snapshot -noaudio -no-boot-anim -camera-back none '
+          '-gpu guest',
+          reason: 'attempt $k',
+        );
         expect(
           byId('it-sel-attempt-$k')['if'].toString(),
           startsWith("steps.entry.outputs.entry == 'selected'"),
