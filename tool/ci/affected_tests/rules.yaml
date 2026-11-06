@@ -175,12 +175,12 @@ integration:
   flow_glob: 'integration_test/*_test.dart'
   # Traversal does not follow edges INTO hubs (every flow reaches all of lib/
   # through the app harness); a changed hub selects ALL flows.
+  # test/integration_support/ is deliberately NOT a hub (unit tests of the harness; no flow imports it — the import graph selects any flow that ever does).
   hubs:
     - 'lib/main.dart'
     - 'lib/app.dart'
     - 'lib/routing/**'
     - 'integration_test/support/**'
-    - 'test/integration_support/**'
 
 # Unit tests selected above this share of all unit tests -> mode=full.
 full_threshold: 0.60
