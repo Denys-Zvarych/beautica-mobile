@@ -41,6 +41,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/master_result_card.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -1177,6 +1178,11 @@ void main() {
     'CLIENT selects TWO service chips → both slugs reach BOTH endpoints AND the '
     'result card shows the matched-service line',
     (tester) async {
+      // Tall device-like screen: page 1 auto-loads several master cards, so
+      // the matched-service line must be scoped to one card.
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.reset);
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
 
@@ -1282,7 +1288,15 @@ void main() {
       // The fake echoed matchedServiceNames built from the slugs above; the
       // master row carries NO generic serviceNames, so a present line proves the
       // matched-service path (not a fallback) is what rendered.
-      final Finder matchedLine = find.byKey(const Key('master_card_services'));
+      // Scoped to master-aaa's card: on a tall screen the auto-load renders
+      // page 1 (several cards), each with its own services line.
+      final Finder matchedLine = find.descendant(
+        of: find.ancestor(
+          of: find.byKey(const Key('favorite_master_master-aaa')),
+          matching: find.byType(MasterResultCard),
+        ),
+        matching: find.byKey(const Key('master_card_services')),
+      );
       expect(matchedLine, findsOneWidget);
       expect(
         tester.widget<Text>(matchedLine).data,

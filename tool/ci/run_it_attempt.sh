@@ -109,7 +109,7 @@ last_finished_group() {
     | ($ev | map(select(.type == "testStart") | .test)) as $ts
     | ($ev | map(select(.type == "testDone") | .testID)) as $dn
     | [ $gs[] | select(.parentID as $p | $roots | any(. == $p)) | . as $g
-        | ($ts | map(select(.groupIDs | any(. == $g.id)) | .id)) as $mine
+        | ($ts | map(select((.groupIDs | any(. == $g.id)) and ((.name == "(setUpAll)" or .name == "(tearDownAll)") | not)) | .id)) as $mine
         | select($g.testCount > 0 and ($mine | length) == $g.testCount
                  and ($mine | all(. as $i | $dn | any(. == $i))))
         | .name ] | last // "none"' <"$events" 2>/dev/null || echo none
@@ -185,7 +185,7 @@ report="$(jq -R -s -r --argjson want "$want_json" '
         | ($gs | map(select(.name == $g and (.parentID as $p | $roots | any(. == $p))))) as $m
         | if ($m | length) != 1 then "G\t\($g)\tbad\t\($m | length) top-level group event(s) named it"
           else $m[0] as $grp
-            | ($ts | map(select(.groupIDs | any(. == $grp.id)))) as $mine
+            | ($ts | map(select((.groupIDs | any(. == $grp.id)) and ((.name == "(setUpAll)" or .name == "(tearDownAll)") | not) and (($done[(.id | tostring)].hidden // false) | not)))) as $mine
             | ($mine | map($done[(.id | tostring)]) | map(select(. != null and .result == "success"))) as $okd
             | ($okd | map(select((.skipped // false) == false and (.hidden // false) == false)) | length) as $pass
             | ($okd | map(select((.skipped // false) == true)) | length) as $skip

@@ -23,20 +23,25 @@ Future<void> pullToRefresh(
   // A previous pull's cycle must be idle or this drag is dropped.
   await AppHarness.pumpUntilGone(tester, indicator);
   final int before = getCalls();
-  await tester.drag(
+  // `timedDrag` (multi-event) arms the indicator even when the gesture starts
+  // on a tap target (e.g. the error state's Retry button under device insets);
+  // a single-event `drag` does not.
+  await tester.timedDrag(
     scrollable ?? find.byType(ListView).first,
     const Offset(0, 320),
-    touchSlopY: 0,
+    const Duration(milliseconds: 400),
   );
   await AppHarness.pumpUntilCondition(
     tester,
     () => getCalls() > before || indicator.evaluate().isNotEmpty,
-    description: 'drag did not arm RefreshIndicator ($description)',
+    description:
+        'never armed: no RefreshProgressIndicator and no GET after the drag '
+        '($description)',
   );
   await AppHarness.pumpUntilCondition(
     tester,
     () => getCalls() > before,
-    description: description,
+    description: 'armed but no GET re-issued: $description',
   );
   await AppHarness.pumpUntilGone(tester, indicator);
 }

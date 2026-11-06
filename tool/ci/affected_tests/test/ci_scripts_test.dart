@@ -240,6 +240,79 @@ exec "\$@"
       expect(text(r), contains('2 top-level group'));
     });
 
+    test('hidden (setUpAll)/(tearDownAll) pseudo-tests are not group tests: '
+        'a setUpAll group with all declared tests ok passes', () {
+      final r = run(
+        _Stream(
+          {
+            'master_archive_flow': [_T.ok, _T.ok, _T.ok],
+            'notification_bell_flow': [_T.ok, _T.ok],
+          },
+          pseudoTestFlows: {'master_archive_flow', 'notification_bell_flow'},
+        ).build(),
+      );
+      expect(r.exitCode, 0, reason: text(r));
+    });
+
+    test('a hidden test with ANY name (not only (setUpAll)/(tearDownAll)) is '
+        'not a group test: group with N ok declared tests passes', () {
+      final r = run(
+        _Stream(
+          {
+            'master_archive_flow': [_T.ok, _T.ok, _T.ok],
+            'notification_bell_flow': [_T.ok, _T.ok],
+          },
+          pseudoTestFlows: {'master_archive_flow', 'notification_bell_flow'},
+          pseudoName: 'some hidden helper',
+        ).build(),
+      );
+      expect(r.exitCode, 0, reason: text(r));
+    });
+
+    test('with (setUpAll) present a declared test that never started still '
+        'FAILS (pseudo-tests must not mask the shortfall)', () {
+      final r = run(
+        _Stream(
+          {
+            'master_archive_flow': [_T.ok, _T.missing],
+            'notification_bell_flow': [_T.ok],
+          },
+          pseudoTestFlows: {'master_archive_flow'},
+        ).build(),
+      );
+      expect(r.exitCode, 1, reason: text(r));
+    });
+
+    test('with pseudo-tests an ABSENT (never started) declared test is still '
+        'rejected, and an all-skipped setUpAll group still FAILS', () {
+      final skipped = run(
+        _Stream(
+          {
+            'master_archive_flow': [_T.skip, _T.skip],
+            'notification_bell_flow': [_T.ok],
+          },
+          pseudoTestFlows: {'master_archive_flow'},
+        ).build(),
+      );
+      expect(skipped.exitCode, 1, reason: text(skipped));
+    });
+
+    test('timeout line: last fully finished group ignores pseudo-tests', () {
+      final partial = _Stream(
+        {
+          'master_archive_flow': [_T.ok, _T.ok, _T.ok],
+          'notification_bell_flow': [_T.ok, _T.missing],
+        },
+        done: null,
+        pseudoTestFlows: {'master_archive_flow', 'notification_bell_flow'},
+      ).build();
+      final r = run(partial, rc: 124);
+      expect(
+        text(r),
+        contains('last fully finished group: master_archive_flow.'),
+      );
+    });
+
     test('a group whose only tests are skipped -> FAIL (a flow that did not '
         'really run); skipped tests alongside >= 1 pass are counted', () {
       expect(
@@ -1276,7 +1349,17 @@ final class _Stream {
     this.loadError = false,
     this.extraTopGroup,
     this.cancelledTearDownAll = false,
+    this.pseudoTestFlows = const {},
+    this.pseudoName = '(setUpAll)',
   });
+
+  /// Flows whose group gets hidden `(setUpAll)` / `(tearDownAll)` pseudo-tests
+  /// (hidden=true testDone success, groupIDs = [root, group]) — what a file
+  /// using setUpAll produces when CI wraps its main() in `group(...)`.
+  final Set<String> pseudoTestFlows;
+
+  /// Name of the hidden pseudo-test emitted for [pseudoTestFlows].
+  final String pseudoName;
 
   /// Adds a hidden `(tearDownAll)` pseudo-test cancelled like the rest
   /// (`testDone result=error`, no `error` event), as on a real device loss.
@@ -1385,7 +1468,34 @@ final class _Stream {
       nestedId = ++id;
       ev.add(group(nestedId, gids.values.first, nestedGroup!, 1));
     }
+    void pseudo(String name, int gid) {
+      final tid = ++id;
+      ev.add(
+        e('testStart', {
+          'test': {
+            'id': tid,
+            'name': name,
+            'suiteID': 0,
+            'groupIDs': [rootId, gid],
+            'metadata': _meta,
+            'line': null,
+            'column': null,
+            'url': null,
+          },
+        }),
+      );
+      ev.add(
+        e('testDone', {
+          'testID': tid,
+          'result': 'success',
+          'skipped': false,
+          'hidden': true,
+        }),
+      );
+    }
+
     for (final f in flows.entries) {
+      if (pseudoTestFlows.contains(f.key)) pseudo(pseudoName, gids[f.key]!);
       for (var i = 0; i < f.value.length; i++) {
         final tid = ++id;
         ev.add(
@@ -1471,6 +1581,9 @@ final class _Stream {
           case _T.missing:
             break; // started, never finished: the device died here
         }
+      }
+      if (pseudoTestFlows.contains(f.key)) {
+        pseudo('(tearDownAll)', gids[f.key]!);
       }
     }
     if (cancelledTearDownAll) {

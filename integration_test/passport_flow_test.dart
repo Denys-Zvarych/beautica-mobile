@@ -834,6 +834,17 @@ void main() {
     'card when the endpoint fails, and recovers once the failure clears '
     '(Qase defect #9 step 6)',
     (tester) async {
+      // Device-like insets: the status/nav bars shift the passport list
+      // centre onto the error state's Retry button, where a single-event drag
+      // does not arm the RefreshIndicator (regression pin for
+      // support/pull_to_refresh.dart's timedDrag).
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      tester.view.padding = tester.view.viewPadding = const FakeViewPadding(
+        top: 63,
+        bottom: 126,
+      );
+      addTearDown(tester.view.reset);
       final fb = FakeBackend()
         ..currentRole = UserRole.client
         ..passportBody = _sessionPassportBody(

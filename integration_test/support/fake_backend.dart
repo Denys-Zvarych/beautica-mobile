@@ -438,6 +438,8 @@ final class FakeBackend {
     this.completeBookingDelay,
     this.declineBookingDelay,
     this.requestCategoryDelay,
+    this.bookingDetailDelay,
+    this.patchMeDelay,
     this.forgotPasswordFailureStatusCode,
     this.loginEmailNotVerified = false,
     this.mediaAvatarUploadStatus,
@@ -2970,6 +2972,14 @@ final class FakeBackend {
   final Duration? completeBookingDelay;
   final Duration? declineBookingDelay;
   final Duration? requestCategoryDelay;
+
+  /// Artificial latency for `GET /bookings/booking-1` (the detail fetch) and
+  /// `PATCH /users/me`. Same contract as [deleteServiceDelay] (constructor
+  /// time, `null` = immediate, counters increment at dispatch). Exists to pin
+  /// the "settle returns before the invalidate re-fetch / post-OTP PATCH
+  /// lands" class of flake: `pumpAndSettle` does not wait on a Timer.
+  final Duration? bookingDetailDelay;
+  final Duration? patchMeDelay;
 
   /// Count of `POST /independent-masters/me/services/bulk` (first-time setup)
   /// calls, and the exact `items` list of the last one — lets a flow prove the
@@ -8386,7 +8396,7 @@ final class FakeBackend {
         // The update response is an ApiResponseUserProfileResponse — return the
         // updated profile body so the generated client deserializes cleanly.
         return _ok(_clientProfileBody());
-      }),
+      }, delay: patchMeDelay),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
 
@@ -11857,7 +11867,7 @@ final class FakeBackend {
         // THE detail endpoint — the only surface the real backend ever puts
         // `reviewByClient` on (phase 334).
         return _ok(_seededBookingJson(includeReviewByClient: true));
-      }),
+      }, delay: bookingDetailDelay),
       request: const Request(method: RequestMethods.get),
     );
   }
