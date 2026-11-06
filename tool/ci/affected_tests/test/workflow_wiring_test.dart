@@ -1347,7 +1347,8 @@ void main() {
 
     test('integration-shard: an 8-leg matrix 1..N (N = the generator\'s '
         'integrationShards), fail-fast off, runs only for entry=parts, '
-        '120-min ceiling, IT_SHARD/IT_SHARDS from the matrix', () {
+        '120-min ceiling, IT_SHARD/IT_SHARDS from the matrix on every '
+        'consuming STEP (no job-level env)', () {
       final job = jobs['integration-shard'] as YamlMap;
       final n = generatorShards();
       expect(n, 8);
@@ -1364,9 +1365,34 @@ void main() {
       // other PR jobs stay within the account-wide 20-job limit.
       expect(strat['max-parallel'], n);
       expect(job['timeout-minutes'] as int, lessThan(205 - 60));
-      final env = job['env'] as YamlMap;
-      expect(env['IT_SHARD'], r'${{ matrix.shard }}');
-      expect(env['IT_SHARDS'], n);
+      // PR #137: a job-level env block breaks dst_rail_ci_coverage_test
+      // (the main suite must stay UTC); every reader carries its own env.
+      expect(job.containsKey('env'), isFalse);
+      final readers = [
+        for (final s in shardSteps())
+          if (RegExp(r'\$IT_SHARDS?\b').hasMatch(
+            '${s['run'] ?? ''}${(s['with'] as YamlMap?)?['script'] ?? ''}',
+          ))
+            s,
+      ];
+      expect(
+        [for (final s in readers) s['name']],
+        [
+          'Generate the shard entry',
+          for (var k = 1; k <= 3; k++)
+            'Run integration tests — shard (attempt $k)',
+          'Verify the shard passed on some attempt',
+        ],
+      );
+      for (final s in readers) {
+        final env = s['env'] as YamlMap;
+        final body =
+            '${s['run'] ?? ''}${(s['with'] as YamlMap?)?['script'] ?? ''}';
+        expect(env['IT_SHARD'], r'${{ matrix.shard }}', reason: '${s['name']}');
+        if (body.contains(r'$IT_SHARDS')) {
+          expect(env['IT_SHARDS'], n, reason: '${s['name']}');
+        }
+      }
       expect(job['name'], contains('/$n'));
     });
 
@@ -1448,13 +1474,17 @@ void main() {
           .trim();
       expect(
         a1,
-        'bash tool/ci/run_it_attempt.sh integration_test/ci_shard_tests.dart '
+        'bash tool/ci/it_diag.sh stop-build-daemons\n'
+        'bash tool/ci/it_diag.sh run "\$RUNNER_TEMP/it-diag/attempt-\$IT_ATTEMPT" '
+        '-- bash tool/ci/run_it_attempt.sh integration_test/ci_shard_tests.dart '
         'shard.log 1500 "\$RUNNER_TEMP/it-shard" "SHARD \$IT_SHARD"',
       );
       for (var k = 1; k <= 3; k++) {
         final st = shardById('it-shard-attempt-$k');
         final w = st['with'] as YamlMap;
         expect(w['script'].toString().trim(), a1, reason: 'attempt $k');
+        // PR #137: per-attempt diagnostics dir, from step-level env.
+        expect((st['env'] as YamlMap)['IT_ATTEMPT'], k, reason: 'attempt $k');
         expect(st['continue-on-error'], isTrue);
         expect(
           w['emulator-options'],
@@ -1805,6 +1835,61 @@ void main() {
         ),
       );
       expect(File('../prebuild_it_apk.sh').existsSync(), isTrue);
+    });
+
+    test('PR #137 memory: Gradle runs daemon-less with in-process Kotlin '
+        'BEFORE the pre-build, the daemons are stopped after it, and every '
+        'shard attempt uploads its diagnostics (never a verdict)', () {
+      final sn = [for (final s in shardSteps()) s['name']];
+      final g = shardSteps().singleWhere(
+        (s) => s['name'] == 'Gradle without lingering daemons',
+      );
+      expect(cond(g), isEmpty);
+      final run = g['run'].toString();
+      expect(run, contains('>>~/.gradle/gradle.properties'));
+      expect(run, contains("'org.gradle.daemon=false'"));
+      expect(run, contains("'kotlin.compiler.execution.strategy=in-process'"));
+      final stop = shardSteps().singleWhere(
+        (s) => s['name'] == 'Stop the build daemons',
+      );
+      expect(
+        stop['run'].toString().trim(),
+        'bash tool/ci/it_diag.sh stop-build-daemons',
+      );
+      final build = shardById('it-shard-build')['name'];
+      expect(sn.indexOf(g['name']), lessThan(sn.indexOf(build)));
+      expect(
+        sn.indexOf(g['name']),
+        greaterThan(sn.indexOf('Restore Gradle cache')),
+      );
+      expect(
+        sn.indexOf(stop['name']),
+        allOf(
+          greaterThan(sn.indexOf(build)),
+          lessThan(sn.indexOf('Run integration tests — shard (attempt 1)')),
+        ),
+      );
+      final up = shardSteps().singleWhere(
+        (s) => s['name'] == 'Upload emulator diagnostics — shard',
+      );
+      expect(
+        cond(up),
+        r"${{ !cancelled() && steps.it-shard-attempt-1.outcome != 'skipped' }}",
+      );
+      expect(
+        up['uses'].toString(),
+        matches(RegExp(r'^actions/upload-artifact@[0-9a-f]{40}$')),
+      );
+      expect(up.containsKey('continue-on-error'), isFalse);
+      final w = up['with'] as YamlMap;
+      expect(w['name'], r'it-diag-shard-${{ matrix.shard }}');
+      expect(w['path'], r'${{ runner.temp }}/it-diag/');
+      expect(w['if-no-files-found'], 'ignore');
+      expect(
+        sn.indexOf(up['name']),
+        greaterThan(sn.indexOf('Run integration tests — shard (attempt 3)')),
+      );
+      expect(File('../it_diag.sh').existsSync(), isTrue);
     });
 
     test('S2: a PR-made trusted/ is removed BEFORE the base checkout, and the '

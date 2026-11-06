@@ -121,16 +121,22 @@ ABSOLUTE entry path as `-t` (flutter test passes `path.absolute`),
 `--target-platform android-x64` and the define flutter test adds for
 integration runs (`INTEGRATION_TEST_SHOULD_REPORT_RESULTS_TO_NATIVE=false`).
 Each attempt is then a warm incremental build (Dart recompile + repack,
-~1–2 min) — counted inside the attempt bound — not a cold ~400 s build. It
-is NOT up to date: `flutter build` puts the user define first and `flutter
-test` appends its own last, so `-Pdart-defines` differs and
-`compileFlutterBuildDebug` (the kernel compile) re-runs every attempt. Two tries
+~1 min) — counted inside the attempt bound — not a cold build. It is NOT
+up to date, and exact flag parity is impossible (PR #137 decision): the
+tool's `getBuildInfo` (runner/flutter_command.dart) appends
+`FLUTTER_APP_FLAVOR`, the `FLUTTER_VERSION` family and the feature-flag
+define after every user define and refuses user-set copies, while `flutter
+test` appends its define last, so `-Pdart-defines` always differs and
+`compileFlutterBuildDebug` (the kernel compile) re-runs every attempt.
+Parity would not buy time anyway: on PR #137, attempts 2 and 3 (inputs
+identical to attempt 1's) still spent 52-54 s in `assembleStagingDebug`,
+the same as attempt 1 after the 128 s cold pre-build. So the pre-build
+stays: it keeps the cold part (dependency download, plugin/Kotlin compile,
+resource merge) out of the bound. Two tries
 (a dependency download can fail mid-build; the attempts used to retry the
 build implicitly); a failed pre-build skips every attempt and the verify
 step fails. The selected family runs the base-owned copy from trusted/
 (absent on the base => `parts`); the shards run the PR-tree copy.
-Not yet measured on CI: confirm on the first green full run that the
-attempt log shows no cold `assembleDebug`.
 
 <a id="root-cause-2026-07-07"></a>
 
@@ -222,7 +228,8 @@ part1's crash has zero effect on part2's own fresh attempts.
 
 ram-size/heap-size (2026-07-01): harmless baseline bump, kept even
 though investigation showed memory pressure was never the actual
-cause. cores is left at the action default (2) since GitHub-hosted
+cause of the 2026-07 crash (the 2026-11 shard device loss reopens the
+question: [emulator-device-loss](#emulator-device-loss)). cores is left at the action default (2) since GitHub-hosted
 ubuntu-latest runners have 2 vCPUs.
 
 <a id="external-timeout"></a>
@@ -276,8 +283,8 @@ flakes keep all three attempts. Pass/fail is judged from the host-side JSON
 test protocol (`--file-reporter json:$RUNNER_TEMP/it-sel/events.json`, needs
 jq) -- never from stdout, which a test's print() can forge (audit cycle 4).
 
-Cancelled tests (2026-11-06). When the emulator dies mid-run (host-GPU
-ColorBuffer crash on app relaunch), package:test emits `testDone
+Cancelled tests (2026-11-06). When the emulator dies mid-run (device loss,
+see [emulator-device-loss](#emulator-device-loss)), package:test emits `testDone
 result=error` with NO `error` event for every remaining test, and the
 GitHub reporter still prints those tests with a ✅, so a ✅ in the log can
 mean the test was cancelled. run_it_attempt.sh counts them as cancelled,
@@ -336,6 +343,43 @@ real per-shard / per-test times and reset into that band.
 The script and the generator come from the PR tree, not `trusted/`: FULL mode
 has no trusted checkout, and an edit under `tool/ci/**` forces FULL mode
 (rules.yaml), so in a selective fallback the PR copy equals the base.
+
+<a id="emulator-device-loss"></a>
+
+### integration-shard: mid-run device loss + memory hypothesis (PR #137)
+
+What the data shows (PR #137 full run, all 8 shards x 3 attempts, and the
+same on dev before the JSON verdict made it visible): the emulator dies 1-3
+min into EVERY attempt — `adb: device offline`, then `CRASHED after <test>;
+N tests cancelled` — often before the first test passes, with `-gpu guest`
+on, and NOT at an app relaunch. So it is not the 2026-07 host-GPU ColorBuffer
+crash on relaunch ([root-cause-2026-07-07](#root-cause-2026-07-07)); that
+explanation no longer fits.
+
+Leading hypothesis (unconfirmed): host memory pressure. The pre-build leaves
+the Gradle daemon (`-Xmx3g` + metaspace, android/gradle.properties) and the
+Kotlin daemon (`-Xmx1536m`) alive next to the 4 GB emulator (+ its own host
+overhead) on the runner, and each attempt's `flutter test` build used to
+reuse/re-grow them while the emulator runs. Mitigation, all in the shard job:
+
+- `Gradle without lingering daemons` writes `org.gradle.daemon=false` and
+  `kotlin.compiler.execution.strategy=in-process` to `~/.gradle/gradle.properties`
+  (user home wins over the project file), so the pre-build and every
+  attempt's `flutter test` build run in a single-use JVM that exits with the
+  build (a few seconds of JVM start inside the bound);
+- `tool/ci/it_diag.sh stop-build-daemons` after the pre-build and again at
+  the start of each attempt (`gradlew --stop` + `pkill -f KotlinCompileDaemon`).
+
+Diagnostics, so the next run confirms or refutes it: each attempt runs
+under `it_diag.sh run "$RUNNER_TEMP/it-diag/attempt-$IT_ATTEMPT" -- ...`,
+which streams `adb logcat` (logcat.txt), samples `free -m` + top RSS every
+15 s (host-mem.txt), dumps `adb logcat -d -t 2000` (logcat-tail.txt) and
+records `free -m`, the kernel OOM-killer lines (`sudo dmesg -T`) and top RSS
+(host.txt) at the end. It always exits with the attempt's own code. The
+directory is uploaded as artifact `it-diag-shard-K`. Read it as: OOM lines
+naming `qemu-system-x86_64` / `java` or `available` near 0 in host-mem.txt
+=> memory; neither => look at logcat.txt's last lines for a guest-side
+crash (kernel panic, system_server death) instead.
 
 <a id="integration-verdict"></a>
 

@@ -36,7 +36,7 @@
 # (except the hidden `loading <file>` pseudo-test: an errored load is always a
 # real failure -- it precedes every test, so no device loss can cancel it).
 # package:test emits exactly that for every remaining test when the device/
-# emulator dies (host-GPU ColorBuffer crash on relaunch); the GitHub reporter
+# emulator dies (device loss, docs/ci/emulator-integration.md#emulator-device-loss); the GitHub reporter
 # still prints them with a check mark. Cancelled is NOT a real failure.
 #
 # Pass/fail (selected AND part attempts; the parts' old stdout `EXCEPTION

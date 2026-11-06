@@ -983,7 +983,8 @@ exec "\$@"
   });
 
   // mobile-perf cycle 2 P2: the debug APK is built once, outside the
-  // attempt bound, with exactly the inputs `flutter test <entry>` uses.
+  // attempt bound, with the inputs `flutter test <entry>` uses (exact
+  // `-Pdart-defines` parity is impossible, see the script header).
   group('prebuild_it_apk.sh', () {
     final script = p.join(ci, 'prebuild_it_apk.sh');
     late Directory w;
@@ -1053,6 +1054,109 @@ exec "\$@"
       ).createSync(entry.path);
       expect(run('integration_test/link.dart').exitCode, 1);
       expect(argv.readAsStringSync(), isEmpty);
+    });
+  });
+
+  // PR #137: emulator-leg memory hygiene + diagnostics. Real bash against
+  // stand-in adb / gradlew / pkill / sudo / free / ps.
+  group('it_diag.sh', () {
+    final script = p.join(ci, 'it_diag.sh');
+    late Directory w;
+    late File calls;
+    setUp(() {
+      w = Directory.systemTemp.createTempSync('it_diag_');
+      calls = File(p.join(w.path, 'calls'))..writeAsStringSync('');
+      final bin = Directory(p.join(w.path, 'bin'))..createSync();
+      void fake(String name, String body) {
+        final f = File(p.join(bin.path, name))
+          ..writeAsStringSync('#!/usr/bin/env bash\n$body\n');
+        Process.runSync('chmod', ['+x', f.path]);
+      }
+
+      // adb: streaming logcat blocks until killed; -d dumps and exits.
+      fake(
+        'adb',
+        'echo "adb \$*" >>"${calls.path}"\n'
+            'if [ "\$2" = "-d" ]; then echo "TAIL-LINE"; exit 0; fi\n'
+            'echo "STREAM-LINE"; exec sleep 300',
+      );
+      fake('pkill', 'echo "pkill \$*" >>"${calls.path}"; exit 1');
+      fake('free', 'echo "Mem: 15990 14000 120"');
+      fake('ps', 'echo "4300000 qemu-system-x86"');
+      fake(
+        'sudo',
+        'echo "sudo \$*" >>"${calls.path}"\n'
+            'printf "%s\\n" "[t] usb ok" '
+            '"[t] Out of memory: Killed process 4242 (qemu-system-x86)"',
+      );
+      Directory(p.join(w.path, 'android')).createSync();
+      final gw = File(p.join(w.path, 'android', 'gradlew'))
+        ..writeAsStringSync(
+          '#!/usr/bin/env bash\necho "gradlew \$*" >>"${calls.path}"; exit 1\n',
+        );
+      Process.runSync('chmod', ['+x', gw.path]);
+    });
+    tearDown(() => w.deleteSync(recursive: true));
+
+    ProcessResult go(List<String> args) => Process.runSync(
+      'bash',
+      [script, ...args],
+      workingDirectory: w.path,
+      environment: {
+        'PATH': '${p.join(w.path, 'bin')}:${Platform.environment['PATH']}',
+        'IT_DIAG_INTERVAL': '1',
+      },
+    );
+
+    test('stop-build-daemons: gradlew --stop in android/ + pkill the Kotlin '
+        'daemon; exit 0 even when both fail', () {
+      final r = go(['stop-build-daemons']);
+      expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+      expect(calls.readAsLinesSync(), [
+        'gradlew --stop -q',
+        'pkill -f KotlinCompileDaemon',
+      ]);
+    });
+
+    test('run: the command\'s exit code is kept (0 and 3); logcat stream, '
+        'logcat tail, memory samples and host.txt (OOM lines) are written; '
+        'the streaming logcat is stopped', () {
+      final d = p.join(w.path, 'diag', 'attempt-1');
+      final ok = go(['run', d, '--', 'bash', '-c', 'sleep 2; echo CMD-OUT']);
+      expect(ok.exitCode, 0, reason: '${ok.stdout}${ok.stderr}');
+      expect('${ok.stdout}', contains('CMD-OUT'));
+      expect(
+        File(p.join(d, 'logcat.txt')).readAsStringSync(),
+        contains('STREAM-LINE'),
+      );
+      expect(
+        File(p.join(d, 'logcat-tail.txt')).readAsStringSync(),
+        contains('TAIL-LINE'),
+      );
+      expect(
+        File(p.join(d, 'host-mem.txt')).readAsStringSync(),
+        allOf(contains('Mem: 15990'), contains('qemu-system-x86')),
+      );
+      final host = File(p.join(d, 'host.txt')).readAsStringSync();
+      expect(host, contains('Killed process 4242'));
+      expect(host, isNot(contains('usb ok')), reason: 'OOM lines only');
+      expect(calls.readAsStringSync(), contains('adb logcat -d -t 2000'));
+      expect(calls.readAsStringSync(), contains('sudo -n dmesg -T'));
+      final left = Process.runSync('pgrep', ['-f', 'sleep 300']);
+      expect('${left.stdout}'.trim(), isEmpty, reason: 'logcat stream left');
+
+      final bad = go(['run', d, '--', 'bash', '-c', 'exit 3']);
+      expect(bad.exitCode, 3);
+    });
+
+    test('host never fails; bad usage / unknown subcommand exit 2', () {
+      final d = p.join(w.path, 'h');
+      expect(go(['host', d]).exitCode, 0);
+      expect(File(p.join(d, 'host.txt')).existsSync(), isTrue);
+      expect(go(['run', d, 'bash', '-c', 'true']).exitCode, 2);
+      expect(go(['run', d, '--']).exitCode, 2);
+      expect(go(['nope']).exitCode, 2);
+      expect(go([]).exitCode, 2);
     });
   });
 }
