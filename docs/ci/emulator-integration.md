@@ -59,8 +59,9 @@ attempts x (boot <= 5 min + <= 1500 s bound)); each `integration-shard` leg
 600 s) keeps three boots inside the ceiling. The shard matrix runs
 `max-parallel: 8`, so all 8 legs start in ONE wave and the critical path is
 the entry job + one 120-min shard, under the ci-gate mirror wait (205 min);
-with 6, two waves (2 x 120 min) could exceed it. 8 legs + the PR's other
-jobs stay within the account-wide limit of 20 concurrent jobs.
+with 6, two waves (2 x 120 min) could exceed it. When the account-wide
+limit of 20 concurrent jobs is reached, some legs may briefly queue;
+queueing does not fail a job or count toward its timeout.
 `fail-fast: false`.
 
 <a id="gradle-cache"></a>
@@ -70,8 +71,9 @@ jobs stay within the account-wide limit of 20 concurrent jobs.
 P2: Gradle's downloads/transforms for the app build. RESTORE ONLY on
 pull_request: a PR can never write the cache other runs read (the save
 step runs on push/dispatch/nightly only, from shard leg 1 only so 8 legs
-never race for one key). It saves on a red shard too (`always()` and
-attempt 1 not skipped, i.e. the pre-build succeeded): a failing test does
+never race for one key). It saves on a red shard too (`!cancelled()` and
+attempt 1 not skipped, i.e. the pre-build succeeded; a cancelled run
+never saves): a failing test does
 not make the warm cache any less valid, and gating on green left the cache
 cold for as long as the suite was red. This feeds the APK build,
 which is PR-controlled code anyway, never the selector (400 D8, see the
