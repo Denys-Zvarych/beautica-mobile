@@ -5,6 +5,8 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // Phase 411 (R.4) D4 — see the `sentry { }` block below.
+    id("io.sentry.android.gradle")
 }
 
 // Phase 066 / 408 — Firebase push is opt-in at build time. google-services.json is
@@ -243,6 +245,45 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+}
+
+// Phase 411 (R.4) D4 — Sentry Android Gradle plugin, used ONLY for the R8 mapping:
+// it injects the ProGuard UUID into every minified variant (the runtime needs it to
+// match the mapping) and uploads mapping.txt when SENTRY_AUTH_TOKEN is in the env —
+// only the release-aab job (environment ci-trusted-secrets) has it. Local and PR
+// builds have no token, so they build normally and upload nothing. Org/project are
+// fixed; the token (an organization token) carries the EU region URL, so no `url`.
+// Every other feature is off: sentry_flutter already brings sentry-android (no
+// auto-install), no bytecode tracing, no source bundles, no native symbols, no
+// telemetry, no size/distribution/snapshot uploads.
+sentry {
+    org.set("beautica")
+    projectName.set("beautica-mobile")
+    includeProguardMapping.set(true)
+    autoUploadProguardMapping.set(!System.getenv("SENTRY_AUTH_TOKEN").isNullOrBlank())
+    uploadNativeSymbols.set(false)
+    includeNativeSources.set(false)
+    includeSourceContext.set(false)
+    includeDependenciesReport.set(false)
+    telemetry.set(false)
+    autoInstallation {
+        enabled.set(false)
+    }
+    tracingInstrumentation {
+        enabled.set(false)
+    }
+    sizeAnalysis {
+        enabled.set(false)
+    }
+    distribution {
+        enabled.set(false)
+    }
+    snapshots {
+        enabled.set(false)
+    }
+    runtimeOptimizations {
+        enabled.set(false)
     }
 }
 

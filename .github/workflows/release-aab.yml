@@ -23,6 +23,21 @@ name: Release AAB
 #   * BEAUTICA_REQUIRE_RELEASE_SIGNING=1 arms the Gradle debug-signing guard
 #     (android/app/build.gradle.kts), and verify_release_aab.sh rule 8 checks the cert.
 #
+# Sentry crash symbolication (phase 411, docs/mobile-phases/phase-411-R.4-crash-symbol-upload.md):
+#   * job `build` only (environment ci-trusted-secrets) reads secrets.SENTRY_AUTH_TOKEN (an
+#     organization token; it carries the EU region URL, so no SENTRY_URL) and
+#     secrets.BEAUTICA_SENTRY_DSN_PROD. Both are REQUIRED on every run, dry runs included,
+#     and are only ever passed through env: (never interpolated into run:, never echoed);
+#   * D2: one release string from scripts/check_release_version.sh sentry-release:
+#     SENTRY_RELEASE=beautica-mobile@<X.Y.Z+B>, SENTRY_DIST=<B>. It feeds
+#     --dart-define=BEAUTICA_RELEASE (the app derives dist from `+B`) and sentry_dart_plugin;
+#   * D4: the Sentry Android Gradle plugin uploads the R8 mapping DURING the build because
+#     SENTRY_AUTH_TOKEN is in the build step env (a failed upload fails the build);
+#   * D3/D7: `dart run sentry_dart_plugin` uploads the Dart symbols + obfuscation map AFTER
+#     the symbols artifact is stored (re-upload path). The plugin exits 0 when the symbol-map
+#     upload fails, so the step also requires its "failed=0" summary; any failure fails
+#     the job, so play-upload never ships an unreadable release.
+#
 # Firebase push (D13): secret BEAUTICA_GOOGLE_SERVICES_JSON_BASE64 (ci-trusted-secrets,
 # `base64 -w0 google-services.json`) is REQUIRED on every run, dry runs included. It is
 # decoded into android/app/google-services.json (umask 077) and jq-checked for a
@@ -113,6 +128,10 @@ jobs:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       ARTIFACT_PREFIX: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry-run-' || '' }}
       ARTIFACT_RETENTION: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 7 || 90 }}
+      # 411 step 3: read by sentry_dart_plugin and sentry-cli (the Gradle plugin pins the
+      # same pair in android/app/build.gradle.kts).
+      SENTRY_ORG: beautica
+      SENTRY_PROJECT: beautica-mobile
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -158,6 +177,32 @@ jobs:
           fi
           echo "google-services.json injected (client com.beautica.app present)"
 
+      # 411 D2/D5: fail before the 10-minute build when a Sentry secret is missing. The DSN
+      # is only shape-checked, never printed.
+      - name: Check Sentry secrets + compute release
+        env:
+          BEAUTICA_SENTRY_DSN: ${{ secrets.BEAUTICA_SENTRY_DSN_PROD }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if [ -z "$BEAUTICA_SENTRY_DSN" ]; then
+            echo "::error::secret BEAUTICA_SENTRY_DSN_PROD is not set in environment ci-trusted-secrets"
+            exit 1
+          fi
+          case "$BEAUTICA_SENTRY_DSN" in
+            https://*@*) ;;
+            *)
+              echo "::error::secret BEAUTICA_SENTRY_DSN_PROD is not an https DSN"
+              exit 1 ;;
+          esac
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::error::secret SENTRY_AUTH_TOKEN is not set in environment ci-trusted-secrets"
+            exit 1
+          fi
+          ./scripts/check_release_version.sh sentry-release > "$RUNNER_TEMP/sentry-release.env"
+          cat "$RUNNER_TEMP/sentry-release.env" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/sentry-release.env"
+          rm -f "$RUNNER_TEMP/sentry-release.env"
+
       - name: Decode upload keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.BEAUTICA_KEYSTORE_BASE64 }}
@@ -172,10 +217,12 @@ jobs:
           echo "Upload keystore decoded into \$RUNNER_TEMP"
 
       # D6: the ONE release build. Version comes only from pubspec (no --build-number /
-      # --build-name, § 6.1 V2).
-      # 411: append the Sentry `--dart-define`s (DSN, BEAUTICA_RELEASE) to this command.
+      # --build-name, § 6.1 V2). 411 D1: Sentry DSN + release as dart-defines (never in
+      # config/env/*.json); SENTRY_AUTH_TOKEN arms the Gradle plugin's R8 mapping upload (D4).
       - name: Build AAB (prod, release, obfuscated)
         env:
+          BEAUTICA_SENTRY_DSN: ${{ secrets.BEAUTICA_SENTRY_DSN_PROD }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           BEAUTICA_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
           BEAUTICA_KEYSTORE_PASSWORD: ${{ secrets.BEAUTICA_KEYSTORE_PASSWORD }}
           BEAUTICA_KEY_ALIAS: ${{ secrets.BEAUTICA_KEY_ALIAS }}
@@ -187,9 +234,9 @@ jobs:
           flutter build appbundle --release --flavor prod \
             --dart-define-from-file=config/env/prod.json \
             --obfuscate --split-debug-info=build/symbols \
-            --extra-gen-snapshot-options=--save-obfuscation-map=build/app/obfuscation.map.json
-
-      # 411: Sentry symbol upload step (`dart run sentry_dart_plugin`) goes here.
+            --extra-gen-snapshot-options=--save-obfuscation-map=build/app/obfuscation.map.json \
+            --dart-define=BEAUTICA_SENTRY_DSN="$BEAUTICA_SENTRY_DSN" \
+            --dart-define=BEAUTICA_RELEASE="$SENTRY_RELEASE"
 
       # A dry-run AAB is renamed so the file itself says it must not be uploaded.
       - name: Resolve AAB path (exactly one)
@@ -262,6 +309,32 @@ jobs:
             build/app/outputs/mapping/prodRelease/mapping.txt
           retention-days: ${{ env.ARTIFACT_RETENTION }}
           if-no-files-found: error
+
+      # 411 D3/D7: after the symbols artifact (the re-upload path), before the always()
+      # steps. Blocking: no if:, no continue-on-error. SENTRY_RELEASE / SENTRY_DIST come
+      # from $GITHUB_ENV (step "Check Sentry secrets + compute release").
+      - name: Upload Dart symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/sentry-dart-plugin.log"
+          dart run sentry_dart_plugin 2>&1 | tee "$log"
+          plain="$(sed -E 's/\x1b\[[0-9;]*m//g' "$log")"
+          rm -f "$log"
+          # The plugin's own swallowed-error lines (sentry-cli non-zero exits already fail).
+          if grep -qE '^(Dart symbol map upload failed|Failed to (upload symbols|upload Dart symbol map|create a new release|finalize the new release|download Sentry CLI))' <<< "$plain"; then
+            echo "::error::sentry_dart_plugin reported a failed upload"
+            exit 1
+          fi
+          summary="$(grep -oE 'Dart symbol map upload summary: attempted=[0-9]+, succeeded=[0-9]+, failed=[0-9]+' <<< "$plain" | tail -n 1)" || summary=""
+          re='attempted=([0-9]+), succeeded=([0-9]+), failed=0$'
+          if ! [[ "$summary" =~ $re ]] || [ "${BASH_REMATCH[1]}" -lt 1 ] \
+              || [ "${BASH_REMATCH[1]}" != "${BASH_REMATCH[2]}" ]; then
+            echo "::error::no complete Dart symbol map (obfuscation map) upload for $SENTRY_RELEASE: '${summary:-no summary}'"
+            exit 1
+          fi
+          echo "Dart symbols + obfuscation map uploaded for $SENTRY_RELEASE (dist $SENTRY_DIST)"
 
       - name: Upload verification report
         if: always()
