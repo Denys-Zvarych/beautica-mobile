@@ -129,15 +129,41 @@ void main() {
       await tester.tap(find.byKey(const Key('client-nav-tile-3')));
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.clientBookings);
-      expect(find.byType(MyBookingsScreen), findsOneWidget);
+      await AppHarness.pumpUntilFound(tester, find.byType(MyBookingsScreen));
 
       final ProviderContainer container = ProviderScope.containerOf(
         tester.element(find.byType(MyBookingsScreen)),
       );
       MyBookingsState upcomingState() =>
-          container.read(myBookingsProvider(BookingTab.upcoming)).value!;
+          container.read(myBookingsProvider(BookingTab.upcoming)).value ??
+          (throw TestFailure(
+            'Майбутні state not loaded yet — wait with pumpUntilCondition '
+            'before reading',
+          ));
       MyBookingsState pastState() =>
-          container.read(myBookingsProvider(BookingTab.past)).value!;
+          container.read(myBookingsProvider(BookingTab.past)).value ??
+          (throw TestFailure(
+            'Минулі state not loaded yet — wait with pumpUntilCondition '
+            'before reading',
+          ));
+      int pastItemCount() =>
+          container
+              .read(myBookingsProvider(BookingTab.past))
+              .value
+              ?.items
+              .length ??
+          0;
+
+      // `settle` can return before the (slow-emulator) page 0 lands.
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => container.read(myBookingsProvider(BookingTab.upcoming)).hasValue,
+        description: 'Майбутні page 0 loaded',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('upcoming-1')),
+      );
 
       // ── Bug B — Майбутні page 0 is the 20 SOONEST bookings, in order ─────
       final MyBookingsState upcomingPage0 = upcomingState();
@@ -171,6 +197,15 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey<BookingTab>(BookingTab.past)));
       await AppHarness.settle(tester);
+      // The call-delta below relies on the past provider being lazy (first
+      // built on this tab tap): do NOT "fix" this wait by dropping the delta.
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () =>
+            container.read(myBookingsProvider(BookingTab.past)).hasValue &&
+            fb.getMyBookingsCalls - callsBeforePast >= 1,
+        description: 'Минулі page 0 loaded',
+      );
 
       // Page 0.
       expect(
@@ -194,6 +229,11 @@ void main() {
         const Offset(0, -4000),
       );
       await AppHarness.settle(tester);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => pastItemCount() >= 40,
+        description: 'Минулі page 1 appended (40 items)',
+      );
       expect(
         pastState().items.map((b) => b.id).toList(),
         <String>[for (int i = 1; i <= 40; i++) 'past-$i'],
@@ -207,6 +247,11 @@ void main() {
         const Offset(0, -4000),
       );
       await AppHarness.settle(tester);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => pastItemCount() >= 45,
+        description: 'Минулі page 2 appended (45 items)',
+      );
       final MyBookingsState pastFinal = pastState();
       expect(
         pastFinal.items.map((b) => b.id).toSet(),
