@@ -271,6 +271,13 @@ void main() {
       // which holds no scheduled frame/animation open, so `pumpAndSettle`
       // returns rather than hanging.
       await tester.pumpAndSettle();
+      // The un-favourite runs a real-clock chain (heart pop -> removal delay
+      // -> DELETE); a slow emulator can return from the settle before it ran.
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => deleteDispatchCount >= 1,
+        description: 'DELETE dispatched',
+      );
 
       // ── 3. MID-FLIGHT: gone optimistically, wire call dispatched but NOT
       //        yet answered. ──────────────────────────────────────────────
