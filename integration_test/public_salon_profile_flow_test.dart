@@ -1128,82 +1128,19 @@ void main() {
   testWidgets(
     'a CLIENT on a 12-photo salon sees 8 tiles plus «+4»; tapping it expands '
     'the read-only rail inline to all 12',
+    _twelvePhotoSalonBody,
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // Same flow at a ~411x914 dp phone: the rail is lazy there (only the first
+  // ~5 tiles are built), so every tile must be reached by scrolling the rail.
+  testWidgets(
+    'a CLIENT on a 12-photo salon sees 8 tiles plus «+4» (phone viewport)',
     (tester) async {
-      await mockNetworkImagesFor(() async {
-        final fb = FakeBackend()
-          ..currentRole = UserRole.client
-          ..salonPortfolioPhotoCount = 12;
-        final GoRouter router = await AppHarness.boot(tester, fb);
-
-        await AppHarness.loginAs(tester, fb, UserRole.client);
-        await AppHarness.settle(tester);
-        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
-        await AppHarness.settle(tester);
-        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
-        expect(fb.getSalonPortfolioCalls, greaterThanOrEqualTo(1));
-        expect(fb.lastGetSalonPortfolioId, 'salon-xyz');
-
-        final Finder rail = await _revealPortfolioRail(tester);
-
-        // Collapsed: exactly 8 photo tiles + the «+4» tile, real images.
-        for (int i = 1; i <= 8; i++) {
-          expect(_bigPhoto(i), findsOneWidget, reason: 'photo $i up front');
-        }
-        for (int i = 9; i <= 12; i++) {
-          expect(
-            find.byKey(
-              Key('portfolio-photo-media-big-$i'),
-              skipOffstage: false,
-            ),
-            findsNothing,
-            reason: 'photo $i is behind «+4» until the client taps it',
-          );
-        }
-        expect(_railItemCount(tester, rail), 9, reason: '8 photos + «+4»');
-        final Finder showAll = find.byKey(const Key('portfolio-show-all'));
-        expect(
-          find.descendant(of: showAll, matching: find.text('+4')),
-          findsOneWidget,
-        );
-        // Real images (the fixture host is allow-listed in setUp; an
-        // off-allowlist URL would render the broken-image fallback instead).
-        _expectRealImages(rail, 8);
-        // ...each fetching its OWN photo's wire URL, in order (unwrapped
-        // through the tile's cover decode) — a count alone passes with
-        // swapped or duplicated URLs.
-        expect(renderedImageUrls(tester, within: rail), <String>[
-          for (int i = 1; i <= 8; i++) _bigPhotoUrl(i),
-        ]);
-        _expectReadOnly(rail);
-
-        // Expand inline.
-        await tester.ensureVisible(showAll);
-        await tester.pumpAndSettle();
-        await tester.tap(showAll.hitTestable());
-        await AppHarness.settle(tester);
-
-        expect(showAll, findsNothing, reason: '«+4» goes once expanded');
-        expect(_railItemCount(tester, rail), 12, reason: 'all 12 photos');
-        // The list is lazy — scroll the rail itself to bring the tail in.
-        await tester.scrollUntilVisible(
-          _bigPhoto(12),
-          200,
-          scrollable: find.descendant(
-            of: rail,
-            matching: find.byType(Scrollable),
-          ),
-        );
-        await tester.pumpAndSettle();
-        for (int i = 9; i <= 12; i++) {
-          expect(_bigPhoto(i), findsOneWidget, reason: 'photo $i revealed');
-        }
-        expect(
-          renderedImageUrls(tester, within: _bigPhoto(12)),
-          <String>[_bigPhotoUrl(12)],
-          reason: 'the revealed tail renders its own real image too',
-        );
-        _expectReadOnly(rail);
-      });
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.reset);
+      await _twelvePhotoSalonBody(tester);
     },
     timeout: const Timeout(Duration(seconds: 60)),
   );
@@ -1282,24 +1219,119 @@ int _railItemCount(WidgetTester tester, Finder rail) {
   return ((list.childrenDelegate.estimatedChildCount ?? 0) + 1) ~/ 2;
 }
 
-/// Exactly [n] network images in [rail], and no fallback tile.
-void _expectRealImages(Finder rail, int n) {
-  expect(
-    find.descendant(of: rail, matching: find.byType(Image)),
-    findsNWidgets(n),
-  );
-  expect(
-    find.descendant(
-      of: rail,
-      matching: find.byIcon(Icons.broken_image_outlined),
-    ),
-    findsNothing,
-  );
-}
-
 /// A public rail is READ-ONLY: no add tile, no delete badge, no pending tile.
 void _expectReadOnly(Finder rail) {
   expect(find.byKey(const Key('portfolio-add-tile')), findsNothing);
   expect(_keyedPrefix('portfolio-photo-delete-'), findsNothing);
   expect(_keyedPrefix('portfolio-pending-'), findsNothing);
+}
+
+/// Shared body of the 12-photo salon flow (run at 800x600 and at phone size).
+Future<void> _twelvePhotoSalonBody(WidgetTester tester) async {
+  await mockNetworkImagesFor(() async {
+    final fb = FakeBackend()
+      ..currentRole = UserRole.client
+      ..salonPortfolioPhotoCount = 12;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await AppHarness.settle(tester);
+    unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+    await AppHarness.settle(tester);
+    expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+    expect(fb.getSalonPortfolioCalls, greaterThanOrEqualTo(1));
+    expect(fb.lastGetSalonPortfolioId, 'salon-xyz');
+
+    final Finder rail = await _revealPortfolioRail(tester);
+
+    // Collapsed: exactly 8 photo tiles + the «+4» tile, real images.
+    // The rail is lazy — scroll it (collecting what each step builds) until
+    // «+4» is reached, so the check holds at any viewport width.
+    final Finder showAll = find.byKey(const Key('portfolio-show-all'));
+    final List<String> seen = await _collectRailUrls(
+      tester,
+      rail,
+      until: showAll,
+    );
+    for (int i = 9; i <= 12; i++) {
+      expect(
+        find.byKey(Key('portfolio-photo-media-big-$i'), skipOffstage: false),
+        findsNothing,
+        reason: 'photo $i is behind «+4» until the client taps it',
+      );
+    }
+    expect(_railItemCount(tester, rail), 9, reason: '8 photos + «+4»');
+    expect(
+      find.descendant(of: showAll, matching: find.text('+4')),
+      findsOneWidget,
+    );
+    // Real images (the fixture host is allow-listed in setUp; an
+    // off-allowlist URL would render the broken-image fallback instead).
+    // ...each fetching its OWN photo's wire URL, in order (unwrapped
+    // through the tile's cover decode) — a count alone passes with
+    // swapped or duplicated URLs.
+    expect(seen, <String>[for (int i = 1; i <= 8; i++) _bigPhotoUrl(i)]);
+    _expectReadOnly(rail);
+
+    // Expand inline.
+    await tester.ensureVisible(showAll);
+    await tester.pumpAndSettle();
+    await tester.tap(showAll.hitTestable());
+    await AppHarness.settle(tester);
+
+    expect(showAll, findsNothing, reason: '«+4» goes once expanded');
+    expect(_railItemCount(tester, rail), 12, reason: 'all 12 photos');
+    final List<String> tail = await _collectRailUrls(
+      tester,
+      rail,
+      until: _bigPhoto(12),
+      seed: seen,
+    );
+    for (int i = 9; i <= 12; i++) {
+      expect(tail, contains(_bigPhotoUrl(i)), reason: 'photo $i revealed');
+    }
+    expect(
+      renderedImageUrls(tester, within: _bigPhoto(12)),
+      <String>[_bigPhotoUrl(12)],
+      reason: 'the revealed tail renders its own real image too',
+    );
+    _expectReadOnly(rail);
+  });
+}
+
+/// Scrolls the rail's own horizontal [Scrollable] in steps until [until] is
+/// built, returning every distinct photo URL any step rendered (in first-seen
+/// order, appended to [seed]). Asserts no step shows the broken-image glyph.
+Future<List<String>> _collectRailUrls(
+  WidgetTester tester,
+  Finder rail, {
+  required Finder until,
+  List<String> seed = const <String>[],
+}) async {
+  final List<String> urls = <String>[...seed];
+  final Finder scrollable = find.descendant(
+    of: rail,
+    matching: find.byType(Scrollable),
+  );
+  void collect() {
+    expect(
+      find.descendant(
+        of: rail,
+        matching: find.byIcon(Icons.broken_image_outlined),
+      ),
+      findsNothing,
+    );
+    for (final String u in renderedImageUrls(tester, within: rail)) {
+      if (!urls.contains(u)) urls.add(u);
+    }
+  }
+
+  collect();
+  for (int i = 0; i < 60 && until.evaluate().isEmpty; i++) {
+    await tester.drag(scrollable, const Offset(-120, 0));
+    await tester.pumpAndSettle();
+    collect();
+  }
+  expect(until, findsOneWidget, reason: 'the rail scrolled to the target');
+  return urls;
 }

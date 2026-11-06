@@ -1898,6 +1898,8 @@ void main() {
       expect(w['name'], r'it-diag-shard-${{ matrix.shard }}');
       expect(w['path'], r'${{ runner.temp }}/it-diag/');
       expect(w['if-no-files-found'], 'ignore');
+      // Public repo: emulator DB dumps / logcat must not live the 90d default.
+      expect(w['retention-days'], 7);
       expect(
         sn.indexOf(up['name']),
         greaterThan(sn.indexOf('Run integration tests — shard (attempt 3)')),
@@ -2095,6 +2097,21 @@ void main() {
         txt.indexOf('\n  integration:\n'),
       );
       expect(head, isNot(contains('#   flutter test integration_test/\n')));
+    });
+  }, skip: skip);
+
+  // Public repo: the golden failure-diff artifact must not live the 90d default.
+  group('golden failure-diff artifact retention', () {
+    test('Upload golden failure diffs keeps 7 days and the golden path', () {
+      final g = step('goldens', 'Upload golden failure diffs');
+      expect(
+        g['uses'].toString(),
+        matches(RegExp(r'^actions/upload-artifact@[0-9a-f]{40}$')),
+      );
+      final w = g['with'] as YamlMap;
+      expect(w['path'].toString().trim(), 'test/golden/failures/');
+      expect(w['if-no-files-found'], 'ignore');
+      expect(w['retention-days'], 7);
     });
   }, skip: skip);
 

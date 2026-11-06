@@ -938,6 +938,8 @@ jobs:
           path: |
             test/golden/failures/
           if-no-files-found: ignore
+          # Public repo: golden failure PNGs must not live the 90d default.
+          retention-days: 7
 
       - name: Upload golden event stream
         if: always()

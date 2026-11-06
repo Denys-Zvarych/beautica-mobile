@@ -843,19 +843,35 @@ void main() {
         ),
     ];
 
-    Future<void> pumpWide(WidgetTester tester) async {
-      final List<TimelineBoardColumn> cols = wideColumns();
+    Future<void> pumpWide(
+      WidgetTester tester, {
+      ValueNotifier<List<TimelineBoardColumn>>? roster,
+    }) async {
+      final ValueNotifier<List<TimelineBoardColumn>> source =
+          roster ?? ValueNotifier<List<TimelineBoardColumn>>(wideColumns());
       await tester.pumpApp(
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: BookingsTimelineGrid(
-            bookings: <Booking>[
-              for (final TimelineBoardColumn c in cols) ...c.bookings,
-            ]..sort((Booking a, Booking b) => a.startAt.compareTo(b.startAt)),
-            day: _day,
-            onBookingTap: (_) {},
-            density: TimelineDensity.salon,
-            columns: cols,
+          // The roster is swapped through a notifier so the SAME grid `State`
+          // sees a `didUpdateWidget`, as the real filter apply does.
+          child: ValueListenableBuilder<List<TimelineBoardColumn>>(
+            valueListenable: source,
+            builder:
+                (BuildContext _, List<TimelineBoardColumn> cols, Widget? _) =>
+                    BookingsTimelineGrid(
+                      bookings:
+                          <Booking>[
+                            for (final TimelineBoardColumn c in cols)
+                              ...c.bookings,
+                          ]..sort(
+                            (Booking a, Booking b) =>
+                                a.startAt.compareTo(b.startAt),
+                          ),
+                      day: _day,
+                      onBookingTap: (_) {},
+                      density: TimelineDensity.salon,
+                      columns: cols,
+                    ),
           ),
         ),
         width: 360,
@@ -935,6 +951,53 @@ void main() {
             'turn. The horizontal band has BOTH edges, unlike the vertical '
             'one, because a column placeholder WIDTH is computed rather than '
             'estimated (see _visibleColumnBand).',
+      );
+    });
+
+    testWidgets('a roster that NARROWS after a sideways scroll re-anchors the '
+        'band — the survivors\' cards are built without another scroll', (
+      WidgetTester tester,
+    ) async {
+      final ValueNotifier<List<TimelineBoardColumn>> roster =
+          ValueNotifier<List<TimelineBoardColumn>>(wideColumns());
+      await pumpWide(tester, roster: roster);
+      await tester.dragFrom(const Offset(200, 30), const Offset(-4000, 0));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-c9-9')),
+        findsOneWidget,
+        reason: 'precondition: scrolled to the far end',
+      );
+
+      // Narrow to three masters: the content shrinks, so the `ScrollPosition`
+      // clamps the offset WITHOUT notifying the grid's scroll listener. Column
+      // 5 (deepest, so `_BoardStack` pins it live) is kept so the survivors
+      // under test are not the pinned tie-break. Same widget type at the same
+      // tree position, so this is a `didUpdateWidget`, not a remount.
+      final List<TimelineBoardColumn> all = wideColumns();
+      roster.value = <TimelineBoardColumn>[all[5], all[8], all[9]];
+      // Bounded frame loop instead of a fixed pump count: the re-anchor lands
+      // within a few frames; a stale band never builds the card at all.
+      for (int i = 0; i < 10; i++) {
+        await tester.pump();
+        if (find
+            .byKey(const ValueKey<String>('timeline-card-c9-9'))
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+      }
+
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-c9-9')),
+        findsOneWidget,
+        reason:
+            'column 9 is on screen after the clamp; a stale culling band '
+            '(anchored at the old offset) would leave it a placeholder',
+      );
+      expect(
+        find.byKey(const ValueKey<String>('timeline-column-culled-9')),
+        findsNothing,
       );
     });
   });
