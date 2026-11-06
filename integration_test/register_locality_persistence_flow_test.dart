@@ -54,7 +54,10 @@ void main() {
 
   testWidgets('CLIENT picks a city → register → draft lost (OS-kill) → OTP → '
       'PATCH /users/me carries the picked cityId', (tester) async {
-    final fb = FakeBackend();
+    // 300 ms PATCH latency pins the flake: `pumpAndSettle` does not wait on a
+    // Timer, so without the explicit navigation wait below it returns between
+    // the PATCH and `context.go(done)`.
+    final fb = FakeBackend(patchMeDelay: const Duration(milliseconds: 300));
     final GoRouter router = await AppHarness.boot(tester, fb);
 
     // The live ProviderContainer — used to simulate the OS-kill draft loss.
@@ -141,7 +144,12 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
-    await tester.pumpAndSettle();
+    // The post-OTP PATCH + `context.go(done)` land after settle can return.
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => AppHarness.location(router) == RouteNames.done,
+      description: 'post-OTP nav to /done',
+    );
 
     // ── ASSERT: the post-OTP PATCH /users/me fired with the picked city ─
     expect(fb.verifyEmailCalls, equals(1));

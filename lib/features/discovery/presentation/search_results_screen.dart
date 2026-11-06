@@ -222,6 +222,28 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     // representation right below the badge (see the getter's doc comment).
     final String? appliedQuery = _filters.query;
 
+    // Fill check: `_onScroll` only fires on scroll, so a page that does not fill
+    // the viewport (tall screen, short page) would never request the next one
+    // and the trailing spinner would spin forever. After a page LANDS (the item
+    // count grew — a failed load-more leaves it unchanged, so a persistent
+    // failure cannot become a retry loop), re-run the same threshold test once
+    // the new layout exists. `loadMore`'s own in-flight guard dedupes.
+    ref.listen<AsyncValue<SearchResultsState>>(
+      searchResultsProvider(_filters),
+      (
+        AsyncValue<SearchResultsState>? prev,
+        AsyncValue<SearchResultsState> next,
+      ) {
+        final SearchResultsState? data = next.value;
+        if (data == null || prev?.value?.items.length == data.items.length) {
+          return;
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _onScroll();
+        });
+      },
+    );
+
     return Scaffold(
       key: const Key('client-search-results'),
       backgroundColor: BrandColors.base,

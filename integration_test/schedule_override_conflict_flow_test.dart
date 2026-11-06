@@ -43,7 +43,6 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
-import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 /// The seeded conflicting booking's client name — pulled out to a single
@@ -78,36 +77,20 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   /// Navigates to the master schedule and opens today's day-override sheet.
-  /// Returns `false` (and marks the test skipped) if the day pencil did not
-  /// lay out in this run — the same environment-specific defensive fallback
-  /// `schedule_edit_flow_test.dart` Test 4 uses (the calendar grid can fail to
-  /// size in the headless flutter-tester canvas); the sheet UI itself is
-  /// covered structurally by `day_hours_sheet_test.dart` regardless.
-  Future<bool> openTodaySheet(WidgetTester tester, GoRouter router) async {
+  /// Waits for the day pencil itself: `router.go` only schedules the route, so
+  /// "spinner gone" can be observed before the spinner ever exists (the old
+  /// race that skipped every test in this file).
+  Future<void> openTodaySheet(WidgetTester tester, GoRouter router) async {
     router.go(RouteNames.masterSchedule);
-    // Pump until the screen's own initial-load spinner (the sole
-    // `CircularProgressIndicator` `MasterScheduleScreen` renders — its
-    // `days == null || weekly == null` gate) is gone, instead of guessing a
-    // fixed wait: the indicator drives a repeating `AnimationController`, so
-    // bare `pumpAndSettle()` would spin until its own internal timeout while
-    // it is up, and a hard-coded duration is either too short (flaky under
-    // load) or too long (slow) regardless.
-    await tester.pumpUntilGone(find.byType(CircularProgressIndicator));
-    AppHarness.expectLocation(router, RouteNames.masterSchedule);
-
     final Finder pencil = find.byKey(const Key('schedule-day-pencil'));
-    if (pencil.evaluate().isEmpty) {
-      markTestSkipped(
-        'master schedule did not lay out a day-override pencil in this run; '
-        'the booking-conflict gate is covered structurally by '
-        'day_hours_sheet_test.dart',
-      );
-      return false;
-    }
+    await AppHarness.pumpUntilFound(tester, pencil);
+    // The day pager may still be settling onto today's page when the pencil
+    // first exists (it is then laid out one page-width off-screen).
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.masterSchedule);
     await tester.ensureVisible(pencil);
     await tester.tap(pencil);
     await tester.pumpAndSettle();
-    return true;
   }
 
   testWidgets(
@@ -117,7 +100,7 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
-      if (!await openTodaySheet(tester, router)) return;
+      await openTodaySheet(tester, router);
 
       await tester.tap(find.byKey(const Key('override-mode-dayoff')));
       await tester.pumpAndSettle();
@@ -178,7 +161,7 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
-      if (!await openTodaySheet(tester, router)) return;
+      await openTodaySheet(tester, router);
 
       await tester.tap(find.byKey(const Key('override-mode-dayoff')));
       await tester.pumpAndSettle();
@@ -254,7 +237,7 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
-      if (!await openTodaySheet(tester, router)) return;
+      await openTodaySheet(tester, router);
 
       await tester.tap(find.byKey(const Key('override-mode-dayoff')));
       await tester.pumpAndSettle();

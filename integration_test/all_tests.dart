@@ -1,14 +1,13 @@
 // Phase 17.3 — Aggregating E2E entrypoint (L87 + L88).
 //
-// CI no longer runs this file directly (2026-07-01): at 19 flows, this single
-// long-lived `flutter test` process started crashing the emulator at final
-// teardown (see `all_tests_part1.dart` for the full incident). CI now runs
-// `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same flows
-// (19, 21 after the Beautica OTP task Phase B6 additions, then 22 with the
-// salon-master booking-bug flow), split in two.
-// This file is kept for local convenience (running the FULL suite in one shot
-// against a connected emulator); update all THREE files together when
-// adding/removing a flow.
+// CI does not run this file directly: one process carrying every flow
+// crashed the emulator at teardown (see `all_tests_part1.dart`) and cannot
+// finish inside one bound. Since 2026-11-06 it is the SINGLE SOURCE OF FLOWS
+// for CI: the full suite runs as 8 shards generated from its imports
+// (`gen_integration_entry.dart --shard K/8`, docs/ci/emulator-integration.md
+// #integration-shards). `all_tests_part1/2.dart` only feed the selective D3
+// decision now; still update all THREE files together when adding/removing a
+// flow (the meta test enforces it).
 //
 // WHY THIS FILE EXISTS
 // --------------------

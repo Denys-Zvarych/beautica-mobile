@@ -10,9 +10,20 @@ import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_backend.dart';
+import 'fixture_avatar_bytes.dart';
 
-/// The fixture JPEG every own-avatar E2E "picks".
-const String kAvatarFixturePath = 'integration_test/fixtures/avatar.jpg';
+/// Materialises the embedded fixture JPEG into the system temp dir (once per
+/// run) and returns its ABSOLUTE path. A relative `integration_test/...` path
+/// does not exist on a device (only the host working tree has it).
+String ensureAvatarFixtureFile() {
+  final File f = File(
+    '${Directory.systemTemp.path}/beautica_avatar_fixture.jpg',
+  );
+  if (!f.existsSync() || f.lengthSync() == 0) {
+    f.writeAsBytesSync(decodeAvatarFixtureBytes(), flush: true);
+  }
+  return f.absolute.path;
+}
 
 /// Headless stand-in for the native pick → crop → compress plugins: hands the
 /// fixture JPEG through the REAL `MediaPickService` pipeline.
@@ -28,7 +39,7 @@ final class FixtureAvatarGateway implements ImagePickGateway {
   }) async {
     picks++;
     if (cancelPick) return null;
-    return kAvatarFixturePath;
+    return ensureAvatarFixtureFile();
   }
 
   @override

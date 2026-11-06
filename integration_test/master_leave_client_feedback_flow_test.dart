@@ -63,7 +63,9 @@ void main() {
     'PROVIDER opens a COMPLETED booking, leaves 5★ feedback about the client '
     'with a comment, and a real POST /client-reviews reaches FakeBackend',
     (tester) async {
-      final fb = FakeBackend()
+      // 2 s detail latency pins the stale-CTA flake: `pumpAndSettle`
+      // does not wait on a Timer, so the invalidate re-fetch lands AFTER settle.
+      final fb = FakeBackend(bookingDetailDelay: const Duration(seconds: 2))
         ..currentRole = UserRole.independentMaster
         // Seed the booking as a finished visit — the client-feedback footer
         // CTA is COMPLETED-only (see `_DetailBody._providerActions`) — AND
@@ -76,6 +78,10 @@ void main() {
       // ── 1. Open «Деталі запису» for the seeded COMPLETED booking. ─────────
       unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
       await AppHarness.settle(tester);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
       expect(find.byType(BookingDetailScreen), findsOneWidget);
       expect(
         find.byKey(const Key('booking-detail-leave-client-feedback')),
@@ -152,6 +158,11 @@ void main() {
             'popping back must trigger a REAL re-fetch of the booking detail '
             '— the whole point of the `ref.invalidate(bookingDetailProvider(…))` '
             'fix — not just reuse the stale cached value',
+      );
+      // The invalidate re-fetch lands after settle returns.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
       );
       expect(
         find.byKey(const Key('booking-detail-leave-client-feedback')),

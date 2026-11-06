@@ -530,8 +530,20 @@ void main() {
       ]);
 
       await openArchive(tester, fb);
+      final int callsBeforeFilter = fb.getMyBookingsCalls;
       await applyConfirmedFilter(tester);
-      await AppHarness.settle(tester);
+      // Deliberately NOT `settle`: on the emulator (animations off) it can
+      // return in the lull before the filtered fetch lands. Wait for the
+      // fetch, then for the terminal state (mirrors the sibling test above).
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.getMyBookingsCalls > callsBeforeFilter,
+        description: 'the filtered GET /bookings/me after the filter apply',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-archive-empty')),
+      );
 
       expect(
         find.byKey(const Key('master-archive-empty')),

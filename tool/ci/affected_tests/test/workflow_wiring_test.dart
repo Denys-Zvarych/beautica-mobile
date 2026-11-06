@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 
+import '../bin/gen_integration_entry.dart' as entrygen;
+
 /// Phase 400 audit (P1/P3/S3) wiring pins on `.github/workflows/pr-validate.yml`.
 ///
 /// - D8 (supersedes P1): no cache of any kind feeds the selector. The `plan`
@@ -417,6 +419,7 @@ void main() {
         'goldens',
         'apk',
         'integration',
+        'integration-shard',
         'integration-profile',
         'patrol',
       ]) {
@@ -1260,31 +1263,417 @@ void main() {
       },
     );
 
-    test('full mode: the six part invocations are the pre-401 command lines '
-        '(per-part 1500 s bound, own log, attempts identical)', () {
-      for (final n in ['1', '2']) {
-        final a1 = script('it-part$n-attempt-1');
+    // 2026-11-06 (mobile-perf P0): the two part files could not finish
+    // (~300 tests each at ~13 s/test vs a 1500 s bound, 6 attempts vs 180
+    // min). FULL mode now runs `integrationShards` generated shards of
+    // all_tests.dart as a matrix, each with its own 3 attempts.
+    List<YamlMap> shardSteps() => steps('integration-shard');
+    YamlMap shardById(String id) =>
+        shardSteps().singleWhere((s) => s['id'] == id, orElse: () => YamlMap());
+    String flat(Object? o) =>
+        o.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    int generatorShards() => int.parse(
+      RegExp(r'const integrationShards = (\d+);')
+          .firstMatch(
+            File('bin/gen_integration_entry.dart').readAsStringSync(),
+          )!
+          .group(1)!,
+    );
+
+    test('integration job: no part attempt left; FULL mode builds nothing '
+        'there (setup selective-only, emulator only for selected) and the '
+        'job publishes `entry` (FULL = parts)', () {
+      final ids = [for (final s in steps('integration')) s['id']];
+      expect(ids.where((i) => '$i'.startsWith('it-part')), isEmpty);
+      expect(wfFile.readAsStringSync(), isNot(contains('all_tests_part')));
+      for (final n in [
+        'Set up Java 17',
+        'Set up Flutter, pub get, codegen',
+        'Restore Gradle cache',
+      ]) {
         expect(
-          a1,
-          startsWith(
-            'timeout --signal=TERM --kill-after=60 1500 flutter test '
-            'integration_test/all_tests_part$n.dart > part$n.log 2>&1; ',
-          ),
-        );
-        expect(a1, isNot(contains('ci_selected_tests')));
-        expect(script('it-part$n-attempt-2'), a1);
-        expect(script('it-part$n-attempt-3'), a1);
-        // Only attempt 1 gained an `if:`; 2 and 3 chain off attempt 1's
-        // outcome, so a skipped attempt 1 (selected run) skips them too.
-        expect(
-          byId('it-part$n-attempt-1')['if'],
-          "steps.entry.outputs.entry != 'selected'",
-        );
-        expect(
-          byId('it-part$n-attempt-2')['if'],
-          "steps.it-part$n-attempt-1.outcome == 'failure'",
+          cond(step('integration', n)),
+          "needs.plan.outputs.mode == 'selective'",
+          reason: n,
         );
       }
+      for (final n in ['Enable KVM', 'Install Android SDK platform']) {
+        expect(
+          cond(step('integration', n)),
+          "steps.entry.outputs.entry == 'selected'",
+          reason: n,
+        );
+      }
+      final job = jobs['integration'] as YamlMap;
+      expect(
+        (job['outputs'] as YamlMap)['entry'],
+        r'${{ steps.out.outputs.entry }}',
+      );
+      final out = byId('out');
+      expect(cond(out), isEmpty, reason: 'runs in FULL and selective mode');
+      final env = out['env'] as YamlMap;
+      expect(env['MODE'], r'${{ needs.plan.outputs.mode }}');
+      expect(env['ENTRY'], r'${{ steps.entry.outputs.entry }}');
+      final names = [for (final s in steps('integration')) s['name']];
+      expect(
+        names.indexOf(out['name']),
+        greaterThan(names.indexOf(byId('entry')['name'])),
+      );
+    });
+
+    test('Publish integration entry (real bash): FULL -> parts; selective '
+        'passes selected/parts through; anything else fails closed', () {
+      final run = byId('out')['run'].toString();
+      final d = Directory.systemTemp.createTempSync('it_out_');
+      addTearDown(() => d.deleteSync(recursive: true));
+      (int, String) go(String mode, String entry) {
+        final o = File(p.join(d.path, 'o'))..writeAsStringSync('');
+        final r = Process.runSync(
+          'bash',
+          ['-c', run],
+          environment: {'MODE': mode, 'ENTRY': entry, 'GITHUB_OUTPUT': o.path},
+        );
+        return (r.exitCode, o.readAsStringSync().trim());
+      }
+
+      expect(go('full', ''), (0, 'entry=parts'));
+      expect(go('full', 'selected'), (0, 'entry=parts'));
+      expect(go('selective', 'selected'), (0, 'entry=selected'));
+      expect(go('selective', 'parts'), (0, 'entry=parts'));
+      expect(go('selective', '').$1, isNot(0));
+      expect(go('selective', 'none').$1, isNot(0));
+      expect(go('selective', 'parts\nentry=selected').$1, isNot(0));
+    });
+
+    test('integration-shard: an 8-leg matrix 1..N (N = the generator\'s '
+        'integrationShards), fail-fast off, runs only for entry=parts, '
+        '120-min ceiling, IT_SHARD/IT_SHARDS from the matrix on every '
+        'consuming STEP (no job-level env)', () {
+      final job = jobs['integration-shard'] as YamlMap;
+      final n = generatorShards();
+      expect(n, 8);
+      final strat = job['strategy'] as YamlMap;
+      expect(strat['fail-fast'], isFalse);
+      expect((strat['matrix'] as YamlMap)['shard'], [
+        for (var i = 1; i <= n; i++) i,
+      ]);
+      expect(job['needs'], ['plan', 'integration']);
+      expect(job['if'], "needs.integration.outputs.entry == 'parts'");
+      expect(job['timeout-minutes'], 120);
+      // mobile-perf cycle 3 P2: ONE wave (8 legs), so the critical path is
+      // entry + one 120-min shard, under the 205-min ci-gate wait; 8 + the
+      // other PR jobs stay within the account-wide 20-job limit.
+      expect(strat['max-parallel'], n);
+      expect(job['timeout-minutes'] as int, lessThan(205 - 60));
+      // PR #137: a job-level env block breaks dst_rail_ci_coverage_test
+      // (the main suite must stay UTC); every reader carries its own env.
+      expect(job.containsKey('env'), isFalse);
+      final readers = [
+        for (final s in shardSteps())
+          if (RegExp(r'\$IT_SHARDS?\b').hasMatch(
+            '${s['run'] ?? ''}${(s['with'] as YamlMap?)?['script'] ?? ''}',
+          ))
+            s,
+      ];
+      expect(
+        [for (final s in readers) s['name']],
+        [
+          'Generate the shard entry',
+          for (var k = 1; k <= 3; k++)
+            'Run integration tests — shard (attempt $k)',
+          'Verify the shard passed on some attempt',
+        ],
+      );
+      for (final s in readers) {
+        final env = s['env'] as YamlMap;
+        final body =
+            '${s['run'] ?? ''}${(s['with'] as YamlMap?)?['script'] ?? ''}';
+        expect(env['IT_SHARD'], r'${{ matrix.shard }}', reason: '${s['name']}');
+        if (body.contains(r'$IT_SHARDS')) {
+          expect(env['IT_SHARDS'], n, reason: '${s['name']}');
+        }
+      }
+      expect(job['name'], contains('/$n'));
+    });
+
+    test('QA INFO (perf cycle 3): the shard bound covers the LARGEST real '
+        'shard (>= 1.2 x its testWidgets x 12 s) and equals the selected '
+        'upper clamp; 3 attempts fit the 120-min leg', () {
+      final repo = p.normalize(
+        p.join(Directory.current.path, '..', '..', '..'),
+      );
+      final names = entrygen.partFlows(
+        File(p.join(repo, entrygen.allTestsFile)).readAsStringSync(),
+      );
+      expect(names, isNotEmpty);
+      final weights = <String, int>{
+        for (final f in names)
+          f: entrygen.testWidgetsCount(
+            File(p.join(repo, 'integration_test', f)).readAsStringSync(),
+          ),
+      };
+      final bins = entrygen.partitionShards(
+        weights,
+        entrygen.integrationShards,
+      );
+      final maxShardTests = bins
+          .map((b) => b.fold<int>(0, (t, f) => t + weights[f]!))
+          .reduce((a, b) => a > b ? a : b);
+      final script =
+          (shardById('it-shard-attempt-1')['with'] as YamlMap)['script']
+              .toString();
+      final bound = int.parse(
+        RegExp(r'shard\.log (\d+) ').firstMatch(script)!.group(1)!,
+      );
+      expect(
+        bound,
+        greaterThanOrEqualTo((1.2 * maxShardTests * 12).ceil()),
+        reason: 'largest shard: $maxShardTests testWidgets',
+      );
+      final sel = byId('entry')['run'].toString();
+      expect(sel, contains('[ "\$bound" -gt $bound ] && bound=$bound'));
+      // setup ~8 + pre-build <= 15 + 3 x (boot <= 5 + bound).
+      expect(8 + 15 + 3 * (5 + bound / 60), lessThanOrEqualTo(120));
+    });
+
+    test('shard entry step: the generator in --shard K/N mode with an EMPTY '
+        'packages config, target removed first, fail closed unless '
+        'entry=shard', () {
+      final g = shardSteps().singleWhere(
+        (s) => s['name'] == 'Generate the shard entry',
+      );
+      final run = g['run'].toString();
+      expect(run, contains('set -euo pipefail'));
+      expect(run, contains('{"configVersion":2,"packages":[]}'));
+      final rm = run.indexOf('rm -rf integration_test/ci_shard_tests.dart');
+      final gen = run.indexOf(
+        r'dart --packages="$pk" '
+        'tool/ci/affected_tests/bin/gen_integration_entry.dart',
+      );
+      expect(rm, isNonNegative);
+      expect(gen, greaterThan(rm));
+      expect(flat(run), contains(r'--shard "$IT_SHARD/$IT_SHARDS"'));
+      expect(
+        run,
+        contains(
+          r'''[ "$(sed -n 's/^entry=//p' "$RUNNER_TEMP/shard.out")" = shard ]''',
+        ),
+      );
+      final names = [for (final s in shardSteps()) s['name']];
+      expect(
+        names.indexOf('Generate the shard entry'),
+        lessThan(names.indexOf('Run integration tests — shard (attempt 1)')),
+      );
+    });
+
+    test('shard attempts: ONE run_it_attempt.sh call on the generated entry '
+        '(PR tree, 1500 s bound, own state dir, label SHARD K), -gpu guest '
+        '-feature -Vulkan, identical, chained with the deterministic skip', () {
+      final a1 = (shardById('it-shard-attempt-1')['with'] as YamlMap)['script']
+          .toString()
+          .trim();
+      expect(
+        a1,
+        'bash tool/ci/it_diag.sh stop-build-daemons\n'
+        'bash tool/ci/it_diag.sh run "\$RUNNER_TEMP/it-diag/attempt-\$IT_ATTEMPT" '
+        '-- bash tool/ci/run_it_attempt.sh integration_test/ci_shard_tests.dart '
+        'shard.log 1500 "\$RUNNER_TEMP/it-shard" "SHARD \$IT_SHARD"',
+      );
+      for (var k = 1; k <= 3; k++) {
+        final st = shardById('it-shard-attempt-$k');
+        final w = st['with'] as YamlMap;
+        expect(w['script'].toString().trim(), a1, reason: 'attempt $k');
+        // PR #137: per-attempt diagnostics dir, from step-level env.
+        expect((st['env'] as YamlMap)['IT_ATTEMPT'], k, reason: 'attempt $k');
+        expect(st['continue-on-error'], isTrue);
+        // PR #137 run 42230622003: a post-verdict hang ate the job ceiling.
+        // Step cap >= boot 5 + 1500 s bound + 60 s kill-after, and the
+        // pre-build (15) + 3 caps stay within the 120-min job ceiling.
+        expect(st['timeout-minutes'], 35, reason: 'attempt $k');
+        expect(5 + (1500 + 60) / 60, lessThan(st['timeout-minutes'] as int));
+        expect(15 + 3 * (st['timeout-minutes'] as int), lessThanOrEqualTo(120));
+        expect(
+          w['emulator-options'],
+          '-no-window -no-snapshot -noaudio -no-boot-anim -camera-back none '
+          '-gpu guest -feature -Vulkan',
+          reason: 'attempt $k',
+        );
+        // PR #137 run 42243856309: the emulator process died at fixed tests
+        // with healthy memory; hiding guest Vulkan makes Impeller use GLES.
+        expect(
+          w['emulator-options'].toString(),
+          endsWith(' -feature -Vulkan'),
+          reason: 'attempt $k',
+        );
+        expect(
+          st['uses'].toString(),
+          startsWith('reactivecircus/android-emulator-runner@'),
+        );
+      }
+      expect(cond(shardById('it-shard-attempt-1')), 'success()');
+      for (final id in [
+        for (var k = 1; k <= 3; k++) 'it-shard-attempt-$k',
+        for (var k = 1; k <= 3; k++) 'it-sel-attempt-$k',
+      ]) {
+        final st = id.startsWith('it-sel') ? byId(id) : shardById(id);
+        // cycle 2 P2: a bounded boot, so the 120-min ceiling covers 3 attempts.
+        expect(
+          (st['with'] as YamlMap)['emulator-boot-timeout'],
+          300,
+          reason: id,
+        );
+      }
+      expect(
+        cond(shardById('it-shard-attempt-2')),
+        "steps.it-shard-attempt-1.outcome == 'failure'",
+      );
+      expect(
+        cond(shardById('it-shard-attempt-3')),
+        "steps.it-shard-attempt-1.outcome == 'failure' && "
+        "steps.it-shard-attempt-2.outcome == 'failure' && "
+        "steps.it-shard-attempt-2.outputs.deterministic != 'true'",
+      );
+      final v = shardSteps().singleWhere(
+        (s) => s['name'] == 'Verify the shard passed on some attempt',
+      );
+      expect(cond(v), 'always()');
+      final env = v['env'] as YamlMap;
+      for (var k = 1; k <= 3; k++) {
+        expect(env['A$k'], '\${{ steps.it-shard-attempt-$k.outcome }}');
+      }
+    });
+
+    // QA 2026-11-06: the shard entry step EXECUTED (stand-in `dart`), not only
+    // pinned as text: a refused / crashed generator, or one that prints
+    // something other than entry=shard, must turn the step red (pipefail on
+    // the tee pipe + the entry= check), and a stale entry never survives.
+    test('shard entry step (real bash): green only on entry=shard with exit '
+        '0; refusal, crash after entry=shard, or another entry is RED; the '
+        'stale entry is removed first', () {
+      final run = shardSteps()
+          .singleWhere((s) => s['name'] == 'Generate the shard entry')['run']
+          .toString();
+      final w = Directory.systemTemp.createTempSync('shard_step_');
+      addTearDown(() => w.deleteSync(recursive: true));
+      Directory(p.join(w.path, 'bin')).createSync();
+      Directory(p.join(w.path, 'integration_test')).createSync();
+      final dart = File(p.join(w.path, 'bin', 'dart'))
+        ..writeAsStringSync(
+          '#!/bin/bash\necho "\$*" > "${w.path}/dart_args"\n'
+          'printf "%b" "\$FAKE_OUT"\nexit "\${FAKE_RC:-0}"\n',
+        );
+      Process.runSync('chmod', ['+x', dart.path]);
+      final summary = File(p.join(w.path, 'summary'));
+      final stale = File(
+        p.join(w.path, 'integration_test', 'ci_shard_tests.dart'),
+      );
+      int go(String out, int rc) {
+        stale.writeAsStringSync("group('stale', s.main);");
+        summary.writeAsStringSync('');
+        final r = Process.runSync(
+          'bash',
+          ['-c', run],
+          workingDirectory: w.path,
+          environment: {
+            'PATH': '${p.join(w.path, 'bin')}:${Platform.environment['PATH']}',
+            'FAKE_OUT': out,
+            'FAKE_RC': '$rc',
+            'IT_SHARD': '3',
+            'IT_SHARDS': '8',
+            'RUNNER_TEMP': w.path,
+            'GITHUB_WORKSPACE': w.path,
+            'GITHUB_STEP_SUMMARY': summary.path,
+          },
+        );
+        expect(stale.existsSync(), isFalse, reason: 'stale entry ($out)');
+        return r.exitCode;
+      }
+
+      expect(go(r'entry=shard\ncount=19\ntests=74\n', 0), 0);
+      expect(summary.readAsStringSync(), contains('count: 19'));
+      expect(summary.readAsStringSync(), contains('tests: 74'));
+      expect(
+        File(p.join(w.path, 'dart_args')).readAsStringSync(),
+        contains('--shard 3/8 --repo ${w.path}'),
+      );
+      expect(go(r'entry=error\n', 1), isNot(0), reason: 'refused');
+      expect(go(r'entry=shard\ncount=19\n', 1), isNot(0), reason: 'crashed');
+      expect(go(r'entry=selected\ncount=1\n', 0), isNot(0), reason: 'other');
+      expect(go('', 0), isNot(0), reason: 'silent');
+    });
+
+    test('shard verify (real bash): passes iff some attempt succeeded', () {
+      final run = shardSteps()
+          .singleWhere(
+            (s) => s['name'] == 'Verify the shard passed on some attempt',
+          )['run']
+          .toString();
+      int go(String a1, String a2, String a3) => Process.runSync(
+        'bash',
+        ['-c', run],
+        environment: {
+          'A1': a1,
+          'A2': a2,
+          'A3': a3,
+          'IT_SHARD': '3',
+          'IT_SHARDS': '8',
+        },
+      ).exitCode;
+      expect(go('success', 'skipped', 'skipped'), 0);
+      expect(go('failure', 'success', 'skipped'), 0);
+      expect(go('failure', 'failure', 'success'), 0);
+      expect(go('failure', 'failure', 'skipped'), isNot(0));
+      expect(go('failure', 'failure', 'failure'), isNot(0));
+      expect(go('skipped', 'skipped', 'skipped'), isNot(0));
+      expect(go('', '', ''), isNot(0));
+    });
+
+    test('fan-in: integration-verify carries the old check name, needs the '
+        'entry job AND the shard matrix, runs unless cancelled / no '
+        'integration; ci-gate needs every job', () {
+      final v = jobs['integration-verify'] as YamlMap;
+      expect(v['name'], 'Integration tests (emulator)');
+      expect(
+        (jobs['integration'] as YamlMap)['name'],
+        isNot('Integration tests (emulator)'),
+      );
+      expect(v['needs'], ['plan', 'integration', 'integration-shard']);
+      expect(
+        v['if'],
+        r"${{ !cancelled() && needs.integration.result != 'skipped' }}",
+      );
+      final env =
+          ((v['steps'] as YamlList).single as YamlMap)['env'] as YamlMap;
+      expect(env['INTEGRATION'], r'${{ needs.integration.result }}');
+      expect(env['ENTRY'], r'${{ needs.integration.outputs.entry }}');
+      expect(env['SHARDS'], r'${{ needs.integration-shard.result }}');
+      final gate = (jobs['ci-gate'] as YamlMap)['needs'] as YamlList;
+      // Every job is in ci-gate's needs (a job left out is never judged).
+      expect(gate.toSet(), {...jobs.keys.cast<String>()}..remove('ci-gate'));
+    });
+
+    test('fan-in verdict (real bash): selected needs only the entry job; '
+        'parts needs EVERY shard (skipped/failed/cancelled RED); a failed '
+        'entry job or an unknown entry is RED', () {
+      final run = ((jobs['integration-verify'] as YamlMap)['steps'] as YamlList)
+          .cast<YamlMap>()
+          .single['run']
+          .toString();
+      int go(String integ, String entry, String shards) => Process.runSync(
+        'bash',
+        ['-c', run],
+        environment: {'INTEGRATION': integ, 'ENTRY': entry, 'SHARDS': shards},
+      ).exitCode;
+      expect(go('success', 'selected', 'skipped'), 0);
+      expect(go('success', 'parts', 'success'), 0);
+      for (final s in ['skipped', 'failure', 'cancelled', '']) {
+        expect(go('success', 'parts', s), isNot(0), reason: s);
+      }
+      expect(go('failure', 'selected', 'skipped'), isNot(0));
+      expect(go('failure', 'parts', 'success'), isNot(0));
+      expect(go('cancelled', 'parts', 'success'), isNot(0));
+      expect(go('success', '', 'success'), isNot(0));
+      expect(go('success', 'none', 'success'), isNot(0));
     });
 
     const attemptScript =
@@ -1388,19 +1777,134 @@ void main() {
       );
     });
 
-    test('P3/P4: bound = clamp(420 + 45 * count, 600, 1500); the YAML cap '
-        'equals the generator cap', () {
+    test('P3/P4 (perf cycle 3 P2): bound = clamp(480 + 20 * tests, 600, '
+        '1500 = the shard bound); the YAML flow AND test caps equal the generator caps (one '
+        'shard); the integration job ceiling is 120 min', () {
       final run = byId('entry')['run'].toString();
-      expect(run, contains(r'bound=$((420 + 45 * count))'));
+      expect(run, contains(r'bound=$((480 + 20 * tests))'));
       expect(run, contains(r'[ "$bound" -lt 600 ] && bound=600'));
       expect(run, contains(r'[ "$bound" -gt 1500 ] && bound=1500'));
+      expect(run, contains('bound=1500\n'));
+      expect(run, isNot(contains('1800')));
       expect(run, contains(r'echo "bound=$bound"'));
-      final cap = RegExp(r'"\$c" -le (\d+)').firstMatch(run)!.group(1)!;
+      expect(run, contains(r'echo "tests=$tests"'));
       final src = File('bin/gen_integration_entry.dart').readAsStringSync();
+      String gen(String n) =>
+          RegExp('const $n = (\\d+);').firstMatch(src)!.group(1)!;
       expect(
-        RegExp(r'const maxSelectedFlows = (\d+);').firstMatch(src)!.group(1),
-        cap,
+        RegExp(r'"\$c" -le (\d+)').firstMatch(run)!.group(1)!,
+        gen('maxSelectedFlows'),
       );
+      expect(
+        RegExp(r'"\$n" -le (\d+)').firstMatch(run)!.group(1)!,
+        gen('maxSelectedTests'),
+      );
+      expect((jobs['integration'] as YamlMap)['timeout-minutes'], 120);
+    });
+
+    test('P2 (perf cycle 2): the debug APK is pre-built ONCE before attempt 1 '
+        '(outside the bound) by prebuild_it_apk.sh, in both families; attempt '
+        '1 needs it; the selected one is base-owned and its absence falls '
+        'back to the shards', () {
+      final names = [for (final s in steps('integration')) s['name']];
+      final sb = byId('it-sel-build');
+      expect(cond(sb), "steps.entry.outputs.entry == 'selected'");
+      expect(
+        sb['run'].toString().trim(),
+        r'bash "$GITHUB_WORKSPACE/trusted/tool/ci/prebuild_it_apk.sh" '
+        'integration_test/ci_selected_tests.dart',
+      );
+      expect(sb['timeout-minutes'], 15);
+      expect(
+        names.indexOf(sb['name']),
+        allOf(
+          greaterThan(names.indexOf('Install Android SDK platform')),
+          lessThan(names.indexOf(byId('it-sel-attempt-1')['name'])),
+        ),
+      );
+      expect(
+        cond(byId('it-sel-attempt-1')),
+        "steps.entry.outputs.entry == 'selected' && "
+        "steps.it-sel-build.outcome == 'success'",
+      );
+      expect(
+        byId('entry')['run'].toString(),
+        contains(r'[ -f "$t/prebuild_it_apk.sh" ]'),
+      );
+      final hb = shardById('it-shard-build');
+      expect(cond(hb), isEmpty, reason: 'attempt 1 is gated by success()');
+      expect(
+        hb['run'].toString().trim(),
+        'bash tool/ci/prebuild_it_apk.sh integration_test/ci_shard_tests.dart',
+      );
+      expect(hb['timeout-minutes'], 15);
+      final sn = [for (final s in shardSteps()) s['name']];
+      expect(
+        sn.indexOf(hb['name']),
+        allOf(
+          greaterThan(sn.indexOf('Install Android SDK platform')),
+          greaterThan(sn.indexOf('Generate the shard entry')),
+          lessThan(sn.indexOf('Run integration tests — shard (attempt 1)')),
+        ),
+      );
+      expect(File('../prebuild_it_apk.sh').existsSync(), isTrue);
+    });
+
+    test('PR #137 memory: Gradle runs daemon-less with in-process Kotlin '
+        'BEFORE the pre-build, the daemons are stopped after it, and every '
+        'shard attempt uploads its diagnostics (never a verdict)', () {
+      final sn = [for (final s in shardSteps()) s['name']];
+      final g = shardSteps().singleWhere(
+        (s) => s['name'] == 'Gradle without lingering daemons',
+      );
+      expect(cond(g), isEmpty);
+      final run = g['run'].toString();
+      expect(run, contains('>>~/.gradle/gradle.properties'));
+      expect(run, contains("'org.gradle.daemon=false'"));
+      expect(run, contains("'kotlin.compiler.execution.strategy=in-process'"));
+      final stop = shardSteps().singleWhere(
+        (s) => s['name'] == 'Stop the build daemons',
+      );
+      expect(
+        stop['run'].toString().trim(),
+        'bash tool/ci/it_diag.sh stop-build-daemons',
+      );
+      final build = shardById('it-shard-build')['name'];
+      expect(sn.indexOf(g['name']), lessThan(sn.indexOf(build)));
+      expect(
+        sn.indexOf(g['name']),
+        greaterThan(sn.indexOf('Restore Gradle cache')),
+      );
+      expect(
+        sn.indexOf(stop['name']),
+        allOf(
+          greaterThan(sn.indexOf(build)),
+          lessThan(sn.indexOf('Run integration tests — shard (attempt 1)')),
+        ),
+      );
+      final up = shardSteps().singleWhere(
+        (s) => s['name'] == 'Upload emulator diagnostics — shard',
+      );
+      expect(
+        cond(up),
+        r"${{ !cancelled() && steps.it-shard-attempt-1.outcome != 'skipped' }}",
+      );
+      expect(
+        up['uses'].toString(),
+        matches(RegExp(r'^actions/upload-artifact@[0-9a-f]{40}$')),
+      );
+      expect(up.containsKey('continue-on-error'), isFalse);
+      final w = up['with'] as YamlMap;
+      expect(w['name'], r'it-diag-shard-${{ matrix.shard }}');
+      expect(w['path'], r'${{ runner.temp }}/it-diag/');
+      expect(w['if-no-files-found'], 'ignore');
+      // Public repo: emulator DB dumps / logcat must not live the 90d default.
+      expect(w['retention-days'], 7);
+      expect(
+        sn.indexOf(up['name']),
+        greaterThan(sn.indexOf('Run integration tests — shard (attempt 3)')),
+      );
+      expect(File('../it_diag.sh').existsSync(), isTrue);
     });
 
     test('S2: a PR-made trusted/ is removed BEFORE the base checkout, and the '
@@ -1430,10 +1934,14 @@ void main() {
 
     test('S4: no `run:` step of the integration job interpolates step '
         'outputs / needs / event data into the script text', () {
-      for (final st in steps('integration')) {
+      for (final st in [
+        ...steps('integration'),
+        ...steps('integration-shard'),
+        ...steps('integration-verify'),
+      ]) {
         final run = (st['run'] ?? '').toString();
         expect(
-          RegExp(r'\$\{\{\s*(steps|needs|github\.event)').hasMatch(run),
+          RegExp(r'\$\{\{\s*(steps|needs|github\.event|matrix)').hasMatch(run),
           isFalse,
           reason: '${st['name']}',
         );
@@ -1448,25 +1956,48 @@ void main() {
       }
     });
 
-    test('verify step accepts the selected attempts only when selected', () {
+    test('integration verify step (real bash): judges the selected attempts '
+        'when selected; any other entry defers to the shards + fan-in', () {
       final v = steps('integration').singleWhere(
         (s) => s['name'] == 'Verify integration tests passed on some attempt',
       );
       final run = v['run'].toString();
-      expect(run, contains(r'"$SEL1" == "success"'));
-      expect(run, contains(r'"$SEL3" == "success"'));
-      expect(run, contains(r'"$P2A3" == "success"'));
+      expect(run, isNot(contains('P1A')));
+      int go(String entry, List<String> sel) => Process.runSync(
+        'bash',
+        ['-c', run],
+        environment: {
+          'ENTRY': entry,
+          for (var k = 1; k <= 3; k++) 'SEL$k': sel[k - 1],
+        },
+      ).exitCode;
+      expect(go('selected', ['failure', 'success', 'skipped']), 0);
+      expect(go('selected', ['failure', 'failure', 'skipped']), isNot(0));
+      expect(go('selected', ['skipped', 'skipped', 'skipped']), isNot(0));
+      expect(go('parts', ['skipped', 'skipped', 'skipped']), 0);
+      expect(go('', ['skipped', 'skipped', 'skipped']), 0);
     });
 
-    test('P2: Gradle cache is restored on every run but SAVED only outside '
-        'pull_request; SHA-pinned; same key; nothing else caches here', () {
-      final restore = byId('gradle-cache');
+    test('P2: Gradle cache restored in the selective entry job and every '
+        'shard; SAVED only by shard 1 outside pull_request; SHA-pinned; same '
+        'key; no combined actions/cache', () {
+      final restore = shardById('gradle-cache');
       final ru = restore['uses'].toString();
-      expect(ru, startsWith('actions/cache/restore@'));
       expect(ru, matches(RegExp(r'^actions/cache/restore@[0-9a-f]{40}$')));
-      final save = steps(
-        'integration',
-      ).singleWhere((s) => s['name'] == 'Save Gradle cache');
+      final selRestore = byId('gradle-cache');
+      expect(selRestore['uses'], ru);
+      expect(
+        (selRestore['with'] as YamlMap)['key'],
+        (restore['with'] as YamlMap)['key'],
+      );
+      expect(
+        steps('integration').where((s) => s['name'] == 'Save Gradle cache'),
+        isEmpty,
+        reason: 'selective runs are PR-only: a save there could never run',
+      );
+      final save = shardSteps().singleWhere(
+        (s) => s['name'] == 'Save Gradle cache',
+      );
       expect(save['uses'].toString(), startsWith('actions/cache/save@'));
       expect(
         save['uses'].toString().split('@').last,
@@ -1474,39 +2005,43 @@ void main() {
         reason: 'one pinned version for restore and save',
       );
       expect(cond(save), contains("github.event_name != 'pull_request'"));
-      expect(cond(save), contains('success()'));
+      // perf cycle 2 P2: saved also on a red shard once the build ran;
+      // cycle 3: never on a cancelled run.
+      expect(cond(save), startsWith(r'${{ !cancelled() && '));
+      expect(cond(save), isNot(contains('always()')));
+      expect(cond(save), isNot(contains('success()')));
+      expect(
+        cond(save),
+        contains("steps.it-shard-attempt-1.outcome != 'skipped'"),
+      );
+      expect(cond(save), contains('matrix.shard == 1'));
       final rw = restore['with'] as YamlMap;
       final sw = save['with'] as YamlMap;
-      // N1: the SAVE key is the restore step's own computed key, never a
-      // second hashFiles() evaluated after the build (key drift).
+      // N1: the SAVE key is the restore step's own computed key.
       expect(sw['key'], r'${{ steps.gradle-cache.outputs.cache-primary-key }}');
       expect(sw['key'].toString(), isNot(contains('hashFiles')));
       expect(sw['path'], rw['path']);
       expect(rw['key'], contains("hashFiles('android/**/*.gradle*'"));
       expect(rw['key'], contains('gradle-wrapper.properties'));
-      // SEC-INFO-3: android/gradle.properties decides Gradle inputs too.
       expect(rw['key'], contains("'android/gradle.properties'"));
       expect(rw['key'], contains("'pubspec.lock'"));
       expect(rw['path'].toString(), contains('~/.gradle/caches'));
       expect(rw['path'].toString(), contains('~/.gradle/wrapper'));
-      // The combined `actions/cache@` would save from a PR run in its post step.
-      for (final st in steps('integration')) {
+      for (final st in [...steps('integration'), ...shardSteps()]) {
         expect(
           (st['uses'] ?? '').toString(),
           isNot(matches(RegExp(r'^actions/cache@'))),
           reason: '${st['name']}',
         );
       }
-      final names = [for (final st in steps('integration')) st['name']];
+      final names = [for (final st in shardSteps()) st['name']];
       expect(
         names.indexOf('Restore Gradle cache'),
-        lessThan(names.indexOf('Run integration tests — part 1 (attempt 1)')),
+        lessThan(names.indexOf('Run integration tests — shard (attempt 1)')),
       );
       expect(
         names.indexOf('Save Gradle cache'),
-        greaterThan(
-          names.indexOf('Verify integration tests passed on some attempt'),
-        ),
+        greaterThan(names.indexOf('Verify the shard passed on some attempt')),
       );
     });
 
@@ -1565,6 +2100,21 @@ void main() {
     });
   }, skip: skip);
 
+  // Public repo: the golden failure-diff artifact must not live the 90d default.
+  group('golden failure-diff artifact retention', () {
+    test('Upload golden failure diffs keeps 7 days and the golden path', () {
+      final g = step('goldens', 'Upload golden failure diffs');
+      expect(
+        g['uses'].toString(),
+        matches(RegExp(r'^actions/upload-artifact@[0-9a-f]{40}$')),
+      );
+      final w = g['with'] as YamlMap;
+      expect(w['path'].toString().trim(), 'test/golden/failures/');
+      expect(w['if-no-files-found'], 'ignore');
+      expect(w['retention-days'], 7);
+    });
+  }, skip: skip);
+
   // Phase 402 D14 + security review: the CI-paths guard is base-owned like the
   // planner/selector; the PR copy NEVER runs (bootstrap forces full instead).
   group('phase 402 D14 base-owned CI-paths guard', () {
@@ -1607,7 +2157,12 @@ void main() {
 
     test('integration, integration-profile and patrol use it; no inline '
         'udevadm left', () {
-      for (final j in ['integration', 'integration-profile', 'patrol']) {
+      for (final j in [
+        'integration',
+        'integration-shard',
+        'integration-profile',
+        'patrol',
+      ]) {
         final kvm = step(j, 'Enable KVM');
         expect(kvm['uses'], './.github/actions/enable-kvm', reason: j);
         expect(kvm.containsKey('run'), isFalse, reason: j);
