@@ -207,6 +207,23 @@ flakes keep all three attempts. Pass/fail is judged from the host-side JSON
 test protocol (`--file-reporter json:$RUNNER_TEMP/it-sel/events.json`, needs
 jq) -- never from stdout, which a test's print() can forge (audit cycle 4).
 
+Cancelled tests (2026-11-06). When the emulator dies mid-run (host-GPU
+ColorBuffer crash on app relaunch), package:test emits `testDone
+result=error` with NO `error` event for every remaining test, and the
+GitHub reporter still prints those tests with a ✅, so a ✅ in the log can
+mean the test was cancelled. run_it_attempt.sh counts them as cancelled,
+not failed: if there are no real failures it prints `SELECTED FLOWS:
+CRASHED after <last passing test>; N tests cancelled ... — retryable` and
+clears the failset, so a crash point that repeats never triggers the
+deterministic skip. The failset holds real failures only. The selected
+attempts run with `-gpu guest`, same as Patrol (see
+[patrol.md#patrol-gpu-guest](patrol.md#patrol-gpu-guest)).
+
+Known false-green: the six full-mode part steps still use the stdout
+`EXCEPTION banner + ✅` check, so an emulator crash with cancelled tests can
+pass them. They still run without `-gpu guest`. Both are left for a
+follow-up phase.
+
 <a id="job-integration-profile"></a>
 
 ### integration-profile (2026-06-18, finding 6)

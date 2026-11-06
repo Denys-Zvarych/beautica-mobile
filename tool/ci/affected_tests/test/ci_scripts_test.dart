@@ -510,6 +510,53 @@ exec "\$@"
       expect(gh(), isNot(contains('deterministic')));
     });
 
+    final crashed = _Stream(
+      {
+        'master_archive_flow': [_T.ok, _T.ok, _T.cancel],
+        'notification_bell_flow': [_T.cancel, _T.cancel],
+      },
+      done: false,
+      cancelledTearDownAll: true,
+    );
+
+    test('P5 (cancelled): an emulator crash after test 2 (rest testDone '
+        'result=error, no error event) is CRASHED/retryable, writes no '
+        'failset and is never deterministic', () {
+      final r1 = run(crashed.build(), rc: 1);
+      expect(r1.exitCode, 1);
+      expect(
+        text(r1),
+        contains(
+          'SELECTED FLOWS: CRASHED after master_archive_flow test 1; '
+          '4 tests cancelled (emulator/device loss) — retryable',
+        ),
+      );
+      expect(text(r1), isNot(contains('a real test failure/error')));
+      expect(failset().existsSync(), isFalse);
+      final r2 = run(crashed.build(), rc: 1);
+      expect(r2.exitCode, 1);
+      expect(text(r2), contains('CRASHED after'));
+      expect(gh(), isNot(contains('deterministic')));
+    });
+
+    test('P5 (cancelled): one real failure + cancelled tests -> FAILED, the '
+        'failset holds ONLY the real failure', () {
+      final mixed = _Stream(
+        {
+          'master_archive_flow': [_T.ok, _T.fail, _T.cancel],
+          'notification_bell_flow': [_T.cancel, _T.cancel],
+        },
+        done: false,
+        cancelledTearDownAll: true,
+      );
+      final r = run(mixed.build(), rc: 1);
+      expect(r.exitCode, 1);
+      expect(text(r), contains('a real test failure/error'));
+      expect(text(r), isNot(contains('CRASHED')));
+      expect(failset().readAsStringSync().trim(), 'master_archive_flow test 1');
+      expect(mixed.names(_T.fail), 'master_archive_flow test 1');
+    });
+
     test('F3: the timeout stand-in parses the bound regardless of option '
         'order', () {
       File(p.join(w.path, 'timeout_args')).writeAsStringSync('');
@@ -535,7 +582,9 @@ exec "\$@"
   }, skip: skip);
 }
 
-enum _T { ok, skip, fail, err, missing }
+/// `cancel` = package:test's shape for a test cancelled by device/emulator
+/// loss: `testDone result=error` with NO `error` event for its testID.
+enum _T { ok, skip, fail, err, cancel, missing }
 
 /// A JSON test-protocol stream in the exact shapes of a real
 /// `flutter test --file-reporter json:` report (see unit_events_real.json).
@@ -548,7 +597,12 @@ final class _Stream {
     this.lateErrorFor,
     this.loadError = false,
     this.extraTopGroup,
+    this.cancelledTearDownAll = false,
   });
+
+  /// Adds a hidden `(tearDownAll)` pseudo-test cancelled like the rest
+  /// (`testDone result=error`, no `error` event), as on a real device loss.
+  final bool cancelledTearDownAll;
 
   /// group name -> per-test outcome.
   final Map<String, List<_T>> flows;
@@ -727,10 +781,44 @@ final class _Stream {
                 'hidden': false,
               }),
             );
+          case _T.cancel:
+            ev.add(
+              e('testDone', {
+                'testID': tid,
+                'result': 'error',
+                'skipped': false,
+                'hidden': false,
+              }),
+            );
           case _T.missing:
             break; // started, never finished: the device died here
         }
       }
+    }
+    if (cancelledTearDownAll) {
+      final tid = ++id;
+      ev.add(
+        e('testStart', {
+          'test': {
+            'id': tid,
+            'name': '(tearDownAll)',
+            'suiteID': 0,
+            'groupIDs': [rootId],
+            'metadata': _meta,
+            'line': null,
+            'column': null,
+            'url': null,
+          },
+        }),
+      );
+      ev.add(
+        e('testDone', {
+          'testID': tid,
+          'result': 'error',
+          'skipped': false,
+          'hidden': true,
+        }),
+      );
     }
     ev.add({'type': 'allSuites', 'count': 1, 'time': t += 7});
     if (done != null) ev.add(e('done', {'success': done}));

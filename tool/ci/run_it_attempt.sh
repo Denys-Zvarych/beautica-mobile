@@ -20,15 +20,23 @@
 #
 # Event semantics reused from phase 400 (report_failures.sh / tests_ran.sh): a
 # real test is a `testDone` with hidden=false; result=success + skipped=true is a
-# skip; any other result (and any `error` event, which also covers
-# `failed after test completion`) is a failure -- hidden "loading <file>"
+# skip; result=failure, or any test with an `error` event (which also covers
+# `failed after test completion`), is a failure -- hidden "loading <file>"
 # pseudo-tests included, so a compile/load error is a failure.
+# CANCELLED: a `testDone` with result=error and NO `error` event for its testID
+# (except the hidden `loading <file>` pseudo-test: an errored load is always a
+# real failure -- it precedes every test, so no device loss can cancel it).
+# package:test emits exactly that for every remaining test when the device/
+# emulator dies (host-GPU ColorBuffer crash on relaunch); the GitHub reporter
+# still prints them with a check mark. Cancelled is NOT a real failure.
 #
 # Pass/fail (selected attempts only; the six full-mode part steps keep their
 # byte-identical inline `EXCEPTION banner + ✅` check, phase acceptance):
 #   fail  the JSON file is missing / empty / unparseable / has no events
 #         (`::error::`, loud);
-#   fail  any failing test (set -> <state-dir>/failset, see P5);
+#   fail  any real failing test (set -> <state-dir>/failset, see P5);
+#   fail  no real failure but >= 1 cancelled test => `CRASHED ... retryable`
+#         (emulator/device loss; clears state, never deterministic);
 #   pass  EVERY `group('<name>', ...)` of the entry exists exactly once as a
 #         top-level group (parentID = the suite's root group) in the stream, has
 #         >= 1 non-skipped passing test, and
@@ -49,11 +57,13 @@
 # `::add-mask::` / `::stop-commands::` cannot drive the runner.
 #
 # P5: after a REAL test failure (>= 1 failing test with a name) the sorted set of
-# failing test names (from the JSON testStart/testDone/error events) is stored in
-# <state-dir>/failset. If the next attempt fails with the identical set,
-# `deterministic=true` is appended to GITHUB_OUTPUT and the workflow skips the
-# remaining attempt. Any other outcome (pass, crash, hang, offline emulator,
-# empty set) clears the state, so flakes keep all 3 attempts.
+# REAL failing test names (from the JSON testStart/testDone/error events;
+# cancelled tests excluded) is stored in <state-dir>/failset. If the next attempt
+# fails with the identical set, `deterministic=true` is appended to GITHUB_OUTPUT
+# and the workflow skips the remaining attempt. Any other outcome (pass, crash /
+# cancelled-only, hang, offline emulator, empty set) clears the state, so flakes
+# keep all 3 attempts -- a crash point that repeats is still a crash, not a
+# deterministic failure.
 set -uo pipefail
 entry="${1:?entry}"; log="${2:?log}"; bound="${3:?bound}"; state="${4:?state-dir}"
 flutter_bin="${FLUTTER:-flutter}"
@@ -95,7 +105,8 @@ want_json="$(printf '%s\n' "${groups[@]+"${groups[@]}"}" | jq -R -s -c 'split("\
 
 # Output lines (tab separated; test names have newlines/tabs flattened):
 #   P <events>      parsed event count        D <true|false|missing>  final `done` (informational)
-#   F <name>        one per failing test      G <group> ok|bad <detail>
+#   F <name>        one per REAL failing test G <group> ok|bad <detail>
+#   C <n>           cancelled test count      L <name>  last passing test (or none)
 report="$(jq -R -s -r --argjson want "$want_json" '
   def flat: gsub("[\n\r\t]"; " ");
   split("\n") | map(fromjson? // empty) | map(select(type == "object")) as $ev
@@ -105,11 +116,19 @@ report="$(jq -R -s -r --argjson want "$want_json" '
   | ($ts | map({key: (.id | tostring), value: .}) | from_entries) as $byid
   | ($ev | map(select(.type == "testDone")) | map({key: (.testID | tostring), value: .}) | from_entries) as $done
   | ($ev | map(select(.type == "error") | .testID | tostring)) as $errids
-  | ( ( ($done | to_entries | map(select(.value.result != "success") | .key)) + $errids )
+  | ($done | to_entries | map(select(.value.result == "error") | .key)
+      | map(select(($byid[.].name // "") | startswith("loading ")))) as $loaderr
+  | ($done | to_entries | map(select(.value.result == "error") | .key)
+      | map(. as $id | select((($errids + $loaderr) | index($id)) | not))) as $cancelled
+  | ( ( ($done | to_entries | map(select(.value.result != "success" and .value.result != "error") | .key)) + $errids + $loaderr )
       | unique | map(. as $id | ($byid[$id].name // "test #\($id)") | flat) | unique ) as $failed
+  | ($ev | map(select(.type == "testDone" and .result == "success" and (.skipped // false) == false and (.hidden // false) == false))
+      | last) as $lastok
   | ($ev | map(select(.type == "done")) | last) as $dn
   | [ "P\t\($ev | length)",
-      "D\t\(if $dn == null then "missing" else ($dn.success | tostring) end)" ]
+      "D\t\(if $dn == null then "missing" else ($dn.success | tostring) end)",
+      "C\t\($cancelled | length)",
+      "L\t\(if $lastok == null then "none" else (($byid[$lastok.testID | tostring].name // "test #\($lastok.testID)") | flat) end)" ]
     + ( $failed | map("F\t\(.)") )
     + ( $want | map(. as $g
         | ($gs | map(select(.name == $g and (.parentID as $p | $roots | any(. == $p))))) as $m
@@ -134,6 +153,8 @@ if [ -z "$report" ] || [ -z "$parsed" ] || [ "$parsed" = "0" ]; then
 fi
 cur="$(field F | sort -u)"
 done_state="$(field D | head -n1)"
+cancelled="$(field C | head -n1)"
+last_ok="$(field L | head -n1)"
 
 if [ -n "$cur" ]; then
   echo "SELECTED FLOWS: FAILED — a real test failure/error was reported by the JSON test protocol."
@@ -146,6 +167,11 @@ if [ -n "$cur" ]; then
   exit 1
 fi
 clear_state
+
+if [ -n "$cancelled" ] && [ "$cancelled" != "0" ]; then
+  echo "SELECTED FLOWS: CRASHED after ${last_ok:-none}; ${cancelled} tests cancelled (emulator/device loss) — retryable"
+  exit 1
+fi
 
 if [ "${#groups[@]}" -eq 0 ]; then
   echo "SELECTED FLOWS: FAILED — no group(...) lines could be read from $entry."

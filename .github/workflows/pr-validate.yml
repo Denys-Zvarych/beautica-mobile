@@ -1553,8 +1553,11 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
           script: |
             bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
 
@@ -1569,8 +1572,11 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
           script: |
             bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
 
@@ -1585,8 +1591,11 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
+          # why: docs/ci/patrol.md#patrol-gpu-guest
           ram-size: 4096M
           heap-size: 512M
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
           script: |
             bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
 
