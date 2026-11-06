@@ -5,46 +5,37 @@
 // lands (nothing keeps frames scheduled across the fetch lull). A `settle` may
 // only drain the sheet pop; the first `expect(` after the apply must be
 // preceded by a `pumpUntil*` that waits for the filtered page.
-import 'dart:io';
-
+// The same rule covers every other network-triggering tap in that file whose
+// result is read by a one-shot `expect(`: the `master-archive-clear-filters`
+// tap, the `complete-booking-confirm` tap and the
+// `leave-client-feedback-submit` tap.
+// Limit: the scan only proves a `pumpUntil*` precedes the first read, not that
+// its condition actually matches the tap that triggered the request.
 import 'package:flutter_test/flutter_test.dart';
+
+import 'no_settle_scan.dart';
 
 void main() {
   test(
-    'applyConfirmedFilter is followed by pumpUntil* before the first expect',
+    'network-triggering taps are followed by pumpUntil* before the first expect',
     () {
-      final String raw = File(
-        'integration_test/master_archive_flow_test.dart',
-      ).readAsStringSync();
-      // Comments blanked (same length, newlines kept) so offsets and line
-      // numbers still map onto the real file.
-      final String src = raw.replaceAllMapped(
-        RegExp(r'/\*[\s\S]*?\*/|//[^\n]*'),
-        (Match c) => c[0]!.replaceAll(RegExp(r'[^\n]'), ' '),
+      final List<RegExp> triggers = <RegExp>[
+        RegExp(r'await applyConfirmedFilter\(tester\);'),
+        RegExp(
+          r"await tester\.tap\(\s*find\.byKey\(\s*const Key\('master-archive-clear-filters'\)\s*\)\s*,?\s*\);",
+        ),
+        RegExp(
+          r"await tester\.tap\(\s*find\.byKey\(\s*const Key\('complete-booking-confirm'\)\s*\)\s*,?\s*\);",
+        ),
+        RegExp(
+          r"await tester\.tap\(\s*find\.byKey\(\s*const Key\('leave-client-feedback-submit'\)\s*\)\s*,?\s*\);",
+        ),
+      ];
+      expectPumpUntilBeforeFirstRead(
+        path: 'integration_test/master_archive_flow_test.dart',
+        triggers: triggers,
+        firstRead: RegExp(r'expect\('),
       );
-      final RegExp call = RegExp(r'await applyConfirmedFilter\(tester\);');
-      final List<RegExpMatch> calls = call.allMatches(src).toList();
-      expect(calls, isNotEmpty);
-      for (final RegExpMatch m in calls) {
-        // Window ends at the next apply call or the end of the enclosing test.
-        final String tail = src.substring(m.end);
-        int end = tail.length;
-        for (final RegExp stop in <RegExp>[call, RegExp(r'testWidgets\(')]) {
-          final RegExpMatch? s = stop.firstMatch(tail);
-          if (s != null && s.start < end) end = s.start;
-        }
-        final String rest = tail.substring(0, end);
-        final int pump = rest.indexOf('pumpUntil');
-        final int expectAt = rest.indexOf('expect(');
-        final int line = '\n'.allMatches(src.substring(0, m.start)).length + 1;
-        expect(
-          pump != -1 && (expectAt == -1 || pump < expectAt),
-          isTrue,
-          reason:
-              'master_archive_flow_test.dart:$line — applyConfirmedFilter must '
-              'be followed by a pumpUntil* before its first expect(',
-        );
-      }
     },
   );
 }

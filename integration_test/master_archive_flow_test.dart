@@ -574,8 +574,19 @@ void main() {
       );
 
       // Clearing the filter returns to the unfiltered, non-empty list.
+      // Not `settle`: the tap triggers a refetch and `settle` can return in
+      // the emulator lull before it lands. Wait for the GET, then the rows.
+      final int callsBeforeClear = fb.getMyBookingsCalls;
       await tester.tap(find.byKey(const Key('master-archive-clear-filters')));
-      await AppHarness.settle(tester);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.getMyBookingsCalls > callsBeforeClear,
+        description: 'the unfiltered GET /bookings/me after clear-filters',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-done-1')),
+      );
       expect(find.byKey(const Key('master-archive-empty')), findsNothing);
       expect(
         find.byKey(const Key('master-booking-card-done-1')),
@@ -804,9 +815,17 @@ void main() {
       );
       await AppHarness.settle(tester);
       await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      // Not `settle`: it can return before the PATCH lands on the emulator.
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.completeBookingCalls >= 1,
+        description: 'the PATCH /complete to land',
+      );
+      // Drain so a double-fired PATCH is counted before the exact assert.
       await AppHarness.settle(tester);
       expect(fb.completeBookingCalls, 1);
 
+      int reviewsSent = 0;
       for (final String id in <String>['booking-1', 'booking-2']) {
         final Finder cta = find.byKey(Key('master-booking-card-review-$id'));
         await AppHarness.pumpUntilFound(tester, cta);
@@ -815,7 +834,16 @@ void main() {
         await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
         await AppHarness.settle(tester);
         await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+        reviewsSent++;
+        // Not `settle`: it can return before the POST lands on the emulator.
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.createClientReviewCalls >= reviewsSent,
+          description: 'the client-review POST for $id to land',
+        );
+        // Drain so a double-fired POST is counted before the exact assert.
         await AppHarness.settle(tester);
+        expect(fb.createClientReviewCalls, reviewsSent);
         await pumpPastVelvetSnack(tester);
       }
       expect(fb.createClientReviewCalls, 2);
@@ -934,7 +962,7 @@ void main() {
       await tester.tap(find.byKey(const Key('complete-booking-confirm')));
       await AppHarness.pumpUntilCondition(
         tester,
-        () => fb.completeBookingCalls == 1,
+        () => fb.completeBookingCalls >= 1,
         description: 'the PATCH /complete to land',
       );
 
