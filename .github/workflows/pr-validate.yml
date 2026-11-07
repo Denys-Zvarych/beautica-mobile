@@ -521,6 +521,12 @@ jobs:
         shell: bash
         run: ./scripts/forbid_raw_push.sh
 
+      # Phase 438 D7: no catch-all arm in a BookingStatus switch.
+      # why: docs/ci/static-guards.md#booking-status-default-arm
+      - name: Forbid a catch-all arm in a BookingStatus switch
+        shell: bash
+        run: ./scripts/forbid_booking_status_default_arm.sh
+
       # Phase 300: end-to-end harness for the layer-dim guard above.
       # why: docs/ci/static-guards.md#layer-dim-harness
       - name: Self-test layer-dim guard (harness)

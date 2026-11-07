@@ -65,7 +65,7 @@ final PackageInfo _info = PackageInfo(
           ),
         )
         ..httpClientAdapter = adapter
-        ..interceptors.add(AppVersionInterceptor(() async => _info));
+        ..interceptors.add(AppVersionInterceptor(() => _info));
   final ProviderContainer c = ProviderContainer(
     overrides: [dioProvider.overrideWithValue(main)],
   );

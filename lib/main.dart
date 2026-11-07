@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/app_version/app_version_info.dart';
 import 'core/app_version/update_required_screen.dart';
 import 'core/config/app_config.dart';
 import 'core/config/env_guard.dart';
@@ -176,6 +177,11 @@ Future<void> main() async {
       ],
     ),
   );
+  // Phase 438 D6 — start the one PackageInfo platform read now, WITHOUT
+  // awaiting it (no startup cost). `AppVersionInterceptor` only peeks at the
+  // resolved value, so the first request(s) may go out without
+  // `X-App-Version`; the header is informational and never rejected.
+  container.read(appPackageInfoProvider);
   runApp(
     UncontrolledProviderScope(container: container, child: const BeauticaApp()),
   );

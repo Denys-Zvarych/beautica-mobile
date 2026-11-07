@@ -281,8 +281,9 @@ Dio dio(Ref ref) {
     // Phase 410 (R.3 D5) — FIRST: stamps `X-Request-Id` before anything can
     // reject or replay the request; adds the scrubbed `http` breadcrumb.
     RequestIdInterceptor(),
-    // Phase 438 D6 — build tag for backend logs / Sentry. Read once.
-    AppVersionInterceptor(() => ref.read(appPackageInfoProvider.future)),
+    // Phase 438 D6 — build tag for backend logs / Sentry. Synchronous peek:
+    // the read also kicks off the one platform load; never awaited here.
+    AppVersionInterceptor(() => ref.read(appPackageInfoProvider).value),
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
     if (kDebugMode) ClockSkewWarningInterceptor(),

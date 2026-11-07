@@ -39,17 +39,25 @@ PackageInfo _info({String version = '1.5.0', String build = '7'}) =>
       buildNumber: build,
     );
 
-({Dio dio, _Adapter adapter}) _dio(Future<PackageInfo> Function() load) {
+({Dio dio, _Adapter adapter}) _dio(PackageInfo? Function() peek) {
   final _Adapter adapter = _Adapter();
   final Dio dio = Dio(BaseOptions(baseUrl: 'https://api.beautica.app'))
     ..httpClientAdapter = adapter
-    ..interceptors.add(AppVersionInterceptor(load));
+    ..interceptors.add(AppVersionInterceptor(peek));
   return (dio: dio, adapter: adapter);
 }
 
+final class _Handler extends RequestInterceptorHandler {
+  RequestOptions? passed;
+
+  @override
+  void next(RequestOptions requestOptions) => passed = requestOptions;
+}
+
 void main() {
-  test('every request carries X-App-Version = <version>+<build>', () async {
-    final r = _dio(() async => _info());
+  test('once resolved, every request carries X-App-Version = '
+      '<version>+<build>', () async {
+    final r = _dio(() => _info());
     await r.dio.get<Object?>('/api/v1/a');
     await r.dio.get<Object?>('/api/v1/b');
 
@@ -59,24 +67,9 @@ void main() {
     }
   });
 
-  test('PackageInfo is read ONCE for the whole process', () async {
-    int reads = 0;
-    final r = _dio(() async {
-      reads++;
-      return _info();
-    });
-    await Future.wait(<Future<Object?>>[
-      r.dio.get<Object?>('/a'),
-      r.dio.get<Object?>('/b'),
-    ]);
-    await r.dio.get<Object?>('/c');
-
-    expect(reads, 1);
-  });
-
-  test('a failed platform read sends the request WITHOUT the header — never '
-      'fails it', () async {
-    final r = _dio(() async => throw StateError('no plugin'));
+  test('while PackageInfo is unresolved (or the read failed) the request '
+      'goes out WITHOUT the header — never fails it', () async {
+    final r = _dio(() => null);
     final Response<Object?> response = await r.dio.get<Object?>('/a');
 
     expect(response.statusCode, 200);
@@ -84,6 +77,34 @@ void main() {
       r.adapter.seen.single.headers.containsKey(kAppVersionHeader),
       isFalse,
     );
+  });
+
+  test('the header appears as soon as the value resolves — requests before '
+      'it go without, requests after it carry it', () async {
+    PackageInfo? resolved;
+    final r = _dio(() => resolved);
+    await r.dio.get<Object?>('/before');
+    resolved = _info();
+    await r.dio.get<Object?>('/after');
+
+    expect(
+      r.adapter.seen.first.headers.containsKey(kAppVersionHeader),
+      isFalse,
+    );
+    expect(r.adapter.seen.last.headers[kAppVersionHeader], '1.5.0+7');
+  });
+
+  test('never blocks: handler.next is called synchronously inside '
+      'onRequest, resolved or not', () {
+    for (final PackageInfo? value in <PackageInfo?>[null, _info()]) {
+      final _Handler handler = _Handler();
+      final RequestOptions options = RequestOptions(path: '/a');
+      AppVersionInterceptor(() => value).onRequest(options, handler);
+
+      // No await between the call and this check: the request was passed on
+      // inside onRequest itself.
+      expect(handler.passed, same(options));
+    }
   });
 
   test('header name is exactly X-App-Version (backend RequestIdFilter '
@@ -103,49 +124,9 @@ void main() {
   );
 
   test(
-    'requests racing the FIRST platform read all carry the header',
-    () async {
-      final r = _dio(() async {
-        await Future<void>.delayed(Duration.zero);
-        return _info();
-      });
-      await Future.wait(<Future<Object?>>[
-        r.dio.get<Object?>('/a'),
-        r.dio.get<Object?>('/b'),
-        r.dio.get<Object?>('/c'),
-      ]);
-
-      expect(r.adapter.seen, hasLength(3));
-      expect(
-        r.adapter.seen.map((RequestOptions o) => o.headers[kAppVersionHeader]),
-        everyElement('1.5.0+7'),
-      );
-    },
-  );
-
-  test('a failed platform read is memoised: read once, every later request '
-      'goes out without the header', () async {
-    int reads = 0;
-    final r = _dio(() async {
-      reads++;
-      throw StateError('no plugin');
-    });
-    await r.dio.get<Object?>('/a');
-    await r.dio.get<Object?>('/b');
-
-    expect(reads, 1);
-    expect(
-      r.adapter.seen.where(
-        (RequestOptions o) => o.headers.containsKey(kAppVersionHeader),
-      ),
-      isEmpty,
-    );
-  });
-
-  test(
     'the per-request headers the caller set are preserved alongside it',
     () async {
-      final r = _dio(() async => _info());
+      final r = _dio(() => _info());
       await r.dio.get<Object?>(
         '/a',
         options: Options(headers: <String, Object?>{'X-Request-Id': 'rid-1'}),
