@@ -181,6 +181,11 @@ void main() {
         reason: 'a successful submit pops back to the detail',
       );
       expect(find.byType(BookingDetailScreen), findsOneWidget);
+      // The invalidate re-fetch lands after settle returns on a real device.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-leave-review')),
+      );
       expect(
         find.byKey(const Key('booking-detail-leave-review')),
         findsNothing,

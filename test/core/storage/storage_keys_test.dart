@@ -44,7 +44,14 @@ void main() {
       expect(StorageKeys.deviceScoped, <String>[
         StorageKeys.pushPermissionAsked,
         StorageKeys.pushRevokePending,
+        StorageKeys.diagnosticsInstallId,
+        StorageKeys.diagnosticsEnabled,
       ]);
+    });
+
+    test('diagnostics keys have the phase-410 values', () {
+      expect(StorageKeys.diagnosticsInstallId, 'diagnostics.install_id');
+      expect(StorageKeys.diagnosticsEnabled, 'diagnostics.enabled');
     });
   });
 }

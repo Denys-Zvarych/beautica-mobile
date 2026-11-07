@@ -112,6 +112,7 @@ import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
+import 'update_gate_test.dart' as update_gate;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -421,4 +422,8 @@ void main() {
   // Phase 405 — add / delete portfolio photos: master, owner + admin on one
   // salon, cap / 409, 503 retry / discard, 403 re-read, tab-switch survival.
   group('portfolio_upload_flow', portfolio_upload.main);
+  // Phase 438 — forced-update gate in the MaterialApp.router builder:
+  // build < min → gate only + market:// launch; transport error / 404 →
+  // fail-open.
+  group('update_gate', update_gate.main);
 }

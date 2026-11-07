@@ -96,6 +96,7 @@
 //     AppHarness.expectLocation(router, '/master/profile');
 //   });
 
+import 'package:beautica_mobile/core/diagnostics/install_id.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
@@ -692,6 +693,13 @@ abstract final class AppHarness {
     // Phase 069 — mounts the push-tap dispatcher from the FIRST frame, as
     // `BeauticaApp` does (a cold-start tap must wait out the splash).
     bool mountPushTapDispatcher = false,
+    // Phase 438 — mounts the forced-update gate in the MaterialApp.router
+    // builder, as `BeauticaApp` does. Off by default (no `/app/config` call).
+    bool mountUpdateGate = false,
+    // Phase 410 — the `diagnosticsStoreProvider` backing store, passed
+    // straight to [e2eProviderOverrides] (NOT via [extraOverrides]: double
+    // override). `null` → a fresh in-memory fake per boot.
+    DiagnosticsStore? diagnostics,
   }) async {
     // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //
@@ -720,10 +728,14 @@ abstract final class AppHarness {
             fakeBackend: fakeBackend,
             storage: effectiveStorage,
             clock: clock,
+            diagnostics: diagnostics,
           ),
           ...extraOverrides,
         ].cast(),
-        child: E2eHarnessApp(mountPushTapDispatcher: mountPushTapDispatcher),
+        child: E2eHarnessApp(
+          mountPushTapDispatcher: mountPushTapDispatcher,
+          mountUpdateGate: mountUpdateGate,
+        ),
       ),
     );
 

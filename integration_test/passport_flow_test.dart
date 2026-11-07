@@ -72,6 +72,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/pull_to_refresh.dart';
 
 // ---------------------------------------------------------------------------
 // Keys
@@ -319,42 +320,17 @@ Future<void> _scrollToWishList(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Drags the passport body's `ListView` DOWN to trigger `AppRefreshIndicator`
-/// and waits for `GET /clients/me/passport` to be re-issued.
-///
-/// Mirrors `client_favorites_flow_test.dart`'s own pull-to-refresh recipe
-/// (`tester.drag` + `pumpAndSettle` + a bounded poll on the call counter) —
-/// NOT `passport_screen_test.dart`'s widget-tier fling+fixed-pump M6 recipe.
-/// That recipe exists only because the widget test pumps `PassportScreen`
-/// bare, with no `MaterialApp`/real viewport ancestor, where a `fling` is the
-/// only gesture `RefreshIndicator` reliably registers. Here the REAL app is
-/// booted (`AppHarness.boot`), so a plain downward drag past the touch slop
-/// is enough — `RefreshIndicator` only needs the list at scroll offset 0,
-/// which it already is right after `_openPassportTab`.
-///
-/// `AppHarness.pumpUntilCondition` (a bounded plain-`pump` poll, NOT
-/// `pumpAndSettle`) is what actually proves the refetch landed — a caller
-/// that stopped at `tester.pumpAndSettle()` alone could observe "settled"
-/// in the lull between the drag-reveal animation finishing and the async
-/// `onRefresh` future resolving, and read stale UI
-/// (`project_pumpandsettle_misses_debounce_timer`).
+/// Pulls the passport body's `ListView` down and waits for
+/// `GET /clients/me/passport` to be re-issued and the indicator to go idle —
+/// see `support/pull_to_refresh.dart` for why the idle waits matter.
 Future<void> _pullToRefresh(
   WidgetTester tester,
   int Function() getPassportCalls,
-) async {
-  final int before = getPassportCalls();
-  await tester.drag(
-    find.byType(ListView).first,
-    const Offset(0, 320),
-    touchSlopY: 0,
-  );
-  await tester.pumpAndSettle();
-  await AppHarness.pumpUntilCondition(
-    tester,
-    () => getPassportCalls() > before,
-    description: 're-issue of GET /clients/me/passport after a pull',
-  );
-}
+) => pullToRefresh(
+  tester,
+  getPassportCalls,
+  description: 're-issue of GET /clients/me/passport after a pull',
+);
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -858,6 +834,17 @@ void main() {
     'card when the endpoint fails, and recovers once the failure clears '
     '(Qase defect #9 step 6)',
     (tester) async {
+      // Device-like insets: the status/nav bars shift the passport list
+      // centre onto the error state's Retry button, where a single-event drag
+      // does not arm the RefreshIndicator (regression pin for
+      // support/pull_to_refresh.dart's timedDrag).
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      tester.view.padding = tester.view.viewPadding = const FakeViewPadding(
+        top: 63,
+        bottom: 126,
+      );
+      addTearDown(tester.view.reset);
       final fb = FakeBackend()
         ..currentRole = UserRole.client
         ..passportBody = _sessionPassportBody(

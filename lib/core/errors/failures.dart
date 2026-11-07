@@ -15,6 +15,8 @@
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/core/network/request_id_interceptor.dart'
+    show requestIdOf;
 import 'package:dio/dio.dart' show DioException;
 import 'package:flutter/material.dart';
 
@@ -56,6 +58,15 @@ sealed class Failure implements Exception {
   /// logging, emit `failure.toString()` (PII-safe); NEVER log the cause or its
   /// response — a raw `DioException` body can carry names / phones.
   final Object? cause;
+
+  /// Phase 410 (R.3 D5) — the backend correlation id of the request behind
+  /// this failure (server echo, else the id this app sent), or `null` when the
+  /// failure did not come from HTTP. Not PII; crash reports tag it as
+  /// `request_id` so a phone crash finds its server log line.
+  String? get requestId {
+    final Object? c = cause;
+    return c is DioException ? requestIdOf(c) : null;
+  }
 
   /// Returns a localized, user-facing description of this failure.
   ///

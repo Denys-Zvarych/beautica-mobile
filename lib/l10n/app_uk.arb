@@ -2937,6 +2937,14 @@
   "@accountNotificationsOffSubtitle": {
     "description": "Account page notifications row subtitle while the Android notification permission is off; tapping the switch opens Android settings."
   },
+  "accountCrashReportsLabel": "Надсилати звіти про збої",
+  "@accountCrashReportsLabel": {
+    "description": "Phase 410 — Account page switch row: send anonymous crash reports to Sentry (on by default, opt-out)."
+  },
+  "accountCrashReportsSubtitle": "Анонімно: без імені, телефону, email і записів",
+  "@accountCrashReportsSubtitle": {
+    "description": "Phase 410 — subtitle under the crash-reports switch: what is NOT sent."
+  },
 
   "discreteTimesSegmentInterval": "Інтервал",
   "@discreteTimesSegmentInterval": {
@@ -7507,5 +7515,31 @@
   "bookingRescheduleLimitDismiss": "Зрозуміло",
   "@bookingRescheduleLimitDismiss": {
     "description": "Phase 431 — reschedule-limit dialog quiet dismiss; the user stays on the confirm screen."
+  },
+  "updateRequiredTitle": "Оновіть додаток",
+  "@updateRequiredTitle": {
+    "description": "Phase 438 — forced-update gate title (installed build below the backend minVersionCode)."
+  },
+  "updateRequiredBody": "Ця версія Beautica більше не підтримується. Оновіть її в Google Play, щоб і далі користуватися записами. Ваш акаунт і записи збережуться.",
+  "@updateRequiredBody": {
+    "description": "Phase 438 — forced-update gate body."
+  },
+  "updateRequiredButton": "Оновити",
+  "@updateRequiredButton": {
+    "description": "Phase 438 — forced-update gate CTA; opens the Google Play listing."
+  },
+  "updateRequiredPlayError": "Не вдалося відкрити Google Play. Відкрийте Play Маркет і знайдіть «Beautica» вручну.",
+  "@updateRequiredPlayError": {
+    "description": "Phase 438 — inline notice when neither the market:// link nor the Play web URL could be opened."
+  },
+  "updateRequiredInstalledVersion": "Встановлена версія {version}",
+  "@updateRequiredInstalledVersion": {
+    "description": "Phase 438 — muted label under the CTA. version = pubspec semver.",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.5.0"
+      }
+    }
   }
 }

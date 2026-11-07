@@ -115,3 +115,5 @@ test/.run_list_selftest_*/
 
 # Phase 401: generated per-PR integration aggregator (tool/ci/affected_tests/bin/gen_integration_entry.dart)
 integration_test/ci_selected_tests.dart
+# 2026-11-06: generated per-shard full-suite aggregator (same generator, --shard K/N)
+integration_test/ci_shard_tests.dart

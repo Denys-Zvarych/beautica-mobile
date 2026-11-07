@@ -573,6 +573,22 @@ already hold their own synchronous guard are listed in
 `scripts/.raw_push_allow` as `<path>:<line>:<fingerprint>`; an entry whose
 line no longer carries its fingerprint fails as STALE.
 
+<a id="booking-status-default-arm"></a>
+
+### Forbid a catch-all arm in a BookingStatus switch (phase 438 D7)
+
+`scripts/forbid_booking_status_default_arm.sh` — in `lib/**/*.dart`, a
+`switch` whose subject ends in `status` and that has at least one
+`BookingStatus.<x>` pattern arm must not carry a catch-all arm (`default:`,
+`_ =>`, `case _:`). Domain `BookingStatus` has an explicit `unknown` member
+that `BookingStatus.fromWire` maps any wire status this build predates to;
+every switch keeps an explicit `unknown` arm so Dart exhaustiveness forces a
+decision for each NEW domain value at compile time. A catch-all silently
+swallows the next value instead. Wire-string mappers over a `status` String
+(no `BookingStatus.` pattern) are out of scope. Escape hatch on the same line
+as the arm: `// status-default-ok: <why>`. Self-test:
+`./scripts/forbid_booking_status_default_arm.sh --self-test`.
+
 <a id="verify-guards-self-test"></a>
 
 ### Self-test drift-prevention gates (2026-06-24, 2026-08-18)

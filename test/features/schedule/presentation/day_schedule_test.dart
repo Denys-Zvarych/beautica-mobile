@@ -565,4 +565,112 @@ void main() {
       expect(cells.last.state, SlotState.available);
     });
   });
+
+  // Hotfix (follow-up to PR #123): a day with CUSTOM hours must still paint
+  // its bookings — in-window ones as before, and one OUTSIDE the custom hours
+  // gets a booked cell instead of vanishing past the clamped grid edge.
+  group('buildDayCells — custom-hours day with bookings', () {
+    final EffectiveDay customDay = _day(
+      source: EffectiveSource.overrideCustom,
+      intervals: <WorkInterval>[_interval(10, 0, 14, 0)],
+    );
+
+    // Pins that an IN-window booking leaves the bounds unchanged — a
+    // regression guard, NOT the outside-hours fix (that is the 15:00 / 08:15
+    // cases below).
+    test('overrideCustom 10:00–14:00 + an in-window 11:00 booking → that cell '
+        'booked, bounds stay 10:00..13:30', () {
+      final List<SlotCell> cells = buildDayCells(
+        customDay,
+        bookings: <Booking>[_booking(sh: 11, sm: 0, id: 'b-in')],
+      );
+
+      expect(_timesIn(cells, SlotState.booked), <TimeOfDay>[
+        const TimeOfDay(hour: 11, minute: 0),
+      ]);
+      expect(cells.first.time, const TimeOfDay(hour: 10, minute: 0));
+      expect(cells.last.time, const TimeOfDay(hour: 13, minute: 30));
+      expect(cells, hasLength(8));
+    });
+
+    test('overrideCustom 10:00–14:00 + a 15:00 COMPLETED booking → a booked '
+        '15:00 cell; the 14:00/14:30 gap reads unavailable', () {
+      final List<SlotCell> cells = buildDayCells(
+        customDay,
+        bookings: <Booking>[
+          _booking(sh: 15, sm: 0, status: BookingStatus.completed, id: 'b-out'),
+        ],
+      );
+
+      expect(_timesIn(cells, SlotState.booked), <TimeOfDay>[
+        const TimeOfDay(hour: 15, minute: 0),
+      ]);
+      expect(_timesIn(cells, SlotState.unavailable), <TimeOfDay>[
+        const TimeOfDay(hour: 14, minute: 0),
+        const TimeOfDay(hour: 14, minute: 30),
+      ]);
+      expect(cells.first.time, const TimeOfDay(hour: 10, minute: 0));
+      expect(cells.last.time, const TimeOfDay(hour: 15, minute: 0));
+    });
+
+    test('a booking BEFORE the custom hours (08:15) widens the start to the '
+        'enclosing 08:00 cell', () {
+      final List<SlotCell> cells = buildDayCells(
+        customDay,
+        bookings: <Booking>[_booking(sh: 8, sm: 15, id: 'b-early')],
+      );
+
+      expect(cells.first.time, const TimeOfDay(hour: 8, minute: 0));
+      expect(_timesIn(cells, SlotState.booked), <TimeOfDay>[
+        const TimeOfDay(hour: 8, minute: 0),
+        const TimeOfDay(hour: 8, minute: 30),
+      ]);
+      expect(_timesIn(cells, SlotState.unavailable), <TimeOfDay>[
+        const TimeOfDay(hour: 9, minute: 0),
+        const TimeOfDay(hour: 9, minute: 30),
+      ]);
+      expect(cells.last.time, const TimeOfDay(hour: 13, minute: 30));
+    });
+
+    test('no outside booking → bounds identical to the booking-free grid', () {
+      final List<SlotCell> bare = buildDayCells(customDay);
+      final List<TimeOfDay> bareTimes = bare
+          .map((SlotCell c) => c.time)
+          .toList();
+      final List<SlotCell> withInWindow = buildDayCells(
+        customDay,
+        bookings: <Booking>[
+          _booking(sh: 13, sm: 30, id: 'b-edge'),
+          _booking(sh: 16, sm: 0, status: BookingStatus.cancelled, id: 'b-x'),
+        ],
+      );
+
+      expect(bareTimes.first, const TimeOfDay(hour: 10, minute: 0));
+      expect(bareTimes.last, const TimeOfDay(hour: 13, minute: 30));
+      expect(
+        withInWindow.map((SlotCell c) => c.time).toList(),
+        bareTimes,
+        reason:
+            'an in-window booking and an ignored (CANCELLED) outside one '
+            'must not move the bounds',
+      );
+
+      // CANCELLED alone outside the hours: it is ignored, so the grid bounds
+      // must equal the booking-free bounds exactly.
+      final List<SlotCell> cancelledOnly = buildDayCells(
+        customDay,
+        bookings: <Booking>[
+          _booking(sh: 16, sm: 0, status: BookingStatus.cancelled, id: 'b-c'),
+        ],
+      );
+      expect(cancelledOnly.first.time, bareTimes.first);
+      expect(cancelledOnly.last.time, bareTimes.last);
+      expect(
+        cancelledOnly.map((SlotCell c) => c.time).toList(),
+        bareTimes,
+        reason: 'a CANCELLED outside booking must not widen the bounds',
+      );
+      expect(_timesIn(cancelledOnly, SlotState.booked), isEmpty);
+    });
+  });
 }

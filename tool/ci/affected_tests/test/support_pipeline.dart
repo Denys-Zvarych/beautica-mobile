@@ -142,6 +142,9 @@ final class Pipeline {
     Link(
       p.join(trusted.path, 'shard_units.sh'),
     ).createSync(p.join(mobile, 'tool', 'ci', 'shard_units.sh'));
+    Link(
+      p.join(trusted.path, 'prebuild_it_apk.sh'),
+    ).createSync(p.join(mobile, 'tool', 'ci', 'prebuild_it_apk.sh'));
     Directory(p.join(ws2, 'trusted')).createSync(recursive: true);
     Link(p.join(ws2, 'pr')).createSync(pr);
 
@@ -536,6 +539,7 @@ final class Pipeline {
     bool withGenerator = true,
     String? fakeGenerator,
     bool withAttemptScript = true,
+    bool withPrebuildScript = true,
     void Function(String pr)? beforeStep,
   }) {
     final trustedLink = Link(p.join(pr, 'trusted'));
@@ -565,6 +569,11 @@ final class Pipeline {
           p.join(pr, 'trusted', 'tool', 'ci', 'run_it_attempt.sh'),
         ).createSync(p.join(mobile, 'tool', 'ci', 'run_it_attempt.sh'));
       }
+      if (withPrebuildScript) {
+        Link(
+          p.join(pr, 'trusted', 'tool', 'ci', 'prebuild_it_apk.sh'),
+        ).createSync(p.join(mobile, 'tool', 'ci', 'prebuild_it_apk.sh'));
+      }
     } else if (withGenerator) {
       trustedLink.createSync(p.join(ws, 'trusted'));
     } else {
@@ -579,7 +588,7 @@ final class Pipeline {
         stepOf(
           jobs,
           'integration',
-          'Choose integration entry (selected flows or the two parts)',
+          'Choose integration entry (selected flows or the full suite)',
         ),
         env: {
           'GITHUB_WORKSPACE': pr,

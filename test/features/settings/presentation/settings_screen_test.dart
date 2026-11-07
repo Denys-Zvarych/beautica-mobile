@@ -27,7 +27,9 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/diagnostics/crash_reporting_enabled_provider.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/storage/storage_keys.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/push/push_available_provider.dart';
@@ -52,6 +54,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_diagnostics_store.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
@@ -82,9 +85,12 @@ Widget _buildApp({
   required GoRouter router,
   required FakeAuthRepository repo,
   required FakeSecureStorage storage,
+  FakeDiagnosticsStore? diagnostics,
 }) => ProviderScope(
   retry: beauticaProviderRetry,
   overrides: [
+    if (diagnostics != null)
+      diagnosticsStoreProvider.overrideWithValue(diagnostics),
     authRepositoryProvider.overrideWith((_) => repo),
     secureStorageProvider.overrideWith((_) => storage),
     // No Firebase in this harness — the «Сповіщення» switch is OFF and inert.
@@ -614,4 +620,161 @@ void main() {
       });
     }
   });
+
+  // Phase 410 (R.3 D8) — «Надсилати звіти про збої» opt-out switch.
+  group('SettingsScreen — crash reports switch', () {
+    SettingsToggleRow row(WidgetTester tester) => tester
+        .widget<SettingsToggleRow>(find.byKey(const Key('row-crash-reports')));
+
+    testWidgets('A18. renders ON by default with label + subtitle', (
+      tester,
+    ) async {
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _buildApp(
+          router: router,
+          repo: FakeAuthRepository(),
+          storage: FakeSecureStorage(),
+          diagnostics: FakeDiagnosticsStore(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder rowFinder = find.byKey(const Key('row-crash-reports'));
+      expect(rowFinder, findsOneWidget);
+      // Copy resolved through the row's own localisation context and scoped
+      // to the keyed row — never a raw literal.
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(rowFinder),
+      );
+      expect(
+        find.descendant(
+          of: rowFinder,
+          matching: find.text(l10n.accountCrashReportsLabel),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: rowFinder,
+          matching: find.text(l10n.accountCrashReportsSubtitle),
+        ),
+        findsOneWidget,
+      );
+      expect(row(tester).value, isTrue);
+    });
+
+    testWidgets('A19. toggling persists diagnostics.enabled off and on', (
+      tester,
+    ) async {
+      final FakeDiagnosticsStore diagnostics = FakeDiagnosticsStore();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _buildApp(
+          router: router,
+          repo: FakeAuthRepository(),
+          storage: FakeSecureStorage(),
+          diagnostics: diagnostics,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('switch-crash-reports')));
+      await tester.pumpAndSettle();
+      expect(diagnostics.values[StorageKeys.diagnosticsEnabled], 'false');
+      expect(row(tester).value, isFalse);
+
+      await tester.tap(find.byKey(const Key('switch-crash-reports')));
+      await tester.pumpAndSettle();
+      expect(diagnostics.values[StorageKeys.diagnosticsEnabled], 'true');
+      expect(row(tester).value, isTrue);
+    });
+
+    testWidgets('A20. a stored opt-out renders OFF', (tester) async {
+      final FakeDiagnosticsStore diagnostics = FakeDiagnosticsStore()
+        ..values[StorageKeys.diagnosticsEnabled] = 'false';
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _buildApp(
+          router: router,
+          repo: FakeAuthRepository(),
+          storage: FakeSecureStorage(),
+          diagnostics: diagnostics,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(row(tester).value, isFalse);
+    });
+
+    testWidgets('A21. before the stored flag is read the row shows ON and a '
+        'tap writes nothing', (tester) async {
+      final _PendingReadDiagnosticsStore diagnostics =
+          _PendingReadDiagnosticsStore();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _buildApp(
+          router: router,
+          repo: FakeAuthRepository(),
+          storage: FakeSecureStorage(),
+          diagnostics: diagnostics,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(row(tester).value, isTrue);
+      expect(row(tester).onChanged, isNull, reason: 'inert until read');
+      await tester.tap(find.byKey(const Key('switch-crash-reports')));
+      await tester.pumpAndSettle();
+      expect(diagnostics.writes, 0);
+      expect(row(tester).value, isTrue);
+
+      // Release the read so nothing is left pending at teardown.
+      diagnostics.pending.complete('false');
+      await tester.pumpAndSettle();
+      expect(row(tester).value, isFalse);
+    });
+
+    testWidgets(
+      'A22. a failed write reverts the switch to its previous value',
+      (tester) async {
+        final FakeDiagnosticsStore diagnostics = FakeDiagnosticsStore()
+          ..failWrites = true;
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+        await tester.pumpWidget(
+          _buildApp(
+            router: router,
+            repo: FakeAuthRepository(),
+            storage: FakeSecureStorage(),
+            diagnostics: diagnostics,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(row(tester).value, isTrue);
+
+        await tester.tap(find.byKey(const Key('switch-crash-reports')));
+        await tester.pumpAndSettle();
+
+        expect(diagnostics.values[StorageKeys.diagnosticsEnabled], isNull);
+        expect(
+          row(tester).value,
+          isTrue,
+          reason: 'reverted after write failed',
+        );
+      },
+    );
+  });
+}
+
+/// A [FakeDiagnosticsStore] whose reads stay pending until [pending]
+/// completes — the window before `diagnostics.enabled` is known.
+class _PendingReadDiagnosticsStore extends FakeDiagnosticsStore {
+  final Completer<String?> pending = Completer<String?>();
+
+  @override
+  Future<String?> read(String key) => pending.future;
 }

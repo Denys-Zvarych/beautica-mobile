@@ -5,7 +5,7 @@ description: "Beautica — beauty services booking platform (Flutter app)"
 publish_to: 'none'
 
 # Version: 1.0.0+1 — bumped via Phase 11.6 release discipline.
-version: 1.5.0+7
+version: 1.6.0+8
 
 environment:
   sdk: ^3.11.5
@@ -40,9 +40,17 @@ dependencies:
 
   # Push notifications — Android only (phase 066). Config comes from the
   # git-ignored android/app/google-services.json injected at build time; no
-  # firebase_options.dart. No analytics / crashlytics.
+  # firebase_options.dart. No analytics / crashlytics (crash reporting is
+  # Sentry, below).
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
+
+  # Crash reporting — phase 410 (R.3). Pinned EXACT: 10.x needs Dart 3.12 /
+  # Flutter 3.44 (repo is on Dart 3.11). No sentry_dio (it would wrap the
+  # cert-pinning adapter) and no sentry_logging — see
+  # lib/core/diagnostics/crash_reporting.dart and
+  # scripts/forbid_sentry_pii_options.sh.
+  sentry_flutter: 9.30.1
 
   # Design system — Comfortaa + Nunito via google_fonts, served from the bundled
   # assets/fonts/ TTFs (runtime fetching is off; both carry full Cyrillic).
@@ -232,6 +240,11 @@ dev_dependencies:
   # import, satisfying the depend_on_referenced_packages lint CI runs.
   fake_async: ^1.3.3
 
+  # Phase 411 (R.4) D3 — uploads the Dart obfuscation symbols (build/symbols)
+  # and the obfuscation map to Sentry from the release-aab job only
+  # (`dart run sentry_dart_plugin`). Exact pin; config in the `sentry:` block.
+  sentry_dart_plugin: 3.4.0
+
   # In-memory filesystem for the shared media-loader tests: FakeMediaCacheManager
   # yields a FileInfo backed by a MemoryFileSystem file so the "loaded" state
   # decodes real bytes without touching disk. Already a transitive dep of
@@ -385,6 +398,21 @@ dev_dependencies:
 # com.beautica.app.staging; android/app/build.gradle.kts) so patrol can install +
 # drive the right APK. iOS is declared for parity but iOS native patrol is not part of
 # this phase (Android-only emulator job in CI).
+# Phase 411 (R.4) D2/D3 — `dart run sentry_dart_plugin` (release-aab job).
+# Release / dist / auth come from env only (SENTRY_RELEASE =
+# beautica-mobile@<version>+<build>, SENTRY_DIST = <build>, SENTRY_AUTH_TOKEN —
+# an organization token, which also carries the EU region URL). NEVER put
+# auth_token here. Sources and source maps are never uploaded.
+sentry:
+  org: beautica
+  project: beautica-mobile
+  upload_debug_symbols: true
+  upload_sources: false
+  upload_source_maps: false
+  symbols_path: build/symbols
+  dart_symbol_map_path: build/app/obfuscation.map.json
+  commits: false
+
 patrol:
   app_name: Beautica
   # patrol_cli defaults test_directory to `patrol_test`; without this key the

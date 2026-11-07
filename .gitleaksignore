@@ -26,3 +26,11 @@
 # Only this ignore entry (or a history rewrite, which is not being done for
 # a false positive) clears it.
 682fb9a716db59ed70fb21ab56a20d9870765ad6:test/routing/role_landing_chrome_test.dart:generic-api-key:344
+
+# --- test/core/diagnostics/crash_scrubber_test.dart:14 (jwt) ---
+# Synthetic canary JWT for the crash-scrubber redaction tests: header
+# {"alg":"HS256"}, payload {"sub":"user-42"}, signature is the base64 of the
+# literal text "signature-signature" — never issued by any server, signs
+# nothing. It must look like a real JWT so the `_jwt` redaction rule is
+# exercised; not a credential.
+e887d89933c7d70a2ddbe18006f76ec1d67bd465:test/core/diagnostics/crash_scrubber_test.dart:jwt:14

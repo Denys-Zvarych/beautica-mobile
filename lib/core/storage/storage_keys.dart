@@ -72,10 +72,21 @@ abstract final class StorageKeys {
   /// Cleared when the pick settles and on logout ([SecureStorage.deleteAll]).
   static const String pendingPick = 'BEAUTICA_PENDING_PICK';
 
+  /// Phase 410 (R.3 D8) — anonymous crash-reporting install ID: random 128-bit
+  /// hex, never the backend user ID, never sent to the backend. Per-DEVICE:
+  /// survives logout ([deviceScoped]); regenerated on an off→on toggle.
+  static const String diagnosticsInstallId = 'diagnostics.install_id';
+
+  /// Phase 410 (R.3 D8) — crash-report opt-out. `'true'` / `'false'`; absent
+  /// means ON (the decided default). Per-DEVICE: survives logout.
+  static const String diagnosticsEnabled = 'diagnostics.enabled';
+
   /// Keys that belong to the DEVICE, not the account: [SecureStorage.deleteAll]
   /// restores them after the wipe. ONE mechanism for every such flag.
   static const List<String> deviceScoped = <String>[
     pushPermissionAsked,
     pushRevokePending,
+    diagnosticsInstallId,
+    diagnosticsEnabled,
   ];
 }

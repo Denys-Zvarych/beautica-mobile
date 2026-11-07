@@ -284,6 +284,19 @@ EXTRA=(HOME="$ROOT/home" PATH="$FB:$PATH" LOG="$ROOT/calls.log" MOBILE_DIR="$ROO
 check "build apk --profile then adb -s SER install -r; never flutter run" '[ $RC -eq 0 ] && grep -q "^flutter build apk --profile" "$ROOT/calls.log" && grep -q "^adb -s SER install -r .*app-staging-profile.apk" "$ROOT/calls.log" && ! grep -q "flutter run" "$ROOT/calls.log"'
 EXTRA=(HOME="$ROOT/home")
 
+echo "[17] BEAUTICA_PERF_SENTRY_DSN: opt-in --dart-define passthrough to the profile build"
+DUMMY_DSN='https://k@o0.ingest.sentry.io/0'
+nt() { # nt <dsn-or-empty>: run install_profile_no_trace with fake flutter/adb, log in calls.log
+    : >"$ROOT/calls.log"
+    OUT="$(env HOME="$ROOT/home" PATH="$FB:$PATH" LOG="$ROOT/calls.log" BEAUTICA_PERF_SENTRY_DSN="$1" bash -c 'source "$1"; set +eu; MOBILE_DIR="$2"; install_profile_no_trace SER' _ "$TARGET" "$ROOT/m" 2>&1)"; RC=$?
+}
+nt "$DUMMY_DSN"
+check "set -> build carries --dart-define=BEAUTICA_SENTRY_DSN=<dsn>" '[ $RC -eq 0 ] && grep -q "^flutter build apk --profile .*--dart-define=BEAUTICA_SENTRY_DSN=$DUMMY_DSN" "$ROOT/calls.log"'
+nt ""
+check "unset -> no BEAUTICA_SENTRY_DSN define" '[ $RC -eq 0 ] && grep -q "^flutter build apk --profile" "$ROOT/calls.log" && ! grep -q "BEAUTICA_SENTRY_DSN" "$ROOT/calls.log"'
+nt 'https://k@o0.ingest.sentry.io/0; rm -rf /'
+check "malformed DSN -> exit 64, nothing built" '[ $RC -eq 64 ] && ! grep -q "flutter build" "$ROOT/calls.log"'
+
 echo
 echo "RESULT: pass=$PASS fail=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

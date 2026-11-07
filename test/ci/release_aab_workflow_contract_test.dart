@@ -22,7 +22,7 @@
 //   D5  `build` needs guard + environment ci-trusted-secrets; keystore in
 //       $RUNNER_TEMP, removed in an always() step; REQUIRE_RELEASE_SIGNING=1,
 //       never ALLOW_DEBUG_SIGNED_RELEASE.
-//   D6  one appbundle build, no --build-number/--build-name, `# 411:` hooks.
+//   D6  one appbundle build, no --build-number/--build-name.
 //   D7  verify_release_aab.sh runs after the build and before the AAB upload.
 //   D10 AD_ID stripped; allow-list entries unique, each with a `# why`.
 //   D11 no artifact path can reach the keystore or google-services.json.
@@ -48,8 +48,24 @@
 //   D10 job `release-notes` needs guard, no environment, no secrets, no id-token,
 //       runs scripts/check_release_notes.sh (dispatch mode on a dry run) and uploads
 //       release-notes/ as artifact `release-notes`.
+//
+// Phase 411 (phase-411-R.4-crash-symbol-upload.md) — Sentry symbolication, in
+// [sentry411Violations] (replaces 409's `# 411:` hook markers):
+//   D1  the build runs --obfuscate --split-debug-info=build/symbols, saves the
+//       obfuscation map, and passes BEAUTICA_SENTRY_DSN / BEAUTICA_RELEASE as
+//       dart-defines from env (DSN = secrets.BEAUTICA_SENTRY_DSN_PROD).
+//   D2  a preflight step before the build requires both Sentry secrets and
+//       writes `check_release_version.sh sentry-release` into $GITHUB_ENV; job
+//       env SENTRY_ORG=beautica, SENTRY_PROJECT=beautica-mobile.
+//   D4  the build step env carries secrets.SENTRY_AUTH_TOKEN (Gradle R8 upload).
+//   D3/D7 `dart run sentry_dart_plugin` runs after the symbols artifact upload,
+//       blocking (no if / continue-on-error), and checks the plugin's
+//       `failed=0` summary (the plugin itself exits 0 on a failed map upload).
+//   A4  no DSN / sntrys_ token literal in the workflow, pubspec, Gradle files;
+//       config/env/*.json carry no Sentry key; pubspec `sentry:` has no auth_token.
 import 'dart:io';
 
+import 'package:beautica_mobile/core/diagnostics/crash_reporting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const String kWorkflow = '.github/workflows/release-aab.yml';
@@ -537,31 +553,352 @@ String _withName(WorkflowStep s) {
   return n < 0 ? '' : _inline(s.lines[n]);
 }
 
-List<String> hook411Violations(String text) {
+const String _dsnSecret = 'BEAUTICA_SENTRY_DSN_PROD';
+const String _sentryTokenSecret = 'SENTRY_AUTH_TOKEN';
+
+bool _blocking(WorkflowStep s) => !s.has('if') && !s.has('continue-on-error');
+
+List<String> sentry411Violations(String text) {
   final Workflow w = Workflow(text);
+  final List<String> v = <String>[];
   final List<WorkflowStep> steps = w.steps('build');
+  const String dsnRef = '\${{ secrets.$_dsnSecret }}';
+  const String tokenRef = '\${{ secrets.$_sentryTokenSecret }}';
   final int b = steps.indexWhere(
     (WorkflowStep s) =>
         RegExp(r'flutter\s+build\s+appbundle').hasMatch(s.field('run') ?? ''),
   );
-  final int ver = steps.indexWhere(
-    (WorkflowStep s) =>
-        (s.field('run') ?? '').contains('verify_release_aab.sh'),
+  final int pre = steps.indexWhere(
+    (WorkflowStep s) => RegExp(
+      r'\./scripts/check_release_version\.sh\s+sentry-release\b',
+    ).hasMatch(s.field('run') ?? ''),
   );
-  if (b < 1 || ver < 0) return <String>['cannot locate build/verify steps'];
-  final List<int> marks = <int>[
-    for (int i = 0; i < w.lines.length; i++)
-      if (w.lines[i].trimLeft().startsWith('# 411:')) i,
-  ];
-  final List<String> v = <String>[];
-  if (!marks.any((int m) => m > steps[b - 1].start && m < steps[b].start)) {
-    v.add('no `# 411:` hook directly above the build step');
+  final int symbols = steps.indexWhere(
+    (WorkflowStep s) =>
+        (s.field('uses') ?? '').startsWith('actions/upload-artifact@') &&
+        RegExp(r'symbols$').hasMatch(_withName(s)),
+  );
+  final int up = steps.indexWhere(
+    (WorkflowStep s) => RegExp(
+      r'(^|\s)dart\s+run\s+sentry_dart_plugin\b',
+    ).hasMatch(s.field('run') ?? ''),
+  );
+  if (b < 0) return <String>['no `flutter build appbundle` step'];
+
+  // Job env (D2 / step 3).
+  final int? j = w.jobs['build'];
+  final int je = j == null
+      ? -1
+      : _findKey(w.lines, 'env', 4, within: _children(w.lines, j));
+  final Map<String, String> jobEnv = <String, String>{
+    if (je >= 0)
+      for (final int i in _children(w.lines, je))
+        if (!_isNoise(w.lines[i]) && w.lines[i].contains(':'))
+          w.lines[i].trimLeft().split(':').first.trim(): _unquote(
+            _inline(w.lines[i].trimLeft()),
+          ),
+  };
+  if (jobEnv['SENTRY_ORG'] != 'beautica') {
+    v.add('build job env must set SENTRY_ORG: beautica');
   }
-  if (!marks.any((int m) => m > steps[b].start && m < steps[ver].start)) {
-    v.add('no `# 411:` hook between the build and verify steps');
+  if (jobEnv['SENTRY_PROJECT'] != 'beautica-mobile') {
+    v.add('build job env must set SENTRY_PROJECT: beautica-mobile');
+  }
+
+  // D1 / D4: the build step.
+  final WorkflowStep build = steps[b];
+  final String run = build.field('run') ?? '';
+  final Map<String, String> env = build.mapping('env');
+  if (env['BEAUTICA_SENTRY_DSN'] != dsnRef) {
+    v.add('build env BEAUTICA_SENTRY_DSN must be $dsnRef');
+  }
+  if (env[_sentryTokenSecret] != tokenRef) {
+    v.add(
+      'build env $_sentryTokenSecret must be $tokenRef (R8 mapping upload)',
+    );
+  }
+  for (final String flag in <String>[
+    '--obfuscate',
+    '--split-debug-info=build/symbols',
+    '--extra-gen-snapshot-options=--save-obfuscation-map=build/app/obfuscation.map.json',
+    '--dart-define=BEAUTICA_SENTRY_DSN="\$BEAUTICA_SENTRY_DSN"',
+    '--dart-define=BEAUTICA_RELEASE="\$SENTRY_RELEASE"',
+  ]) {
+    if (!run.contains(flag)) v.add('build command lacks `$flag`');
+  }
+
+  // D2: preflight before the build.
+  if (pre < 0) {
+    v.add('no step writes `check_release_version.sh sentry-release` output');
+  } else {
+    final WorkflowStep p = steps[pre];
+    final Map<String, String> pe = p.mapping('env');
+    if (pre >= b) v.add('sentry-release step must run BEFORE the build');
+    if (!_blocking(p)) v.add('sentry-release step must be unconditional');
+    if (!(p.field('run') ?? '').contains(r'$GITHUB_ENV')) {
+      v.add('sentry-release output must be appended to \$GITHUB_ENV');
+    }
+    if (pe['BEAUTICA_SENTRY_DSN'] != dsnRef ||
+        pe[_sentryTokenSecret] != tokenRef) {
+      v.add('preflight must check both $_dsnSecret and $_sentryTokenSecret');
+    }
+  }
+
+  // D3 / D7: the Dart symbol upload.
+  if (up < 0) {
+    v.add('no `dart run sentry_dart_plugin` step');
+  } else {
+    final WorkflowStep u = steps[up];
+    final String ur = u.field('run') ?? '';
+    if (up <= b) v.add('sentry_dart_plugin must run AFTER the build');
+    if (symbols < 0 || up <= symbols) {
+      v.add(
+        'sentry_dart_plugin must run AFTER the symbols artifact upload (D7)',
+      );
+    }
+    if (!_blocking(u)) v.add('sentry_dart_plugin step must be blocking');
+    if (u.mapping('env')[_sentryTokenSecret] != tokenRef) {
+      v.add('sentry_dart_plugin step env must carry $tokenRef');
+    }
+    if (!ur.contains('pipefail')) {
+      v.add('sentry_dart_plugin pipe needs pipefail');
+    }
+    if (!ur.contains('failed=0')) {
+      v.add('sentry_dart_plugin output must be checked for `failed=0`');
+    }
+  }
+
+  // A4: a Sentry secret is never echoed and no build-job shell traces (xtrace
+  // would print the expanded DSN / token of every command).
+  final RegExp secretVar = RegExp(
+    r'\$\{?(BEAUTICA_SENTRY_DSN|SENTRY_AUTH_TOKEN)\b',
+  );
+  for (final WorkflowStep s in steps) {
+    final String r = s.field('run') ?? '';
+    if (RegExp(r'\bset\s+(-[a-zA-Z]*x|-o\s+xtrace)').hasMatch(r)) {
+      v.add('step at line ${s.start + 1}: shell tracing in the build job');
+    }
+    for (final String l in r.split('\n')) {
+      if (RegExp(r'\b(echo|printf|cat|printenv|tee)\b').hasMatch(l) &&
+          secretVar.hasMatch(l)) {
+        v.add('step at line ${s.start + 1}: prints a Sentry secret: `$l`');
+      }
+    }
+  }
+
+  // A4: no literal DSN / token anywhere in the file.
+  for (int i = 0; i < w.lines.length; i++) {
+    final String l = w.lines[i];
+    if (RegExp(r'https://[0-9a-f]{16,}@|sntrys_').hasMatch(l)) {
+      v.add('line ${i + 1}: literal Sentry DSN / token');
+    }
+    if (!_isNoise(l) && RegExp(r'\bSENTRY_URL\b|de\.sentry\.io').hasMatch(l)) {
+      v.add('line ${i + 1}: region comes from the org token, not SENTRY_URL');
+    }
   }
   return v;
 }
+
+/// A4 on the non-workflow files: pubspec, Gradle, config/env/*.json.
+List<String> sentrySecretFileViolations(Map<String, String> files) {
+  final List<String> v = <String>[];
+  files.forEach((String path, String text) {
+    if (RegExp(r'sntrys_|https://[0-9a-f]{16,}@').hasMatch(text)) {
+      v.add('$path: literal Sentry token / DSN');
+    }
+    if (RegExp(r'^\s*auth_token\s*:', multiLine: true).hasMatch(text)) {
+      v.add('$path: auth_token key (env only)');
+    }
+    if (path.startsWith('config/env/') && text.contains('SENTRY')) {
+      v.add('$path: Sentry key in a committed env file (dart-define only)');
+    }
+  });
+  return v;
+}
+
+/// Body of the first `name {` block (brace-matched), or null.
+String? _kotlinBlock(String text, String name) {
+  final RegExpMatch? m = RegExp(
+    '^\\s*${RegExp.escape(name)}\\s*\\{',
+    multiLine: true,
+  ).firstMatch(text);
+  if (m == null) return null;
+  int depth = 0;
+  for (int i = m.end - 1; i < text.length; i++) {
+    if (text[i] == '{') depth++;
+    if (text[i] == '}' && --depth == 0) return text.substring(m.end, i);
+  }
+  return null;
+}
+
+String _stripLineComments(String t) => t
+    .split('\n')
+    .map((String l) => l.contains('//') ? l.substring(0, l.indexOf('//')) : l)
+    .join('\n');
+
+/// 411 D4: the Sentry Android Gradle plugin is exact-pinned, applied, and used
+/// ONLY for the R8 mapping (upload armed by SENTRY_AUTH_TOKEN alone); every
+/// other feature (auto-install, bytecode tracing, source/native uploads,
+/// telemetry, size/distribution/snapshots, runtime optimizations) is off.
+List<String> sentryGradleViolations(String app, String settings) {
+  final List<String> v = <String>[];
+  final String s = _stripLineComments(settings);
+  if (!RegExp(
+    r'id\("io\.sentry\.android\.gradle"\)\s+version\s+"\d+\.\d+\.\d+"\s+apply\s+false',
+  ).hasMatch(s)) {
+    v.add('settings.gradle.kts: io.sentry.android.gradle not exact-pinned');
+  }
+  final String a = _stripLineComments(app);
+  final String plugins = _kotlinBlock(a, 'plugins') ?? '';
+  if (!plugins.contains('id("io.sentry.android.gradle")')) {
+    v.add('app/build.gradle.kts: Sentry Gradle plugin not applied');
+  }
+  final String? block = _kotlinBlock(a, 'sentry');
+  if (block == null) return <String>[...v, 'no `sentry { }` block'];
+  // Each property set exactly once, to exactly this value.
+  const Map<String, String> props = <String, String>{
+    'org': '"beautica"',
+    'projectName': '"beautica-mobile"',
+    'includeProguardMapping': 'true',
+    'autoUploadProguardMapping':
+        '!System.getenv("SENTRY_AUTH_TOKEN").isNullOrBlank()',
+    'uploadNativeSymbols': 'false',
+    'includeNativeSources': 'false',
+    'includeSourceContext': 'false',
+    'includeDependenciesReport': 'false',
+    'telemetry': 'false',
+  };
+  props.forEach((String k, String want) {
+    final List<String> got = RegExp(
+      '(^|[^.\\w])$k\\.set\\((.*)\\)\\s*\$',
+      multiLine: true,
+    ).allMatches(block).map((RegExpMatch m) => m.group(2)!.trim()).toList();
+    if (got.length != 1 || got.single != want) {
+      v.add('sentry { $k.set($want) } expected once, got $got');
+    }
+  });
+  for (final String sub in <String>[
+    'autoInstallation',
+    'tracingInstrumentation',
+    'sizeAnalysis',
+    'distribution',
+    'snapshots',
+    'runtimeOptimizations',
+  ]) {
+    final String body = (_kotlinBlock(block, sub) ?? '').trim();
+    if (body != 'enabled.set(false)') {
+      v.add('sentry { $sub { enabled.set(false) } } expected, got "$body"');
+    }
+  }
+  if (RegExp(r'\b(authToken|url)\s*\.set|\bauthToken\s*=').hasMatch(block)) {
+    v.add('sentry { } must not set authToken / url (env + org token only)');
+  }
+  return v;
+}
+
+/// 411 D2/D3: pubspec pins sentry_dart_plugin exactly; its `sentry:` block
+/// uploads ONLY debug symbols + the obfuscation map (paths = the build's
+/// flags) and takes release / dist / auth / url from env (never the file).
+List<String> sentryPubspecViolations(String pubspec) {
+  final List<String> v = <String>[];
+  final RegExpMatch? pin = RegExp(
+    r'^  sentry_dart_plugin:\s*(\S+)\s*$',
+    multiLine: true,
+  ).firstMatch(pubspec);
+  if (pin == null || !RegExp(r'^\d+\.\d+\.\d+$').hasMatch(pin.group(1)!)) {
+    v.add('sentry_dart_plugin must be exact-pinned, got ${pin?.group(1)}');
+  }
+  final List<String> lines = pubspec.split('\n');
+  final int top = lines.indexWhere(
+    (String l) => RegExp(r'^sentry:\s*$').hasMatch(l),
+  );
+  if (top < 0) return <String>[...v, 'no top-level `sentry:` block'];
+  final Map<String, String> cfg = <String, String>{};
+  for (int i = top + 1; i < lines.length; i++) {
+    final String l = lines[i];
+    if (l.trim().isEmpty || l.trimLeft().startsWith('#')) continue;
+    if (!l.startsWith(' ')) break;
+    final int c = l.indexOf(':');
+    if (c < 0) continue;
+    cfg[l.substring(0, c).trim()] = _unquote(_stripComment(l.substring(c + 1)));
+  }
+  const Map<String, String> want = <String, String>{
+    'org': 'beautica',
+    'project': 'beautica-mobile',
+    'upload_debug_symbols': 'true',
+    'upload_sources': 'false',
+    'upload_source_maps': 'false',
+    'symbols_path': 'build/symbols',
+    'dart_symbol_map_path': 'build/app/obfuscation.map.json',
+    'commits': 'false',
+  };
+  want.forEach((String k, String val) {
+    if (cfg[k] != val) v.add('pubspec sentry.$k must be $val, got ${cfg[k]}');
+  });
+  for (final String k in cfg.keys) {
+    if (!want.containsKey(k)) {
+      v.add('pubspec sentry.$k not allowed (release/dist/auth/url from env)');
+    }
+  }
+  return v;
+}
+
+/// Runs a workflow `run:` body the way the runner does (`bash -e`), with
+/// [env] only, from the package root. Returns exit code + combined output.
+({int code, String out}) runStep(
+  String script,
+  Directory tmp,
+  Map<String, String> env, {
+  String? pathPrefix,
+}) {
+  final File f = File('${tmp.path}/step.sh')..writeAsStringSync(script);
+  final ProcessResult r = Process.runSync(
+    'bash',
+    <String>['--noprofile', '--norc', '-e', f.path],
+    environment: <String, String>{
+      'PATH':
+          '${pathPrefix == null ? '' : '$pathPrefix:'}'
+          '${Platform.environment['PATH']}',
+      'HOME': Platform.environment['HOME'] ?? tmp.path,
+      'RUNNER_TEMP': tmp.path,
+      ...env,
+    },
+    includeParentEnvironment: false,
+  );
+  return (code: r.exitCode, out: '${r.stdout}${r.stderr}');
+}
+
+/// Runs the "Upload Dart symbols to Sentry" step body against a fake `dart`
+/// that prints [log] and exits [exit].
+({int code, String out}) runUploadStep(String script, String log, int exit) {
+  final Directory tmp = Directory.systemTemp.createTempSync('sdp411_');
+  try {
+    final Directory bin = Directory('${tmp.path}/bin')..createSync();
+    File('${tmp.path}/fake.log').writeAsStringSync(log);
+    final File dart = File('${bin.path}/dart')
+      ..writeAsStringSync(
+        '#!/usr/bin/env bash\ncat "\$FAKE_LOG"\nexit "\$FAKE_EXIT"\n',
+      );
+    Process.runSync('chmod', <String>['+x', dart.path]);
+    return runStep(script, tmp, <String, String>{
+      'FAKE_LOG': '${tmp.path}/fake.log',
+      'FAKE_EXIT': '$exit',
+      'SENTRY_AUTH_TOKEN': 'sntrys_FAKE_TOKEN_411',
+      'SENTRY_RELEASE': 'beautica-mobile@1.2.3+45',
+      'SENTRY_DIST': '45',
+    }, pathPrefix: bin.path);
+  } finally {
+    tmp.deleteSync(recursive: true);
+  }
+}
+
+String _sdpLine(String s) => '\n\x1b[38;5;9m$s\x1b[0m\n';
+String sdpSummary(int a, int s, int f) => _sdpLine(
+  'Dart symbol map upload summary: attempted=$a, succeeded=$s, failed=$f',
+);
+String sdpFailedLine() => _sdpLine(
+  'Dart symbol map upload failed for "build/symbols/app.android-arm64.symbols".',
+);
 
 List<String> signingViolations(String text) {
   final Workflow w = Workflow(text);
@@ -1202,8 +1539,35 @@ void main() {
         expect(verifyOrderViolations(wf), isEmpty);
       },
     );
-    test('# 411: hooks sit above the build step and before verify', () {
-      expect(hook411Violations(wf), isEmpty);
+    test('411: Sentry dart-defines, release string, symbol upload wired', () {
+      expect(sentry411Violations(wf), isEmpty);
+    });
+    test('411 D4: Sentry Gradle plugin pinned, R8 mapping only, rest off', () {
+      expect(
+        sentryGradleViolations(
+          _read('android/app/build.gradle.kts'),
+          _read('android/settings.gradle.kts'),
+        ),
+        isEmpty,
+      );
+    });
+    test('411 D3: sentry_dart_plugin pinned; pubspec uploads symbols only', () {
+      expect(sentryPubspecViolations(_read('pubspec.yaml')), isEmpty);
+    });
+    test('411 A4: no Sentry token/DSN in pubspec, Gradle or config/env', () {
+      final Map<String, String> files = <String, String>{
+        for (final String f in <String>[
+          'pubspec.yaml',
+          'android/app/build.gradle.kts',
+          'android/settings.gradle.kts',
+          ...Directory(
+            'config/env',
+          ).listSync().whereType<File>().map((File f) => f.path),
+        ])
+          f: _read(f),
+      };
+      expect(files.keys, contains('config/env/prod.json'));
+      expect(sentrySecretFileViolations(files), isEmpty);
     });
     test('release signing is enforced; no version overrides', () {
       expect(signingViolations(wf), isEmpty);
@@ -1488,16 +1852,200 @@ void main() {
         ),
       );
     });
-    test('411: hook above the build step removed', () {
+    test('411: DSN dart-define dropped from the build', () {
       red(
-        hook411Violations,
-        mutate(wf, '# 411: append the Sentry', '# later: append the Sentry'),
+        sentry411Violations,
+        mutate(
+          wf,
+          '            --dart-define=BEAUTICA_SENTRY_DSN="\$BEAUTICA_SENTRY_DSN" \\\n',
+          '',
+        ),
       );
     });
-    test('411: hook after the build step removed', () {
+    test('411: build DSN switched to the staging secret', () {
       red(
-        hook411Violations,
-        mutate(wf, '# 411: Sentry symbol upload', '# Sentry symbol upload'),
+        sentry411Violations,
+        mutate(
+          wf,
+          '        env:\n          BEAUTICA_SENTRY_DSN: \${{ secrets.BEAUTICA_SENTRY_DSN_PROD }}\n          SENTRY_AUTH_TOKEN: \${{ secrets.SENTRY_AUTH_TOKEN }}\n          BEAUTICA_KEYSTORE_PATH',
+          '        env:\n          BEAUTICA_SENTRY_DSN: \${{ secrets.BEAUTICA_SENTRY_DSN_STAGING }}\n          SENTRY_AUTH_TOKEN: \${{ secrets.SENTRY_AUTH_TOKEN }}\n          BEAUTICA_KEYSTORE_PATH',
+        ),
+      );
+    });
+    test('411: token dropped from the build step (no R8 upload)', () {
+      red(
+        sentry411Violations,
+        mutate(
+          wf,
+          '          SENTRY_AUTH_TOKEN: \${{ secrets.SENTRY_AUTH_TOKEN }}\n          BEAUTICA_KEYSTORE_PATH',
+          '          BEAUTICA_KEYSTORE_PATH',
+        ),
+      );
+    });
+    test('411: SENTRY_ORG removed from the job env', () {
+      red(sentry411Violations, mutate(wf, '      SENTRY_ORG: beautica\n', ''));
+    });
+    test('411: sentry_dart_plugin made non-blocking', () {
+      red(
+        sentry411Violations,
+        mutate(
+          wf,
+          '      - name: Upload Dart symbols to Sentry\n',
+          '      - name: Upload Dart symbols to Sentry\n        continue-on-error: true\n',
+        ),
+      );
+    });
+    test('411: sentry_dart_plugin step removed', () {
+      red(
+        sentry411Violations,
+        mutate(wf, 'dart run sentry_dart_plugin 2>&1', 'true 2>&1'),
+      );
+    });
+    test('411: failed=0 summary check removed', () {
+      red(sentry411Violations, wf.replaceAll('failed=0', 'failed=[0-9]+'));
+    });
+    test('411: sentry-release preflight removed', () {
+      final String noPre = mutate(
+        wf,
+        './scripts/check_release_version.sh sentry-release',
+        'true',
+      );
+      red(sentry411Violations, noPre);
+    });
+    test('411: literal DSN pasted into the workflow', () {
+      red(
+        sentry411Violations,
+        mutate(
+          wf,
+          '      SENTRY_PROJECT: beautica-mobile\n',
+          '      SENTRY_PROJECT: beautica-mobile\n      DSN: https://0123456789abcdef0123@o1.ingest.de.sentry.io/2\n',
+        ),
+      );
+    });
+    test('411 A4: DSN echoed in the preflight', () {
+      red(
+        sentry411Violations,
+        mutate(
+          wf,
+          '          ./scripts/check_release_version.sh sentry-release >',
+          '          echo "dsn=\$BEAUTICA_SENTRY_DSN"\n'
+              '          ./scripts/check_release_version.sh sentry-release >',
+        ),
+      );
+    });
+    test('411 A4: set -x added to the symbol upload step', () {
+      red(
+        sentry411Violations,
+        mutate(
+          wf,
+          '          set -o pipefail\n',
+          '          set -xo pipefail\n',
+        ),
+      );
+    });
+    final String gradle = _read('android/app/build.gradle.kts');
+    final String settings = _read('android/settings.gradle.kts');
+    void redGradle(String app, [String? s]) =>
+        expect(sentryGradleViolations(app, s ?? settings), isNotEmpty);
+    test('411 D4: Gradle telemetry switched on', () {
+      redGradle(mutate(gradle, 'telemetry.set(false)', 'telemetry.set(true)'));
+    });
+    test('411 D4: Gradle mapping upload no longer gated on the token', () {
+      redGradle(
+        mutate(
+          gradle,
+          'autoUploadProguardMapping.set(!System.getenv("SENTRY_AUTH_TOKEN").isNullOrBlank())',
+          'autoUploadProguardMapping.set(true)',
+        ),
+      );
+    });
+    test('411 D4: Gradle runtimeOptimizations block enabled', () {
+      final String rt = gradle.substring(
+        gradle.indexOf('runtimeOptimizations {'),
+      );
+      redGradle(
+        gradle.replaceFirst(
+          rt,
+          rt.replaceFirst('enabled.set(false)', 'enabled.set(true)'),
+        ),
+      );
+    });
+    test('411 D4: Gradle source context re-enabled by a later override', () {
+      redGradle(
+        mutate(
+          gradle,
+          '    telemetry.set(false)\n',
+          '    telemetry.set(false)\n    includeSourceContext.set(true)\n',
+        ),
+      );
+    });
+    test('411 D4: Gradle authToken hard-coded', () {
+      redGradle(
+        mutate(
+          gradle,
+          '    telemetry.set(false)\n',
+          '    telemetry.set(false)\n    authToken.set(System.getenv("X"))\n',
+        ),
+      );
+    });
+    test('411 D4: Gradle plugin version made dynamic', () {
+      redGradle(gradle, mutate(settings, 'version "6.23.0"', 'version "6.+"'));
+    });
+    test('411 D4: Gradle plugin no longer applied to :app', () {
+      redGradle(
+        mutate(
+          gradle,
+          '    id("io.sentry.android.gradle")\n',
+          '    // id("io.sentry.android.gradle")\n',
+        ),
+      );
+    });
+    final String pub = _read('pubspec.yaml');
+    void redPub(String p) => expect(sentryPubspecViolations(p), isNotEmpty);
+    test('411 D3: pubspec uploads sources', () {
+      redPub(mutate(pub, '  upload_sources: false', '  upload_sources: true'));
+    });
+    test('411 D3: pubspec pins a release (diverges from the app)', () {
+      redPub(
+        mutate(pub, '  commits: false\n', '  commits: false\n  release: x\n'),
+      );
+    });
+    test('411 D3: pubspec symbols path drifts from --split-debug-info', () {
+      redPub(
+        mutate(
+          pub,
+          '  symbols_path: build/symbols',
+          '  symbols_path: build/sym',
+        ),
+      );
+    });
+    test('411 D3: sentry_dart_plugin caret-pinned', () {
+      redPub(
+        mutate(
+          pub,
+          '  sentry_dart_plugin: 3.4.0',
+          '  sentry_dart_plugin: ^3.4.0',
+        ),
+      );
+    });
+    test('411 A4: token / auth_token / Sentry key in config/env flagged', () {
+      expect(
+        sentrySecretFileViolations(<String, String>{
+          'pubspec.yaml': 'sentry:\n  auth_token: x\n',
+        }),
+        isNotEmpty,
+      );
+      expect(
+        sentrySecretFileViolations(<String, String>{
+          'android/app/build.gradle.kts': 'authToken.set("sntrys_abc")',
+        }),
+        isNotEmpty,
+      );
+      expect(
+        sentrySecretFileViolations(<String, String>{
+          'config/env/prod.json': '{"BEAUTICA_SENTRY_DSN": ""}',
+        }),
+        isNotEmpty,
       );
     });
     test('signing: REQUIRE_RELEASE_SIGNING dropped', () {
@@ -1667,8 +2215,8 @@ void main() {
         firebaseInjectViolations,
         mutate(
           without,
-          '      # 411: Sentry symbol upload',
-          '$step      # 411: Sentry symbol upload',
+          '      # A dry-run AAB is renamed',
+          '$step      # A dry-run AAB is renamed',
         ),
       );
     });
@@ -2250,6 +2798,188 @@ void main() {
         allowListViolations,
         '$allow\ncom.google.android.gms.permission.AD_ID  # ads\n',
       );
+    });
+  });
+
+  // 411: the two Sentry shell steps EXECUTED (bash -e, like the runner), so the
+  // fail-fast and `failed=0` logic is pinned by behaviour, not by substrings.
+  group('411 Sentry steps behave (executed)', () {
+    String stepRun(String name) => Workflow(wf)
+        .steps('build')
+        .firstWhere((WorkflowStep s) => s.field('name') == name)
+        .field('run')!;
+    late String up;
+    late String pre;
+    setUpAll(() {
+      up = stepRun('Upload Dart symbols to Sentry');
+      pre = stepRun('Check Sentry secrets + compute release');
+    });
+
+    const String dsn = 'https://feedc0de411secret@o1.ingest.de.sentry.io/2';
+    const String token = 'sntrys_PREFLIGHT_TOKEN_411';
+    ({int code, String out, String genv}) runPre(
+      String script,
+      String d,
+      String t,
+    ) {
+      final Directory tmp = Directory.systemTemp.createTempSync('pre411_');
+      try {
+        final File genv = File('${tmp.path}/github_env')..createSync();
+        final ({int code, String out}) r = runStep(
+          script,
+          tmp,
+          <String, String>{
+            'BEAUTICA_SENTRY_DSN': d,
+            'SENTRY_AUTH_TOKEN': t,
+            'GITHUB_ENV': genv.path,
+          },
+        );
+        return (code: r.code, out: r.out, genv: genv.readAsStringSync());
+      } finally {
+        tmp.deleteSync(recursive: true);
+      }
+    }
+
+    group('Upload Dart symbols to Sentry', () {
+      test('complete upload (coloured plugin output) passes', () {
+        final ({int code, String out}) r = runUploadStep(
+          up,
+          sdpSummary(1, 1, 0),
+          0,
+        );
+        expect(r.code, 0, reason: r.out);
+        expect(r.out, isNot(contains('sntrys_FAKE_TOKEN_411')));
+      });
+      test('plugin exits 0 but summary says failed=1 -> step fails', () {
+        final String log = sdpFailedLine() + sdpSummary(1, 0, 1);
+        expect(runUploadStep(up, log, 0).code, isNot(0));
+      });
+      test('failed=1 summary alone (no error line) -> step fails', () {
+        expect(runUploadStep(up, sdpSummary(1, 0, 1), 0).code, isNot(0));
+      });
+      test('swallowed failure line with a clean summary -> step fails', () {
+        final String log = sdpFailedLine() + sdpSummary(1, 1, 0);
+        expect(runUploadStep(up, log, 0).code, isNot(0));
+      });
+      test('no summary at all (map step skipped) -> step fails', () {
+        expect(runUploadStep(up, '\nnothing to upload\n', 0).code, isNot(0));
+      });
+      test('attempted=0 -> step fails', () {
+        expect(runUploadStep(up, sdpSummary(0, 0, 0), 0).code, isNot(0));
+      });
+      test('attempted != succeeded with failed=0 -> step fails', () {
+        expect(runUploadStep(up, sdpSummary(2, 1, 0), 0).code, isNot(0));
+      });
+      test('plugin exits non-zero (sentry-cli error) -> step fails', () {
+        expect(runUploadStep(up, sdpSummary(1, 1, 0), 1).code, isNot(0));
+      });
+    });
+
+    group('Check Sentry secrets + compute release', () {
+      test('both set -> release + dist in GITHUB_ENV; secrets never printed; '
+          'dist equals what crash_reporting.dart derives', () {
+        final ({int code, String out, String genv}) r = runPre(pre, dsn, token);
+        expect(r.code, 0, reason: r.out);
+        final String ver = RegExp(
+          r'^version:\s*(\S+)',
+          multiLine: true,
+        ).firstMatch(_read('pubspec.yaml'))!.group(1)!;
+        final String build = ver.split('+').last;
+        expect(
+          r.genv,
+          'SENTRY_RELEASE=beautica-mobile@$ver\nSENTRY_DIST=$build\n',
+        );
+        expect(r.out, isNot(contains('feedc0de411secret')));
+        expect(r.out, isNot(contains(token)));
+        final CrashReportingConfig app = CrashReportingConfig(
+          dsn: '',
+          env: 'prod',
+          release: 'beautica-mobile@$ver',
+        );
+        expect(app.dist, build);
+      });
+      test('missing DSN -> fails before anything reaches GITHUB_ENV', () {
+        final ({int code, String out, String genv}) r = runPre(pre, '', token);
+        expect(r.code, isNot(0));
+        expect(r.out, contains('::error::secret BEAUTICA_SENTRY_DSN_PROD'));
+        expect(r.genv, isEmpty);
+      });
+      test('non-https DSN -> fails without printing it', () {
+        final ({int code, String out, String genv}) r = runPre(
+          pre,
+          'http://leakme411@host/1',
+          token,
+        );
+        expect(r.code, isNot(0));
+        expect(r.out, isNot(contains('leakme411')));
+        expect(r.genv, isEmpty);
+      });
+      test('missing SENTRY_AUTH_TOKEN -> fails', () {
+        final ({int code, String out, String genv}) r = runPre(pre, dsn, '');
+        expect(r.code, isNot(0));
+        expect(r.out, contains('::error::secret SENTRY_AUTH_TOKEN'));
+        expect(r.genv, isEmpty);
+      });
+    });
+
+    // Each executed case must be load-bearing: weaken the real step and the
+    // matching bad input now PASSES, so the case above would go red.
+    group('executed cases fail on weakened steps', () {
+      test('no failed-line grep: swallowed failure gets through', () {
+        final int a = up.indexOf("if grep -qE '^(Dart symbol map upload");
+        final int b = up.indexOf('fi\n', a) + 3;
+        expect(a, greaterThan(0));
+        final String weak = up.replaceRange(a, b, '');
+        final String log = sdpFailedLine() + sdpSummary(1, 1, 0);
+        expect(runUploadStep(weak, log, 0).code, 0);
+      });
+      test('no failed=0 anchor: failed=1 summary gets through', () {
+        final String weak = mutate(up, r"failed=0$'", r"failed=[0-9]+$'");
+        expect(runUploadStep(weak, sdpSummary(1, 1, 1), 0).code, 0);
+      });
+      test('no pipefail: a non-zero plugin exit gets through', () {
+        final String weak = mutate(up, 'set -o pipefail\n', '');
+        expect(runUploadStep(weak, sdpSummary(1, 1, 0), 1).code, 0);
+      });
+      test('no attempted>=1 check: attempted=0 gets through', () {
+        final String weak = mutate(
+          up,
+          ' || [ "\${BASH_REMATCH[1]}" -lt 1 ]',
+          '',
+        );
+        expect(runUploadStep(weak, sdpSummary(0, 0, 0), 0).code, 0);
+      });
+      test('no attempted==succeeded check: 2/1/0 gets through', () {
+        final int a = up.indexOf('|| [ "\${BASH_REMATCH[1]}" != ');
+        expect(a, greaterThan(0));
+        final String weak = up.replaceRange(a, up.indexOf('; then', a), '');
+        expect(runUploadStep(weak, sdpSummary(2, 1, 0), 0).code, 0);
+      });
+      test('no ANSI stripping: a coloured failure line gets through', () {
+        final String weak = mutate(
+          up,
+          "sed -E 's/\\x1b\\[[0-9;]*m//g' \"\$log\"",
+          'cat "\$log"',
+        );
+        final String log = sdpFailedLine() + sdpSummary(1, 1, 0);
+        expect(runUploadStep(weak, log, 0).code, 0);
+      });
+      test('no token exit: an empty SENTRY_AUTH_TOKEN gets through', () {
+        final String weak = mutate(
+          pre,
+          'SENTRY_AUTH_TOKEN is not set in environment ci-trusted-secrets"\nexit 1',
+          'SENTRY_AUTH_TOKEN is not set in environment ci-trusted-secrets"',
+        );
+        expect(runPre(weak, dsn, '').code, 0);
+      });
+      test('DSN echoed: the no-print assertion catches it', () {
+        final String weak = mutate(
+          pre,
+          'case "\$BEAUTICA_SENTRY_DSN" in',
+          'echo "\$BEAUTICA_SENTRY_DSN"\ncase "\$BEAUTICA_SENTRY_DSN" in',
+        );
+        expect(runPre(weak, dsn, token).out, contains('feedc0de411secret'));
+      });
     });
   });
 }

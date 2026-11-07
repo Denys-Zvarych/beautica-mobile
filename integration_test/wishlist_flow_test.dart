@@ -438,7 +438,11 @@ void main() {
       await tester.ensureVisible(heart);
       await tester.pumpAndSettle();
       await tester.tap(heart);
-      await tester.pumpAndSettle();
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.removeFavoriteCalls == 1,
+        description: 'DELETE sent',
+      );
 
       // The wire call went out, keyed on the SERVICE target and the
       // masterServiceId — not on masterId, which the backend would answer 204
@@ -617,7 +621,7 @@ void main() {
             'not.',
       );
       expect(
-        find.byType(WishlistRemovable),
+        find.byType(WishlistRemovable, skipOffstage: false),
         findsOneWidget,
         reason:
             'the LIST branch is still the one being rendered — `_buildList` '

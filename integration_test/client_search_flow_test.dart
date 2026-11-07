@@ -41,6 +41,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/master_result_card.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -105,6 +106,32 @@ void main() {
       'city-kyiv',
       fieldKey: const Key('search_city_value'),
     );
+  }
+
+  /// Boots as a CLIENT, opens Пошук and submits with no filters (browse all),
+  /// returning once page 0 of the results list is on screen.
+  Future<({FakeBackend fb, GoRouter router})> openBrowseAllResults(
+    WidgetTester tester,
+  ) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // ── Reach the search screen + submit with no filters (browse all) ───────
+    await tester.tap(find.byKey(const Key('client-nav-search-center')));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
+    // (FakeBackend's masters fixture always leaves a page pending on first
+    // load, so the trailing indeterminate spinner never lets pumpAndSettle
+    // observe quiescence).
+    await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('results_list')),
+    );
+    return (fb: fb, router: router);
   }
 
   testWidgets(
@@ -477,24 +504,7 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets('CLIENT search results render real cards, tapping a heart POSTs a '
       'favorite, and scrolling appends page 2', (tester) async {
-    final fb = FakeBackend()..currentRole = UserRole.client;
-    final GoRouter router = await AppHarness.boot(tester, fb);
-
-    await AppHarness.loginAs(tester, fb, UserRole.client);
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-
-    // ── Reach the search screen + submit with no filters (browse all) ───────
-    await tester.tap(find.byKey(const Key('client-nav-search-center')));
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-    // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
-    // (FakeBackend's masters fixture always leaves a page pending on first
-    // load, so the trailing indeterminate spinner never lets pumpAndSettle
-    // observe quiescence).
-    await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-    await AppHarness.pumpUntilFound(
-      tester,
-      find.byKey(const Key('results_list')),
-    );
+    final (:fb, :router) = await openBrowseAllResults(tester);
 
     AppHarness.expectNestedPushLocation(router, RouteNames.clientSearchResults);
     expect(find.byKey(const Key('client-search-results')), findsOneWidget);
@@ -573,13 +583,22 @@ void main() {
         matching: find.byType(Scrollable),
       ),
     );
+    // Page 0 (1 master + 1 salon + trailing spinner) can undershoot a tall
+    // viewport, so `maxScrollExtent == pixels == 0` and a bare
+    // `jumpTo(maxScrollExtent)` is a no-op (no listener notification) —
+    // `_onScroll` would never call `loadMore()`. Force a real pixel delta
+    // first (same idiom as salon_booking_flow_test.dart); pixels 1 >= max 0 -
+    // threshold, so `_onScroll` fires.
+    scrollable.position.jumpTo(scrollable.position.pixels + 1);
     scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
-    // loadMore fires, fetches the (fast, in-memory) last master page, and the
-    // trailing spinner is removed once BOTH endpoints are spent — so the tree
-    // settles. A settle is safe here precisely because the seeded fake leaves no
-    // page pending (the integration binding forbids the pump(Duration) idiom the
-    // widget tier uses for the mid-flight spinner case).
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+    // loadMore fires and fetches the last masters page. Wait on the request
+    // itself, not pumpAndSettle: the trailing spinner / pending page can keep
+    // the tree from ever settling.
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.lastSearchMastersPage == 1,
+      description: 'loadMore to request masters page 1',
+    );
 
     expect(
       fb.lastSearchMastersPage,
@@ -589,11 +608,51 @@ void main() {
     // The second page's master row is now in the model; jump again to surface
     // the lazily-built card and assert it rendered.
     scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
-    await tester.pumpAndSettle();
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('favorite_master_master-bbb')),
+    );
     expect(find.byKey(const Key('favorite_master_master-bbb')), findsOneWidget);
 
     // The CLIENT results journey still never touched GET /masters/me.
     expect(fb.getMasterCalls, 0);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // Regression guard for the device-only hang: on a tall viewport page 0 does
+  // not fill the screen (maxScrollExtent == 0), so no scroll can ever fire
+  // `_onScroll`. The screen's post-page fill check must request page 2 on its
+  // own — this test deliberately never scrolls.
+  testWidgets('CLIENT results page 0 shorter than a tall viewport still '
+      'auto-loads page 2 without any scroll', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.625;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final (:fb, router: _) = await openBrowseAllResults(tester);
+
+    final ScrollableState scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const Key('results_list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(
+      scrollable.position.maxScrollExtent,
+      0,
+      reason: 'precondition: page 0 must not fill the tall viewport',
+    );
+
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.lastSearchMastersPage == 1,
+      description: 'the fill check to request masters page 1 unprompted',
+    );
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('favorite_master_master-bbb')),
+    );
+    expect(find.byKey(const Key('favorite_master_master-bbb')), findsOneWidget);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1119,6 +1178,11 @@ void main() {
     'CLIENT selects TWO service chips → both slugs reach BOTH endpoints AND the '
     'result card shows the matched-service line',
     (tester) async {
+      // Tall device-like screen: page 1 auto-loads several master cards, so
+      // the matched-service line must be scoped to one card.
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.reset);
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
 
@@ -1224,7 +1288,15 @@ void main() {
       // The fake echoed matchedServiceNames built from the slugs above; the
       // master row carries NO generic serviceNames, so a present line proves the
       // matched-service path (not a fallback) is what rendered.
-      final Finder matchedLine = find.byKey(const Key('master_card_services'));
+      // Scoped to master-aaa's card: on a tall screen the auto-load renders
+      // page 1 (several cards), each with its own services line.
+      final Finder matchedLine = find.descendant(
+        of: find.ancestor(
+          of: find.byKey(const Key('favorite_master_master-aaa')),
+          matching: find.byType(MasterResultCard),
+        ),
+        matching: find.byKey(const Key('master_card_services')),
+      );
       expect(matchedLine, findsOneWidget);
       expect(
         tester.widget<Text>(matchedLine).data,
