@@ -74,13 +74,13 @@ final PackageInfo _info = PackageInfo(
 }
 
 void main() {
-  test('the config call fails open within kAppConfigTimeout (3 s), not the '
+  test('the config call fails open within kAppConfigTimeout (10 s), not the '
       'main Dio timeouts — and leaves the main Dio untouched', () async {
     final r = _setUp();
 
     await r.c.read(appConfigApiProvider).getConfig();
 
-    expect(kAppConfigTimeout, const Duration(seconds: 3));
+    expect(kAppConfigTimeout, const Duration(seconds: 10));
     final RequestOptions sent = r.adapter.seen.single;
     expect(sent.connectTimeout, kAppConfigTimeout);
     expect(sent.receiveTimeout, kAppConfigTimeout);
