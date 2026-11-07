@@ -10,6 +10,7 @@
 // avoids repeated construction on every provider read.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'dio_provider.dart';
@@ -70,3 +71,26 @@ DeviceControllerApi deviceApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 BookingLinksApi bookingLinksApi(Ref ref) =>
     BookingLinksApi(ref.watch(dioProvider), standardSerializers);
+
+/// How long the forced-update check may wait for `GET /app/config` (phase 438
+/// D2) before the gate fails OPEN.
+const Duration kAppConfigTimeout = Duration(seconds: 3);
+
+/// Provides the generated [AppConfigApi] (phase 438) for the forced-update
+/// gate's `GET /api/v1/app/config`.
+///
+/// A [Dio.clone] of the main [dioProvider] instance: it SHARES the cert-pinned
+/// `httpClientAdapter` and the interceptor chain (so `X-Request-Id` /
+/// `X-App-Version` ride along), and only shortens the connect / receive
+/// timeouts to [kAppConfigTimeout]. Never a second unpinned client.
+@Riverpod(keepAlive: true)
+AppConfigApi appConfigApi(Ref ref) {
+  final Dio main = ref.watch(dioProvider);
+  final Dio dio = main.clone(
+    options: main.options.copyWith(
+      connectTimeout: kAppConfigTimeout,
+      receiveTimeout: kAppConfigTimeout,
+    ),
+  );
+  return AppConfigApi(dio, standardSerializers);
+}

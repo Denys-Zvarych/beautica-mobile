@@ -15,6 +15,8 @@ import 'package:beautica_api/src/date_serializer.dart';
 import 'package:beautica_api/src/model/date.dart';
 
 import 'package:beautica_api/src/model/add_favorite_request.dart';
+import 'package:beautica_api/src/model/android_app_config.dart';
+import 'package:beautica_api/src/model/api_response_app_config_response.dart';
 import 'package:beautica_api/src/model/api_response_appointment_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
@@ -94,6 +96,7 @@ import 'package:beautica_api/src/model/api_response_user_rating_response.dart';
 import 'package:beautica_api/src/model/api_response_verify_password_reset_otp_response.dart';
 import 'package:beautica_api/src/model/api_response_void.dart';
 import 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
+import 'package:beautica_api/src/model/app_config_response.dart';
 import 'package:beautica_api/src/model/appointment_cancel_request.dart';
 import 'package:beautica_api/src/model/appointment_detail_response.dart';
 import 'package:beautica_api/src/model/appointment_item_reschedule_request.dart';
@@ -278,6 +281,8 @@ part 'serializers.g.dart';
 
 @SerializersFor([
   AddFavoriteRequest,
+  AndroidAppConfig,
+  ApiResponseAppConfigResponse,
   ApiResponseAppointmentDetailResponse,
   ApiResponseAuthResponse,
   ApiResponseAvailableSlotsResponse,
@@ -357,6 +362,7 @@ part 'serializers.g.dart';
   ApiResponseVerifyPasswordResetOtpResponse,
   ApiResponseVoid,
   ApiResponseWeeklyScheduleResponse,
+  AppConfigResponse,
   AppointmentCancelRequest,
   AppointmentDetailResponse,
   AppointmentItemRescheduleRequest,

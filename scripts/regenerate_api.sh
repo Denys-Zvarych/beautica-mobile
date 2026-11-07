@@ -80,6 +80,22 @@ cat > "${WORK_DIR}/openapi_generator_config.json" <<EOF
 }
 EOF
 
+# ── Codegen properties ─────────────────────────────────────────────────────────
+# enumUnknownDefaultCase=true is LOAD-BEARING (phase 438 D7): it gives every
+# built_value enum an `unknown_default_open_api` `fallback: true` case, so a
+# backend enum value this build predates decodes to the fallback instead of
+# failing the whole response. `--check` (CI) refuses to run without it.
+CODEGEN_PROPERTIES="pubName=beautica_api,nullableFields=true,useEnumExtension=true,enumUnknownDefaultCase=true"
+
+assert_enum_unknown_default() {
+  if [[ ",${CODEGEN_PROPERTIES}," != *",enumUnknownDefaultCase=true,"* ]]; then
+    echo "ERROR: enumUnknownDefaultCase=true is missing from CODEGEN_PROPERTIES."
+    echo "  Without it a new backend enum value breaks deserialization in"
+    echo "  shipped builds (phase 438 D7). Restore the flag."
+    exit 1
+  fi
+}
+
 # ── Run codegen ────────────────────────────────────────────────────────────────
 run_codegen() {
   local output_dir="$1"
@@ -90,7 +106,7 @@ run_codegen() {
       -i "${SPEC_FILE}" \
       -g dart-dio \
       -o "${output_dir}" \
-      --additional-properties=pubName=beautica_api,nullableFields=true,useEnumExtension=true,enumUnknownDefaultCase=true \
+      --additional-properties="${CODEGEN_PROPERTIES}" \
       2>&1 | grep -v "^\[main\] INFO" || true
   )
 }
@@ -150,6 +166,8 @@ run_build_runner() {
     dart format lib/ test/ 2>&1 | tail -1
   )
 }
+
+assert_enum_unknown_default
 
 if [[ "${CHECK_MODE}" == "true" ]]; then
   echo "=== regenerate_api.sh --check mode ==="

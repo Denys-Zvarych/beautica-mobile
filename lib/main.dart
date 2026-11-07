@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/app_version/update_required_screen.dart';
 import 'core/config/app_config.dart';
 import 'core/config/env_guard.dart';
 import 'core/diagnostics/crash_reporting.dart';
@@ -287,7 +288,11 @@ class BeauticaApp extends ConsumerWidget {
             data: mq.copyWith(
               textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
             ),
-            child: child ?? const SizedBox.shrink(),
+            // Phase 438 D4 — the forced-update gate replaces the router's
+            // output (never a route: router tree, authRedirect and the
+            // routing ledger stay untouched). Inert until the verdict says
+            // the build is below the backend minimum.
+            child: UpdateGateOverlay(child: child ?? const SizedBox.shrink()),
           ),
         );
       },

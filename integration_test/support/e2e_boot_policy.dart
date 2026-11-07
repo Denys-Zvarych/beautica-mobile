@@ -50,6 +50,7 @@
 // mirror.
 
 import 'package:beautica_mobile/core/app_start_time.dart';
+import 'package:beautica_mobile/core/app_version/update_required_screen.dart';
 import 'package:beautica_mobile/core/diagnostics/crash_reporting_enabled_provider.dart';
 import 'package:beautica_mobile/core/diagnostics/install_id.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
@@ -282,12 +283,21 @@ List<Object> e2eProviderOverrides({
 /// This used to be two private, byte-identical copies — one per harness — which
 /// is the same mirror-drift hazard this file exists to remove.
 class E2eHarnessApp extends ConsumerWidget {
-  const E2eHarnessApp({super.key, this.mountPushTapDispatcher = false});
+  const E2eHarnessApp({
+    super.key,
+    this.mountPushTapDispatcher = false,
+    this.mountUpdateGate = false,
+  });
 
   /// Phase 069 — mirrors `BeauticaApp`'s eager
   /// `ref.listen(pushTapDispatcherProvider)`. Off by default: every existing
   /// flow renders exactly as before.
   final bool mountPushTapDispatcher;
+
+  /// Phase 438 — mirrors `BeauticaApp`'s `MaterialApp.router` builder gate
+  /// ([UpdateGateOverlay]). Off by default: every existing flow renders
+  /// exactly as before and never calls `GET /app/config`.
+  final bool mountUpdateGate;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -302,6 +312,10 @@ class E2eHarnessApp extends ConsumerWidget {
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       locale: const Locale('uk', 'UA'),
+      builder: mountUpdateGate
+          ? (BuildContext context, Widget? child) =>
+                UpdateGateOverlay(child: child ?? const SizedBox.shrink())
+          : null,
       routerConfig: router,
     );
   }

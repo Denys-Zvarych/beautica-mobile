@@ -9,6 +9,7 @@ import 'package:beautica_api/src/auth/api_key_auth.dart';
 import 'package:beautica_api/src/auth/basic_auth.dart';
 import 'package:beautica_api/src/auth/bearer_auth.dart';
 import 'package:beautica_api/src/auth/oauth.dart';
+import 'package:beautica_api/src/api/app_config_api.dart';
 import 'package:beautica_api/src/api/appointment_controller_api.dart';
 import 'package:beautica_api/src/api/auth_controller_api.dart';
 import 'package:beautica_api/src/api/block_controller_api.dart';
@@ -109,6 +110,12 @@ class BeauticaApi {
               as ApiKeyAuthInterceptor)
           .apiKeys[name] = apiKey;
     }
+  }
+
+  /// Get AppConfigApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  AppConfigApi getAppConfigApi() {
+    return AppConfigApi(dio, serializers);
   }
 
   /// Get AppointmentControllerApi instance, base route and serializer can be overridden by a given but be careful,

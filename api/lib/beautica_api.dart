@@ -10,6 +10,7 @@ export 'package:beautica_api/src/auth/oauth.dart';
 export 'package:beautica_api/src/serializers.dart';
 export 'package:beautica_api/src/model/date.dart';
 
+export 'package:beautica_api/src/api/app_config_api.dart';
 export 'package:beautica_api/src/api/appointment_controller_api.dart';
 export 'package:beautica_api/src/api/auth_controller_api.dart';
 export 'package:beautica_api/src/api/block_controller_api.dart';
@@ -45,6 +46,8 @@ export 'package:beautica_api/src/api/support_controller_api.dart';
 export 'package:beautica_api/src/api/user_controller_api.dart';
 
 export 'package:beautica_api/src/model/add_favorite_request.dart';
+export 'package:beautica_api/src/model/android_app_config.dart';
+export 'package:beautica_api/src/model/api_response_app_config_response.dart';
 export 'package:beautica_api/src/model/api_response_appointment_detail_response.dart';
 export 'package:beautica_api/src/model/api_response_auth_response.dart';
 export 'package:beautica_api/src/model/api_response_available_slots_response.dart';
@@ -124,6 +127,7 @@ export 'package:beautica_api/src/model/api_response_user_rating_response.dart';
 export 'package:beautica_api/src/model/api_response_verify_password_reset_otp_response.dart';
 export 'package:beautica_api/src/model/api_response_void.dart';
 export 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
+export 'package:beautica_api/src/model/app_config_response.dart';
 export 'package:beautica_api/src/model/appointment_cancel_request.dart';
 export 'package:beautica_api/src/model/appointment_detail_response.dart';
 export 'package:beautica_api/src/model/appointment_item_reschedule_request.dart';
