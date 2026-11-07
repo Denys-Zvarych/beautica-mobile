@@ -7470,5 +7470,10 @@
   "bookingRescheduleLimitTitle": "Reschedule limit",
   "bookingErrRescheduleLimitReached": "You've reached the reschedule limit for this booking. Please contact support.",
   "bookingRescheduleLimitContactSupport": "Contact support",
-  "bookingRescheduleLimitDismiss": "Got it"
+  "bookingRescheduleLimitDismiss": "Got it",
+  "updateRequiredTitle": "Update the app",
+  "updateRequiredBody": "This version of Beautica is no longer supported. Update it on Google Play to keep using bookings. Your account and bookings will be kept.",
+  "updateRequiredButton": "Update",
+  "updateRequiredPlayError": "Couldn't open Google Play. Open the Play Store and search for «Beautica» manually.",
+  "updateRequiredInstalledVersion": "Installed version {version}"
 }

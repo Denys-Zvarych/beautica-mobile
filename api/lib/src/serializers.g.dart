@@ -9,6 +9,8 @@ part of 'serializers.dart';
 Serializers _$serializers = (Serializers().toBuilder()
       ..add(AddFavoriteRequest.serializer)
       ..add(AddFavoriteRequestTargetTypeEnum.serializer)
+      ..add(AndroidAppConfig.serializer)
+      ..add(ApiResponseAppConfigResponse.serializer)
       ..add(ApiResponseAppointmentDetailResponse.serializer)
       ..add(ApiResponseAuthResponse.serializer)
       ..add(ApiResponseAvailableSlotsResponse.serializer)
@@ -88,6 +90,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseVerifyPasswordResetOtpResponse.serializer)
       ..add(ApiResponseVoid.serializer)
       ..add(ApiResponseWeeklyScheduleResponse.serializer)
+      ..add(AppConfigResponse.serializer)
       ..add(AppointmentCancelRequest.serializer)
       ..add(AppointmentDetailResponse.serializer)
       ..add(AppointmentDetailResponseMasterTypeEnum.serializer)
@@ -738,6 +741,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

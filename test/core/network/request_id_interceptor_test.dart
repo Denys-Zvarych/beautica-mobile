@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/app_version_interceptor.dart';
 import 'package:beautica_mobile/core/network/auth_interceptor.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
+import 'package:beautica_mobile/core/network/refresh_dio_provider.dart';
 import 'package:beautica_mobile/core/network/request_id_interceptor.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:dio/dio.dart';
@@ -189,5 +191,32 @@ void main() {
     final int authAt = list.indexWhere((Interceptor i) => i is AuthInterceptor);
     expect(ridAt, isNonNegative);
     expect(ridAt, lessThan(authAt));
+  });
+
+  test('dioProvider registers AppVersionInterceptor right after '
+      'RequestIdInterceptor (phase 438 D6)', () {
+    final ProviderContainer c = ProviderContainer(
+      overrides: [
+        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+      ],
+    );
+    addTearDown(c.dispose);
+    final List<Interceptor> list = c.read(dioProvider).interceptors.toList();
+    final int ridAt = list.indexWhere(
+      (Interceptor i) => i is RequestIdInterceptor,
+    );
+    final int versionAt = list.indexWhere(
+      (Interceptor i) => i is AppVersionInterceptor,
+    );
+    expect(ridAt, isNonNegative);
+    expect(versionAt, ridAt + 1);
+    expect(
+      c
+          .read(refreshDioProvider)
+          .interceptors
+          .whereType<AppVersionInterceptor>(),
+      isEmpty,
+      reason: 'refreshDioProvider stays interceptor-free by design',
+    );
   });
 }

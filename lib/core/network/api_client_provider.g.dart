@@ -425,3 +425,67 @@ final class BookingLinksApiProvider
 }
 
 String _$bookingLinksApiHash() => r'2c0df04ea769c9b95c70c24b15dda6e4622bfef4';
+
+/// Provides the generated [AppConfigApi] (phase 438) for the forced-update
+/// gate's `GET /api/v1/app/config`.
+///
+/// A [Dio.clone] of the main [dioProvider] instance: it SHARES the cert-pinned
+/// `httpClientAdapter` and the interceptor chain (so `X-Request-Id` /
+/// `X-App-Version` ride along), and only shortens the connect / receive
+/// timeouts to [kAppConfigTimeout]. Never a second unpinned client.
+
+@ProviderFor(appConfigApi)
+final appConfigApiProvider = AppConfigApiProvider._();
+
+/// Provides the generated [AppConfigApi] (phase 438) for the forced-update
+/// gate's `GET /api/v1/app/config`.
+///
+/// A [Dio.clone] of the main [dioProvider] instance: it SHARES the cert-pinned
+/// `httpClientAdapter` and the interceptor chain (so `X-Request-Id` /
+/// `X-App-Version` ride along), and only shortens the connect / receive
+/// timeouts to [kAppConfigTimeout]. Never a second unpinned client.
+
+final class AppConfigApiProvider
+    extends $FunctionalProvider<AppConfigApi, AppConfigApi, AppConfigApi>
+    with $Provider<AppConfigApi> {
+  /// Provides the generated [AppConfigApi] (phase 438) for the forced-update
+  /// gate's `GET /api/v1/app/config`.
+  ///
+  /// A [Dio.clone] of the main [dioProvider] instance: it SHARES the cert-pinned
+  /// `httpClientAdapter` and the interceptor chain (so `X-Request-Id` /
+  /// `X-App-Version` ride along), and only shortens the connect / receive
+  /// timeouts to [kAppConfigTimeout]. Never a second unpinned client.
+  AppConfigApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'appConfigApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$appConfigApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<AppConfigApi> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  AppConfigApi create(Ref ref) {
+    return appConfigApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AppConfigApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AppConfigApi>(value),
+    );
+  }
+}
+
+String _$appConfigApiHash() => r'40a544d9316f3301e6b9a80fe880a4ba51447c65';

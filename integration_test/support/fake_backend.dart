@@ -12355,6 +12355,51 @@ final class FakeBackend {
     );
   }
 
+  /// Phase 438 — `GET /api/v1/app/config` (backend 437) call count.
+  int appConfigCalls = 0;
+
+  /// Phase 438 — answers `GET /api/v1/app/config` with [minVersionCode] /
+  /// [storeUrl] (status [statusCode]). NOT wired by default: an unwired route
+  /// fails in the mock adapter, which the gate treats as fail-open, so every
+  /// other flow is unaffected. Call BEFORE boot.
+  void wireAppConfig({
+    required int minVersionCode,
+    int statusCode = 200,
+    String storeUrl =
+        'https://play.google.com/store/apps/details?id=com.beautica.app',
+  }) {
+    _adapter.onGet(
+      '/api/v1/app/config',
+      (server) => server.replyCallback(statusCode, (_) {
+        appConfigCalls++;
+        return <String, dynamic>{
+          'success': true,
+          'data': <String, dynamic>{
+            'android': <String, dynamic>{
+              'minVersionCode': minVersionCode,
+              'latestVersionCode': minVersionCode,
+              'storeUrl': storeUrl,
+            },
+          },
+        };
+      }),
+    );
+  }
+
+  /// Phase 438 — `GET /api/v1/app/config` fails at the transport (the
+  /// fail-open path).
+  void wireAppConfigFailure() {
+    _adapter.onGet('/api/v1/app/config', (server) {
+      server.throws(
+        503,
+        DioException(
+          requestOptions: RequestOptions(path: '/api/v1/app/config'),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+    });
+  }
+
   /// Phase 426 (mobile-qa) — backend 397 `/api/v1/blocks` (see [blocks]).
   /// Re-callable: a later registration of the same route replaces the
   /// earlier one.

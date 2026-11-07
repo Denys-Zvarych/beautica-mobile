@@ -10,13 +10,16 @@
 // `ref.watch(dioProvider)` or `ref.read(dioProvider)`.
 //
 // Interceptor order (matters!):
-//   1. AuthInterceptor           — attaches Bearer token to outgoing requests.
-//   2. LoggingInterceptor        — logs traffic; debug builds only.
-//   3. ClockSkewWarningInterceptor — debug-only device/server clock-skew log
+//   1. RequestIdInterceptor      — `X-Request-Id` + scrubbed breadcrumb (410).
+//   2. AppVersionInterceptor     — `X-App-Version: <version>+<build>` (438);
+//      never rejects, omits the header if the platform read fails.
+//   3. AuthInterceptor           — attaches Bearer token to outgoing requests.
+//   4. LoggingInterceptor        — logs traffic; debug builds only.
+//   5. ClockSkewWarningInterceptor — debug-only device/server clock-skew log
 //      (2026-08-02) — diagnostics only, see that file's header; no code path
 //      trusts or applies the value.
-//   4. RefreshInterceptor        — handles 401 retry with silent token refresh.
-//   5. ErrorMapperInterceptor    — converts DioException → typed Failure.
+//   6. RefreshInterceptor        — handles 401 retry with silent token refresh.
+//   7. ErrorMapperInterceptor    — converts DioException → typed Failure.
 //
 // ORDER IS LOAD-BEARING — RefreshInterceptor MUST precede ErrorMapperInterceptor
 // (mobile-security 2026-08-07). ErrorMapperInterceptor terminates the error flow
@@ -126,7 +129,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../app_version/app_version_info.dart';
 import '../config/app_config.dart';
+import 'app_version_interceptor.dart';
 import 'auth_interceptor.dart';
 import 'clock_skew_warning_interceptor.dart';
 import 'error_mapper_interceptor.dart';
@@ -276,6 +281,9 @@ Dio dio(Ref ref) {
     // Phase 410 (R.3 D5) — FIRST: stamps `X-Request-Id` before anything can
     // reject or replay the request; adds the scrubbed `http` breadcrumb.
     RequestIdInterceptor(),
+    // Phase 438 D6 — build tag for backend logs / Sentry. Synchronous peek:
+    // the read also kicks off the one platform load; never awaited here.
+    AppVersionInterceptor(() => ref.read(appPackageInfoProvider).value),
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
     if (kDebugMode) ClockSkewWarningInterceptor(),

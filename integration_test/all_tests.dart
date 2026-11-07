@@ -252,6 +252,7 @@ import 'ugc_blocked_clients_flow_test.dart' as ugc_blocked_clients;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
 import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
+import 'update_gate_test.dart' as update_gate;
 
 void main() {
   // Initialise the integration binding ONCE for the whole aggregated run.
@@ -856,4 +857,8 @@ void main() {
   // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
   // the five riskiest surfaces opens ONE route / sends ONE request.
   group('tap_reentrancy_flow', tap_reentrancy.main);
+  // Phase 438 — forced-update gate in the MaterialApp.router builder:
+  // build < min → gate only + market:// launch; transport error / 404 →
+  // fail-open.
+  group('update_gate', update_gate.main);
 }
