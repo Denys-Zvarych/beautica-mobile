@@ -4,7 +4,7 @@
 //    backend's `android.minVersionCode`; block only when build < min. An
 //    unparsable build number never blocks.
 // D2 fetch: `GET /api/v1/app/config` through [appConfigApiProvider] (the main
-//    pinned Dio, 3 s timeouts). ANY failure — timeout, no network, 404 (a
+//    pinned Dio, [kAppConfigTimeout] = 10 s timeouts). ANY failure — timeout, no network, 404 (a
 //    backend without 437), 429, 5xx, malformed body — before the first
 //    successful check resolves to [UpdateGateState.ok]: the gate FAILS OPEN.
 //    A failure AFTER a successful check keeps that last verdict (going
@@ -15,6 +15,16 @@
 //    `AppLifecycleState.resumed` whose last SUCCESSFUL check is older than
 //    [kUpdateGateRecheckInterval] (or that never succeeded). Concurrent checks
 //    share one request.
+//    Cold-start retry: while NO check has ever succeeded, a failed check
+//    schedules a retry after [kUpdateGateRetryDelays] (3 s, 10 s, 30 s — at
+//    most 3 in the process). Any check that starts (resume, retry, manual)
+//    cancels a pending retry, so there is never a second request; a success
+//    or dispose cancels it too. Once a check succeeded there are no retries.
+//    The first check runs from a microtask, not a post-frame callback: the
+//    overlay first reads the gate inside the first build, so the microtask is
+//    already off the frame path, and a post-frame callback registered while no
+//    frame is scheduled (provider first read in the background) would never
+//    fire — breaking "once per launch".
 // D4 placement: read by `UpdateGateOverlay` in the `MaterialApp.router`
 //    builder — no route, no router rebuild, no auth watch.
 
@@ -27,6 +37,7 @@ import 'package:flutter/widgets.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../network/api_client_provider.dart';
 import '../time/clock_provider.dart';
@@ -37,6 +48,14 @@ part 'update_gate_provider.g.dart';
 
 /// Minimum age of the last successful check before a resume re-checks.
 const Duration kUpdateGateRecheckInterval = Duration(hours: 1);
+
+/// Backoff of the retries after a failed check while no check has ever
+/// succeeded; its length is the retry cap.
+const List<Duration> kUpdateGateRetryDelays = <Duration>[
+  Duration(seconds: 3),
+  Duration(seconds: 10),
+  Duration(seconds: 30),
+];
 
 /// The gate verdict.
 @freezed
@@ -66,6 +85,8 @@ bool isUpdateRequired({
 class UpdateGate extends _$UpdateGate {
   Future<void>? _inFlight;
   DateTime? _lastSuccessAt;
+  Timer? _retryTimer;
+  int _retriesScheduled = 0;
 
   @override
   UpdateGateState build() {
@@ -73,6 +94,7 @@ class UpdateGate extends _$UpdateGate {
       onResume: _onResume,
     );
     ref.onDispose(lifecycle.dispose);
+    ref.onDispose(_cancelRetry);
     // Deferred: a provider must not mutate itself inside build(), and the
     // first frame must not wait for the network.
     Future<void>.microtask(() {
@@ -99,16 +121,35 @@ class UpdateGate extends _$UpdateGate {
   });
 
   Future<void> _check() async {
+    // This check supersedes a pending retry: never two requests.
+    _cancelRetry();
     final UpdateGateState? next = await _evaluate();
     if (!ref.mounted) return;
     if (next != null) {
       state = next;
     } else if (_lastSuccessAt == null) {
-      // No verdict has ever succeeded in this process: fail OPEN (D2).
+      // No verdict has ever succeeded in this process: fail OPEN (D2), and
+      // try again soon rather than waiting for a resume.
       state = const UpdateGateState.ok();
+      _scheduleRetry();
     }
     // Otherwise a failed RE-check keeps the last successful verdict, so going
     // offline cannot lift a "required" gate.
+  }
+
+  void _scheduleRetry() {
+    if (_retriesScheduled >= kUpdateGateRetryDelays.length) return;
+    final Duration delay = kUpdateGateRetryDelays[_retriesScheduled];
+    _retriesScheduled++;
+    _retryTimer = Timer(delay, () {
+      _retryTimer = null;
+      if (ref.mounted) unawaited(check());
+    });
+  }
+
+  void _cancelRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
   }
 
   /// The verdict, or `null` when the check failed (no usable answer).
@@ -144,6 +185,20 @@ class UpdateGate extends _$UpdateGate {
         'Update check failed: ${error.runtimeType}',
         name: 'core.update_gate',
         level: 800,
+      );
+      // Types only — no URL, header, body or PII.
+      unawaited(
+        Sentry.addBreadcrumb(
+          Breadcrumb(
+            category: 'update_gate',
+            level: SentryLevel.warning,
+            message: 'Update check failed',
+            data: <String, dynamic>{
+              'error_type': error.runtimeType.toString(),
+              if (error is DioException) 'dio_type': error.type.name,
+            },
+          ),
+        ),
       );
       return null;
     }

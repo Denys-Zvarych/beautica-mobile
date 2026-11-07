@@ -1,4 +1,5 @@
-// Phase 438 — updateGateProvider: compare matrix, fail-open, resume throttle.
+// Phase 438 — updateGateProvider: compare matrix, fail-open, resume throttle,
+// cold-start retry backoff (fakeAsync — pumpEventQueue fires no Timer).
 //
 // The real generated AppConfigApi runs over a Dio whose adapter is scripted
 // per call, so decoding (incl. malformed bodies) is the production path. The
@@ -15,10 +16,12 @@ import 'package:beautica_mobile/core/app_version/update_gate_provider.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 /// One scripted reply: a JSON body + status, or a transport error.
 final class _Reply {
@@ -125,8 +128,8 @@ final class _Harness {
   UpdateGateState get state => container.read(updateGateProvider);
 }
 
-/// Background → foreground through the real binding dispatch.
-Future<void> _resume() async {
+/// Background → foreground through the real binding dispatch (synchronous).
+void _dispatchResume() {
   final TestWidgetsFlutterBinding binding = TestWidgetsFlutterBinding.instance;
   for (final AppLifecycleState s in <AppLifecycleState>[
     AppLifecycleState.inactive,
@@ -138,8 +141,23 @@ Future<void> _resume() async {
   ]) {
     binding.handleAppLifecycleStateChanged(s);
   }
+}
+
+Future<void> _resume() async {
+  _dispatchResume();
   await pumpEventQueue();
 }
+
+class _NoopTransport implements Transport {
+  @override
+  Future<SentryId?> send(SentryEnvelope envelope) async =>
+      const SentryId.empty();
+}
+
+/// Drains microtasks and zero-length timers inside fakeAsync.
+void _settle(FakeAsync async) => async.elapse(Duration.zero);
+
+const _Reply _timeout = _Reply.error(DioExceptionType.connectionTimeout);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -335,16 +353,25 @@ void main() {
     );
 
     test('the throttle counts from the last SUCCESS: a failed cold start '
-        're-checks on the very next resume', () async {
-      final _Harness h = _Harness(<_Reply>[
-        const _Reply.error(DioExceptionType.connectionError),
-        _Reply.json(_config(8)),
-      ]);
-      expect(await h.boot(), const UpdateGateState.ok());
-      h.now = h.now.add(const Duration(minutes: 1));
-      await _resume();
-      expect(h.adapter.calls, 2);
-      expect(h.state, isA<UpdateGateRequired>());
+        're-checks on the very next resume, which supersedes the pending '
+        'retry', () {
+      fakeAsync((FakeAsync async) {
+        final _Harness h = _Harness(<_Reply>[
+          const _Reply.error(DioExceptionType.connectionError),
+          _Reply.json(_config(8)),
+        ]);
+        h.container.listen(updateGateProvider, (_, _) {});
+        _settle(async);
+        expect(h.state, const UpdateGateState.ok());
+        async.elapse(const Duration(seconds: 1));
+        h.now = h.now.add(const Duration(seconds: 1));
+        _dispatchResume();
+        _settle(async);
+        expect(h.adapter.calls, 2);
+        expect(h.state, isA<UpdateGateRequired>());
+        async.elapse(const Duration(minutes: 5));
+        expect(h.adapter.calls, 2, reason: 'retry cancelled by the success');
+      });
     });
 
     test('concurrent checks share one request', () async {
@@ -354,6 +381,169 @@ void main() {
       await Future.wait(<Future<void>>[gate.check(), gate.check()]);
       await pumpEventQueue();
       expect(h.adapter.calls, 1);
+    });
+  });
+
+  group('cold-start retry backoff (3 s / 10 s / 30 s, cap 3)', () {
+    test('a timed-out cold start retries after 3 s with NO resume: the gate '
+        'blocks build 8 against min 9', () {
+      fakeAsync((FakeAsync async) {
+        final _Harness h = _Harness(<_Reply>[
+          _timeout,
+          _Reply.json(_config(9)),
+        ], build: '8');
+        h.container.listen(updateGateProvider, (_, _) {});
+        _settle(async);
+        expect(h.adapter.calls, 1);
+        expect(h.state, const UpdateGateState.ok(), reason: 'fail-open');
+        async.elapse(const Duration(milliseconds: 2999));
+        expect(h.adapter.calls, 1);
+        async.elapse(const Duration(milliseconds: 1));
+        _settle(async);
+        expect(h.adapter.calls, 2);
+        expect(h.state, isA<UpdateGateRequired>());
+      });
+    });
+
+    test('retries follow 3 s, 10 s, 30 s and stop at the cap of 3', () {
+      fakeAsync((FakeAsync async) {
+        final _Harness h = _Harness(<_Reply>[_timeout]);
+        h.container.listen(updateGateProvider, (_, _) {});
+        _settle(async);
+        expect(h.adapter.calls, 1);
+        async.elapse(const Duration(seconds: 3));
+        expect(h.adapter.calls, 2);
+        async.elapse(const Duration(milliseconds: 9999));
+        expect(h.adapter.calls, 2);
+        async.elapse(const Duration(milliseconds: 1));
+        expect(h.adapter.calls, 3);
+        async.elapse(const Duration(milliseconds: 29999));
+        expect(h.adapter.calls, 3);
+        async.elapse(const Duration(milliseconds: 1));
+        expect(h.adapter.calls, 4);
+        async.elapse(const Duration(hours: 1));
+        expect(h.adapter.calls, 4, reason: 'cap reached');
+        expect(h.state, const UpdateGateState.ok());
+      });
+    });
+
+    test('retries stop after a success (no retry once a check succeeded)', () {
+      fakeAsync((FakeAsync async) {
+        final _Harness h = _Harness(<_Reply>[
+          _timeout,
+          _Reply.json(_config(0)),
+          _Reply.json(_config(99)),
+        ]);
+        h.container.listen(updateGateProvider, (_, _) {});
+        _settle(async);
+        async.elapse(const Duration(seconds: 3));
+        expect(h.adapter.calls, 2);
+        async.elapse(const Duration(hours: 1));
+        expect(h.adapter.calls, 2);
+        expect(h.state, const UpdateGateState.ok());
+      });
+    });
+
+    test('a failed RE-check after a success never schedules a retry', () {
+      fakeAsync((FakeAsync async) {
+        final _Harness h = _Harness(<_Reply>[
+          _Reply.json(_config(8)),
+          _timeout,
+        ]);
+        h.container.listen(updateGateProvider, (_, _) {});
+        _settle(async);
+        expect(h.state, isA<UpdateGateRequired>());
+        h.now = h.now.add(const Duration(hours: 2));
+        _dispatchResume();
+        _settle(async);
+        expect(h.adapter.calls, 2);
+        async.elapse(const Duration(minutes: 5));
+        expect(h.adapter.calls, 2);
+        expect(h.state, isA<UpdateGateRequired>(), reason: 'last verdict');
+      });
+    });
+
+    test('dispose cancels the pending retry timer', () {
+      fakeAsync((FakeAsync async) {
+        final _Harness h = _Harness(<_Reply>[_timeout]);
+        h.container.listen(updateGateProvider, (_, _) {});
+        _settle(async);
+        expect(h.adapter.calls, 1);
+        expect(async.nonPeriodicTimerCount, 1, reason: 'the 3 s retry');
+        h.container.dispose();
+        // The timer itself is cancelled — not merely defused by the
+        // `ref.mounted` guard in its callback (which alone kept calls at 1).
+        expect(async.nonPeriodicTimerCount, 0);
+        async.elapse(const Duration(minutes: 5));
+        expect(h.adapter.calls, 1);
+      });
+    });
+
+    test('a resume during a pending retry fetches once; when it fails the '
+        'backoff continues without a double request', () {
+      fakeAsync((FakeAsync async) {
+        final _Harness h = _Harness(<_Reply>[
+          _timeout,
+          _timeout,
+          _Reply.json(_config(8)),
+        ]);
+        h.container.listen(updateGateProvider, (_, _) {});
+        _settle(async);
+        async.elapse(const Duration(seconds: 2));
+        _dispatchResume();
+        _settle(async);
+        expect(h.adapter.calls, 2, reason: 'resume check, retry cancelled');
+        // The 3 s mark of the cancelled cold-start retry passes silently.
+        async.elapse(const Duration(seconds: 2));
+        expect(h.adapter.calls, 2);
+        // The resume's failure scheduled the next backoff step (10 s).
+        async.elapse(const Duration(seconds: 8));
+        _settle(async);
+        expect(h.adapter.calls, 3);
+        expect(h.state, isA<UpdateGateRequired>());
+        async.elapse(const Duration(hours: 1));
+        expect(h.adapter.calls, 3);
+      });
+    });
+  });
+
+  group('Sentry breadcrumb on a failed check', () {
+    late List<Breadcrumb> crumbs;
+
+    setUp(() async {
+      crumbs = <Breadcrumb>[];
+      await Sentry.init((SentryOptions o) {
+        o
+          ..dsn = 'https://public@o1.ingest.de.sentry.io/2'
+          ..transport = _NoopTransport()
+          ..beforeBreadcrumb = (Breadcrumb? b, Hint _) {
+            if (b != null && b.category == 'update_gate') crumbs.add(b);
+            return b;
+          };
+      });
+    });
+    tearDown(Sentry.close);
+
+    test('a timed-out check leaves one update_gate breadcrumb carrying the '
+        'error types only', () async {
+      final _Harness h = _Harness(<_Reply>[_timeout]);
+
+      await h.boot();
+
+      expect(crumbs, hasLength(1));
+      expect(crumbs.single.level, SentryLevel.warning);
+      expect(crumbs.single.data, <String, dynamic>{
+        'error_type': 'DioException',
+        'dio_type': 'connectionTimeout',
+      });
+    });
+
+    test('a successful check leaves no update_gate breadcrumb', () async {
+      final _Harness h = _Harness(<_Reply>[_Reply.json(_config(0))]);
+
+      await h.boot();
+
+      expect(crumbs, isEmpty);
     });
   });
 
