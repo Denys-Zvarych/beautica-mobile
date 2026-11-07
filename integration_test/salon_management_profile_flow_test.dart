@@ -413,7 +413,16 @@ void main() {
         // ("primary-salon-deleted" / "single-salon owner") are the ones that
         // actually depend on the mutation — see their own docs. One extra
         // `pumpAndSettle` settles past the resolver's forward hop so the
-        // assertion below lands on the FINAL location, not mid-forward.
+        // assertion below lands on the FINAL location, not mid-forward. The
+        // pumpUntilCondition below is pinned by
+        // test/integration_support/emulator_flaky_waits_no_settle_test.dart.
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () =>
+              AppHarness.location(router) ==
+              RouteNames.salonShell('salon-owner-1'),
+          description: 'resolver forwarded to remaining salon',
+        );
         await tester.pumpAndSettle();
         expect(
           AppHarness.location(router),
@@ -489,6 +498,13 @@ void main() {
               'no-op handler would leave the deleted salon still resolvable',
         );
 
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () =>
+              AppHarness.location(router) ==
+              RouteNames.salonShell('salon-owner-1'),
+          description: 'resolver forwarded to remaining salon',
+        );
         await tester.pumpAndSettle();
         expect(
           AppHarness.location(router),
@@ -544,6 +560,11 @@ void main() {
           reason: 'the fake DELETE handler must remove the only row',
         );
 
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => AppHarness.location(router) == RouteNames.mySalons,
+          description: 'resolver landed on the My Salons hub',
+        );
         await tester.pumpAndSettle();
         expect(
           AppHarness.location(router),
