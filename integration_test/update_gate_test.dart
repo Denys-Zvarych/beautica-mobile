@@ -10,6 +10,9 @@
 //   4. build == min → normal app; the backend then raises min → a resume
 //      inside the 1 h throttle does NOT re-check, the next eligible resume
 //      does and the gate covers the RUNNING app.
+//   5. Post-release fix 2026-11-07 (prod build 8): the cold-start call fails,
+//      the backend then answers min > build → the 3 s cold-start retry shows
+//      the gate with NO lifecycle resume.
 //
 // Runs headless: `flutter test integration_test/update_gate_test.dart
 // -d flutter-tester`.
@@ -176,6 +179,29 @@ void main() {
       find.byKey(UpdateRequiredScreen.screenKey),
     );
     expect(fb.appConfigCalls, 2);
+    expect(find.byKey(_loginEmail), findsNothing);
+  });
+
+  testWidgets('a failed cold-start check is retried with NO resume: the gate '
+      'covers the running app once the backend answers min > build', (
+    tester,
+  ) async {
+    final FakeBackend fb = FakeBackend()..wireAppConfigFailure();
+    await _boot(tester, fb);
+
+    expect(find.byKey(_loginEmail), findsOneWidget, reason: 'fail-open');
+    expect(find.byKey(UpdateRequiredScreen.screenKey), findsNothing);
+    expect(fb.appConfigCalls, 0, reason: 'the cold-start call failed');
+
+    // The backend recovers; no lifecycle event is dispatched from here on.
+    fb.wireAppConfig(minVersionCode: 8);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(UpdateRequiredScreen.screenKey),
+    );
+
+    expect(fb.appConfigCalls, 1, reason: 'one retry, no double request');
+    expect(find.byKey(UpdateRequiredScreen.screenKey), findsOneWidget);
     expect(find.byKey(_loginEmail), findsNothing);
   });
 }

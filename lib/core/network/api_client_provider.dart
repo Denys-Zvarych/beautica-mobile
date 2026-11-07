@@ -74,7 +74,7 @@ BookingLinksApi bookingLinksApi(Ref ref) =>
 
 /// How long the forced-update check may wait for `GET /app/config` (phase 438
 /// D2) before the gate fails OPEN.
-const Duration kAppConfigTimeout = Duration(seconds: 3);
+const Duration kAppConfigTimeout = Duration(seconds: 10);
 
 /// Provides the generated [AppConfigApi] (phase 438) for the forced-update
 /// gate's `GET /api/v1/app/config`.
