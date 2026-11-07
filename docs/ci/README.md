@@ -30,7 +30,9 @@ points here with `# why: docs/ci/<topic>.md#<anchor>`.
 | `coverage` | Coverage (merge shards) | plan, unit | whole-suite runs; non-blocking | [coverage](#job-coverage) |
 | `test` | Test & Build (aggregate) | unit, tz-sweeps, goldens, apk | always (bootstrap bridge) | [test](#job-test-aggregate) |
 | `tests-ran` | Tests actually ran | plan, unit, tz-sweeps, goldens | plan ok, mode != none | [tests-ran](#job-tests-ran) |
-| `integration` | Integration tests (emulator) | plan | full, or selected flows | [emulator-integration.md](emulator-integration.md#job-integration) |
+| `integration` | Integration entry + selected flows (emulator) | plan | full (entry only), or selected flows | [emulator-integration.md](emulator-integration.md#job-integration) |
+| `integration-shard` | Integration shard K/8 (emulator) | plan, integration | entry = parts (full suite) | [emulator-integration.md](emulator-integration.md#integration-shards) |
+| `integration-verify` | Integration tests (emulator) | plan, integration, integration-shard | integration ran | [emulator-integration.md](emulator-integration.md#integration-verdict) |
 | `integration-profile` | Integration profile drive (emulator) | none | dispatch, or `run-patrol` | [emulator-integration.md](emulator-integration.md#job-integration-profile) |
 | `patrol` | Patrol native E2E (emulator) (API N) | plan | dispatch, `run-patrol`, native PR | [patrol.md](patrol.md#job-patrol) |
 | `ci-gate` | ci-gate | all of the above | always | [ci-gate](#job-ci-gate) |
@@ -586,6 +588,7 @@ job is skipped and ci-gate MIRRORS the real run for the same head SHA
 
 Normally seconds; a noop-label event waits for the real run it mirrors:
 up to 3 min polling for it to appear + the watch below (200 min =
-the slowest real job, `integration` at 180, plus runner QUEUE time, which
+the slowest real path, `integration` entry + one 120-min `integration-shard`
+leg (~140 min), plus runner QUEUE time, which
 the job timeout does not cover) + verdict. Must stay
 ABOVE both, or the gate dies before the thing it is mirroring.

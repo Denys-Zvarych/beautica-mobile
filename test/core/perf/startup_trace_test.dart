@@ -93,15 +93,22 @@ void main() {
     });
   });
 
-  test('slice names are the four boot steps', () {
+  test('slice names are the five boot steps', () {
     expect(
       <String>[
+        StartupSlice.crashReporting,
         StartupSlice.timezones,
         StartupSlice.fonts,
         StartupSlice.certPinning,
         StartupSlice.container,
       ],
-      <String>['timezones', 'fonts', 'certPinning', 'container'],
+      <String>[
+        'crashReporting',
+        'timezones',
+        'fonts',
+        'certPinning',
+        'container',
+      ],
     );
   });
 }

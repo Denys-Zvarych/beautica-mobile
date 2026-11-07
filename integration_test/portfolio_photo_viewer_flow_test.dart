@@ -181,10 +181,7 @@ void main() {
     return router;
   }
 
-  testWidgets('CLIENT on a 12-photo salon taps photo 3: the viewer opens at '
-      '«3 / 12» on photo 3; swiping moves counter + photo; close returns to '
-      'the profile; «+4» only expands and a revealed tile opens at its own '
-      'index', (tester) async {
+  Future<void> clientTwelvePhotoSalonBody(WidgetTester tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.client
@@ -217,6 +214,15 @@ void main() {
 
       // «+4» expands inline — it is never a viewer entry point.
       final Finder showAll = find.byKey(const Key('portfolio-show-all'));
+      // The rail is lazy at phone width — scroll IT until «+4» is built.
+      await tester.scrollUntilVisible(
+        showAll,
+        200,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('salon-about-portfolio')),
+          matching: find.byType(Scrollable),
+        ),
+      );
       await tester.ensureVisible(showAll);
       await AppHarness.settle(tester);
       await tester.tap(showAll.hitTestable());
@@ -244,6 +250,24 @@ void main() {
       await _close(tester);
       expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
     });
+  }
+
+  testWidgets(
+    'CLIENT on a 12-photo salon taps photo 3: the viewer opens at '
+    '«3 / 12» on photo 3; swiping moves counter + photo; close returns to '
+    'the profile; «+4» only expands and a revealed tile opens at its own '
+    'index',
+    clientTwelvePhotoSalonBody,
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // Same flow at a ~411x914 dp phone, where the PortfolioRail is lazy.
+  testWidgets('CLIENT on a 12-photo salon (phone viewport): «+4» is reached by '
+      'scrolling the rail', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.625;
+    addTearDown(tester.view.reset);
+    await clientTwelvePhotoSalonBody(tester);
   }, timeout: const Timeout(Duration(seconds: 120)));
 
   // ── PUBLIC MASTER ─────────────────────────────────────────────────────────

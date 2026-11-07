@@ -8,8 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/app_version/app_version_info.dart';
+import 'core/app_version/update_required_screen.dart';
 import 'core/config/app_config.dart';
 import 'core/config/env_guard.dart';
+import 'core/diagnostics/crash_reporting.dart';
 import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
@@ -64,6 +67,14 @@ Future<void> main() async {
   // before any other startup work — a prod build pointed at staging (or the
   // reverse) must die here, not after it has touched the network.
   EnvGuard.assertConsistent();
+
+  // Phase 410 (R.3 D3) — crash reporting right after the (synchronous,
+  // await-free) EnvGuard that phase 408 pins FIRST, and before
+  // assertSecureUrl, so a startup failure below (assertSecureUrl, fonts, cert
+  // pinning) is reported. A no-op in debug / local / no-DSN builds
+  // (`shouldEnableCrashReporting`). No `appRunner`, no `runZonedGuarded`: the
+  // SDK chains `FlutterError.onError` and `PlatformDispatcher.onError`.
+  await StartupTrace.async(StartupSlice.crashReporting, initCrashReporting);
 
   // MS-SECURE-URL: throws StateError in release/profile mode if
   // BEAUTICA_BASE_URL is not HTTPS (or a loopback/private-LAN address).
@@ -166,6 +177,11 @@ Future<void> main() async {
       ],
     ),
   );
+  // Phase 438 D6 — start the one PackageInfo platform read now, WITHOUT
+  // awaiting it (no startup cost). `AppVersionInterceptor` only peeks at the
+  // resolved value, so the first request(s) may go out without
+  // `X-App-Version`; the header is informational and never rejected.
+  container.read(appPackageInfoProvider);
   runApp(
     UncontrolledProviderScope(container: container, child: const BeauticaApp()),
   );
@@ -182,6 +198,9 @@ Future<void> main() async {
   // scheduling until allowFirstFrame() is called.
   // SplashScreen.initState also calls remove() as a safety net (idempotent).
   FlutterNativeSplash.remove();
+
+  // Phase 410 step 7 — staging-only smoke canary (BEAUTICA_CRASH_SMOKE=true).
+  scheduleCrashSmokeIfRequested();
 
   // P1-STARTUP-1 (perf MEDIUM, Phase 2.20 audit): moved from before runApp().
   // The Android manifest and iOS Info.plist lock orientation at OS level
@@ -275,7 +294,11 @@ class BeauticaApp extends ConsumerWidget {
             data: mq.copyWith(
               textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
             ),
-            child: child ?? const SizedBox.shrink(),
+            // Phase 438 D4 — the forced-update gate replaces the router's
+            // output (never a route: router tree, authRedirect and the
+            // routing ledger stay untouched). Inert until the verdict says
+            // the build is below the backend minimum.
+            child: UpdateGateOverlay(child: child ?? const SizedBox.shrink()),
           ),
         );
       },

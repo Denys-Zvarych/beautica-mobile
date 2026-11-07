@@ -23,6 +23,9 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
     // Phase 066 — applied per-module only when android/app/google-services.json exists.
     id("com.google.gms.google-services") version "4.4.2" apply false
+    // Phase 411 (R.4) D4 — R8 mapping upload + ProGuard UUID injection for Sentry.
+    // Exact pin (6.23.x line per the phase doc).
+    id("io.sentry.android.gradle") version "6.23.0" apply false
 }
 
 include(":app")

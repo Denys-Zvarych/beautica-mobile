@@ -1087,12 +1087,15 @@ Booking _dayBooking(
   required String masterId,
   required int kyivHour,
   BookingStatus status = BookingStatus.confirmed,
+  int kyivMinute = 0,
+  int durationMinutes = 30,
 }) {
   final DateTime start = DateTime.utc(
     _today.year,
     _today.month,
     _today.day,
     kyivHour - 3,
+    kyivMinute,
   );
   return Booking(
     id: id,
@@ -1102,10 +1105,10 @@ Booking _dayBooking(
     masterType: 'SALON_MASTER',
     serviceId: 'svc-1',
     serviceName: 'Манікюр',
-    durationMinutes: 30,
+    durationMinutes: durationMinutes,
     price: 500,
     startAt: start,
-    endAt: start.add(const Duration(minutes: 30)),
+    endAt: start.add(Duration(minutes: durationMinutes)),
     status: status,
     canReview: false,
   );
@@ -1127,8 +1130,9 @@ Future<void> _pumpWithBookingRepo(
   required _CountingBookingRepository repo,
   required UserRole role,
   ScheduleScope? scope,
+  EffectiveDay Function(DateTime) todayDay = _working,
 }) async {
-  final days = _weekWith(todayDay: _working, filler: _working);
+  final days = _weekWith(todayDay: todayDay, filler: _working);
   final GoRouter router = GoRouter(
     initialLocation: '/s',
     routes: <RouteBase>[
@@ -5124,6 +5128,123 @@ void main() {
 
       expect(repo.myFetches, 2, reason: 'refresh refetches the own day');
       expect(repo.salonFetches, 0);
+    });
+  });
+
+  // ── Booked-slots overlay on an EXPLICIT_TIMES («окремі години») day ──────
+  group('MasterScheduleScreen — booked-slots overlay (discrete times)', () {
+    testWidgets('overrideCustom discrete day: the chip a CONFIRMED booking '
+        'covers reads booked; the other chips stay available', (tester) async {
+      final _CountingBookingRepository repo = _CountingBookingRepository(
+        <Booking>[
+          _dayBooking('b-disc', masterId: 'msst-test-master', kyivHour: 13),
+        ],
+      );
+      await _pumpWithBookingRepo(
+        tester,
+        repo: repo,
+        role: UserRole.independentMaster,
+        todayDay: (DateTime d) =>
+            _discrete(d, source: EffectiveSource.overrideCustom),
+      );
+
+      expect(find.byKey(const Key('schedule-discrete-times')), findsOneWidget);
+      expect(_bookedChipTimes(tester), const <TimeOfDay>[
+        TimeOfDay(hour: 13, minute: 0),
+      ]);
+      SlotChip chipAt(String hhmm) => tester.widget<SlotChip>(
+        find.descendant(
+          of: find.byKey(Key('schedule-discrete-chip-$hhmm')),
+          matching: find.byType(SlotChip),
+        ),
+      );
+      expect(chipAt('13:00').cell.state, SlotState.booked);
+      expect(chipAt('09:00').cell.state, SlotState.available);
+      expect(chipAt('15:00').cell.state, SlotState.available);
+    });
+
+    // Every chip on screen as (time, state), in render order.
+    List<(TimeOfDay, SlotState)> chips(WidgetTester tester) => tester
+        .widgetList<SlotChip>(
+          find.descendant(
+            of: find.byKey(const Key('schedule-discrete-times')),
+            matching: find.byType(SlotChip),
+          ),
+        )
+        .map((SlotChip c) => (c.cell.time, c.cell.state))
+        .toList();
+
+    Future<void> pumpWith(WidgetTester tester, Booking booking) =>
+        _pumpWithBookingRepo(
+          tester,
+          repo: _CountingBookingRepository(<Booking>[booking]),
+          role: UserRole.independentMaster,
+          todayDay: (DateTime d) =>
+              _discrete(d, source: EffectiveSource.overrideCustom),
+        );
+
+    testWidgets('a 12:30–13:30 booking covers the 13:00 chip → 13:00 booked, '
+        'no extra chip', (tester) async {
+      await pumpWith(
+        tester,
+        _dayBooking(
+          'b-1230',
+          masterId: 'msst-test-master',
+          kyivHour: 12,
+          kyivMinute: 30,
+          durationMinutes: 60,
+        ),
+      );
+      expect(chips(tester), const <(TimeOfDay, SlotState)>[
+        (TimeOfDay(hour: 9, minute: 0), SlotState.available),
+        (TimeOfDay(hour: 13, minute: 0), SlotState.booked),
+        (TimeOfDay(hour: 15, minute: 0), SlotState.available),
+      ]);
+    });
+
+    testWidgets('a 12:00–13:00 booking ends exactly at the 13:00 chip start → '
+        '13:00 stays available (half-open span); the off-chip booking gets its '
+        'own 12:00 chip', (tester) async {
+      await pumpWith(
+        tester,
+        _dayBooking(
+          'b-1200',
+          masterId: 'msst-test-master',
+          kyivHour: 12,
+          durationMinutes: 60,
+        ),
+      );
+      expect(chips(tester), const <(TimeOfDay, SlotState)>[
+        (TimeOfDay(hour: 9, minute: 0), SlotState.available),
+        (TimeOfDay(hour: 12, minute: 0), SlotState.booked),
+        (TimeOfDay(hour: 13, minute: 0), SlotState.available),
+        (TimeOfDay(hour: 15, minute: 0), SlotState.available),
+      ]);
+    });
+
+    testWidgets('a 10:00–11:00 booking hitting no chip on a 09/13/15 day → an '
+        'extra booked 10:00 chip, sorted in; the others unchanged', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        _dayBooking(
+          'b-1000',
+          masterId: 'msst-test-master',
+          kyivHour: 10,
+          durationMinutes: 60,
+        ),
+      );
+      expect(
+        find.byKey(const Key('schedule-discrete-chip-10:00')),
+        findsOneWidget,
+      );
+      expect(chips(tester), const <(TimeOfDay, SlotState)>[
+        (TimeOfDay(hour: 9, minute: 0), SlotState.available),
+        (TimeOfDay(hour: 10, minute: 0), SlotState.booked),
+        (TimeOfDay(hour: 13, minute: 0), SlotState.available),
+        (TimeOfDay(hour: 15, minute: 0), SlotState.available),
+      ]);
     });
   });
 

@@ -1,5 +1,9 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 1 of 2 (2026-07-01 split).
 //
+// 2026-11-06: CI no longer runs the parts; the full suite runs as 8 shards
+// generated from all_tests.dart. The parts remain the selective-PR D3
+// reference (gen_integration_entry.dart). History below.
+//
 // WHY THIS FILE EXISTS (supersedes the single all_tests.dart CI entrypoint)
 // --------------------------------------------------------------------
 // `integration_test/all_tests.dart` aggregated every flow into ONE
@@ -77,6 +81,7 @@ import 'client_session_switch_my_bookings_flow_test.dart'
     as client_session_switch_my_bookings;
 import 'client_delete_account_flow_test.dart' as client_delete_account;
 import 'staff_delete_account_flow_test.dart' as staff_delete_account;
+import 'crash_reports_toggle_flow_test.dart' as crash_reports_toggle;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
     as client_profile_location_save_overrides_search_touch;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
@@ -275,6 +280,9 @@ void main() {
   // SALON_OWNER negative control. Registered beside `client_delete_account
   // _flow`, whose row/dialog it shares.
   group('staff_delete_account_flow', staff_delete_account.main);
+  // Phase 410 (R.3 D8, Step 2.7 Rule 3b) — «Надсилати звіти про збої» on
+  // the «Акаунт» page: default ON, OFF/ON persisted across a relaunch.
+  group('crash_reports_toggle_flow', crash_reports_toggle.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`

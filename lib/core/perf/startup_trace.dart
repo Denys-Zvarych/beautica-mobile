@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 /// Compile-time slice names for [StartupTrace]. Constants only: no PII, no
 /// dynamic strings. Each shows up in the DevTools timeline as `boot:<name>`.
 abstract final class StartupSlice {
+  static const String crashReporting = 'crashReporting';
   static const String timezones = 'timezones';
   static const String fonts = 'fonts';
   static const String certPinning = 'certPinning';

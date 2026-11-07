@@ -155,6 +155,17 @@ abstract final class VelvetText {
   /// Body at 13 sp — used by DoneScreen description copy.
   static final TextStyle bodySmall = _bodyStyle.copyWith(fontSize: 11);
 
+  /// Forced-update gate body (phase 438 preview `body().copyWith(fontSize:
+  /// 13)`) — one step up for a single-message screen.
+  static final TextStyle updateGateBody = _bodyStyle.copyWith(fontSize: 13);
+
+  /// Forced-update gate «Play не відкрився» notice (phase 438 preview
+  /// `feedback(error).copyWith(fontSize: 12)`).
+  static final TextStyle updateGateNotice = _feedbackBase.copyWith(
+    fontSize: 12,
+    color: BrandColors.error,
+  );
+
   /// Feedback label for summary chips — Nunito 13/700 in [BrandColors.textSecondary]
   /// at 12.5 sp. Used by DoneScreen _SummaryChip.
   static final TextStyle chipLabel = _feedbackBase.copyWith(

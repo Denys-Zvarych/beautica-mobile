@@ -146,6 +146,25 @@ MODE=version check "mode version prints the version" 0 "1.1.0+2" "$r"
 read -r r2 _ _ <<< "$(mk usagebad 'version: 1.1.0')"
 MODE=version check "mode version enforces rule (b)" 1 "::error::rule (b)" "$r2"
 MODE=bogus check "unknown mode" 2 "usage:" "$r"
+
+echo "== mode sentry-release (phase 411 D2) =="
+read -r r3 _ _ <<< "$(mk sentry 'version: 1.2.3+45')"
+read -r r4 _ _ <<< "$(mk sentrycrlf 'version: 10.0.12+107\r')"
+# exact <name> <root> <want>: the whole stdout+stderr must equal <want> (no CR, no extra line).
+exact() {
+  local out
+  out="$(cd "$2" && env -i PATH="$PATH" HOME="$HOME" bash scripts/check_release_version.sh sentry-release 2>&1)"
+  if [ "$out" = "$3" ]; then
+    PASS=$((PASS + 1)); printf '  PASS  %s\n' "$1"
+  else
+    FAIL=$((FAIL + 1)); printf '  FAIL  %s\n%s\n' "$1" "$out" | cat -A
+  fi
+}
+exact "1.2.3+45 -> beautica-mobile@1.2.3+45, dist 45" "$r3" \
+  "$(printf 'SENTRY_RELEASE=beautica-mobile@1.2.3+45\nSENTRY_DIST=45')"
+exact "CRLF pubspec: no CR leaks into release or dist" "$r4" \
+  "$(printf 'SENTRY_RELEASE=beautica-mobile@10.0.12+107\nSENTRY_DIST=107')"
+MODE=sentry-release check "sentry-release enforces rule (b)" 1 "::error::rule (b)" "$r2"
 MODE=release check "phase 421 mode not implemented yet" 2 "phase 421" "$r"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

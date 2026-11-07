@@ -675,7 +675,6 @@ void main() {
       'lib/app.dart',
       'lib/routing/r.dart',
       'integration_test/support/h.dart',
-      'test/integration_support/h.dart',
     ]) {
       test(
         'edges into $hub are not followed (change below it selects only the direct flow)',
@@ -693,15 +692,42 @@ void main() {
       addTearDown(repo.dispose);
       expect(repo.run(m('lib/app.dart')).integration.length, 2);
     });
-    test('a changed test/integration_support hub selects ALL flows', () {
-      expect(rules.isHub('test/integration_support/x.dart'), isTrue);
-      expect(rules.isHub('integration_test/support/x.dart'), isTrue);
-      // No longer a full_glob (graph-expressible): seeds, hub -> all flows.
-      final repo = withHub('test/integration_support/h.dart');
+    test(
+      'test/integration_support is NOT a hub; integration_test/support is',
+      () {
+        expect(rules.isHub('test/integration_support/x.dart'), isFalse);
+        expect(rules.isHub('integration_test/support/x.dart'), isTrue);
+      },
+    );
+    test('a changed test/integration_support unit test selects no flows', () {
+      final repo = FixtureRepo({
+        'lib/features/booking/b.dart': 'int b = 1;\n',
+        'test/integration_support/h_test.dart': pkg('features/booking/b.dart'),
+        'integration_test/booking_flow_test.dart': pkg(
+          'features/booking/b.dart',
+        ),
+        'integration_test/auth_flow_test.dart': 'void main() {}\n',
+        ...filler(40),
+      });
       addTearDown(repo.dispose);
-      final s = repo.run(m('test/integration_support/h.dart'));
+      final s = repo.run(m('test/integration_support/h_test.dart'));
       expect(s.mode, Mode.selective);
-      expect(s.integration.length, 2);
+      expect(s.unit, ['test/integration_support/h_test.dart']);
+      expect(s.integration, isEmpty);
+    });
+    test('a flow importing a test/integration_support helper is selected '
+        'via the import graph (only that flow)', () {
+      final repo = FixtureRepo({
+        'test/integration_support/helper.dart': 'int h = 1;\n',
+        'integration_test/booking_flow_test.dart':
+            "import '../test/integration_support/helper.dart';\n",
+        'integration_test/auth_flow_test.dart': 'void main() {}\n',
+        ...filler(40),
+      });
+      addTearDown(repo.dispose);
+      final s = repo.run(m('test/integration_support/helper.dart'));
+      expect(s.mode, Mode.selective);
+      expect(s.integration, ['integration_test/booking_flow_test.dart']);
     });
   });
 

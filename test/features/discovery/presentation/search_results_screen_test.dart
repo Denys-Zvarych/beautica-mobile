@@ -1292,6 +1292,109 @@ void main() {
       expect(find.byKey(const Key('favorite_master_m99')), findsOneWidget);
     });
 
+    testWidgets('a first page that does not fill the viewport loads the next '
+        'page with NO scroll', (tester) async {
+      final repo = _MockSearchRepository();
+      // Page 0: ONE card on the default 800x600 surface (maxScrollExtent 0),
+      // with another page available — no scroll can ever happen.
+      when(
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => _page<MasterSearchItem>(<MasterSearchItem>[
+          _master('m1'),
+        ], totalPages: 2),
+      );
+      when(
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+      when(
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => _page<MasterSearchItem>(
+          <MasterSearchItem>[_master('m2')],
+          page: 1,
+          totalPages: 2,
+        ),
+      );
+
+      await tester.pumpWidget(
+        _host(repo, favorites: _MockFavoriteRepository()),
+      );
+      // Discrete pumps (the trailing spinner animates forever) — and NO drag
+      // or jumpTo anywhere in this test.
+      for (int i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      verify(
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
+      expect(find.byKey(const Key('results_load_more_spinner')), findsNothing);
+      expect(find.byKey(const Key('favorite_master_m2')), findsOneWidget);
+    });
+
+    testWidgets('a FAILED load-more does not loop: page 1 is requested exactly '
+        'once', (tester) async {
+      final repo = _MockSearchRepository();
+      when(
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => _page<MasterSearchItem>(<MasterSearchItem>[
+          _master('m1'),
+        ], totalPages: 2),
+      );
+      when(
+        () => repo.searchSalons(
+          filters: any(named: 'filters'),
+          page: 0,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+      when(
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenThrow(const NetworkFailure());
+
+      await tester.pumpWidget(
+        _host(repo, favorites: _MockFavoriteRepository()),
+      );
+      // Discrete pumps spanning many frames/timers; no scroll anywhere.
+      for (int i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      verify(
+        () => repo.searchMasters(
+          filters: any(named: 'filters'),
+          page: 1,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
+    });
+
     testWidgets('a last-page list shows no load-more spinner', (tester) async {
       final repo = _MockSearchRepository();
       when(

@@ -1,14 +1,13 @@
 // Phase 17.3 — Aggregating E2E entrypoint (L87 + L88).
 //
-// CI no longer runs this file directly (2026-07-01): at 19 flows, this single
-// long-lived `flutter test` process started crashing the emulator at final
-// teardown (see `all_tests_part1.dart` for the full incident). CI now runs
-// `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same flows
-// (19, 21 after the Beautica OTP task Phase B6 additions, then 22 with the
-// salon-master booking-bug flow), split in two.
-// This file is kept for local convenience (running the FULL suite in one shot
-// against a connected emulator); update all THREE files together when
-// adding/removing a flow.
+// CI does not run this file directly: one process carrying every flow
+// crashed the emulator at teardown (see `all_tests_part1.dart`) and cannot
+// finish inside one bound. Since 2026-11-06 it is the SINGLE SOURCE OF FLOWS
+// for CI: the full suite runs as 8 shards generated from its imports
+// (`gen_integration_entry.dart --shard K/8`, docs/ci/emulator-integration.md
+// #integration-shards). `all_tests_part1/2.dart` only feed the selective D3
+// decision now; still update all THREE files together when adding/removing a
+// flow (the meta test enforces it).
 //
 // WHY THIS FILE EXISTS
 // --------------------
@@ -103,6 +102,7 @@ import 'client_session_switch_my_bookings_flow_test.dart'
     as client_session_switch_my_bookings;
 import 'client_delete_account_flow_test.dart' as client_delete_account;
 import 'staff_delete_account_flow_test.dart' as staff_delete_account;
+import 'crash_reports_toggle_flow_test.dart' as crash_reports_toggle;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
     as client_profile_location_save_overrides_search_touch;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
@@ -252,6 +252,7 @@ import 'ugc_blocked_clients_flow_test.dart' as ugc_blocked_clients;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
 import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
+import 'update_gate_test.dart' as update_gate;
 
 void main() {
   // Initialise the integration binding ONCE for the whole aggregated run.
@@ -412,6 +413,9 @@ void main() {
   // SALON_OWNER negative control. Registered beside `client_delete_account
   // _flow`, whose row/dialog it shares.
   group('staff_delete_account_flow', staff_delete_account.main);
+  // Phase 410 (R.3 D8, Step 2.7 Rule 3b) — «Надсилати звіти про збої» on
+  // the «Акаунт» page: default ON, OFF/ON persisted across a relaunch.
+  group('crash_reports_toggle_flow', crash_reports_toggle.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
@@ -853,4 +857,8 @@ void main() {
   // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
   // the five riskiest surfaces opens ONE route / sends ONE request.
   group('tap_reentrancy_flow', tap_reentrancy.main);
+  // Phase 438 — forced-update gate in the MaterialApp.router builder:
+  // build < min → gate only + market:// launch; transport error / 404 →
+  // fail-open.
+  group('update_gate', update_gate.main);
 }

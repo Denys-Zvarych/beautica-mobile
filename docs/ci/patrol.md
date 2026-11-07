@@ -290,8 +290,10 @@ swiftshader ColorBuffer release race that kills the whole emulator
 (android-emulator-runner#358, flutter#153445). Chosen over the equally stable `swangle_indirect` + RAM because it was faster and
 first to reach 10/10. Rejected: RAM alone, `swangle_indirect` without RAM, API 35 (works, but no gain over API 34 and
 fewer samples). `scripts/ci/patrol_retry_gate.sh` and attempt 2 stay as the
-safety net. The `integration` and `integration-profile` jobs were not measured
-and keep the default GPU.
+safety net. The `integration` selected-flow attempts and every `integration-shard`
+attempt use `-gpu guest` too (2026-11-06, same `emulator-options`; see
+[emulator-integration.md#integration-shards](emulator-integration.md#integration-shards)).
+`integration-profile` was not measured and keeps the default GPU.
 
 <a id="patrol-test-bound"></a>
 

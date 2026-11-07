@@ -1600,8 +1600,16 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // only known after `build` has measured the lane viewport, so the FIRST
     // publish would otherwise ship the pre-layout fallback slack and never be
     // corrected on a board whose viewport never changes again.
-    if (viewport <= 0 ||
-        (viewport == _hWindowViewport && _hColumnPitch == _hBandPitch)) {
+    if (viewport <= 0) return;
+    if (viewport == _hWindowViewport && _hColumnPitch == _hBandPitch) {
+      // Nothing about the viewport/pitch moved, but the OFFSET may have: a
+      // roster that narrows (salon filter) shrinks the content extent and the
+      // `ScrollPosition` clamps `pixels` during layout WITHOUT notifying
+      // [_onHorizontalScroll], leaving the culling band anchored at the old
+      // offset — the surviving columns would stay unbuilt until the next
+      // scroll tick. Re-read it here; [_onHorizontalScroll] re-anchors only
+      // past its usual quantisation, so an unmoved offset stays a no-op.
+      _onHorizontalScroll();
       return;
     }
     _hWindowViewport = viewport;

@@ -47,14 +47,13 @@ Please follow the [installation procedure](#installation--usage) and then run th
 import 'package:beautica_api/beautica_api.dart';
 
 
-final api = BeauticaApi().getAppointmentControllerApi();
-final String appointmentId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final AppointmentCancelRequest appointmentCancelRequest = ; // AppointmentCancelRequest | 
+final api = BeauticaApi().getAppConfigApi();
 
 try {
-    api.cancelAppointment(appointmentId, appointmentCancelRequest);
+    final response = await api.getConfig();
+    print(response);
 } catch on DioException (e) {
-    print("Exception when calling AppointmentControllerApi->cancelAppointment: $e\n");
+    print("Exception when calling AppConfigApi->getConfig: $e\n");
 }
 
 ```
@@ -65,6 +64,7 @@ All URIs are relative to *http://localhost:8080*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
+[*AppConfigApi*](doc/AppConfigApi.md) | [**getConfig**](doc/AppConfigApi.md#getconfig) | **GET** /api/v1/app/config | Minimum and latest supported app builds
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointment**](doc/AppointmentControllerApi.md#cancelappointment) | **PATCH** /api/v1/appointments/{appointmentId}/cancel | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointmentItem**](doc/AppointmentControllerApi.md#cancelappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/cancel | Cancel one service line of a visit
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointment**](doc/AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
@@ -238,6 +238,8 @@ Class | Method | HTTP request | Description
 ## Documentation For Models
 
  - [AddFavoriteRequest](doc/AddFavoriteRequest.md)
+ - [AndroidAppConfig](doc/AndroidAppConfig.md)
+ - [ApiResponseAppConfigResponse](doc/ApiResponseAppConfigResponse.md)
  - [ApiResponseAppointmentDetailResponse](doc/ApiResponseAppointmentDetailResponse.md)
  - [ApiResponseAuthResponse](doc/ApiResponseAuthResponse.md)
  - [ApiResponseAvailableSlotsResponse](doc/ApiResponseAvailableSlotsResponse.md)
@@ -317,6 +319,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseVerifyPasswordResetOtpResponse](doc/ApiResponseVerifyPasswordResetOtpResponse.md)
  - [ApiResponseVoid](doc/ApiResponseVoid.md)
  - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
+ - [AppConfigResponse](doc/AppConfigResponse.md)
  - [AppointmentCancelRequest](doc/AppointmentCancelRequest.md)
  - [AppointmentDetailResponse](doc/AppointmentDetailResponse.md)
  - [AppointmentItemRescheduleRequest](doc/AppointmentItemRescheduleRequest.md)

@@ -1,5 +1,5 @@
 
-# CI: emulator integration (`integration`, `integration-profile`)
+# CI: emulator integration (`integration`, `integration-shard`, `integration-verify`, `integration-profile`)
 
 The 2026-07-07 root-cause notes below are the ONLY copy. The original comments cited
 `docs/ci_investigation_notes.md`, which never existed in either repo.
@@ -7,7 +7,7 @@ The 2026-07-07 root-cause notes below are the ONLY copy. The original comments c
 <a id="enable-kvm"></a>
 
 `Enable KVM` (KVM is required for hardware-accelerated emulator boot on the runner) is one
-composite, `.github/actions/enable-kvm`, used by `integration`, `integration-profile` and `patrol`
+composite, `.github/actions/enable-kvm`, used by `integration`, `integration-shard`, `integration-profile` and `patrol`
 (phase 402 D14). `workflow_wiring_test.dart` pins that and that no `udevadm` is left in the
 workflow.
 
@@ -23,16 +23,23 @@ integration_test/ drives the REAL app widget tree (real screens + real
 notifiers + real repository + real generated client + real serialization)
 with ONLY the Dio transport socket faked by http_mock_adapter — no live
 backend. IntegrationTestWidgetsFlutterBinding requires a device, so this job
-boots a headless Android emulator (KVM-accelerated on the runner) and runs
-the two aggregating files all_tests_part1.dart + all_tests_part2.dart.
+boots a headless Android emulator (KVM-accelerated on the runner).
+
+Three jobs (2026-11-06, see [integration-shards](#integration-shards)):
+
+| Job | Name | Does |
+|---|---|---|
+| `integration` | Integration entry + selected flows (emulator) | chooses the entry; on `selected` runs the selected flows; publishes `entry` (FULL mode: always `parts`, nothing built) |
+| `integration-shard` | Integration shard K/8 (emulator) | `entry=parts` only: 8 matrix legs, each one generated shard of the FULL suite |
+| `integration-verify` | Integration tests (emulator) | fan-in verdict: `selected` needs `integration`; `parts` needs EVERY shard |
 
 Phase 401: on a `selective` PR only the flows whose own code path changed
 run, through a generated, gitignored integration_test/ci_selected_tests.dart
 (tool/ci/affected_tests/bin/gen_integration_entry.dart, run from the BASE
-commit). D3: when the selection covers >= 70% of a part, or any hub changed,
-the two part files run unchanged. FULL mode (push, dispatch, nightly, any
-fail-safe) runs exactly the two part files, command lines unchanged.
-D4: skipped when the selector found no flow (ci-gate treats a skip as ok).
+commit). D3: when the selection covers >= 70% of a part (all_tests_part1/2.dart,
+kept as the D3 reference only), or any hub changed, the entry is `parts` = the
+full sharded suite. FULL mode (push, dispatch, nightly, any fail-safe) runs the
+shards. D4: skipped when the selector found no flow (ci-gate treats a skip as ok).
 
 Run locally against a connected emulator (see scripts/connect_adb.sh) with:
   flutter test integration_test/edit_profile_flow_test.dart
@@ -41,10 +48,21 @@ Run locally against a connected emulator (see scripts/connect_adb.sh) with:
 
 ### integration: job timeout
 
-Backstop for the backstop. Each of the six invocations below is
-individually `timeout`-bounded (see part 1 attempt 1), so this only has
-to cover the case where the emulator action itself wedges outside the
-`script:` block. Without it the job inherits GitHub's 6-HOUR default.
+Backstop for the backstop. Every attempt is individually `timeout`-bounded
+inside run_it_attempt.sh, so the job timeouts only cover the emulator action
+wedging outside the `script:` block (else GitHub's 6-HOUR default).
+`integration` 120 min (setup ~8 min + pre-build <= 15 min + 3 selected
+attempts x (boot <= 5 min + <= 1500 s bound)); each `integration-shard` leg
+120 min (same sum with the fixed 1500 s bound). Worst case ~8 + 15 + 3 x 30
+= 113 min, so three attempts that EACH burn the full bound still fit.
+`emulator-boot-timeout: 300` on every attempt (the action's default is
+600 s) keeps three boots inside the ceiling. The shard matrix runs
+`max-parallel: 8`, so all 8 legs start in ONE wave and the critical path is
+the entry job + one 120-min shard, under the ci-gate mirror wait (205 min);
+with 6, two waves (2 x 120 min) could exceed it. When the account-wide
+limit of 20 concurrent jobs is reached, some legs may briefly queue;
+queueing does not fail a job or count toward its timeout.
+`fail-fast: false`.
 
 <a id="gradle-cache"></a>
 
@@ -52,7 +70,12 @@ to cover the case where the emulator action itself wedges outside the
 
 P2: Gradle's downloads/transforms for the app build. RESTORE ONLY on
 pull_request: a PR can never write the cache other runs read (the save
-step below runs on push/dispatch/nightly only). This feeds the APK build,
+step runs on push/dispatch/nightly only, from shard leg 1 only so 8 legs
+never race for one key). It saves on a red shard too (`!cancelled()` and
+attempt 1 not skipped, i.e. the pre-build succeeded; a cancelled run
+never saves): a failing test does
+not make the warm cache any less valid, and gating on green left the cache
+cold for as long as the suite was red. This feeds the APK build,
 which is PR-controlled code anyway, never the selector (400 D8, see the
 phase 401 doc D6). The key hashes the files that decide Gradle inputs.
 
@@ -62,14 +85,58 @@ phase 401 doc D6). The key hashes the files that decide Gradle inputs.
 
 entry=selected only when the trusted generator ran cleanly and wrote
 integration_test/ci_selected_tests.dart, and the trusted attempt script
-exists. EVERYTHING else (generator or script missing on the base, crash,
-no/odd entry= or count= line, `none`, D3/cap fallback) is `parts`: the
-two part files, i.e. the pre-401 run. Fail-safe to FULL (400 D7).
+and pre-build scripts exist. EVERYTHING else (generator or a script missing
+on the base, crash, no/odd entry= / count= / tests= line, `none`, D3/cap
+fallback) is `parts`: the full sharded suite. Fail-safe to FULL (400 D7).
 S1: the target is removed first (a PR-committed dangling symlink would
 redirect the write). S3: `--packages=<empty config>` makes the generator
 ignore the PR's .dart_tool/package_config.json (it has no imports;
 `/dev/null` itself is rejected by dart as an empty packages file).
-P3: bound = clamp(420 + 45 * flows, 600, 1500) seconds.
+P4 cap (mobile-perf cycle 2, P1): at most ONE shard's size, 19 flows AND
+74 testWidgets (`maxSelectedFlows` / `maxSelectedTests` in the generator,
+the same numbers in the YAML, pinned by workflow_wiring_test.dart). Above
+it the 8 parallel shards finish sooner than one serial selected run, so
+the generator answers `parts`.
+P3: bound = clamp(480 + 20 * tests, 600, 1500) seconds, `tests` = the
+generator's `tests=` line (the testWidgets of the selected flows). The APK
+is pre-built ([prebuild-apk](#prebuild-apk)), so the bound covers the tests:
+~13 s/test healthy, 20 s/test ≈ 1.5x, plus 480 s for install, the warm
+incremental build (~1–2 min) and app boots. The upper clamp is the shard
+bound (1500 s): the selection cap is one shard (74 tests), so the largest
+selection is the largest shard's workload (~17 min healthy, 1500 s ≈ 1.5x);
+the 480 s offset only pads small selections. It also keeps 3 attempts
+inside the 120-min job ([integration-timeout](#integration-timeout)). The old clamp(420 + 45 * flows,
+600, 1500) timed out healthy selections of 10+ flows (~3.95 tests/flow:
+40 flows needed ~2450 s).
+
+<a id="prebuild-apk"></a>
+
+### integration: pre-built debug APK (mobile-perf cycle 2, P2)
+
+`flutter test` has no `--use-application-binary`, so every attempt asks
+Gradle for the APK. tool/ci/prebuild_it_apk.sh builds it ONCE before
+attempt 1, outside the attempt `timeout`, with the inputs `flutter test
+<entry>` uses on the x86_64 emulator: debug, the default flavor, the
+ABSOLUTE entry path as `-t` (flutter test passes `path.absolute`),
+`--target-platform android-x64` and the define flutter test adds for
+integration runs (`INTEGRATION_TEST_SHOULD_REPORT_RESULTS_TO_NATIVE=false`).
+Each attempt is then a warm incremental build (Dart recompile + repack,
+~1 min) — counted inside the attempt bound — not a cold build. It is NOT
+up to date, and exact flag parity is impossible (PR #137 decision): the
+tool's `getBuildInfo` (runner/flutter_command.dart) appends
+`FLUTTER_APP_FLAVOR`, the `FLUTTER_VERSION` family and the feature-flag
+define after every user define and refuses user-set copies, while `flutter
+test` appends its define last, so `-Pdart-defines` always differs and
+`compileFlutterBuildDebug` (the kernel compile) re-runs every attempt.
+Parity would not buy time anyway: on PR #137, attempts 2 and 3 (inputs
+identical to attempt 1's) still spent 52-54 s in `assembleStagingDebug`,
+the same as attempt 1 after the 128 s cold pre-build. So the pre-build
+stays: it keeps the cold part (dependency download, plugin/Kotlin compile,
+resource merge) out of the bound. Two tries
+(a dependency download can fail mid-build; the attempts used to retry the
+build implicitly); a failed pre-build skips every attempt and the verify
+step fails. The selected family runs the base-owned copy from trusted/
+(absent on the base => `parts`); the shards run the PR-tree copy.
 
 <a id="root-cause-2026-07-07"></a>
 
@@ -109,7 +176,8 @@ trail, including two rounds that turned out NOT to fully explain it):
      reaching this sleep.
   (2026-10-17 update: the Patrol job now runs `-gpu guest`, which avoids this
   host-side crash class: 10/10 passes. See docs/ci/patrol.md#patrol-gpu-guest.
-  This job still uses the default GPU; it was not measured.)
+  This job's part and selected attempts use `-gpu guest` too, since
+  2026-11-06.)
   3. THE ACTUAL FIX — success detection by log content, not shell
      exit code. Confirmed on repeated samples: the 1st→2nd relaunch
      transition inside `all_tests_part1.dart` always logs `Failed to
@@ -137,6 +205,9 @@ trail, including two rounds that turned out NOT to fully explain it):
      flutter/flutter#153445/#140001/#146890 — Google's own LUCI CI
      hits the identical crash class with no confirmed permanent fix)
      that fires strictly AFTER the tests it's supposedly reporting on.
+(2026-11-06: superseded by the JSON verdict and `-gpu guest`, see
+[part-attempts](#part-attempts) and [integration-shards](#integration-shards).
+The stdout gate passed runs whose tests were cancelled.)
 Retry the WHOLE step (fresh emulator boot each attempt) up to 3 times
 regardless, as defense-in-depth for the rarer case where the crash
 happens mid-run rather than at final teardown (no ✅ ever logged, or
@@ -157,7 +228,8 @@ part1's crash has zero effect on part2's own fresh attempts.
 
 ram-size/heap-size (2026-07-01): harmless baseline bump, kept even
 though investigation showed memory pressure was never the actual
-cause. cores is left at the action default (2) since GitHub-hosted
+cause of the 2026-07 crash (the 2026-11 shard device loss reopens the
+question: [emulator-device-loss](#emulator-device-loss)). cores is left at the action default (2) since GitHub-hosted
 ubuntu-latest runners have 2 vCPUs.
 
 <a id="external-timeout"></a>
@@ -188,11 +260,15 @@ unbounded on 2026-08-17 and nothing in-isolate could stop it. A
 bound OUTSIDE the process is the only kind that works, which is why
 this is `timeout(1)` and not another Dart-side constant.
 
-1500 s is per INVOCATION (one aggregated part, ~15 flows in one
-isolate) — generous against a healthy run, useless as a hang. It
-also composes with the per-attempt retry design: a hung attempt 1
-aborts at 25 min and attempt 2 still gets its own fresh emulator,
-which a job-level bound alone could not give.
+The bound is per INVOCATION (one aggregated entry in one isolate). It
+composes with the per-attempt retry design: a hung attempt 1 aborts at
+the bound and attempt 2 still gets its own fresh emulator, which a
+job-level bound alone could not give. Set it to 1.2-1.5x the measured
+healthy test time of that entry (the APK is pre-built; shards: 1500 s, see
+[integration-shards](#integration-shards); selected: P3 clamp). A
+timeout means slowness OR a hang: the TIMED OUT line prints the elapsed
+time and the last fully finished group. Two timeouts in a row set
+`deterministic=true` (a third attempt would only burn the bound again).
 
 <a id="selected-attempts"></a>
 
@@ -206,6 +282,192 @@ tests (`deterministic=true` output of attempt 2); crash/hang/offline
 flakes keep all three attempts. Pass/fail is judged from the host-side JSON
 test protocol (`--file-reporter json:$RUNNER_TEMP/it-sel/events.json`, needs
 jq) -- never from stdout, which a test's print() can forge (audit cycle 4).
+
+Cancelled tests (2026-11-06). When the emulator dies mid-run (device loss,
+see [emulator-device-loss](#emulator-device-loss)), package:test emits `testDone
+result=error` with NO `error` event for every remaining test, and the
+GitHub reporter still prints those tests with a ✅, so a ✅ in the log can
+mean the test was cancelled. run_it_attempt.sh counts them as cancelled,
+not failed: if there are no real failures it prints `SELECTED FLOWS:
+CRASHED after <last passing test>; N tests cancelled ... — retryable` and
+clears the failset, so a crash point that repeats never triggers the
+deterministic skip. The failset holds real failures only. The selected
+attempts run with `-gpu guest`, same as Patrol (see
+[patrol.md#patrol-gpu-guest](patrol.md#patrol-gpu-guest)).
+
+<a id="part-attempts"></a>
+
+### integration: part attempts (2026-11-06, replaced the same day)
+
+The six full-mode part attempts (`all_tests_part1/2.dart`) used to gate on
+stdout: no `EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK` banner and at least
+one ✅. That gate passed runs the emulator had killed partway, because the
+GitHub reporter prints ✅ for cancelled tests (PR #135 full run: part 1 ran 1
+test, part 2 ran 82 of about 300; PR #134 was similar). They also ran
+without `-gpu guest`, so the host-GPU ColorBuffer crash was what killed them.
+With the JSON verdict and `-gpu guest` every test really runs, and ~300
+tests per part at ~12-14 s each (PR #134) need 60-70 min: the 1500 s bound
+and the 180-min job could not hold them. Replaced by the shards below.
+
+<a id="integration-shards"></a>
+
+### integration-shard: the FULL suite as 8 shards (2026-11-06)
+
+Source of flows: `integration_test/all_tests.dart` (the meta test proves it
+imports every flow on disk). Each matrix leg runs
+`gen_integration_entry.dart --shard K/8` (PR tree, `--packages=<empty>`),
+which writes the gitignored `integration_test/ci_shard_tests.dart`:
+
+- partition: deterministic greedy LPT by `testWidgets(` count per flow
+  (heaviest first, ties by name; into the least-loaded shard). Every flow is
+  in exactly one shard. 2026-11-06: 149 flows, 588 testWidgets, shards of
+  73-74 testWidgets (18-19 flows);
+- fail closed: bad K/N, unreadable `all_tests.dart`, a missing or symlinked
+  flow, or an empty shard prints `entry=error` and exits 1, so the leg fails;
+- `integrationShards` (= 8) in the generator and the YAML matrix `[1..8]` /
+  `IT_SHARDS` are pinned equal by `workflow_wiring_test.dart`.
+
+Each leg: fresh emulator per attempt, `-gpu guest`, `bash tool/ci/run_it_attempt.sh
+integration_test/ci_shard_tests.dart shard.log 1500 "$RUNNER_TEMP/it-shard"
+"SHARD $IT_SHARD"`, 3 attempts with the deterministic skip (same real failing
+set twice, or two timeouts in a row), after the one pre-build
+([prebuild-apk](#prebuild-apk)). Bound: tests only, ~74 tests x ~13 s ≈
+16 min + install ≈ 17 min healthy; 1500 s ≈ 1.5x (a self-test pins bound
+>= 1.2 x the largest real shard's testWidgets x 12 s). Margin policy: every
+bound (shard and selected) sits at 1.2-1.5x the healthy time, the selected
+one capped at the shard bound 1500 s; these are estimates
+until the first green full run, when the bounds are re-measured from the
+real per-shard / per-test times and reset into that band.
+`fail-fast: false`: one failing leg never cancels the others.
+
+The script and the generator come from the PR tree, not `trusted/`: FULL mode
+has no trusted checkout, and an edit under `tool/ci/**` forces FULL mode
+(rules.yaml), so in a selective fallback the PR copy equals the base.
+
+<a id="emulator-device-loss"></a>
+
+### integration-shard: mid-run device loss + memory hypothesis (PR #137)
+
+What the data shows (PR #137 full run, all 8 shards x 3 attempts, and the
+same on dev before the JSON verdict made it visible): the emulator dies 1-3
+min into EVERY attempt — `adb: device offline`, then `CRASHED after <test>;
+N tests cancelled` — often before the first test passes, with `-gpu guest`
+on, and NOT at an app relaunch. So it is not the 2026-07 host-GPU ColorBuffer
+crash on relaunch ([root-cause-2026-07-07](#root-cause-2026-07-07)); that
+explanation no longer fits.
+
+Leading hypothesis (unconfirmed): host memory pressure. The pre-build leaves
+the Gradle daemon (`-Xmx3g` + metaspace, android/gradle.properties) and the
+Kotlin daemon (`-Xmx1536m`) alive next to the 4 GB emulator (+ its own host
+overhead) on the runner, and each attempt's `flutter test` build used to
+reuse/re-grow them while the emulator runs. Mitigation, all in the shard job:
+
+- `Gradle without lingering daemons` writes `org.gradle.daemon=false` and
+  `kotlin.compiler.execution.strategy=in-process` to `~/.gradle/gradle.properties`
+  (user home wins over the project file), so the pre-build and every
+  attempt's `flutter test` build run in a single-use JVM that exits with the
+  build (a few seconds of JVM start inside the bound);
+- `tool/ci/it_diag.sh stop-build-daemons` after the pre-build and again at
+  the start of each attempt (`gradlew --stop` + `pkill -f KotlinCompileDaemon`).
+
+Diagnostics, so the next run confirms or refutes it: each attempt runs
+under `it_diag.sh run "$RUNNER_TEMP/it-diag/attempt-$IT_ATTEMPT" -- ...`,
+which streams `adb logcat` (logcat.txt), samples `free -m` + top RSS every
+15 s (host-mem.txt), dumps `adb logcat -d -t 2000` (logcat-tail.txt) and
+records `free -m`, the kernel OOM-killer lines (`sudo dmesg -T`) and top RSS
+(host.txt) at the end. It always exits with the attempt's own code. The
+directory is uploaded as artifact `it-diag-shard-K`. Read it as: OOM lines
+naming `qemu-system-x86_64` / `java` or `available` near 0 in host-mem.txt
+=> memory; neither => look at logcat.txt's last lines for a guest-side
+crash (kernel panic, system_server death) instead.
+
+Run 42230622003 (2026-11-06, commit 94418332) — what it settled:
+
+- **The post-verdict hang.** All 8 shards printed `SHARD K: CRASHED ...
+  retryable` at ~14:15, then hung 52 min until cancelled; none printed
+  host.txt's `=== free -m`, so the hang sat between the attempt's exit and
+  `host`: `adb logcat -d -t 2000`. adb's shell commands (logcat included)
+  loop on "- waiting for device -" while the device is offline, forever.
+  Fixed: every post-run adb call is `timeout`-bounded (`IT_DIAG_ADB_TIMEOUT`,
+  20 s), the background jobs are SIGKILLed, `host` is bounded (60 s), and each
+  shard attempt step has `timeout-minutes: 35` (boot 5 + 1500 s bound + 60 s
+  kill-after + diagnostics; 15 + 3 x 35 <= 120). Self-test: ci_scripts_test
+  `it_diag.sh run returns ... when adb blocks forever` (hangs against the old
+  script).
+- **The daemon memory hypothesis is refuted as the trigger.** The daemons were
+  stopped and Gradle ran daemon-less, and every shard still lost its device.
+- **`-gpu guest` is not in effect.** The api-34 `default` image has no guest
+  renderer: `Falling back to 'lavapipe' mode ... vulkan lavapipe gles
+  swangle`, i.e. host-CPU rendering (Patrol's 10/10 experiment ran the same
+  fallback, so its result still stands as "lavapipe+swangle is stable for
+  Patrol").
+- **Timing.** Each attempt rebuilds `assembleStagingDebug` (73-100 s) with the
+  emulator up; `qemu ... I/O thread spun for 1000 iterations` appears 4-11 s
+  after the APK install (= app launch) in 7 of 8 shards; 5 shards then pass 0
+  tests, 3 pass 1-11. The device stays `offline` (not gone) for the ~80 s the
+  tool keeps running.
+- **Not settled:** emulator alive-but-stalled vs dead, swap, OOM, guest
+  logcat — the hang ate host.txt and the cancel skipped the artifact upload.
+  `it_diag.sh run` now also prints three lines to the step log: `adb devices`
+  state, the emulator process (alive / `<gone>`), and min MemAvailable / max
+  swap used. Read them as: emulator `<gone>` + OOM lines or available near 0
+  => lower `ram-size` (3072M); alive + swap used => same; alive, no swap,
+  available healthy => a guest/render stall, try `-gpu swangle_indirect`
+  (Patrol runner-up, 10/10) and check logcat.txt; `<gone>` without OOM => a
+  host renderer crash, same lever.
+
+Run 42243856309 (2026-11-06, commit f12c49b0) — the emulator process dies:
+
+- **Dead, not stalled.** In all 8 shards and all 21 attempts `it_diag` printed
+  `emulator process after the run: <gone>` and `adb devices: <no emulator
+  listed>`.
+- **Not OOM.** MemAvailable stayed >= 8.2 GB in every attempt.
+- **Deterministic per shard**, identical across 3 attempts: shard 5 always dies
+  after `auth_login_flow INDEPENDENT_MASTER login navigates to /master/profile`,
+  shard 2 after `admin_own_profile_flow`, the other shards on their first test.
+- **The guest sees Vulkan.** The emulator logs `system image does not support
+  guest rendering. Falling back to 'lavapipe' ... vulkan_mode_selected:lavapipe
+  gles_mode_selected:swangle`, so the guest exposes Vulkan backed by host-CPU
+  lavapipe through gfxstream.
+- **Hypothesis (unconfirmed):** Flutter's Impeller picks its Vulkan backend on
+  API 34 when the device exposes Vulkan, and specific screens hit a
+  gfxstream/lavapipe path that kills the emulator process (`<gone>` without
+  OOM = host renderer crash, as predicted above).
+- **Lever:** the three shard attempt steps now pass `-feature -Vulkan`, which
+  hides Vulkan from the guest so Impeller falls back to OpenGLES (swangle).
+  Only the `integration-shard` job carries it; the other emulator jobs are
+  unchanged. Self-test: workflow_wiring_test `shard attempts: ...` pins the
+  full `emulator-options` string. Read the next run as: shards pass => Vulkan
+  path confirmed; still `<gone>` at the same tests => not Vulkan, try
+  `-gpu swangle_indirect`.
+
+Run 42248335898 (2026-11-06) — `-feature -Vulkan` was a no-op:
+
+- All 8 shards CRASHED again (emulator gone, `Failed to find ColorBuffer`).
+  `-feature -Vulkan` changed nothing because the app already forces Impeller
+  GLES (manifest `ImpellerBackend=opengles`), so Vulkan was never the path.
+- **Fix:** `--no-enable-impeller` on the shard runner
+  (`tool/ci/run_it_attempt.sh`): Skia avoids the gfxstream death on the
+  in-process app-tree teardown/rebuild between tests
+  (`integration_test/support/app_harness.dart:758-786`). The flag is
+  hidden-but-honoured in Flutter 3.41.x (deprecated, stop-gap). Patrol is
+  unaffected (fresh process per test).
+- `it_diag.sh run` now also copies `/tmp/android-runner/emu-crash-*.db` into
+  the diag directory (artifact `it-diag-shard-K`).
+- **Fallback if still failing:** `-gpu swiftshader_indirect` on the shard
+  `emulator-options`.
+
+<a id="integration-verdict"></a>
+
+### integration-verify: the verdict (fan-in)
+
+Named `Integration tests (emulator)` (the old single job's check name). It
+runs unless the run is cancelled or `integration` was skipped (no flow), and
+fails closed: `integration` must be `success`; `entry=selected` needs nothing
+more; `entry=parts` needs `integration-shard` = `success` (a matrix result is
+`success` only if EVERY leg passed; skipped is RED); any other entry is RED.
+`ci-gate` (the only required check) needs `integration`, `integration-shard`
+and `integration-verify`.
 
 <a id="job-integration-profile"></a>
 

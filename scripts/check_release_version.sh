@@ -18,6 +18,12 @@
 #            A dispatch with DRY_RUN=false is treated like a tag push: all three rules run.
 #   version  Rule (b) only; prints the pubspec version on stdout. The single `version:`
 #            parser for other scripts (scripts/verify_release_aab.sh rule 2).
+#   sentry-release
+#            Phase 411 D2. Rule (b), then prints the ONE release string, as $GITHUB_ENV
+#            lines: `SENTRY_RELEASE=beautica-mobile@<X.Y.Z+B>` and `SENTRY_DIST=<B>`. The
+#            release-aab job feeds both to --dart-define=BEAUTICA_RELEASE (the app derives
+#            dist from the `+B` suffix, crash_reporting.dart) and to sentry_dart_plugin, so
+#            the app, the Dart symbols and the R8 mapping all name the same release.
 #   release, dev-pr
 #            Reserved for phase 421 (D1-D3). Add them as new `mode_<name>` functions
 #            below, reusing pubspec_version / check_format.
@@ -98,13 +104,21 @@ mode_version() {
   printf '%s\n' "$PUBSPEC_VERSION"
 }
 
+mode_sentry_release() {
+  pubspec_version
+  check_format "$PUBSPEC_VERSION"
+  printf 'SENTRY_RELEASE=beautica-mobile@%s\n' "$PUBSPEC_VERSION"
+  printf 'SENTRY_DIST=%s\n' "${PUBSPEC_VERSION##*+}"
+}
+
 case "${1:-}" in
   tag) mode_tag ;;
   version) mode_version ;;
+  sentry-release) mode_sentry_release ;;
   release | dev-pr)
     echo "::error::mode '$1' is specified by phase 421 and not implemented yet" >&2
     exit 2 ;;
   *)
-    echo "usage: $0 tag|version" >&2
+    echo "usage: $0 tag|version|sentry-release" >&2
     exit 2 ;;
 esac

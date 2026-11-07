@@ -174,21 +174,23 @@ void main() {
       expect(d.source, isNull);
     });
 
-    test('P4: 41 flows -> parts, 40 -> selected, force bypasses the cap', () {
+    test('P4: cap + 1 flows -> parts, cap -> selected, force bypasses the '
+        'cap', () {
+      const cap = gen.maxSelectedFlows;
       String many(int n) =>
           sel([for (var i = 0; i < n; i++) ip('z${i}_test.dart')]);
       final big = [p1, p2];
       expect(
-        gen.decide(selectionJson: many(41), partSources: big).entry,
+        gen.decide(selectionJson: many(cap + 1), partSources: big).entry,
         'parts',
       );
-      final ok = gen.decide(selectionJson: many(40), partSources: big);
+      final ok = gen.decide(selectionJson: many(cap), partSources: big);
       expect(ok.entry, 'selected');
-      expect(ok.count, 40);
+      expect(ok.count, cap);
       expect(
         gen
             .decide(
-              selectionJson: many(41),
+              selectionJson: many(cap + 1),
               partSources: big,
               forceSelected: true,
             )
@@ -321,6 +323,7 @@ void main() {
       expect((r.stdout as String).trim().split('\n'), [
         'entry=selected',
         'count=1',
+        'tests=0',
       ]);
       expect(entry().existsSync(), isTrue);
     });
@@ -442,14 +445,17 @@ void main() {
 
     test('P4: more than $maxFlows flows -> parts, exactly $maxFlows -> '
         'selected, with count', () {
-      final big = [for (var i = 0; i < 41; i++) ip('z${i}_test.dart')];
+      final big = [
+        for (var i = 0; i < maxFlows + 1; i++) ip('z${i}_test.dart'),
+      ];
       var r = runGen(sel(big));
       expect((r.stdout as String).trim(), 'entry=parts');
       expect(entry().existsSync(), isFalse);
-      r = runGen(sel(big.take(40).toList()));
+      r = runGen(sel(big.take(maxFlows).toList()));
       expect((r.stdout as String).trim().split('\n'), [
         'entry=selected',
-        'count=40',
+        'count=$maxFlows',
+        'tests=0',
       ]);
     });
 
