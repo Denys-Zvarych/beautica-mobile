@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:beautica_api/src/model/telegram_availability.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -18,6 +19,7 @@ part 'guest_booking_response.g.dart';
 /// * [serviceName]
 /// * [durationMinutes]
 /// * [cancelUrl]
+/// * [telegram]
 @BuiltValue()
 abstract class GuestBookingResponse
     implements Built<GuestBookingResponse, GuestBookingResponseBuilder> {
@@ -41,6 +43,9 @@ abstract class GuestBookingResponse
 
   @BuiltValueField(wireName: r'cancelUrl')
   String? get cancelUrl;
+
+  @BuiltValueField(wireName: r'telegram')
+  TelegramAvailability? get telegram;
 
   GuestBookingResponse._();
 
@@ -120,6 +125,13 @@ class _$GuestBookingResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.telegram != null) {
+      yield r'telegram';
+      yield serializers.serialize(
+        object.telegram,
+        specifiedType: const FullType(TelegramAvailability),
+      );
+    }
   }
 
   @override
@@ -193,6 +205,13 @@ class _$GuestBookingResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.cancelUrl = valueDes;
+          break;
+        case r'telegram':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(TelegramAvailability),
+          ) as TelegramAvailability;
+          result.telegram.replace(valueDes);
           break;
         default:
           unhandled.add(key);

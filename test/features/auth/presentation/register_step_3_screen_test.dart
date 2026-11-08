@@ -495,6 +495,58 @@ void main() {
     expect(find.byKey(const ValueKey<String>('address_skip')), findsNothing);
   });
 
+  // ── 4b. Phase 443 — the Step 1 consent tick in the draft reaches register ─
+  testWidgets('4b. draft.termsAccepted=true is forwarded to register()', (
+    tester,
+  ) async {
+    final authRepo = _MockAuthRepository();
+    when(
+      () => authRepo.registerIndependentMaster(
+        email: any(named: 'email'),
+        password: any(named: 'password'),
+        firstName: any(named: 'firstName'),
+        lastName: any(named: 'lastName'),
+        role: any(named: 'role'),
+        businessName: any(named: 'businessName'),
+        address: any(named: 'address'),
+        phone: any(named: 'phone'),
+        termsAccepted: any(named: 'termsAccepted'),
+      ),
+    ).thenAnswer(
+      (_) async => const RegisterResult.verificationRequired(email: 'a@b.com'),
+    );
+
+    final container = _container(role: UserRole.client, authRepo: authRepo);
+    addTearDown(container.dispose);
+    container
+        .read(registerDraftProvider.notifier)
+        .updateStep1(
+          email: 'a@b.com',
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+          termsAccepted: true,
+        );
+    await tester.pumpWidget(_app(_makeRouter(), container));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('address_skip')));
+    await tester.pumpAndSettle();
+
+    verify(
+      () => authRepo.registerIndependentMaster(
+        email: 'a@b.com',
+        password: any(named: 'password'),
+        firstName: any(named: 'firstName'),
+        lastName: any(named: 'lastName'),
+        role: UserRole.client,
+        businessName: any(named: 'businessName'),
+        address: any(named: 'address'),
+        phone: any(named: 'phone'),
+        termsAccepted: true,
+      ),
+    ).called(1);
+  });
+
   // ── 4. CLIENT skip → register without profile-save → /verification ────────
   testWidgets('4. CLIENT Пропустити → register, no profile-save, navigates', (
     tester,

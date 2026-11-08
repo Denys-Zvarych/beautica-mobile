@@ -60,6 +60,7 @@
 // The route (plus `lastAcceptInviteBody` / `lastValidateInviteToken`) is added
 // in that file, branching on `currentRole` like login/accept already do.
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/accept_invite_screen.dart';
@@ -69,6 +70,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_home_resolver_
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/utils/legal_versions.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -197,6 +199,39 @@ void main() {
         await _fill(tester, 'invite_last_name', _kLastName);
         await _fill(tester, 'invite_phone', _kPhoneTyped);
 
+        // Phase 443 D3 — every field is valid, yet the CTA is DISABLED until
+        // the consent box is ticked, and a tap reaches nothing on the wire.
+        final Finder ctaKey = find.byKey(
+          const ValueKey<String>('invite_accept'),
+        );
+        expect(
+          tester
+              .widget<Checkbox>(
+                find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+              )
+              .value,
+          isFalse,
+        );
+        expect(
+          tester.widget<NeumorphicButton>(ctaKey).onPressed,
+          isNull,
+          reason:
+              'invite_accept must be disabled (onPressed: null) until ticked',
+        );
+        await tester.ensureVisible(ctaKey);
+        await tester.tap(ctaKey, warnIfMissed: false);
+        await AppHarness.settle(tester);
+        expect(fb.acceptInviteCalls, 0);
+        expect(find.byType(AcceptInviteScreen), findsOneWidget);
+
+        // Phase 443 — the required terms-consent box gates the submit.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.pump();
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('invite_accept')),
         );
@@ -219,6 +254,10 @@ void main() {
               'UaPhoneInputFormatter) was driven, not a controller poked '
               'directly',
         );
+        // Phase 443 D5 — the FULL consent triple, versions = app constants.
+        expect(sent['termsAccepted'], isTrue);
+        expect(sent['termsVersion'], kTermsVersion);
+        expect(sent['privacyPolicyVersion'], kPrivacyPolicyVersion);
 
         // 5 ── The reported symptom is GONE. Both strings: the generic copy the
         //      user actually saw, and the specific one that replaced it.
@@ -326,6 +365,14 @@ void main() {
         await _fill(tester, 'invite_first_name', _kFirstName);
         await _fill(tester, 'invite_last_name', _kLastName);
 
+        // Phase 443 — the required terms-consent box gates the submit.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.pump();
         final Finder cta = find.byKey(const ValueKey<String>('invite_accept'));
         await tester.ensureVisible(cta);
         await tester.tap(cta);

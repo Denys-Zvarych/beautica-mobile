@@ -335,6 +335,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
             role: role,
             businessName: role == UserRole.salonOwner ? draft.salonName : null,
             phone: draft.phone,
+            termsAccepted: draft.termsAccepted,
           );
 
       if (!mounted) return;

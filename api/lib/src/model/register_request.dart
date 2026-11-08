@@ -19,6 +19,9 @@ part 'register_request.g.dart';
 /// * [lastName]
 /// * [phoneNumber]
 /// * [businessName]
+/// * [termsAccepted]
+/// * [termsVersion]
+/// * [privacyPolicyVersion]
 @BuiltValue()
 abstract class RegisterRequest
     implements Built<RegisterRequest, RegisterRequestBuilder> {
@@ -43,6 +46,15 @@ abstract class RegisterRequest
 
   @BuiltValueField(wireName: r'businessName')
   String? get businessName;
+
+  @BuiltValueField(wireName: r'termsAccepted')
+  bool? get termsAccepted;
+
+  @BuiltValueField(wireName: r'termsVersion')
+  String? get termsVersion;
+
+  @BuiltValueField(wireName: r'privacyPolicyVersion')
+  String? get privacyPolicyVersion;
 
   RegisterRequest._();
 
@@ -104,6 +116,27 @@ class _$RegisterRequestSerializer
       yield r'businessName';
       yield serializers.serialize(
         object.businessName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.termsAccepted != null) {
+      yield r'termsAccepted';
+      yield serializers.serialize(
+        object.termsAccepted,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.termsVersion != null) {
+      yield r'termsVersion';
+      yield serializers.serialize(
+        object.termsVersion,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.privacyPolicyVersion != null) {
+      yield r'privacyPolicyVersion';
+      yield serializers.serialize(
+        object.privacyPolicyVersion,
         specifiedType: const FullType(String),
       );
     }
@@ -180,6 +213,27 @@ class _$RegisterRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.businessName = valueDes;
+          break;
+        case r'termsAccepted':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.termsAccepted = valueDes;
+          break;
+        case r'termsVersion':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.termsVersion = valueDes;
+          break;
+        case r'privacyPolicyVersion':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.privacyPolicyVersion = valueDes;
           break;
         default:
           unhandled.add(key);

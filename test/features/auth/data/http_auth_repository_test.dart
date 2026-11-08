@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/shared/utils/legal_versions.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -823,6 +824,134 @@ void main() {
         throwsA(isA<ValidationFailure>()),
       );
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 443 — terms consent triple on every sign-up body
+  // -------------------------------------------------------------------------
+
+  group('terms consent triple (phase 443)', () {
+    // Generated built_value models: a null field is omitted from the wire
+    // JSON, so "all three set" / "all three null" == full set / none sent.
+    void expectTriple(bool? accepted, String? terms, String? privacy) {
+      expect(accepted, isTrue);
+      expect(terms, kTermsVersion);
+      expect(privacy, kPrivacyPolicyVersion);
+    }
+
+    void expectNoneOfTriple(bool? accepted, String? terms, String? privacy) {
+      expect(accepted, isNull);
+      expect(terms, isNull);
+      expect(privacy, isNull);
+    }
+
+    for (final UserRole role in <UserRole>[
+      UserRole.client,
+      UserRole.salonOwner,
+    ]) {
+      for (final bool accepted in <bool>[true, false]) {
+        test(
+          '${role.name} /auth/register body, termsAccepted=$accepted',
+          () async {
+            when(
+              () => mockAuthApi.register(
+                registerRequest: any(named: 'registerRequest'),
+              ),
+            ).thenAnswer((_) async => _verificationRequiredResponse());
+
+            await repository.registerIndependentMaster(
+              email: 'u@beautica.test',
+              password: 'P@ssw0rd!',
+              firstName: 'Іванна',
+              lastName: 'Коваль',
+              role: role,
+              businessName: role == UserRole.salonOwner ? 'Студія' : null,
+              termsAccepted: accepted,
+            );
+
+            final RegisterRequest body =
+                verify(
+                      () => mockAuthApi.register(
+                        registerRequest: captureAny(named: 'registerRequest'),
+                      ),
+                    ).captured.single
+                    as RegisterRequest;
+            (accepted ? expectTriple : expectNoneOfTriple)(
+              body.termsAccepted,
+              body.termsVersion,
+              body.privacyPolicyVersion,
+            );
+          },
+        );
+      }
+    }
+
+    for (final bool accepted in <bool>[true, false]) {
+      test('INDEPENDENT_MASTER body, termsAccepted=$accepted', () async {
+        when(
+          () => mockAuthApi.registerIndependentMaster(
+            registerIndependentMasterRequest: any(
+              named: 'registerIndependentMasterRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => _verificationRequiredResponse());
+
+        await repository.registerIndependentMaster(
+          email: 'm@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Іванна',
+          lastName: 'Коваль',
+          termsAccepted: accepted,
+        );
+
+        final RegisterIndependentMasterRequest body =
+            verify(
+                  () => mockAuthApi.registerIndependentMaster(
+                    registerIndependentMasterRequest: captureAny(
+                      named: 'registerIndependentMasterRequest',
+                    ),
+                  ),
+                ).captured.single
+                as RegisterIndependentMasterRequest;
+        (accepted ? expectTriple : expectNoneOfTriple)(
+          body.termsAccepted,
+          body.termsVersion,
+          body.privacyPolicyVersion,
+        );
+      });
+
+      test('invite accept body, termsAccepted=$accepted', () async {
+        when(
+          () => mockAuthApi.acceptInvite(
+            inviteAcceptRequest: any(named: 'inviteAcceptRequest'),
+          ),
+        ).thenAnswer((_) async => _authResponse());
+
+        await repository.acceptInvite(
+          token: 'invite-token-123',
+          password: 'P@ssw0rd!',
+          firstName: 'Іванна',
+          lastName: 'Коваль',
+          phoneNumber: '+380501111111',
+          termsAccepted: accepted,
+        );
+
+        final InviteAcceptRequest body =
+            verify(
+                  () => mockAuthApi.acceptInvite(
+                    inviteAcceptRequest: captureAny(
+                      named: 'inviteAcceptRequest',
+                    ),
+                  ),
+                ).captured.single
+                as InviteAcceptRequest;
+        (accepted ? expectTriple : expectNoneOfTriple)(
+          body.termsAccepted,
+          body.termsVersion,
+          body.privacyPolicyVersion,
+        );
+      });
+    }
   });
 
   // -------------------------------------------------------------------------

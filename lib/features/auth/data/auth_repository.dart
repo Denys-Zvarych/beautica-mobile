@@ -52,6 +52,11 @@ abstract interface class AuthRepository {
   ///   account is created AND a session is issued immediately; the caller
   ///   persists the refresh token and transitions straight to home.
   ///
+  /// [termsAccepted] (phase 443) — when `true` the request carries the full
+  /// consent triple (`termsAccepted: true` + `kTermsVersion` +
+  /// `kPrivacyPolicyVersion`); when `false` none of the three is sent. A
+  /// partial set is never sent (backend 442 D4 rejects it).
+  ///
   /// Throws:
   /// - [ValidationFailure] — email already in use, password too weak, etc.
   /// - [NetworkFailure] — connectivity issues.
@@ -66,6 +71,7 @@ abstract interface class AuthRepository {
     String? businessName,
     String? address,
     String? phone,
+    bool termsAccepted = false,
   });
 
   /// Exchanges a valid [refreshToken] for a fresh token pair.
@@ -214,6 +220,9 @@ abstract interface class AuthRepository {
   /// Accepts an invite by completing account setup with [password], [firstName],
   /// [lastName] and optional [phoneNumber].
   ///
+  /// [termsAccepted] (phase 443) — same all-or-nothing consent triple as
+  /// [registerIndependentMaster].
+  ///
   /// `POST /auth/invite/accept`. On success the backend creates the account and
   /// issues a full session (identical shape to `/auth/login`). The caller
   /// persists the refresh token and transitions to [Authenticated].
@@ -229,5 +238,6 @@ abstract interface class AuthRepository {
     required String firstName,
     required String lastName,
     String? phoneNumber,
+    bool termsAccepted = false,
   });
 }

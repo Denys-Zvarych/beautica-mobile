@@ -132,6 +132,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CancelBookingRequest.serializer)
       ..add(CancelBookingRequestCancellationReasonEnum.serializer)
       ..add(CancelTokenInfoResponse.serializer)
+      ..add(CancelTokenInfoResponseStatusEnum.serializer)
+      ..add(CancelTokenItemResponse.serializer)
+      ..add(CancelTokenItemResponseStatusEnum.serializer)
       ..add(CatalogCategoryResponse.serializer)
       ..add(CategoryRef.serializer)
       ..add(CategoryRequestResponse.serializer)
@@ -169,10 +172,15 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ForgotPasswordRequest.serializer)
       ..add(GuestBookingRequest.serializer)
       ..add(GuestBookingResponse.serializer)
+      ..add(GuestCancelRequest.serializer)
+      ..add(GuestCancelToken.serializer)
       ..add(GuestClientDto.serializer)
       ..add(GuestReviewItemRequest.serializer)
       ..add(GuestReviewSubmitRequest.serializer)
       ..add(GuestReviewSubmitResponse.serializer)
+      ..add(GuestTelegramLinkResponse.serializer)
+      ..add(GuestTelegramStatusResponse.serializer)
+      ..add(GuestTelegramTokenRequest.serializer)
       ..add(GuestTokenResponse.serializer)
       ..add(IndependentMasterUpdateRequest.serializer)
       ..add(InviteAcceptRequest.serializer)
@@ -235,6 +243,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(PassportResponse.serializer)
       ..add(PendingBookingActionsCountResponse.serializer)
       ..add(PhoneOtpSendRequest.serializer)
+      ..add(PhoneOtpSendRequestSmsFormatEnum.serializer)
       ..add(PhoneOtpVerifyRequest.serializer)
       ..add(PlatformServiceTypeResponse.serializer)
       ..add(PublicSalonResponse.serializer)
@@ -304,6 +313,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(StatusUpdateRequest.serializer)
       ..add(StatusUpdateRequestCancellationReasonEnum.serializer)
       ..add(SuggestServiceTypeRequest.serializer)
+      ..add(TelegramAvailability.serializer)
       ..add(TimelineItemResponse.serializer)
       ..add(UnclosedCountResponse.serializer)
       ..add(UnreadCountResponse.serializer)
@@ -375,6 +385,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(BulkServiceItemRequest)]),
           () => ListBuilder<BulkServiceItemRequest>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(CancelTokenItemResponse)]),
+          () => ListBuilder<CancelTokenItemResponse>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(CatalogCategoryResponse)]),
@@ -641,6 +655,9 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
           () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

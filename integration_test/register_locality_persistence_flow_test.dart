@@ -90,6 +90,14 @@ void main() {
       'Secret1234',
     );
     await tester.pump();
+    // Phase 443 — the required terms-consent box gates the submit.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('step1_terms_checkbox')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('step1_terms_checkbox')),
+    );
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
     await tester.pumpAndSettle();
     AppHarness.expectLocation(router, RouteNames.registerStep2);

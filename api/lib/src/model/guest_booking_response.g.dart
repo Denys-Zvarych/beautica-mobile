@@ -21,6 +21,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
   final int? durationMinutes;
   @override
   final String? cancelUrl;
+  @override
+  final TelegramAvailability? telegram;
 
   factory _$GuestBookingResponse(
           [void Function(GuestBookingResponseBuilder)? updates]) =>
@@ -33,7 +35,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
       this.masterName,
       this.serviceName,
       this.durationMinutes,
-      this.cancelUrl})
+      this.cancelUrl,
+      this.telegram})
       : super._();
   @override
   GuestBookingResponse rebuild(
@@ -54,7 +57,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
         masterName == other.masterName &&
         serviceName == other.serviceName &&
         durationMinutes == other.durationMinutes &&
-        cancelUrl == other.cancelUrl;
+        cancelUrl == other.cancelUrl &&
+        telegram == other.telegram;
   }
 
   @override
@@ -67,6 +71,7 @@ class _$GuestBookingResponse extends GuestBookingResponse {
     _$hash = $jc(_$hash, serviceName.hashCode);
     _$hash = $jc(_$hash, durationMinutes.hashCode);
     _$hash = $jc(_$hash, cancelUrl.hashCode);
+    _$hash = $jc(_$hash, telegram.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -80,7 +85,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
           ..add('masterName', masterName)
           ..add('serviceName', serviceName)
           ..add('durationMinutes', durationMinutes)
-          ..add('cancelUrl', cancelUrl))
+          ..add('cancelUrl', cancelUrl)
+          ..add('telegram', telegram))
         .toString();
   }
 }
@@ -119,6 +125,12 @@ class GuestBookingResponseBuilder
   String? get cancelUrl => _$this._cancelUrl;
   set cancelUrl(String? cancelUrl) => _$this._cancelUrl = cancelUrl;
 
+  TelegramAvailabilityBuilder? _telegram;
+  TelegramAvailabilityBuilder get telegram =>
+      _$this._telegram ??= TelegramAvailabilityBuilder();
+  set telegram(TelegramAvailabilityBuilder? telegram) =>
+      _$this._telegram = telegram;
+
   GuestBookingResponseBuilder() {
     GuestBookingResponse._defaults(this);
   }
@@ -133,6 +145,7 @@ class GuestBookingResponseBuilder
       _serviceName = $v.serviceName;
       _durationMinutes = $v.durationMinutes;
       _cancelUrl = $v.cancelUrl;
+      _telegram = $v.telegram?.toBuilder();
       _$v = null;
     }
     return this;
@@ -152,16 +165,30 @@ class GuestBookingResponseBuilder
   GuestBookingResponse build() => _build();
 
   _$GuestBookingResponse _build() {
-    final _$result = _$v ??
-        _$GuestBookingResponse._(
-          bookingId: bookingId,
-          appointmentId: appointmentId,
-          startsAt: startsAt,
-          masterName: masterName,
-          serviceName: serviceName,
-          durationMinutes: durationMinutes,
-          cancelUrl: cancelUrl,
-        );
+    _$GuestBookingResponse _$result;
+    try {
+      _$result = _$v ??
+          _$GuestBookingResponse._(
+            bookingId: bookingId,
+            appointmentId: appointmentId,
+            startsAt: startsAt,
+            masterName: masterName,
+            serviceName: serviceName,
+            durationMinutes: durationMinutes,
+            cancelUrl: cancelUrl,
+            telegram: _telegram?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'telegram';
+        _telegram?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'GuestBookingResponse', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

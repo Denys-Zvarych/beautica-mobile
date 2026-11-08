@@ -82,6 +82,12 @@ class _$RegisterRequest extends RegisterRequest {
   final String phoneNumber;
   @override
   final String? businessName;
+  @override
+  final bool? termsAccepted;
+  @override
+  final String? termsVersion;
+  @override
+  final String? privacyPolicyVersion;
 
   factory _$RegisterRequest([void Function(RegisterRequestBuilder)? updates]) =>
       (RegisterRequestBuilder()..update(updates))._build();
@@ -93,7 +99,10 @@ class _$RegisterRequest extends RegisterRequest {
       required this.firstName,
       required this.lastName,
       required this.phoneNumber,
-      this.businessName})
+      this.businessName,
+      this.termsAccepted,
+      this.termsVersion,
+      this.privacyPolicyVersion})
       : super._();
   @override
   RegisterRequest rebuild(void Function(RegisterRequestBuilder) updates) =>
@@ -112,7 +121,10 @@ class _$RegisterRequest extends RegisterRequest {
         firstName == other.firstName &&
         lastName == other.lastName &&
         phoneNumber == other.phoneNumber &&
-        businessName == other.businessName;
+        businessName == other.businessName &&
+        termsAccepted == other.termsAccepted &&
+        termsVersion == other.termsVersion &&
+        privacyPolicyVersion == other.privacyPolicyVersion;
   }
 
   @override
@@ -125,6 +137,9 @@ class _$RegisterRequest extends RegisterRequest {
     _$hash = $jc(_$hash, lastName.hashCode);
     _$hash = $jc(_$hash, phoneNumber.hashCode);
     _$hash = $jc(_$hash, businessName.hashCode);
+    _$hash = $jc(_$hash, termsAccepted.hashCode);
+    _$hash = $jc(_$hash, termsVersion.hashCode);
+    _$hash = $jc(_$hash, privacyPolicyVersion.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -138,7 +153,10 @@ class _$RegisterRequest extends RegisterRequest {
           ..add('firstName', firstName)
           ..add('lastName', lastName)
           ..add('phoneNumber', phoneNumber)
-          ..add('businessName', businessName))
+          ..add('businessName', businessName)
+          ..add('termsAccepted', termsAccepted)
+          ..add('termsVersion', termsVersion)
+          ..add('privacyPolicyVersion', privacyPolicyVersion))
         .toString();
   }
 }
@@ -175,6 +193,20 @@ class RegisterRequestBuilder
   String? get businessName => _$this._businessName;
   set businessName(String? businessName) => _$this._businessName = businessName;
 
+  bool? _termsAccepted;
+  bool? get termsAccepted => _$this._termsAccepted;
+  set termsAccepted(bool? termsAccepted) =>
+      _$this._termsAccepted = termsAccepted;
+
+  String? _termsVersion;
+  String? get termsVersion => _$this._termsVersion;
+  set termsVersion(String? termsVersion) => _$this._termsVersion = termsVersion;
+
+  String? _privacyPolicyVersion;
+  String? get privacyPolicyVersion => _$this._privacyPolicyVersion;
+  set privacyPolicyVersion(String? privacyPolicyVersion) =>
+      _$this._privacyPolicyVersion = privacyPolicyVersion;
+
   RegisterRequestBuilder() {
     RegisterRequest._defaults(this);
   }
@@ -189,6 +221,9 @@ class RegisterRequestBuilder
       _lastName = $v.lastName;
       _phoneNumber = $v.phoneNumber;
       _businessName = $v.businessName;
+      _termsAccepted = $v.termsAccepted;
+      _termsVersion = $v.termsVersion;
+      _privacyPolicyVersion = $v.privacyPolicyVersion;
       _$v = null;
     }
     return this;
@@ -223,6 +258,9 @@ class RegisterRequestBuilder
           phoneNumber: BuiltValueNullFieldError.checkNotNull(
               phoneNumber, r'RegisterRequest', 'phoneNumber'),
           businessName: businessName,
+          termsAccepted: termsAccepted,
+          termsVersion: termsVersion,
+          privacyPolicyVersion: privacyPolicyVersion,
         );
     replace(_$result);
     return _$result;

@@ -22,6 +22,7 @@ import 'package:beautica_api/src/api/dashboard_controller_api.dart';
 import 'package:beautica_api/src/api/device_controller_api.dart';
 import 'package:beautica_api/src/api/favorite_controller_api.dart';
 import 'package:beautica_api/src/api/guest_reviews_api.dart';
+import 'package:beautica_api/src/api/guest_telegram_link_controller_api.dart';
 import 'package:beautica_api/src/api/independent_master_controller_api.dart';
 import 'package:beautica_api/src/api/location_controller_api.dart';
 import 'package:beautica_api/src/api/master_controller_api.dart';
@@ -188,6 +189,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   GuestReviewsApi getGuestReviewsApi() {
     return GuestReviewsApi(dio, serializers);
+  }
+
+  /// Get GuestTelegramLinkControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  GuestTelegramLinkControllerApi getGuestTelegramLinkControllerApi() {
+    return GuestTelegramLinkControllerApi(dio, serializers);
   }
 
   /// Get IndependentMasterControllerApi instance, base route and serializer can be overridden by a given but be careful,

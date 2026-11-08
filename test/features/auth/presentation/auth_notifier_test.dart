@@ -3233,6 +3233,85 @@ void main() {
   //   - transitions state to AsyncData(Authenticated(user, accessToken)).
   // On failure, state becomes AsyncError with the typed Failure.
   // =========================================================================
+  group('termsAccepted forwarding (phase 443)', () {
+    test(
+      'register(termsAccepted: true) forwards it to the repository',
+      () async {
+        final repo = MockAuthRepository();
+        final container = makeContainer(
+          repo: repo,
+          storage: FakeSecureStorage(),
+        );
+        await container.read(authProvider.future);
+
+        // Exact-match stub: termsAccepted must arrive as true.
+        when(
+          () => repo.registerIndependentMaster(
+            email: 'new@example.com',
+            password: 'pass123',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+            role: UserRole.client,
+            termsAccepted: true,
+          ),
+        ).thenAnswer(
+          (_) async => const RegisterResult.verificationRequired(
+            email: 'new@example.com',
+          ),
+        );
+
+        final result = await container
+            .read(authProvider.notifier)
+            .register(
+              email: 'new@example.com',
+              password: 'pass123',
+              firstName: 'Іван',
+              lastName: 'Коваль',
+              role: UserRole.client,
+              termsAccepted: true,
+            );
+
+        expect(result, isA<VerificationRequired>());
+      },
+    );
+
+    test(
+      'acceptInvite(termsAccepted: true) forwards it to the repository',
+      () async {
+        final repo = MockAuthRepository();
+        final container = makeContainer(
+          repo: repo,
+          storage: FakeSecureStorage(),
+        );
+        await container.read(authProvider.future);
+
+        when(
+          () => repo.acceptInvite(
+            token: 'invite-abc123',
+            password: 'SecurePass1!',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+            phoneNumber: '+380501234567',
+            termsAccepted: true,
+          ),
+        ).thenAnswer((_) async => (testUser, testTokens));
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 'invite-abc123',
+              password: 'SecurePass1!',
+              firstName: 'Іван',
+              lastName: 'Коваль',
+              phoneNumber: '+380501234567',
+              termsAccepted: true,
+            );
+
+        expect(container.read(authProvider), isA<AsyncData<AuthSession>>());
+      },
+    );
+  });
+
   group('acceptInvite', () {
     // -----------------------------------------------------------------------
     // AN-1 / AN-3 — happy path: transitions to Authenticated, persists refresh

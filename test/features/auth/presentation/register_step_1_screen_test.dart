@@ -36,6 +36,7 @@
 //  21. Both link spans carry their stable semanticsIdentifier.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_1_screen.dart';
@@ -145,6 +146,17 @@ _makeContainerWithRepo({UserRole? role = UserRole.client}) {
   return (container: container, repo: repo);
 }
 
+/// Phase 443 — ticks the required terms-consent checkbox (no-op if ticked)
+/// so `step1_submit` is enabled.
+Future<void> _tickTerms(WidgetTester tester) async {
+  final Finder box = find.byKey(const ValueKey<String>('step1_terms_checkbox'));
+  if (tester.widget<Checkbox>(box).value != true) {
+    await tester.ensureVisible(box);
+    await tester.tap(box);
+    await tester.pump();
+  }
+}
+
 /// Mock [UrlLauncherPlatform] — `launchUrl(uri, mode: ...)` routes through
 /// `UrlLauncherPlatform.instance.launchUrl(url, options)`, so swapping the
 /// instance asserts the exact URL + mode without firing a real intent.
@@ -228,6 +240,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey<String>('step1_submit')),
       );
+      await _tickTerms(tester);
       await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
       await tester.pump();
 
@@ -254,6 +267,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey<String>('step1_submit')),
       );
+      await _tickTerms(tester);
       await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
       await tester.pump();
 
@@ -289,6 +303,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey<String>('step1_submit')),
       );
+      await _tickTerms(tester);
       await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
       await tester.pump();
 
@@ -328,6 +343,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('step1_submit')),
         );
+        await _tickTerms(tester);
         await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
         await tester.pumpAndSettle();
 
@@ -425,6 +441,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('step1_submit')),
         );
+        await _tickTerms(tester);
         await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
         await tester.pumpAndSettle();
 
@@ -593,6 +610,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('step1_submit')),
         );
+        await _tickTerms(tester);
         await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
         await tester.pump();
 
@@ -646,6 +664,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('step1_submit')),
         );
+        await _tickTerms(tester);
         await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
         await tester.pumpAndSettle();
 
@@ -699,6 +718,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('step1_submit')),
         );
+        await _tickTerms(tester);
         await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
         await tester.pump();
 
@@ -754,6 +774,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('step1_submit')),
         );
+        await _tickTerms(tester);
         await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
         await tester.pump();
 
@@ -869,6 +890,7 @@ void main() {
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('step1_submit')),
         );
+        await _tickTerms(tester);
         await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
         await tester.pump();
 
@@ -1103,6 +1125,137 @@ void main() {
       expect(terms?.recognizer, isNotNull);
       expect(privacy?.recognizer, isNotNull);
       verifyNever(() => launcher.launchUrl(any(), any()));
+    });
+  });
+
+  group('RegisterStep1Screen — terms consent gate (phase 443)', () {
+    NeumorphicButton submit(WidgetTester tester) =>
+        tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('step1_submit')),
+        );
+
+    testWidgets('22. step1_submit is disabled until the box is ticked, and '
+        'unticking disables it again', (tester) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      expect(submit(tester).onPressed, isNull);
+
+      await _tickTerms(tester);
+      expect(submit(tester).onPressed, isNotNull);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('step1_terms_checkbox')),
+      );
+      await tester.pump();
+      expect(submit(tester).onPressed, isNull);
+    });
+
+    testWidgets('23. tapping the disabled submit does not navigate', (
+      tester,
+    ) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step1_email')),
+        'a@b.ua',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step1_password')),
+        'Password1',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step1_confirm')),
+        'Password1',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('step1_submit')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('step-2'), findsNothing);
+      expect(container.read(registerDraftProvider)?.termsAccepted, isFalse);
+    });
+
+    testWidgets('24. the tick is written to the draft on submit and survives '
+        'a back-navigation to Step 1', (tester) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step1_email')),
+        'a@b.ua',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step1_password')),
+        'Password1',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step1_confirm')),
+        'Password1',
+      );
+      await _tickTerms(tester);
+      await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('step-2'), findsOneWidget);
+      expect(container.read(registerDraftProvider)?.termsAccepted, isTrue);
+
+      router.go(RouteNames.register);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Checkbox>(
+              find.byKey(const ValueKey<String>('step1_terms_checkbox')),
+            )
+            .value,
+        isTrue,
+      );
+      expect(submit(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('25. disabled submit carries the consent-required semantics '
+        'hint; it is gone once ticked', (tester) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) =>
+              w is Semantics &&
+              w.properties.hint == l10n.termsConsentRequiredHint,
+        ),
+        findsOneWidget,
+      );
+      await _tickTerms(tester);
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) =>
+              w is Semantics &&
+              w.properties.hint == l10n.termsConsentRequiredHint,
+        ),
+        findsNothing,
+      );
     });
   });
 }

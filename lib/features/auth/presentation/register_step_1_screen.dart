@@ -18,7 +18,6 @@
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -29,10 +28,9 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
-import '../../../shared/utils/open_external_uri.dart';
-import '../../../shared/utils/public_web_links.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
+import '../../../shared/widgets/terms_consent_checkbox.dart';
 import '../state/register_draft_notifier.dart';
 import 'register_flow_shell.dart';
 import 'widgets/auth_scaffold.dart';
@@ -62,11 +60,10 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
   String? _confirmError;
   List<PasswordRule>? _rules;
 
-  // Terms / privacy inline links — created once with the State (never in
-  // build) and disposed in [dispose]. Both open the public website's legal
-  // page in the external browser via the shared [openExternalUri].
-  final TapGestureRecognizer _termsRecognizer = TapGestureRecognizer();
-  final TapGestureRecognizer _privacyRecognizer = TapGestureRecognizer();
+  // Phase 443 — required terms + privacy consent. `step1_submit` stays
+  // disabled until this is ticked; persisted to the draft on submit so a
+  // back-navigation from Step 2 shows it still ticked.
+  bool _termsAccepted = false;
 
   @override
   void didChangeDependencies() {
@@ -81,8 +78,6 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
   @override
   void initState() {
     super.initState();
-    _termsRecognizer.onTap = () => _openLegal(PublicWebLinks.terms);
-    _privacyRecognizer.onTap = () => _openLegal(PublicWebLinks.privacy);
     // Pre-fill from the draft (e.g. when the user returns to Step 1 via the
     // back link from Step 2).
     final draft = ref.read(registerDraftProvider);
@@ -91,6 +86,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
       _passwordController.text = draft.password;
       _confirmPasswordController.text = draft.confirmPassword;
       _passwordValue = draft.password;
+      _termsAccepted = draft.termsAccepted;
     }
   }
 
@@ -99,23 +95,15 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
-    _termsRecognizer.dispose();
-    _privacyRecognizer.dispose();
     super.dispose();
-  }
-
-  void _openLegal(Uri uri) {
-    openExternalUri(
-      context,
-      uri,
-      errorMessage: AppLocalizations.of(context).externalLinkOpenError,
-      logName: 'auth.register.step1',
-    );
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────
 
   void _submit() {
+    // Phase 443 D3 — also guards the keyboard `onSubmitted` path, which
+    // bypasses the disabled button.
+    if (!_termsAccepted) return;
     final l10n = AppLocalizations.of(context);
 
     final emailErr = validateEmail(_emailController.text.trim(), l10n);
@@ -148,6 +136,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           email: _emailController.text.trim(),
           password: _passwordController.text,
           confirmPassword: _confirmPasswordController.text,
+          termsAccepted: _termsAccepted,
         );
 
     if (kDebugMode) {
@@ -170,10 +159,13 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
     return AuthScaffold(
       showBack: true,
       onBack: () => context.go(RouteNames.registerRole),
-      bottomBar: NeumorphicButton(
-        key: const ValueKey<String>('step1_submit'),
-        label: l10n.registerContinue,
-        onPressed: _submit,
+      bottomBar: Semantics(
+        hint: _termsAccepted ? null : l10n.termsConsentRequiredHint,
+        child: NeumorphicButton(
+          key: const ValueKey<String>('step1_submit'),
+          label: l10n.registerContinue,
+          onPressed: _termsAccepted ? _submit : null,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -268,30 +260,11 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           ),
           const SizedBox(height: VelvetSpacing.md),
 
-          // ── Terms line (full rich text) ────────────────────────────────
-          Text.rich(
-            key: const ValueKey<String>('step1_terms_line'),
-            TextSpan(
-              style: VelvetText.feedback(BrandColors.muted),
-              children: <InlineSpan>[
-                TextSpan(text: l10n.registerTermsPrefix),
-                const TextSpan(text: ' '),
-                TextSpan(
-                  text: l10n.registerTermsTerms,
-                  style: VelvetText.linkSmall,
-                  recognizer: _termsRecognizer,
-                  semanticsIdentifier: 'step1_terms_link',
-                ),
-                TextSpan(text: l10n.registerTermsConjunction),
-                TextSpan(
-                  text: l10n.registerTermsPrivacy,
-                  style: VelvetText.linkSmall,
-                  recognizer: _privacyRecognizer,
-                  semanticsIdentifier: 'step1_privacy_link',
-                ),
-              ],
-            ),
-            textAlign: TextAlign.center,
+          // ── Terms consent (required, phase 443) ───────────────────────
+          TermsConsentCheckbox(
+            idPrefix: 'step1',
+            value: _termsAccepted,
+            onChanged: (bool v) => setState(() => _termsAccepted = v),
           ),
           const SizedBox(height: VelvetSpacing.sm),
 
