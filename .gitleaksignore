@@ -34,3 +34,9 @@
 # nothing. It must look like a real JWT so the `_jwt` redaction rule is
 # exercised; not a credential.
 e887d89933c7d70a2ddbe18006f76ec1d67bd465:test/core/diagnostics/crash_scrubber_test.dart:jwt:14
+
+# Phase 443 (2026-11-09): auth_notifier_test.dart acceptInvite stubs use the
+# literal fixture invite token 'invite-abc123' next to a `token:` key; it is
+# a fake test value, not a credential.
+60b28bcf66b04548503d6467c88307852a3cfe0e:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3290
+60b28bcf66b04548503d6467c88307852a3cfe0e:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3302
