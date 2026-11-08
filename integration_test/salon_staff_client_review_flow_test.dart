@@ -200,6 +200,8 @@ void main() {
       expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
       expect(find.byType(BookingDetailScreen), findsOneWidget);
       expect(find.byKey(const Key('booking-detail-back')), findsOneWidget);
+      // The invalidate re-fetch lands on resume after the pop.
+      await AppHarness.pumpUntilGone(tester, find.byKey(_kCta));
       expect(find.byKey(_kCta), findsNothing);
       // Drain the success snack's dwell timer.
       await pumpPastVelvetSnack(tester);

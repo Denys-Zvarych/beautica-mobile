@@ -1068,6 +1068,10 @@ void main() {
             'the DETAIL screen — the archive is still one route further down '
             'and receives nothing',
       );
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
       expect(
         find.byKey(const Key('booking-detail-leave-client-feedback')),
         findsNothing,
@@ -1076,7 +1080,8 @@ void main() {
             'bookingDetailProvider on success, and the fake flipped '
             'providerCanReviewClient false — the detail footer re-resolves '
             'its own CTA away (pre-existing behaviour, asserted here as the '
-            'precondition that the excursion really did complete)',
+            'precondition that the excursion really did complete); the '
+            'refetch lands on resume after the pop',
       );
 
       // ── 5. Back to the archive, via the detail screen's OWN back
