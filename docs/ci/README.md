@@ -462,7 +462,9 @@ report (fail_ci_if_error: false), so it must never be what ci-gate waits
 for. It needs only `unit` (not tz-sweeps / goldens), so it runs side by side
 with `tests-ran`; it has no checkout (nothing in the tree is read: the
 inputs are the lcov artifacts), installs lcov at a PINNED version without
-recommended packages, and `continue-on-error: true` makes its job result
+recommended packages (the job pins `runs-on: ubuntu-24.04` because that
+version, `2.0-4ubuntu2`, is noble's: `ubuntu-latest` moved to ubuntu26 in
+2026-11 and its archive no longer carries it), and `continue-on-error: true` makes its job result
 `success` even when a step fails, so neither an old nor the new base
 gate.sh can be turned red by it (the new gate.sh also demotes a
 failed / cancelled / skipped coverage to a ::warning::).

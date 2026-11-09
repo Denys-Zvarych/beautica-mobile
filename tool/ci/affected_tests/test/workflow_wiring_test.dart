@@ -904,6 +904,11 @@ void main() {
         'recommends, and the version is logged', () {
       final m = step('coverage', 'Merge shard coverage (lcov -a)');
       expect((m['env'] as YamlMap)['LCOV_VERSION'], '2.0-4ubuntu2');
+      expect(
+        (jobs['coverage'] as YamlMap)['runs-on'],
+        'ubuntu-24.04',
+        reason: 'the lcov pin is noble-only; ubuntu-latest (ubuntu26) lacks it',
+      );
       final run = m['run'].toString();
       expect(run, contains('--no-install-recommends "lcov=\$LCOV_VERSION"'));
       expect(run, contains('lcov --version'));
