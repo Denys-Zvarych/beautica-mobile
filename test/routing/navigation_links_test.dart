@@ -813,6 +813,15 @@ void main() {
         await tester.pump();
 
         // Tap the accept CTA.
+        // Phase 443: the CTA stays disabled until the terms box is ticked.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.pump();
+
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('invite_accept')),
         );
@@ -951,6 +960,15 @@ void main() {
         );
         await tester.pump();
 
+        // Phase 443: the CTA stays disabled until the terms box is ticked.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+        );
+        await tester.pump();
+
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('invite_accept')),
         );
@@ -1073,6 +1091,15 @@ void main() {
           await tester.enterText(
             find.byKey(const ValueKey<String>('invite_phone')),
             '0671234567',
+          );
+          await tester.pump();
+
+          // Phase 443: the CTA stays disabled until the terms box is ticked.
+          await tester.ensureVisible(
+            find.byKey(const ValueKey<String>('invite_terms_checkbox')),
+          );
+          await tester.tap(
+            find.byKey(const ValueKey<String>('invite_terms_checkbox')),
           );
           await tester.pump();
 
