@@ -1392,6 +1392,12 @@ final class FakeBackend {
   int loginCalls = 0;
   int logoutCalls = 0; // POST /api/v1/auth/logout counter
   int registerCalls = 0;
+
+  /// The full decoded body of the most recent `POST /api/v1/auth/register`
+  /// or `POST /api/v1/auth/register/independent-master` (phase 443) — lets a
+  /// flow prove the consent triple (`termsAccepted` + both versions) the
+  /// wizard collected actually reached the wire.
+  Map<String, dynamic>? lastRegisterBody;
   int verifyEmailCalls = 0;
 
   /// The `email` field of the most recent `POST /api/v1/auth/verify-email`.
@@ -7917,8 +7923,9 @@ final class FakeBackend {
     // priority when the DioAdapter walks the list in insertion order.
     _adapter.onRoute(
       '/api/v1/auth/register',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         registerCalls++;
+        lastRegisterBody = _decodeBody(req.data);
         return _ok(<String, dynamic>{
           'verificationRequired': true,
           'email': 'new@beautica.ua',
@@ -7930,8 +7937,9 @@ final class FakeBackend {
     // POST /api/v1/auth/register/independent-master
     _adapter.onRoute(
       '/api/v1/auth/register/independent-master',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         registerCalls++;
+        lastRegisterBody = _decodeBody(req.data);
         return _ok(<String, dynamic>{
           'verificationRequired': true,
           'email': 'new@beautica.ua',

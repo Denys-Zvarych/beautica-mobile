@@ -635,11 +635,11 @@
   "@passwordChecklistSemantics": {
     "description": "Accessibility Semantics.label for the PasswordChecklist widget container."
   },
-  "registerTermsPrefix": "By signing up, you agree to our",
+  "registerTermsPrefix": "I accept the",
   "@registerTermsPrefix": {
-    "description": "Leading text of the terms-and-privacy line on the registration details screen (sign-up-page.html .terms)."
+    "description": "Leading text of the required terms-consent checkbox label (TermsConsentCheckbox, phase 443) — a statement of acceptance."
   },
-  "registerTermsTerms": "Terms",
+  "registerTermsTerms": "Terms of Use",
   "@registerTermsTerms": {
     "description": "Inline link label for the Terms document (sign-up-page.html .terms a)."
   },
@@ -650,6 +650,14 @@
   "registerTermsPrivacy": "Privacy Policy",
   "@registerTermsPrivacy": {
     "description": "Inline link label for the Privacy Policy document (sign-up-page.html .terms a)."
+  },
+  "termsConsentRequiredHint": "To continue, accept the Terms of Use and the Privacy Policy",
+  "@termsConsentRequiredHint": {
+    "description": "Semantics hint on the sign-up submit button while the required terms-consent checkbox is unticked (phase 443)."
+  },
+  "termsConsentCheckboxLabel": "I accept the Terms of Use and the Privacy Policy",
+  "@termsConsentCheckboxLabel": {
+    "description": "Semantics label of the required terms-consent checkbox (phase 443)."
   },
   "logoutFailed": "Logout failed. Please try again.",
   "@logoutFailed": {

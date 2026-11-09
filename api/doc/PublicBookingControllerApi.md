@@ -12,7 +12,7 @@ Method | HTTP request | Description
 [**availability**](PublicBookingControllerApi.md#availability) | **GET** /api/v1/book/{slug}/availability | 
 [**book**](PublicBookingControllerApi.md#book) | **POST** /api/v1/book/{slug}/booking | 
 [**bookableDays**](PublicBookingControllerApi.md#bookabledays) | **GET** /api/v1/book/{slug}/bookable-days | 
-[**cancel**](PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
+[**cancel**](PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | Cancel a guest booking or some of a visit&#39;s services by the SMS cancel token
 [**cancelInfo**](PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [**info**](PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
 [**reviews**](PublicBookingControllerApi.md#reviews) | **GET** /api/v1/book/{slug}/reviews | 
@@ -158,19 +158,21 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **cancel**
-> cancel(token)
+> CancelTokenInfoResponse cancel(token, guestCancelRequest)
 
-
+Cancel a guest booking or some of a visit's services by the SMS cancel token
 
 ### Example
 ```dart
 import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getPublicBookingControllerApi();
-final String token = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final GuestCancelToken token = ; // GuestCancelToken | 
+final GuestCancelRequest guestCancelRequest = ; // GuestCancelRequest | 
 
 try {
-    api.cancel(token);
+    final response = api.cancel(token, guestCancelRequest);
+    print(response);
 } catch on DioException (e) {
     print('Exception when calling PublicBookingControllerApi->cancel: $e\n');
 }
@@ -180,11 +182,12 @@ try {
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **token** | **String**|  | 
+ **token** | [**GuestCancelToken**](.md)|  | 
+ **guestCancelRequest** | [**GuestCancelRequest**](GuestCancelRequest.md)|  | [optional] 
 
 ### Return type
 
-void (empty response body)
+[**CancelTokenInfoResponse**](CancelTokenInfoResponse.md)
 
 ### Authorization
 
@@ -192,8 +195,8 @@ No authorization required
 
 ### HTTP request headers
 
- - **Content-Type**: Not defined
- - **Accept**: Not defined
+ - **Content-Type**: application/json
+ - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
@@ -207,7 +210,7 @@ No authorization required
 import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getPublicBookingControllerApi();
-final String token = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final GuestCancelToken token = ; // GuestCancelToken | 
 
 try {
     final response = api.cancelInfo(token);
@@ -221,7 +224,7 @@ try {
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **token** | **String**|  | 
+ **token** | [**GuestCancelToken**](.md)|  | 
 
 ### Return type
 

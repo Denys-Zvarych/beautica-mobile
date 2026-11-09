@@ -123,6 +123,7 @@ import 'package:beautica_api/src/model/bulk_create_services_request.dart';
 import 'package:beautica_api/src/model/bulk_service_item_request.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
 import 'package:beautica_api/src/model/cancel_token_info_response.dart';
+import 'package:beautica_api/src/model/cancel_token_item_response.dart';
 import 'package:beautica_api/src/model/catalog_category_response.dart';
 import 'package:beautica_api/src/model/category_ref.dart';
 import 'package:beautica_api/src/model/category_request_response.dart';
@@ -153,10 +154,15 @@ import 'package:beautica_api/src/model/favorite_service_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
+import 'package:beautica_api/src/model/guest_cancel_request.dart';
+import 'package:beautica_api/src/model/guest_cancel_token.dart';
 import 'package:beautica_api/src/model/guest_client_dto.dart';
 import 'package:beautica_api/src/model/guest_review_item_request.dart';
 import 'package:beautica_api/src/model/guest_review_submit_request.dart';
 import 'package:beautica_api/src/model/guest_review_submit_response.dart';
+import 'package:beautica_api/src/model/guest_telegram_link_response.dart';
+import 'package:beautica_api/src/model/guest_telegram_status_response.dart';
+import 'package:beautica_api/src/model/guest_telegram_token_request.dart';
 import 'package:beautica_api/src/model/guest_token_response.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
@@ -256,6 +262,7 @@ import 'package:beautica_api/src/model/sibling_salon_option.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
+import 'package:beautica_api/src/model/telegram_availability.dart';
 import 'package:beautica_api/src/model/timeline_item_response.dart';
 import 'package:beautica_api/src/model/unclosed_count_response.dart';
 import 'package:beautica_api/src/model/unread_count_response.dart';
@@ -389,6 +396,7 @@ part 'serializers.g.dart';
   BulkServiceItemRequest,
   CancelBookingRequest,
   CancelTokenInfoResponse,
+  CancelTokenItemResponse,
   CatalogCategoryResponse,
   CategoryRef,
   CategoryRequestResponse,
@@ -419,10 +427,15 @@ part 'serializers.g.dart';
   ForgotPasswordRequest,
   GuestBookingRequest,
   GuestBookingResponse,
+  GuestCancelRequest,
+  GuestCancelToken,
   GuestClientDto,
   GuestReviewItemRequest,
   GuestReviewSubmitRequest,
   GuestReviewSubmitResponse,
+  GuestTelegramLinkResponse,
+  GuestTelegramStatusResponse,
+  GuestTelegramTokenRequest,
   GuestTokenResponse,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
@@ -522,6 +535,7 @@ part 'serializers.g.dart';
   SortObject,
   StatusUpdateRequest,
   SuggestServiceTypeRequest,
+  TelegramAvailability,
   TimelineItemResponse,
   UnclosedCountResponse,
   UnreadCountResponse,

@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -15,6 +16,7 @@ part 'phone_otp_send_request.g.dart';
 /// * [privacyAccepted]
 /// * [privacyPolicyVersion]
 /// * [turnstileToken] - Required when Turnstile is enabled (prod, staging).
+/// * [smsFormat] - Optional OTP SMS text. PLAIN = human line only; anything else (missing, null, unknown) = DOMAIN_BOUND (adds the origin-bound `@host #code` line).
 @BuiltValue()
 abstract class PhoneOtpSendRequest
     implements Built<PhoneOtpSendRequest, PhoneOtpSendRequestBuilder> {
@@ -30,6 +32,11 @@ abstract class PhoneOtpSendRequest
   /// Required when Turnstile is enabled (prod, staging).
   @BuiltValueField(wireName: r'turnstileToken')
   String? get turnstileToken;
+
+  /// Optional OTP SMS text. PLAIN = human line only; anything else (missing, null, unknown) = DOMAIN_BOUND (adds the origin-bound `@host #code` line).
+  @BuiltValueField(wireName: r'smsFormat')
+  PhoneOtpSendRequestSmsFormatEnum? get smsFormat;
+  // enum smsFormatEnum {  DOMAIN_BOUND,  PLAIN,  };
 
   PhoneOtpSendRequest._();
 
@@ -80,6 +87,13 @@ class _$PhoneOtpSendRequestSerializer
       yield serializers.serialize(
         object.turnstileToken,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.smsFormat != null) {
+      yield r'smsFormat';
+      yield serializers.serialize(
+        object.smsFormat,
+        specifiedType: const FullType(PhoneOtpSendRequestSmsFormatEnum),
       );
     }
   }
@@ -135,6 +149,13 @@ class _$PhoneOtpSendRequestSerializer
           ) as String;
           result.turnstileToken = valueDes;
           break;
+        case r'smsFormat':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(PhoneOtpSendRequestSmsFormatEnum),
+          ) as PhoneOtpSendRequestSmsFormatEnum;
+          result.smsFormat = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -162,4 +183,31 @@ class _$PhoneOtpSendRequestSerializer
     );
     return result.build();
   }
+}
+
+class PhoneOtpSendRequestSmsFormatEnum extends EnumClass {
+  /// Optional OTP SMS text. PLAIN = human line only; anything else (missing, null, unknown) = DOMAIN_BOUND (adds the origin-bound `@host #code` line).
+  @BuiltValueEnumConst(wireName: r'DOMAIN_BOUND')
+  static const PhoneOtpSendRequestSmsFormatEnum DOMAIN_BOUND =
+      _$phoneOtpSendRequestSmsFormatEnum_DOMAIN_BOUND;
+
+  /// Optional OTP SMS text. PLAIN = human line only; anything else (missing, null, unknown) = DOMAIN_BOUND (adds the origin-bound `@host #code` line).
+  @BuiltValueEnumConst(wireName: r'PLAIN')
+  static const PhoneOtpSendRequestSmsFormatEnum PLAIN =
+      _$phoneOtpSendRequestSmsFormatEnum_PLAIN;
+
+  /// Optional OTP SMS text. PLAIN = human line only; anything else (missing, null, unknown) = DOMAIN_BOUND (adds the origin-bound `@host #code` line).
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const PhoneOtpSendRequestSmsFormatEnum unknownDefaultOpenApi =
+      _$phoneOtpSendRequestSmsFormatEnum_unknownDefaultOpenApi;
+
+  static Serializer<PhoneOtpSendRequestSmsFormatEnum> get serializer =>
+      _$phoneOtpSendRequestSmsFormatEnumSerializer;
+
+  const PhoneOtpSendRequestSmsFormatEnum._(String name) : super(name);
+
+  static BuiltSet<PhoneOtpSendRequestSmsFormatEnum> get values =>
+      _$phoneOtpSendRequestSmsFormatEnumValues;
+  static PhoneOtpSendRequestSmsFormatEnum valueOf(String name) =>
+      _$phoneOtpSendRequestSmsFormatEnumValueOf(name);
 }

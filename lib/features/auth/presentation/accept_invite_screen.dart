@@ -34,6 +34,7 @@ import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../shared/validators/name_validator.dart';
 import '../../../shared/validators/password_validator.dart';
 import '../../../shared/validators/phone_validator.dart';
+import '../../../shared/widgets/terms_consent_checkbox.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -76,6 +77,11 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   String _lastNameValue = '';
   String? _inlineError;
   bool _loading = false;
+
+  /// Phase 443 — required terms + privacy consent (screen state, D4). The
+  /// accept CTA stays disabled until it is ticked; forwarded to
+  /// [AuthNotifier.acceptInvite] as `termsAccepted`.
+  bool _termsAccepted = false;
 
   /// True once the user tapped Accept at least once — surfaces the client-side
   /// name/phone validators inline (not before the first submit attempt).
@@ -169,6 +175,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   // is rejected at submit time with the inline `registerPhoneRequired` error
   // (then `validatePhone` for format), so the user is told why it blocked.
   bool get _formValid =>
+      _termsAccepted &&
       _passwordMeetsRules &&
       _firstNameValue.trim().isNotEmpty &&
       _lastNameValue.trim().isNotEmpty;
@@ -268,6 +275,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           // Guaranteed non-empty here — the clientInvalid gate above already
           // returned when validatePhone (which rejects empty) failed.
           phoneNumber: _phone.text.trim(),
+          termsAccepted: _termsAccepted,
         );
 
     if (!mounted) return;
@@ -413,12 +421,15 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   ) {
     return AuthScaffold(
       showBack: false,
-      bottomBar: NeumorphicButton(
-        key: const ValueKey<String>('invite_accept'),
-        label: l10n.inviteAcceptCta,
-        icon: Icons.group_add_rounded,
-        loading: _loading,
-        onPressed: (_formValid && !_loading) ? _accept : null,
+      bottomBar: Semantics(
+        hint: _termsAccepted ? null : l10n.termsConsentRequiredHint,
+        child: NeumorphicButton(
+          key: const ValueKey<String>('invite_accept'),
+          label: l10n.inviteAcceptCta,
+          icon: Icons.group_add_rounded,
+          loading: _loading,
+          onPressed: (_formValid && !_loading) ? _accept : null,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -515,6 +526,14 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
               if (_submitted) setState(() {});
             },
             onSubmitted: (!_loading && _formValid) ? (_) => _accept() : null,
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          // ── Terms consent (required, phase 443) ─────────────────────────
+          TermsConsentCheckbox(
+            idPrefix: 'invite',
+            value: _termsAccepted,
+            enabled: !_loading,
+            onChanged: (bool v) => setState(() => _termsAccepted = v),
           ),
           if (_inlineError != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.sm),

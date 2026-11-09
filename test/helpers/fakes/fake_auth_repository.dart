@@ -210,6 +210,14 @@ final class FakeAuthRepository implements AuthRepository {
   >
   acceptInviteCalls = [];
 
+  /// Phase 443 — `termsAccepted` captured per [registerIndependentMaster] call
+  /// (index-aligned with [registerCalls]).
+  final List<bool> registerTermsAcceptedCalls = [];
+
+  /// Phase 443 — `termsAccepted` captured per [acceptInvite] call
+  /// (index-aligned with [acceptInviteCalls]).
+  final List<bool> acceptInviteTermsAcceptedCalls = [];
+
   // ---------------------------------------------------------------------------
   // AuthRepository
   // ---------------------------------------------------------------------------
@@ -255,7 +263,9 @@ final class FakeAuthRepository implements AuthRepository {
     String? businessName,
     String? address,
     String? phone,
+    bool termsAccepted = false,
   }) async {
+    registerTermsAcceptedCalls.add(termsAccepted);
     registerCalls.add((
       email: email,
       password: password,
@@ -385,7 +395,9 @@ final class FakeAuthRepository implements AuthRepository {
     required String firstName,
     required String lastName,
     String? phoneNumber,
+    bool termsAccepted = false,
   }) async {
+    acceptInviteTermsAcceptedCalls.add(termsAccepted);
     acceptInviteCalls.add((
       token: token,
       password: password,

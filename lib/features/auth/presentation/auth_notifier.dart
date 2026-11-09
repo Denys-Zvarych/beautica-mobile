@@ -621,6 +621,9 @@ class AuthNotifier extends _$AuthNotifier {
   /// - `null` (only when an error occurred) — state becomes [AsyncError] with
   ///   the typed [Failure]; the calling screen's `.when(error:)` handler
   ///   surfaces it via inline field errors / snackbar.
+  ///
+  /// [termsAccepted] (phase 443) — forwarded to the repository, which sends
+  /// the full consent triple when `true` and none of it when `false`.
   Future<RegisterResult?> register({
     required String email,
     required String password,
@@ -630,6 +633,7 @@ class AuthNotifier extends _$AuthNotifier {
     String? businessName,
     String? address,
     String? phone,
+    bool termsAccepted = false,
   }) async {
     state = const AsyncLoading();
     // AsyncValue.guard fixes the [state] for screens that pattern-match on
@@ -648,6 +652,7 @@ class AuthNotifier extends _$AuthNotifier {
             businessName: businessName,
             address: address,
             phone: phone,
+            termsAccepted: termsAccepted,
           );
       result = outcome;
       switch (outcome) {
@@ -1099,6 +1104,7 @@ class AuthNotifier extends _$AuthNotifier {
     required String firstName,
     required String lastName,
     String? phoneNumber,
+    bool termsAccepted = false,
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
@@ -1112,6 +1118,7 @@ class AuthNotifier extends _$AuthNotifier {
               firstName: firstName,
               lastName: lastName,
               phoneNumber: phoneNumber,
+              termsAccepted: termsAccepted,
             );
       } on Failure catch (f) {
         final reason = _inviteHandoffReason(f);

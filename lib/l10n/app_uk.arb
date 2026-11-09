@@ -635,11 +635,11 @@
   "@passwordChecklistSemantics": {
     "description": "Accessibility Semantics.label for the PasswordChecklist widget container."
   },
-  "registerTermsPrefix": "Реєструючись, ви погоджуєтесь з нашими",
+  "registerTermsPrefix": "Я приймаю",
   "@registerTermsPrefix": {
-    "description": "Leading text of the terms-and-privacy line on the registration details screen (sign-up-page.html .terms)."
+    "description": "Leading text of the required terms-consent checkbox label (TermsConsentCheckbox, phase 443) — a statement of acceptance."
   },
-  "registerTermsTerms": "Умовами",
+  "registerTermsTerms": "Умови використання",
   "@registerTermsTerms": {
     "description": "Inline link label for the Terms document (sign-up-page.html .terms a)."
   },
@@ -647,9 +647,17 @@
   "@registerTermsConjunction": {
     "description": "Conjunction between the Terms and Privacy links (sign-up-page.html .terms)."
   },
-  "registerTermsPrivacy": "Політикою конфіденційності",
+  "registerTermsPrivacy": "Політику конфіденційності",
   "@registerTermsPrivacy": {
     "description": "Inline link label for the Privacy Policy document (sign-up-page.html .terms a)."
+  },
+  "termsConsentRequiredHint": "Щоб продовжити, прийміть Умови використання та Політику конфіденційності",
+  "@termsConsentRequiredHint": {
+    "description": "Semantics hint on the sign-up submit button while the required terms-consent checkbox is unticked (phase 443)."
+  },
+  "termsConsentCheckboxLabel": "Я приймаю Умови використання та Політику конфіденційності",
+  "@termsConsentCheckboxLabel": {
+    "description": "Semantics label of the required terms-consent checkbox (phase 443)."
   },
   "logoutFailed": "Вихід не вдався. Спробуйте ще раз.",
   "@logoutFailed": {

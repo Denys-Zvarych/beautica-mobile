@@ -6,6 +6,74 @@ part of 'phone_otp_send_request.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const PhoneOtpSendRequestSmsFormatEnum
+    _$phoneOtpSendRequestSmsFormatEnum_DOMAIN_BOUND =
+    const PhoneOtpSendRequestSmsFormatEnum._('DOMAIN_BOUND');
+const PhoneOtpSendRequestSmsFormatEnum
+    _$phoneOtpSendRequestSmsFormatEnum_PLAIN =
+    const PhoneOtpSendRequestSmsFormatEnum._('PLAIN');
+const PhoneOtpSendRequestSmsFormatEnum
+    _$phoneOtpSendRequestSmsFormatEnum_unknownDefaultOpenApi =
+    const PhoneOtpSendRequestSmsFormatEnum._('unknownDefaultOpenApi');
+
+PhoneOtpSendRequestSmsFormatEnum _$phoneOtpSendRequestSmsFormatEnumValueOf(
+    String name) {
+  switch (name) {
+    case 'DOMAIN_BOUND':
+      return _$phoneOtpSendRequestSmsFormatEnum_DOMAIN_BOUND;
+    case 'PLAIN':
+      return _$phoneOtpSendRequestSmsFormatEnum_PLAIN;
+    case 'unknownDefaultOpenApi':
+      return _$phoneOtpSendRequestSmsFormatEnum_unknownDefaultOpenApi;
+    default:
+      return _$phoneOtpSendRequestSmsFormatEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<PhoneOtpSendRequestSmsFormatEnum>
+    _$phoneOtpSendRequestSmsFormatEnumValues = BuiltSet<
+        PhoneOtpSendRequestSmsFormatEnum>(const <PhoneOtpSendRequestSmsFormatEnum>[
+  _$phoneOtpSendRequestSmsFormatEnum_DOMAIN_BOUND,
+  _$phoneOtpSendRequestSmsFormatEnum_PLAIN,
+  _$phoneOtpSendRequestSmsFormatEnum_unknownDefaultOpenApi,
+]);
+
+Serializer<PhoneOtpSendRequestSmsFormatEnum>
+    _$phoneOtpSendRequestSmsFormatEnumSerializer =
+    _$PhoneOtpSendRequestSmsFormatEnumSerializer();
+
+class _$PhoneOtpSendRequestSmsFormatEnumSerializer
+    implements PrimitiveSerializer<PhoneOtpSendRequestSmsFormatEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'DOMAIN_BOUND': 'DOMAIN_BOUND',
+    'PLAIN': 'PLAIN',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'DOMAIN_BOUND': 'DOMAIN_BOUND',
+    'PLAIN': 'PLAIN',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[PhoneOtpSendRequestSmsFormatEnum];
+  @override
+  final String wireName = 'PhoneOtpSendRequestSmsFormatEnum';
+
+  @override
+  Object serialize(
+          Serializers serializers, PhoneOtpSendRequestSmsFormatEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  PhoneOtpSendRequestSmsFormatEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      PhoneOtpSendRequestSmsFormatEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$PhoneOtpSendRequest extends PhoneOtpSendRequest {
   @override
   final String phone;
@@ -15,6 +83,8 @@ class _$PhoneOtpSendRequest extends PhoneOtpSendRequest {
   final String privacyPolicyVersion;
   @override
   final String? turnstileToken;
+  @override
+  final PhoneOtpSendRequestSmsFormatEnum? smsFormat;
 
   factory _$PhoneOtpSendRequest(
           [void Function(PhoneOtpSendRequestBuilder)? updates]) =>
@@ -24,7 +94,8 @@ class _$PhoneOtpSendRequest extends PhoneOtpSendRequest {
       {required this.phone,
       required this.privacyAccepted,
       required this.privacyPolicyVersion,
-      this.turnstileToken})
+      this.turnstileToken,
+      this.smsFormat})
       : super._();
   @override
   PhoneOtpSendRequest rebuild(
@@ -42,7 +113,8 @@ class _$PhoneOtpSendRequest extends PhoneOtpSendRequest {
         phone == other.phone &&
         privacyAccepted == other.privacyAccepted &&
         privacyPolicyVersion == other.privacyPolicyVersion &&
-        turnstileToken == other.turnstileToken;
+        turnstileToken == other.turnstileToken &&
+        smsFormat == other.smsFormat;
   }
 
   @override
@@ -52,6 +124,7 @@ class _$PhoneOtpSendRequest extends PhoneOtpSendRequest {
     _$hash = $jc(_$hash, privacyAccepted.hashCode);
     _$hash = $jc(_$hash, privacyPolicyVersion.hashCode);
     _$hash = $jc(_$hash, turnstileToken.hashCode);
+    _$hash = $jc(_$hash, smsFormat.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -62,7 +135,8 @@ class _$PhoneOtpSendRequest extends PhoneOtpSendRequest {
           ..add('phone', phone)
           ..add('privacyAccepted', privacyAccepted)
           ..add('privacyPolicyVersion', privacyPolicyVersion)
-          ..add('turnstileToken', turnstileToken))
+          ..add('turnstileToken', turnstileToken)
+          ..add('smsFormat', smsFormat))
         .toString();
   }
 }
@@ -90,6 +164,11 @@ class PhoneOtpSendRequestBuilder
   set turnstileToken(String? turnstileToken) =>
       _$this._turnstileToken = turnstileToken;
 
+  PhoneOtpSendRequestSmsFormatEnum? _smsFormat;
+  PhoneOtpSendRequestSmsFormatEnum? get smsFormat => _$this._smsFormat;
+  set smsFormat(PhoneOtpSendRequestSmsFormatEnum? smsFormat) =>
+      _$this._smsFormat = smsFormat;
+
   PhoneOtpSendRequestBuilder() {
     PhoneOtpSendRequest._defaults(this);
   }
@@ -101,6 +180,7 @@ class PhoneOtpSendRequestBuilder
       _privacyAccepted = $v.privacyAccepted;
       _privacyPolicyVersion = $v.privacyPolicyVersion;
       _turnstileToken = $v.turnstileToken;
+      _smsFormat = $v.smsFormat;
       _$v = null;
     }
     return this;
@@ -131,6 +211,7 @@ class PhoneOtpSendRequestBuilder
               r'PhoneOtpSendRequest',
               'privacyPolicyVersion'),
           turnstileToken: turnstileToken,
+          smsFormat: smsFormat,
         );
     replace(_$result);
     return _$result;

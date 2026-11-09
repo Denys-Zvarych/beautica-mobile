@@ -18,6 +18,12 @@ class _$RegisterIndependentMasterRequest
   final String lastName;
   @override
   final String phoneNumber;
+  @override
+  final bool? termsAccepted;
+  @override
+  final String? termsVersion;
+  @override
+  final String? privacyPolicyVersion;
 
   factory _$RegisterIndependentMasterRequest(
           [void Function(RegisterIndependentMasterRequestBuilder)? updates]) =>
@@ -28,7 +34,10 @@ class _$RegisterIndependentMasterRequest
       required this.password,
       required this.firstName,
       required this.lastName,
-      required this.phoneNumber})
+      required this.phoneNumber,
+      this.termsAccepted,
+      this.termsVersion,
+      this.privacyPolicyVersion})
       : super._();
   @override
   RegisterIndependentMasterRequest rebuild(
@@ -47,7 +56,10 @@ class _$RegisterIndependentMasterRequest
         password == other.password &&
         firstName == other.firstName &&
         lastName == other.lastName &&
-        phoneNumber == other.phoneNumber;
+        phoneNumber == other.phoneNumber &&
+        termsAccepted == other.termsAccepted &&
+        termsVersion == other.termsVersion &&
+        privacyPolicyVersion == other.privacyPolicyVersion;
   }
 
   @override
@@ -58,6 +70,9 @@ class _$RegisterIndependentMasterRequest
     _$hash = $jc(_$hash, firstName.hashCode);
     _$hash = $jc(_$hash, lastName.hashCode);
     _$hash = $jc(_$hash, phoneNumber.hashCode);
+    _$hash = $jc(_$hash, termsAccepted.hashCode);
+    _$hash = $jc(_$hash, termsVersion.hashCode);
+    _$hash = $jc(_$hash, privacyPolicyVersion.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -69,7 +84,10 @@ class _$RegisterIndependentMasterRequest
           ..add('password', password)
           ..add('firstName', firstName)
           ..add('lastName', lastName)
-          ..add('phoneNumber', phoneNumber))
+          ..add('phoneNumber', phoneNumber)
+          ..add('termsAccepted', termsAccepted)
+          ..add('termsVersion', termsVersion)
+          ..add('privacyPolicyVersion', privacyPolicyVersion))
         .toString();
   }
 }
@@ -100,6 +118,20 @@ class RegisterIndependentMasterRequestBuilder
   String? get phoneNumber => _$this._phoneNumber;
   set phoneNumber(String? phoneNumber) => _$this._phoneNumber = phoneNumber;
 
+  bool? _termsAccepted;
+  bool? get termsAccepted => _$this._termsAccepted;
+  set termsAccepted(bool? termsAccepted) =>
+      _$this._termsAccepted = termsAccepted;
+
+  String? _termsVersion;
+  String? get termsVersion => _$this._termsVersion;
+  set termsVersion(String? termsVersion) => _$this._termsVersion = termsVersion;
+
+  String? _privacyPolicyVersion;
+  String? get privacyPolicyVersion => _$this._privacyPolicyVersion;
+  set privacyPolicyVersion(String? privacyPolicyVersion) =>
+      _$this._privacyPolicyVersion = privacyPolicyVersion;
+
   RegisterIndependentMasterRequestBuilder() {
     RegisterIndependentMasterRequest._defaults(this);
   }
@@ -112,6 +144,9 @@ class RegisterIndependentMasterRequestBuilder
       _firstName = $v.firstName;
       _lastName = $v.lastName;
       _phoneNumber = $v.phoneNumber;
+      _termsAccepted = $v.termsAccepted;
+      _termsVersion = $v.termsVersion;
+      _privacyPolicyVersion = $v.privacyPolicyVersion;
       _$v = null;
     }
     return this;
@@ -143,6 +178,9 @@ class RegisterIndependentMasterRequestBuilder
               lastName, r'RegisterIndependentMasterRequest', 'lastName'),
           phoneNumber: BuiltValueNullFieldError.checkNotNull(
               phoneNumber, r'RegisterIndependentMasterRequest', 'phoneNumber'),
+          termsAccepted: termsAccepted,
+          termsVersion: termsVersion,
+          privacyPolicyVersion: privacyPolicyVersion,
         );
     replace(_$result);
     return _$result;

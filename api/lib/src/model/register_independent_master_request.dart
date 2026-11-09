@@ -16,6 +16,9 @@ part 'register_independent_master_request.g.dart';
 /// * [firstName]
 /// * [lastName]
 /// * [phoneNumber]
+/// * [termsAccepted]
+/// * [termsVersion]
+/// * [privacyPolicyVersion]
 @BuiltValue()
 abstract class RegisterIndependentMasterRequest
     implements
@@ -35,6 +38,15 @@ abstract class RegisterIndependentMasterRequest
 
   @BuiltValueField(wireName: r'phoneNumber')
   String get phoneNumber;
+
+  @BuiltValueField(wireName: r'termsAccepted')
+  bool? get termsAccepted;
+
+  @BuiltValueField(wireName: r'termsVersion')
+  String? get termsVersion;
+
+  @BuiltValueField(wireName: r'privacyPolicyVersion')
+  String? get privacyPolicyVersion;
 
   RegisterIndependentMasterRequest._();
 
@@ -91,6 +103,27 @@ class _$RegisterIndependentMasterRequestSerializer
       object.phoneNumber,
       specifiedType: const FullType(String),
     );
+    if (object.termsAccepted != null) {
+      yield r'termsAccepted';
+      yield serializers.serialize(
+        object.termsAccepted,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.termsVersion != null) {
+      yield r'termsVersion';
+      yield serializers.serialize(
+        object.termsVersion,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.privacyPolicyVersion != null) {
+      yield r'privacyPolicyVersion';
+      yield serializers.serialize(
+        object.privacyPolicyVersion,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -150,6 +183,27 @@ class _$RegisterIndependentMasterRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.phoneNumber = valueDes;
+          break;
+        case r'termsAccepted':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.termsAccepted = valueDes;
+          break;
+        case r'termsVersion':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.termsVersion = valueDes;
+          break;
+        case r'privacyPolicyVersion':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.privacyPolicyVersion = valueDes;
           break;
         default:
           unhandled.add(key);

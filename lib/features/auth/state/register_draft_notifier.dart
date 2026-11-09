@@ -39,6 +39,7 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
     required String email,
     required String password,
     required String confirmPassword,
+    bool? termsAccepted,
   }) {
     final current = state;
     if (current == null) return;
@@ -46,6 +47,7 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
       email: email,
       password: password,
       confirmPassword: confirmPassword,
+      termsAccepted: termsAccepted ?? current.termsAccepted,
     );
   }
 

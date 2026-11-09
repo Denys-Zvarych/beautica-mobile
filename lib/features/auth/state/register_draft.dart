@@ -1,7 +1,8 @@
 // Phase 2.16 — Multi-step registration draft (cross-step form state).
 //
 // Owns every field collected across the four-pill registration wizard:
-//   • Step 1 (Account)       — email + password + confirmPassword
+//   • Step 1 (Account)       — email + password + confirmPassword +
+//                              termsAccepted
 //   • Step 2 (Profile)       — firstName + lastName + phone + salonName
 //   • Step 3 (Address)       — cityId + districtId + street/...
 //
@@ -30,6 +31,9 @@ sealed class RegisterDraft with _$RegisterDraft {
     @Default('') String email,
     @Default('') String password,
     @Default('') String confirmPassword,
+    // Phase 443 — the required terms + privacy checkbox on Step 1. Sent as
+    // the consent triple by Step 3's `register()` call.
+    @Default(false) bool termsAccepted,
     // Step 2 — Profile
     @Default('') String firstName,
     @Default('') String lastName,
