@@ -7,7 +7,7 @@
 // and headers only), so this is a new file rather than new scenarios on an
 // existing one.
 //
-// SCENARIOS (360dp x {1.0, 1.3})
+// SCENARIOS ({360, 414}dp x {1.0, 1.3})
 //   - `owned`: an owned type (owned durations {60}) OFF — «Вже додано» + the
 //     include switch it gained in phase 468 — above the same type ON with an
 //     EMPTY duration (phase 472 dropped the free quick-pick autofill).
@@ -250,44 +250,47 @@ void main() {
   });
 
   group('service setup owned-row copy golden', () {
-    for (final double scale in kGoldenTextScales) {
-      goldenTest(
-        'owned row OFF + ON (empty duration) ${width.toInt()}dp x$scale',
-        fileName:
-            'service_setup_row_copy_owned_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 520)),
-        textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _ownedFixture(width),
-      );
-      goldenTest(
-        'owned row ON at the owned duration (taken) ${width.toInt()}dp x$scale',
-        fileName:
-            'service_setup_row_copy_duration_taken_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 360)),
-        textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _takenFixture(width),
-      );
-      goldenTest(
-        'type with an extra copy row (phase 471) ${width.toInt()}dp x$scale',
-        fileName:
-            'service_setup_row_copy_extra_copy_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 880)),
-        textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _extraCopyFixture(width),
-      );
-      goldenTest(
-        'name pencil on every switched-on card (472 D3) '
-        '${width.toInt()}dp x$scale',
-        fileName:
-            'service_setup_row_copy_name_pencil_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 1200)),
-        textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _namePencilFixture(width),
-      );
+    // Audit LOW — a second width: 414 dp, the widest of `kGoldenWidths`.
+    for (final double width in const <double>[360, 414]) {
+      for (final double scale in kGoldenTextScales) {
+        goldenTest(
+          'owned row OFF + ON (empty duration) ${width.toInt()}dp x$scale',
+          fileName:
+              'service_setup_row_copy_owned_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 520)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _ownedFixture(width),
+        );
+        goldenTest(
+          'owned row ON at the owned duration (taken) ${width.toInt()}dp x$scale',
+          fileName:
+              'service_setup_row_copy_duration_taken_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 360)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _takenFixture(width),
+        );
+        goldenTest(
+          'type with an extra copy row (phase 471) ${width.toInt()}dp x$scale',
+          fileName:
+              'service_setup_row_copy_extra_copy_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 880)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _extraCopyFixture(width),
+        );
+        goldenTest(
+          'name pencil on every switched-on card (472 D3) '
+          '${width.toInt()}dp x$scale',
+          fileName:
+              'service_setup_row_copy_name_pencil_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 1200)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _namePencilFixture(width),
+        );
+      }
     }
   });
 }

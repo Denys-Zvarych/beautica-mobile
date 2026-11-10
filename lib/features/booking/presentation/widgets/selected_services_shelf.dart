@@ -25,7 +25,7 @@
 // progress row + fixed-height CTA, an expanded shelf can never push a
 // `bottomNavigationBar` bar into unbounded growth.
 
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show kDebugMode, listEquals;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -110,7 +110,7 @@ class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
   Map<String, String> _hintsFor(List<MasterService> services) {
     if (!identical(_hintsSource, services) &&
         !listEquals(_hintsSource, services)) {
-      selectedServicesShelfHintComputations++;
+      if (kDebugMode) selectedServicesShelfHintComputations++;
       _hintsSource = services;
       _hints = masterServiceNameHints(services);
     }

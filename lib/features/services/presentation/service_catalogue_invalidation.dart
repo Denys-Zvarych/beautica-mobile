@@ -52,7 +52,7 @@ import 'package:beautica_mobile/features/services/presentation/services_list_not
 ///     `await ref.read(servicesListProvider.future)` in the SAME turn, from a
 ///     screen that only ever `ref.read`s the list — and it silently answered
 ///     with the stale pre-save catalogue when this line was dropped. Pinned by
-///     `test/features/services/presentation/service_setup_screen_test.dart`
+///     `test/features/services/presentation/service_setup_screen_refetch_test.dart`
 ///     ("_flagRowsNowOwned must re-read the catalogue after the invalidate"),
 ///     which goes red on exactly that mutation. It does NOT reproduce in a
 ///     harness that pumps a frame between the invalidate and the read — the

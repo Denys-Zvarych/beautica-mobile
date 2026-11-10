@@ -27,6 +27,10 @@ const String _pdi = '\u2069';
 ///
 /// With [hint] `null` it is exactly one `Text(name, maxLines: 1, ellipsis)`
 /// (or, with [singleLine] `false`, one plain wrapping `Text(name)`).
+///
+/// Single-line mode with a hint builds a [LayoutBuilder], so it must NOT sit
+/// under an [IntrinsicHeight] / [IntrinsicWidth] (or anything else that asks
+/// for intrinsic dimensions) — `LayoutBuilder` cannot report them and throws.
 class NameWithHint extends StatelessWidget {
   const NameWithHint({
     super.key,

@@ -151,25 +151,26 @@ Widget _tilesHost(double width) => ColoredBox(
 );
 
 void main() {
-  const double width = 360;
-
-  for (final double scale in kGoldenTextScales) {
-    goldenTest(
-      'catalogue category header — categorised + uncategorised ${width.toInt()}dp x$scale',
-      fileName: 'catalogue_category_header_${widthScaleSuffix(width, scale)}',
-      constraints: BoxConstraints.tight(const Size(width, 220)),
-      textScaleFactor: scale,
-      pumpWidget: goldenPumpWidget(width: width),
-      builder: () => _host(width),
-    );
-    goldenTest(
-      'catalogue service tile — copy pair hinted + unique row ${width.toInt()}dp x$scale',
-      fileName:
-          'catalogue_service_tile_copy_hints_${widthScaleSuffix(width, scale)}',
-      constraints: BoxConstraints.tight(const Size(width, 320)),
-      textScaleFactor: scale,
-      pumpWidget: goldenPumpWidget(width: width),
-      builder: () => _tilesHost(width),
-    );
+  // Audit LOW — a second width: 414 dp, the widest of `kGoldenWidths`.
+  for (final double width in const <double>[360, 414]) {
+    for (final double scale in kGoldenTextScales) {
+      goldenTest(
+        'catalogue category header — categorised + uncategorised ${width.toInt()}dp x$scale',
+        fileName: 'catalogue_category_header_${widthScaleSuffix(width, scale)}',
+        constraints: BoxConstraints.tight(Size(width, 220)),
+        textScaleFactor: scale,
+        pumpWidget: goldenPumpWidget(width: width),
+        builder: () => _host(width),
+      );
+      goldenTest(
+        'catalogue service tile — copy pair hinted + unique row ${width.toInt()}dp x$scale',
+        fileName:
+            'catalogue_service_tile_copy_hints_${widthScaleSuffix(width, scale)}',
+        constraints: BoxConstraints.tight(Size(width, 320)),
+        textScaleFactor: scale,
+        pumpWidget: goldenPumpWidget(width: width),
+        builder: () => _tilesHost(width),
+      );
+    }
   }
 }

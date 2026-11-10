@@ -601,7 +601,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
 
   /// Upper bound on [_settleInView] passes — a layout that never settles
   /// cannot keep scrolling forever.
-  static const int _revealMaxPasses = 12;
+  static const int _revealMaxPasses = 6;
 
   /// «Прибрати»: removes [row]. Removing the primary row promotes the next
   /// one (it keeps its values); the row is disposed after the frame that
@@ -759,6 +759,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
       ];
       for (final id in carried.keys) {
         _typeRows.remove(id);
+      }
+      // Release the orphans' wrapper keys too — their cards unmount on this
+      // frame and their type ids are gone from the catalogue.
+      for (final row in orphans) {
+        _rowWrapperKeys.remove(row.keyId);
       }
       _disposeAfterFrame(orphans);
     } on Object catch (e, st) {

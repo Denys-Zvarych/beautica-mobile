@@ -54,6 +54,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/service_t
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
+import 'package:beautica_mobile/shared/formatters/service_name_input_formatters.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
 import 'package:flutter/material.dart';
@@ -1191,7 +1192,9 @@ class _ServiceFormState extends State<ServiceForm> {
                   // Cap input at the backend `@Size(max = 100)` name limit so
                   // an over-long value can never reach the wire; mirrors the
                   // duration field's LengthLimitingTextInputFormatter.
+                  // The shared backend-464 allow-list runs first.
                   inputFormatters: <TextInputFormatter>[
+                    ...serviceNameInputFormatters,
                     LengthLimitingTextInputFormatter(kNameMaxLength),
                   ],
                   enabled: !_submitting,

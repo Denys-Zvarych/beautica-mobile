@@ -289,15 +289,18 @@ void main() {
 
   // ── Golden — the fixture above, at {1.0, 1.3} textScale ─────────────────
   group('service setup category chip / header golden', () {
-    for (final double scale in kGoldenTextScales) {
-      goldenTest(
-        'service setup category chips + headers ${width.toInt()}dp x$scale',
-        fileName: 'service_setup_category_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 420)),
-        textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _fixture(width),
-      );
+    // Audit LOW — a second width: 414 dp, the widest of `kGoldenWidths`.
+    for (final double width in const <double>[360, 414]) {
+      for (final double scale in kGoldenTextScales) {
+        goldenTest(
+          'service setup category chips + headers ${width.toInt()}dp x$scale',
+          fileName: 'service_setup_category_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 420)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _fixture(width),
+        );
+      }
     }
   });
 
@@ -324,16 +327,19 @@ void main() {
   });
 
   group('service setup BODY_MASSAGE category golden', () {
-    for (final double scale in kGoldenTextScales) {
-      goldenTest(
-        'service setup BODY_MASSAGE chip row + header ${width.toInt()}dp x$scale',
-        fileName:
-            'service_setup_category_body_massage_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 380)),
-        textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _massageFixture(width),
-      );
+    // Audit LOW — a second width: 414 dp, the widest of `kGoldenWidths`.
+    for (final double width in const <double>[360, 414]) {
+      for (final double scale in kGoldenTextScales) {
+        goldenTest(
+          'service setup BODY_MASSAGE chip row + header ${width.toInt()}dp x$scale',
+          fileName:
+              'service_setup_category_body_massage_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 380)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _massageFixture(width),
+        );
+      }
     }
   });
 }

@@ -673,6 +673,11 @@ class _LoadedBody extends ConsumerStatefulWidget {
 @visibleForTesting
 int debugRegroupCount = 0;
 
+/// How many times the list ran the copy-hint rule (cache MISSES in
+/// `_resolveNameHints`). Test-only observability for the hints memo.
+@visibleForTesting
+int debugNameHintsCount = 0;
+
 class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   // PERF A2 (MEDIUM): the memoized grouping. Re-run [_group] only when the
   // services list changes by identity or the categories list changes by value
@@ -694,6 +699,10 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
 
   Map<String, String> _resolveNameHints() {
     if (!identical(_hintsSource, widget.services)) {
+      assert(() {
+        debugNameHintsCount++;
+        return true;
+      }());
       _hintsSource = widget.services;
       _nameHints = masterServiceNameHints(widget.services);
     }

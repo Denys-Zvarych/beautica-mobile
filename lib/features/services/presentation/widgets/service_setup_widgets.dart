@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_name_key.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/service_name_input_formatters.dart';
 
 /// Why a save-time validation flag fired on a row, so its card can show a
 /// precise message (and the right inline field hints) instead of one generic
@@ -405,8 +406,7 @@ class ServiceRowState extends ChangeNotifier {
 
   static String _sanitizeName(String text) {
     TextEditingValue value = TextEditingValue(text: text);
-    for (final TextInputFormatter f
-        in _ServiceTypeRowCardState._nameInputFormatters) {
+    for (final TextInputFormatter f in serviceNameInputFormatters) {
       value = f.formatEditUpdate(TextEditingValue.empty, value);
     }
     return LengthLimitingTextInputFormatter(
@@ -1325,7 +1325,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         maxLength: _nameMaxLength,
         // Mirrors the backend name allow-list (phase 464) so a character
         // the server would reject can never be typed or pasted in.
-        inputFormatters: _nameInputFormatters,
+        inputFormatters: serviceNameInputFormatters,
         errorText: row.serverNameError,
         focusNode: row.nameFocus,
         textInputAction: TextInputAction.done,
@@ -1417,21 +1417,6 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
 
   /// The pencil glyph size — also the height of the title line it sits on.
   static const double _pencilGlyph = 16;
-
-  /// Backend 464 copy-name allow-list: letters (any script), digits, space and
-  /// `- – — . , ' ’ ʼ ( ) + / & « » " № : % ! ?`.
-  static final List<TextInputFormatter>
-  _nameInputFormatters = <TextInputFormatter>[
-    FilteringTextInputFormatter.allow(
-      RegExp(
-        '[\\p{L}0-9 \u2013\u2014.,\'\u2019\u02BC()+/&\u00AB\u00BB"\u2116:%!?-]',
-        unicode: true,
-      ),
-    ),
-    // The backend subtracts the four Hangul fillers from its letter class:
-    // they are `Lo` letters that render blank, so `\p{L}` above admits them.
-    FilteringTextInputFormatter.deny(RegExp('[\u115F\u1160\u3164\uFFA0]')),
-  ];
 
   /// Phase 471 — the «+ додати ще» / «Прибрати» text actions under the row.
   Widget _copyActions(AppLocalizations l10n, ServiceRowState row, bool on) {

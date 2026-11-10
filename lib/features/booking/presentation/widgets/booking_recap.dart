@@ -40,6 +40,7 @@
 // is needed there. Both sources are compatible with the [_parsePrice] /
 // [parseDurationMinutes] round-trip parsing below.
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -145,7 +146,7 @@ Map<String, String> _hintsFor(List<BookingSelection> selections) {
   ].join('\u0001');
   final Map<String, String>? cached = _recapHints[key];
   if (cached != null) return cached;
-  bookingRecapHintComputations++;
+  if (kDebugMode) bookingRecapHintComputations++;
   if (_recapHints.length >= _recapHintsCap) {
     _recapHints.remove(_recapHints.keys.first);
   }

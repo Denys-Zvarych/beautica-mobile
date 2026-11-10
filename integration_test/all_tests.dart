@@ -795,7 +795,11 @@ void main() {
   // Phase 469 — copy-name hint on the owner list: 60 + 90 pair hinted,
   // a custom rename drops both hints.
   group('service_copy_hint_flow', service_copy_hint.main);
+  // Phase 470 — copy-name hint on the CLIENT master booking flow: catalogue
+  // tile → slot shelf → confirm recap; both copies bookable in one visit.
   group('client_booking_service_copy_flow', client_booking_service_copy.main);
+  // Phase 470 — copy-name hint on the CLIENT salon surfaces: «Послуги» tab,
+  // service picker, master-assignment shelf and confirm recap.
   group('salon_booking_service_copy_flow', salon_booking_service_copy.main);
   // Phase 471 — «+ додати ще» adds a copy row to the same add-services save:
   // free-duration seed, blank-name collision, «Прибрати» drops the copy.

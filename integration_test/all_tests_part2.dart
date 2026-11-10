@@ -1,11 +1,9 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 2 of 2 (2026-07-01 split).
 //
 // See `all_tests_part1.dart` for the full rationale. This file carries the
-// remaining 13 of 23 flows (updated by the Beautica OTP task Phase B6
-// additions, the salon-master booking-bug flow, and the master-home
-// add-services CTA flow) so each `flutter test` process in CI reports a
-// bounded number of tests instead of aggregating all of them into one
-// long-lived run.
+// remaining 85 of 155 flows (part 1 carries 70) so each `flutter test`
+// process reports a bounded number of tests instead of aggregating all of
+// them into one long-lived run.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
