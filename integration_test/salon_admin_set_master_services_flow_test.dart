@@ -776,4 +776,193 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ── Phase 471 acceptance 5 (admin parity) — a SALON_ADMIN adds a named
+  // second copy of one type for the master; ONE admin-scoped salon bulk POST
+  // carries both items, the name only on the copy (trimmed). Mirrors the
+  // owner arm in salon_owner_set_master_services_flow_test.dart. ─────────────
+  testWidgets(
+    'SALON_ADMIN: «+ ще раз» on a type for the master adds a named copy row; '
+    'one salon-scoped bulk POST carries both items, the trimmed name on the '
+    'copy',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+
+        await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-nav-tile-2')),
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-2')));
+
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-$_kMemberUserId'),
+        );
+        await AppHarness.revealRosterCard(tester, masterCard);
+        await tapWhenReady(tester, masterCard);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonStaffProfileScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder servicesRow = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          servicesRow,
+          timeout: const Duration(seconds: 20),
+        );
+        await lockstepPump(tester);
+        await tapWhenReady(tester, servicesRow);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(ServicesListScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder fab = find.byKey(const Key('btn-create-service'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          fab,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, fab);
+        await lockstepPump(tester);
+
+        final Finder setupClose = find.byKey(const Key('btn-setup-close'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          setupClose,
+          timeout: const Duration(seconds: 20),
+        );
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(setupClose),
+        );
+
+        final Finder nailsChip = find.byKey(
+          const ValueKey<String>('cat_NAILS'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          nailsChip,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, nailsChip);
+
+        // Primary row: the free type, switched on and priced.
+        const String copyKeyId = '${_kFreeTypeId}_copy_1';
+        Finder rowOf(String keyId) => find.byKey(Key('setup_row_$keyId'));
+        Finder fieldIn(String keyId, String key) =>
+            find.descendant(of: rowOf(keyId), matching: find.byKey(Key(key)));
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          rowOf(_kFreeTypeId),
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(
+          tester,
+          find.byKey(const Key('setup_row_toggle_$_kFreeTypeId')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          fieldIn(_kFreeTypeId, 'pricing-fixed-amount'),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.enterText(
+          fieldIn(_kFreeTypeId, 'service-setup-duration'),
+          '50',
+        );
+        await tester.pump();
+        await tester.enterText(
+          fieldIn(_kFreeTypeId, 'pricing-fixed-amount'),
+          '420',
+        );
+        await tester.pump();
+
+        // «+ ще раз» → the copy row, same widget, with the name field.
+        await tapWhenReady(
+          tester,
+          find.byKey(const Key('btn-setup-row-add-copy-$_kFreeTypeId')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          fieldIn(copyKeyId, 'pricing-fixed-amount'),
+          timeout: const Duration(seconds: 20),
+        );
+        final Finder copyName = find.descendant(
+          of: find.byKey(const Key('setup_row_name_$copyKeyId')),
+          matching: find.byType(EditableText),
+        );
+        expect(copyName, findsOneWidget);
+        expect(
+          find.descendant(
+            of: rowOf(copyKeyId),
+            matching: find.text(l10n.serviceSetupCopyNameHint),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.enterText(
+          fieldIn(copyKeyId, 'pricing-fixed-amount'),
+          '560',
+        );
+        await tester.pump();
+        await tester.ensureVisible(copyName);
+        await tester.enterText(copyName, '  Гель адмін ');
+        await tester.pump();
+
+        await tapWhenReady(tester, find.byKey(const Key('btn-setup-save')));
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.salonAdminBulkCreateCalls >= 1,
+          description:
+              "the admin-scoped salon bulk POST carrying the master's two "
+              'copies — if it never fires the copy row blocked the save '
+              'client-side',
+          timeout: const Duration(seconds: 20),
+        );
+        expect(fb.salonAdminBulkCreateCalls, 1, reason: 'ONE request, not two');
+        expect(fb.lastSalonAdminBulkPath, _kSalonBulkUri);
+        expect(
+          fb.salonBulkCreateCalls,
+          0,
+          reason: 'never the owner-scoped bulk counter',
+        );
+        expect(
+          fb.bulkCreateCalls,
+          0,
+          reason: 'never the independent-master path',
+        );
+
+        final List<dynamic> items = fb.lastSalonAdminBulkItems!;
+        expect(items, hasLength(2));
+        final first = items[0] as Map<String, dynamic>;
+        final second = items[1] as Map<String, dynamic>;
+        expect(first['serviceTypeId'], _kFreeTypeId);
+        expect(first['durationMinutes'], 50);
+        expect(first['price'], 420);
+        expect(
+          first.containsKey('name'),
+          isFalse,
+          reason: 'the primary keeps the type name — no `name` key',
+        );
+        expect(second['serviceTypeId'], _kFreeTypeId);
+        expect(second['price'], 560);
+        expect(second['durationMinutes'], isNot(50));
+        expect(second['name'], 'Гель адмін');
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

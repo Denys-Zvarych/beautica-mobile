@@ -757,6 +757,12 @@ final class HttpServiceRepository implements ServiceRepository {
         json['priceMin'] = item.priceMin;
         json['priceMax'] = item.priceMax;
     }
+    // Phase 471: optional per-copy name (backend 464). Omitted when absent so
+    // a pre-471 payload is byte-identical.
+    // Trimmed, and a blank name dropped, here too (defence in depth — the
+    // screen already sends only trimmed non-blank names).
+    final String? name = item.name?.trim();
+    if (name != null && name.isNotEmpty) json['name'] = name;
     return json;
   }
 

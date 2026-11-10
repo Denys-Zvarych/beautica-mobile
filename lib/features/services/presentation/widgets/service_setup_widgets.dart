@@ -15,6 +15,8 @@
 // OFF.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -320,8 +322,9 @@ class CategoryGroupHeader extends StatelessWidget {
 /// Mutable per-row UI state for one service-type while the master configures the
 /// one-pass menu. Holds everything the bottom save serialises into the per-row
 /// bulk payload `{ serviceTypeId, durationMinutes, priceType, price |
-/// priceMin/priceMax }`. The service name + category are derived server-side from
-/// the service-type, so there is deliberately no name field here.
+/// priceMin/priceMax, name? }`. The service category is derived server-side
+/// from the service-type; the name defaults to the type name and is only
+/// overridable on a type that has more than one row (phase 471 copies).
 ///
 /// A [ChangeNotifier] so the row's own card — and the derived footer count /
 /// chip badges — can rebuild *locally* when `included` / `pricingMode` /
@@ -334,7 +337,46 @@ class ServiceRowState extends ChangeNotifier {
     required this.nameUk,
     this.alreadyAdded = false,
     this.ownedDurations = const <int>{},
-  });
+    this.copyIndex = 0,
+    String? name,
+  }) {
+    if (name != null) this.name.text = name;
+  }
+
+  /// Phase 471 — an extra copy row of [source]'s type, already included: same
+  /// type / name / ownership, an empty price and the nearest free quick-pick
+  /// duration — free of [source]'s duration, of [ServiceRowState.ownedDurations]
+  /// and of [takenDurations] (the type's other session rows). Blank when every
+  /// ladder value is taken (the master types one).
+  ///
+  /// [copyIndex] must be unique among the type's rows (> 0): it keys the
+  /// copy's widgets (see [keyId]).
+  factory ServiceRowState.copyOf(
+    ServiceRowState source, {
+    Set<int> takenDurations = const <int>{},
+    int copyIndex = 1,
+  }) {
+    assert(copyIndex > 0, 'a copy row needs copyIndex > 0');
+    final copy = ServiceRowState(
+      serviceTypeId: source.serviceTypeId,
+      nameUk: source.nameUk,
+      alreadyAdded: source.alreadyAdded,
+      ownedDurations: source.ownedDurations,
+      copyIndex: copyIndex,
+    );
+    final int? sourceDuration = int.tryParse(source.duration.text.trim());
+    final Set<int> used = <int>{
+      ...source.ownedDurations,
+      ...takenDurations,
+      ?sourceDuration,
+    };
+    final int? seed = nearestFreeQuickPick(used);
+    if (seed != null) copy.duration.text = '$seed';
+    // Set directly: the public setter's owned-duration re-seed is already
+    // covered by `used`, and a fresh copy has no listeners yet.
+    copy._included = true;
+    return copy;
+  }
 
   /// Quick-pick duration ladder (minutes) used to seed a free duration when an
   /// already-owned type is selected again (phase 468). Ascending.
@@ -380,6 +422,50 @@ class ServiceRowState extends ChangeNotifier {
   /// Ukrainian display name shown on the row card.
   final String nameUk;
 
+  /// Phase 471 — position of this row among its type's rows: 0 for the first
+  /// (primary) row, > 0 for an extra copy. Unique per type, stable for the
+  /// row's life except when the primary is removed and this row is promoted to
+  /// 0. Not a notifier field: the screen rebuilds when it changes.
+  int copyIndex;
+
+  /// True for an extra copy row added with «+ ще раз» (phase 471).
+  bool get isExtraCopy => copyIndex > 0;
+
+  /// Widget-key id of this row: the bare [serviceTypeId] for the primary row
+  /// (so every pre-471 key is unchanged), `<id>_copy_<n>` for a copy.
+  String get keyId =>
+      copyIndex == 0 ? serviceTypeId : '${serviceTypeId}_copy_$copyIndex';
+
+  /// Phase 471 — optional custom name of this copy. Only shown while the type
+  /// has more than one row; blank = the type name.
+  final TextEditingController name = TextEditingController();
+
+  /// The trimmed custom name, or null when blank.
+  String? get customName {
+    final String t = name.text.trim();
+    return t.isEmpty ? null : t;
+  }
+
+  /// The name the backend 464 duplicate rule compares: trimmed, lower-cased,
+  /// blank = the type name.
+  String get effectiveNameKey => (customName ?? nameUk).trim().toLowerCase();
+
+  /// True when this row would be saved under the type name — the name every
+  /// existing copy in [ownedDurations] is compared with.
+  bool get keepsTypeName => effectiveNameKey == nameUk.trim().toLowerCase();
+
+  bool _copyCollision = false;
+
+  /// Phase 471 — set by the screen's pair check: this included row has the
+  /// same duration AND effective name as an earlier row of the same type, so
+  /// the save is blocked until one of them changes.
+  bool get copyCollision => _copyCollision;
+  set copyCollision(bool value) {
+    if (_copyCollision == value) return;
+    _copyCollision = value;
+    notifyListeners();
+  }
+
   /// True when the master ALREADY offers this service type (at least one
   /// copy). Drives the «Вже додано» label only.
   ///
@@ -400,11 +486,13 @@ class ServiceRowState extends ChangeNotifier {
 
   /// True while the row is included and its current duration matches an
   /// existing copy of the same type — an exact duplicate the backend would
-  /// reject with 409 `DUPLICATE_SERVICE`.
+  /// reject with 409 `DUPLICATE_SERVICE`. Phase 471: a row renamed away from
+  /// the type name may share an owned duration (existing copies carry the
+  /// type name), so only a row that keeps the type name is taken.
   bool get durationTaken {
     if (!_included || ownedDurations.isEmpty) return false;
     final int? d = int.tryParse(duration.text.trim());
-    return d != null && ownedDurations.contains(d);
+    return d != null && ownedDurations.contains(d) && keepsTypeName;
   }
 
   /// Field controllers, owned by the row so its card can recompute the
@@ -493,9 +581,24 @@ class ServiceRowState extends ChangeNotifier {
     notifyListeners();
   }
 
+  String? _serverNameError;
+
+  /// Phase 471 — a backend per-field validation message for this row's copy
+  /// name (`items[i].name`), mapped back from a 400. Rendered in the name
+  /// well's inline-error slot. Null when there is none.
+  String? get serverNameError => _serverNameError;
+  set serverNameError(String? value) {
+    if (_serverNameError == value) return;
+    _serverNameError = value;
+    notifyListeners();
+  }
+
   /// Clears the mapped-back server duration error (e.g. when the master edits
   /// the duration field, so the red state disappears as they fix the value).
   void clearServerDurationError() => serverDurationError = null;
+
+  /// Clears the mapped-back server name error (the master edited the name).
+  void clearServerNameError() => serverNameError = null;
 
   /// Clears the mapped-back server price error (e.g. when the master edits a
   /// price field).
@@ -506,10 +609,12 @@ class ServiceRowState extends ChangeNotifier {
   void clearServerErrors() {
     serverDurationError = null;
     serverPriceError = null;
+    serverNameError = null;
   }
 
   @override
   void dispose() {
+    name.dispose();
     duration.dispose();
     fixed.dispose();
     min.dispose();
@@ -536,6 +641,9 @@ class ServiceTypeRowCard extends StatefulWidget {
     required this.row,
     required this.resolveRangeError,
     this.onChanged,
+    this.onAddCopy,
+    this.onRemove,
+    this.showNameField = false,
   });
 
   final ServiceRowState row;
@@ -548,6 +656,18 @@ class ServiceTypeRowCard extends StatefulWidget {
   /// any derived aggregate (footer count, chip badges) can re-derive. The row's
   /// own card already rebuilds itself via its [ServiceRowState] notifier.
   final VoidCallback? onChanged;
+
+  /// Phase 471 — when non-null (and the row is included) a «+ ще раз» text
+  /// action under the row adds another copy of this type. Null = no action,
+  /// the row renders exactly as before.
+  final VoidCallback? onAddCopy;
+
+  /// Phase 471 — when non-null a «Прибрати» text action removes this row.
+  final VoidCallback? onRemove;
+
+  /// Phase 471 — renders the optional name field («Назва (необов'язково)»)
+  /// above the duration / price wells while the row is included.
+  final bool showNameField;
 
   @override
   State<ServiceTypeRowCard> createState() => _ServiceTypeRowCardState();
@@ -590,7 +710,11 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   /// the screen only when the CTA-gating state actually flips.
   bool _lastDurationTaken = false;
 
+  /// Last-seen name text, so a caret move never clears the server name error.
+  String _lastNameText = '';
+
   void _attach(ServiceRowState row) {
+    _lastNameText = row.name.text;
     _lastDurationText = row.duration.text;
     _lastPriceSignature = _priceSignatureOf(row);
     _lastDurationTaken = row.durationTaken;
@@ -603,6 +727,8 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     row.fixed.addListener(_onPriceChanged);
     row.min.addListener(_onPriceChanged);
     row.max.addListener(_onPriceChanged);
+    // Phase 471: a rename can flip [ServiceRowState.durationTaken].
+    row.name.addListener(_onNameChanged);
   }
 
   void _detach(ServiceRowState row) {
@@ -611,6 +737,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     row.fixed.removeListener(_onPriceChanged);
     row.min.removeListener(_onPriceChanged);
     row.max.removeListener(_onPriceChanged);
+    row.name.removeListener(_onNameChanged);
   }
 
   void _onRowChanged() {
@@ -637,6 +764,19 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
       _lastDurationTaken = taken;
       widget.onChanged?.call();
     }
+    if (mounted) setState(() {});
+  }
+
+  void _onNameChanged() {
+    final String text = widget.row.name.text;
+    if (text != _lastNameText) {
+      _lastNameText = text;
+      widget.row.clearServerNameError();
+    }
+    final bool taken = widget.row.durationTaken;
+    if (taken == _lastDurationTaken) return; // caret / no CTA-relevant change
+    _lastDurationTaken = taken;
+    widget.onChanged?.call();
     if (mounted) setState(() {});
   }
 
@@ -714,14 +854,19 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     final String? serverDurationError = on ? row.serverDurationError : null;
     final String? serverPriceError = on ? row.serverPriceError : null;
     final bool hasServerError =
-        serverDurationError != null || serverPriceError != null;
+        serverDurationError != null ||
+        serverPriceError != null ||
+        (on && row.serverNameError != null);
     // Only INCLUDED rows are ever validated, so an excluded row must never paint
     // a flag — gate the build-local flag on inclusion. This suppresses the flag
     // message, the error rim, and the inline field hints for an excluded row, and
     // lets the "виключено" off-state sub-label take over. A mapped-back server
     // error also tints the rim (its message rides the inline field slot).
     final bool clientFlagged = on && row.flagged;
-    final bool flagged = clientFlagged || hasServerError || durationTaken;
+    // Phase 471: a copy that duplicates another row of its type (pair check).
+    final bool copyCollision = on && row.copyCollision;
+    final bool flagged =
+        clientFlagged || hasServerError || durationTaken || copyCollision;
     // "The refreshed catalogue says you already offer this, so it was switched
     // off." Not a validation fault and not the master's mistake, so it borrows
     // the already-added row's calm camel hairline rather than the red error rim
@@ -757,7 +902,13 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     // just-returned constraint), then falls back to the client-side hint.
     final String? durationError =
         serverDurationError ??
-        (durationTaken ? l10n.serviceSetupDurationTaken : null) ??
+        (durationTaken
+            // A row with a name field can fix the clash by renaming too.
+            ? (widget.showNameField
+                  ? l10n.serviceSetupCopyCollision
+                  : l10n.serviceSetupDurationTaken)
+            : null) ??
+        (copyCollision ? l10n.serviceSetupCopyCollision : null) ??
         clientDurationError;
     final String? clientFixedPriceError =
         fixedPriceFlagged && row.pricingMode == ServicePriceType.fixed
@@ -772,163 +923,364 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         : clientFixedPriceError;
     final String? minPriceError = fixedMode ? null : serverPriceError;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.card),
-        // Visual weight encodes availability, heaviest to lightest:
-        //   included (extrudedCard) > selectable-but-off (extrudedSmall).
-        // An already-added (owned) row is selectable since phase 468, so it
-        // keeps the selectable lift; its hairline camel rule marks the fact.
-        border: Border.all(
-          color: flagged
-              ? BrandColors.error
-              : ((owned && !on) || ownedNow
-                    ? BrandColors.accent.withValues(alpha: 0.35)
-                    : Colors.transparent),
-          width: flagged ? 1.4 : ((owned && !on) || ownedNow ? 1 : 0),
+    // Phase 471: the low «+ ще раз» / «Прибрати» footer owns the card's
+    // bottom inset (see [_RowTextAction]); rows without it keep the pre-471
+    // geometry exactly.
+    final bool hasActions =
+        (on && widget.onAddCopy != null) || widget.onRemove != null;
+
+    return _BelowCardHitSlop(
+      slop: hasActions ? _RowTextAction.belowCardSlop : 0,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: BorderRadius.circular(VelvetRadii.card),
+          // Visual weight encodes availability, heaviest to lightest:
+          //   included (extrudedCard) > selectable-but-off (extrudedSmall).
+          // An already-added (owned) row is selectable since phase 468, so it
+          // keeps the selectable lift; its hairline camel rule marks the fact.
+          border: Border.all(
+            color: flagged
+                ? BrandColors.error
+                : ((owned && !on) || ownedNow
+                      ? BrandColors.accent.withValues(alpha: 0.35)
+                      : Colors.transparent),
+            width: flagged ? 1.4 : ((owned && !on) || ownedNow ? 1 : 0),
+          ),
+          boxShadow: on
+              ? VelvetShadows.extrudedCard
+              : VelvetShadows.extrudedSmall,
         ),
-        boxShadow: on
-            ? VelvetShadows.extrudedCard
-            : VelvetShadows.extrudedSmall,
-      ),
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.md + 2,
-        VelvetSpacing.md,
-        VelvetSpacing.md,
-        VelvetSpacing.md,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          // Header: name + (flag / excluded sub-label) + include switch.
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    AnimatedDefaultTextStyle(
-                      duration: const Duration(milliseconds: 200),
-                      style: VelvetText.subheading16.copyWith(
-                        color: on ? BrandColors.text : BrandColors.muted,
+        padding: EdgeInsets.fromLTRB(
+          VelvetSpacing.md + 2,
+          VelvetSpacing.md,
+          VelvetSpacing.md,
+          hasActions ? 0 : VelvetSpacing.md,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // Header: name + (flag / excluded sub-label) + include switch.
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: VelvetText.subheading16.copyWith(
+                          color: on ? BrandColors.text : BrandColors.muted,
+                        ),
+                        child: Text(row.nameUk),
                       ),
-                      child: Text(row.nameUk),
+                      // Header flag line only for CLIENT-side reasons — a pure
+                      // server error carries its message on the inline field slot
+                      // (below), so a generic header line here would misreport it.
+                      // `durationTooLong` is also excluded (see showHeaderFlag) so
+                      // its message shows on the duration FIELD only, never twice.
+                      if (showHeaderFlag) ...<Widget>[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: <Widget>[
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              size: 14,
+                              color: BrandColors.error,
+                            ),
+                            const SizedBox(width: VelvetSpacing.xs + 1),
+                            Flexible(
+                              child: Text(
+                                _flagMessage(l10n, reason),
+                                style: VelvetText.feedback(BrandColors.error),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (owned || ownedNow) ...<Widget>[
+                        const SizedBox(height: 2),
+                        Text(
+                          // One slot, two mutually exclusive facts, most
+                          // specific first: an already-added row says "you
+                          // already offer this" (on or off — it explains the
+                          // seeded free duration); a row the catalogue refresh
+                          // just claimed says "уже у вашому переліку" and is
+                          // emphasised because it CHANGED under the master. A
+                          // merely-off row (neither owned nor ownedNow) renders
+                          // no sub-label at all.
+                          owned
+                              ? l10n.serviceSetupRowAlreadyAdded
+                              : l10n.serviceSetupRowAlreadyInMenu,
+                          style: ownedNow
+                              ? VelvetText.svcCaptionNote.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: BrandColors.accentDeep,
+                                )
+                              : VelvetText.svcCaptionNote,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.sm),
+                _IncludeSwitch(
+                  key: Key('setup_row_toggle_${row.keyId}'),
+                  value: on,
+                  onChanged: _setIncluded,
+                  semanticLabel: row.nameUk,
+                ),
+              ],
+            ),
+
+            // Configured fields — present only while included.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (Widget child, Animation<double> anim) {
+                  // dim-decorative: fields row show/hide; 0/1
+                  return FadeTransition(
+                    opacity: anim,
+                    child: SizeTransition(
+                      sizeFactor: anim,
+                      axisAlignment: -1,
+                      child: child,
                     ),
-                    // Header flag line only for CLIENT-side reasons — a pure
-                    // server error carries its message on the inline field slot
-                    // (below), so a generic header line here would misreport it.
-                    // `durationTooLong` is also excluded (see showHeaderFlag) so
-                    // its message shows on the duration FIELD only, never twice.
-                    if (showHeaderFlag) ...<Widget>[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: <Widget>[
-                          const Icon(
-                            Icons.error_outline_rounded,
-                            size: 14,
-                            color: BrandColors.error,
-                          ),
-                          const SizedBox(width: VelvetSpacing.xs + 1),
-                          Flexible(
-                            child: Text(
-                              _flagMessage(l10n, reason),
-                              style: VelvetText.feedback(BrandColors.error),
+                  );
+                },
+                child: on
+                    ? KeyedSubtree(
+                        key: const ValueKey<String>('row-fields'),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: VelvetSpacing.md),
+                          // Compact one-line layout: the duration field is handed
+                          // to PricingField as its leading slot, so duration and
+                          // price share a single Row beneath the mode toggle.
+                          child: _withNameField(
+                            l10n,
+                            row,
+                            PricingField(
+                              mode: row.pricingMode,
+                              onModeChanged: _setMode,
+                              fixedController: row.fixed,
+                              minController: row.min,
+                              maxController: row.max,
+                              rangeError: rangeError,
+                              fixedError: fixedPriceError,
+                              // RANGE-mode server price errors ride the "min" slot
+                              // (the "max" well exposes only a ring, no text slot).
+                              minError: minPriceError,
+                              // compact=true: label-less wells, tight padding so
+                              // duration + price always share one line at ~320 dp.
+                              compact: true,
+                              durationController: row.duration,
+                              durationError: durationError,
                             ),
                           ),
-                        ],
-                      ),
-                    ] else if (owned || ownedNow) ...<Widget>[
-                      const SizedBox(height: 2),
-                      Text(
-                        // One slot, two mutually exclusive facts, most
-                        // specific first: an already-added row says "you
-                        // already offer this" (on or off — it explains the
-                        // seeded free duration); a row the catalogue refresh
-                        // just claimed says "уже у вашому переліку" and is
-                        // emphasised because it CHANGED under the master. A
-                        // merely-off row (neither owned nor ownedNow) renders
-                        // no sub-label at all.
-                        owned
-                            ? l10n.serviceSetupRowAlreadyAdded
-                            : l10n.serviceSetupRowAlreadyInMenu,
-                        style: ownedNow
-                            ? VelvetText.svcCaptionNote.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: BrandColors.accentDeep,
-                              )
-                            : VelvetText.svcCaptionNote,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-              _IncludeSwitch(
-                key: Key('setup_row_toggle_${row.serviceTypeId}'),
-                value: on,
-                onChanged: _setIncluded,
-                semanticLabel: row.nameUk,
-              ),
-            ],
-          ),
-
-          // Configured fields — present only while included.
-          AnimatedSize(
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (Widget child, Animation<double> anim) {
-                // dim-decorative: fields row show/hide; 0/1
-                return FadeTransition(
-                  opacity: anim,
-                  child: SizeTransition(
-                    sizeFactor: anim,
-                    axisAlignment: -1,
-                    child: child,
-                  ),
-                );
-              },
-              child: on
-                  ? KeyedSubtree(
-                      key: const ValueKey<String>('row-fields'),
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                        // Compact one-line layout: the duration field is handed
-                        // to PricingField as its leading slot, so duration and
-                        // price share a single Row beneath the mode toggle.
-                        child: PricingField(
-                          mode: row.pricingMode,
-                          onModeChanged: _setMode,
-                          fixedController: row.fixed,
-                          minController: row.min,
-                          maxController: row.max,
-                          rangeError: rangeError,
-                          fixedError: fixedPriceError,
-                          // RANGE-mode server price errors ride the "min" slot
-                          // (the "max" well exposes only a ring, no text slot).
-                          minError: minPriceError,
-                          // compact=true: label-less wells, tight padding so
-                          // duration + price always share one line at ~320 dp.
-                          compact: true,
-                          durationController: row.duration,
-                          durationError: durationError,
                         ),
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey<String>('row-collapsed'),
                       ),
-                    )
-                  : const SizedBox.shrink(
-                      key: ValueKey<String>('row-collapsed'),
-                    ),
+              ),
+            ),
+            if (hasActions) _copyActions(l10n, row, on),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Phase 471 — stacks the optional name well above [pricing] when
+  /// [ServiceTypeRowCard.showNameField] is set; otherwise returns [pricing]
+  /// untouched, so a row without copies keeps its exact pre-471 tree.
+  Widget _withNameField(
+    AppLocalizations l10n,
+    ServiceRowState row,
+    Widget pricing,
+  ) {
+    if (!widget.showNameField) return pricing;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        NeumorphicTextField(
+          key: Key('setup_row_name_${row.keyId}'),
+          label: l10n.serviceSetupCopyNameHint,
+          controller: row.name,
+          // Blank keeps the type name, so the type name IS the placeholder.
+          hintText: row.nameUk,
+          // Backend 464: BulkServiceItemRequest.name maxLength 100.
+          maxLength: _nameMaxLength,
+          // Mirrors the backend name allow-list (phase 464) so a character the
+          // server would reject can never be typed or pasted in.
+          inputFormatters: _nameInputFormatters,
+          errorText: row.included ? row.serverNameError : null,
+          textInputAction: TextInputAction.done,
+        ),
+        const SizedBox(height: VelvetSpacing.md),
+        pricing,
+      ],
+    );
+  }
+
+  static const int _nameMaxLength = 100;
+
+  /// Backend 464 copy-name allow-list: letters (any script), digits, space and
+  /// `- – — . , ' ’ ʼ ( ) + / & « » " № : % ! ?`.
+  static final List<TextInputFormatter>
+  _nameInputFormatters = <TextInputFormatter>[
+    FilteringTextInputFormatter.allow(
+      RegExp(
+        '[\\p{L}0-9 \u2013\u2014.,\'\u2019\u02BC()+/&\u00AB\u00BB"\u2116:%!?-]',
+        unicode: true,
+      ),
+    ),
+  ];
+
+  /// Phase 471 — the «+ ще раз» / «Прибрати» text actions under the row.
+  Widget _copyActions(AppLocalizations l10n, ServiceRowState row, bool on) {
+    final VoidCallback? onAdd = on ? widget.onAddCopy : null;
+    final VoidCallback? onRemove = widget.onRemove;
+    return Row(
+      children: <Widget>[
+        if (onAdd != null)
+          _RowTextAction(
+            key: Key('btn-setup-row-add-copy-${row.keyId}'),
+            label: l10n.serviceSetupAddCopy,
+            style: _RowTextAction.accentStyle,
+            onTap: onAdd,
+          ),
+        const Spacer(),
+        if (onRemove != null)
+          _RowTextAction(
+            key: Key('btn-setup-row-remove-${row.keyId}'),
+            label: l10n.serviceSetupRemoveCopy,
+            style: _RowTextAction.mutedStyle,
+            onTap: onRemove,
+          ),
+      ],
+    );
+  }
+}
+
+/// Phase 471 — a quiet caption-style text action in the row card's footer.
+///
+/// Kept VERY low: a single 11 sp caption line with a [_topGap] above it and
+/// the card's own bottom inset ([_bottomGap], replacing the card's 16 dp
+/// bottom padding) below it, so the footer adds only ~17 dp to the card.
+/// The whole footer band is the hit box (≈33 dp), and [_BelowCardHitSlop]
+/// extends it [belowCardSlop] dp into the empty gap under the card — a
+/// ≥48 dp vertical touch target that adds no layout height. Styles are
+/// hoisted (no per-build `copyWith`).
+class _RowTextAction extends StatelessWidget {
+  const _RowTextAction({
+    super.key,
+    required this.label,
+    required this.style,
+    required this.onTap,
+  });
+
+  final String label;
+  final TextStyle style;
+  final VoidCallback onTap;
+
+  static final TextStyle accentStyle = VelvetText.svcCaptionNote.copyWith(
+    fontWeight: FontWeight.w800,
+    color: BrandColors.accentDeep,
+  );
+  static final TextStyle mutedStyle = VelvetText.svcCaptionNote.copyWith(
+    fontWeight: FontWeight.w700,
+    color: BrandColors.muted,
+  );
+
+  static const double _minTouch = 48;
+  static const double _topGap = VelvetSpacing.xs + 2;
+  static const double _bottomGap = VelvetSpacing.sm + VelvetSpacing.xs;
+
+  /// Hit extension below the card — within the 16 dp gap the setup list
+  /// leaves under every row card, so it never overlaps another control.
+  static const double belowCardSlop = VelvetSpacing.md;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: _minTouch),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.xs,
+              _topGap,
+              VelvetSpacing.xs,
+              _bottomGap,
+            ),
+            child: Center(
+              widthFactor: 1,
+              heightFactor: 1,
+              child: Text(label, style: style),
             ),
           ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+/// Phase 471 — lets a tap up to [slop] dp BELOW the row card reach whatever
+/// sits on the card's bottom edge (the [_RowTextAction] footer band). The
+/// tap is clamped [_clampInset] dp inside the card — past the ≤1.4 dp border
+/// inset, inside the footer's [_RowTextAction._bottomGap]. Layout and paint
+/// are untouched; with `slop == 0` it is a pure pass-through, so rows without
+/// copy actions behave exactly as before.
+class _BelowCardHitSlop extends SingleChildRenderObjectWidget {
+  const _BelowCardHitSlop({required this.slop, required super.child});
+
+  final double slop;
+
+  @override
+  _RenderBelowCardHitSlop createRenderObject(BuildContext context) =>
+      _RenderBelowCardHitSlop(slop);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderBelowCardHitSlop renderObject,
+  ) {
+    renderObject.slop = slop;
+  }
+}
+
+class _RenderBelowCardHitSlop extends RenderProxyBox {
+  _RenderBelowCardHitSlop(this.slop);
+
+  double slop;
+
+  static const double _clampInset = VelvetSpacing.xs;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    final bool inSlop =
+        slop > 0 &&
+        position.dx >= 0 &&
+        position.dx < size.width &&
+        position.dy >= size.height &&
+        position.dy < size.height + slop;
+    return super.hitTest(
+      result,
+      position: inSlop
+          ? Offset(position.dx, size.height - _clampInset)
+          : position,
     );
   }
 }

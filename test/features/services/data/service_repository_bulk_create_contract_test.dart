@@ -39,6 +39,8 @@
 // Runs headless in CI:
 //   flutter test test/features/services/data/service_repository_bulk_create_contract_test.dart
 
+import 'dart:convert';
+
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
@@ -469,6 +471,63 @@ void main() {
       expect(result.first.name, 'Манікюр');
       expect(result.first.priceMin, 500.0);
       expect(result[1].name, 'Педикюр');
+    });
+  });
+
+  // =========================================================================
+  // Phase 471 — the optional per-copy `name` (backend 464). Absent → no key
+  // at all (a pre-471 body stays byte-identical); set → sent verbatim (the
+  // screen's `ServiceRowState.customName` trims and nulls a blank name before
+  // the item is built). Two items of ONE type travel in one request.
+  // =========================================================================
+  group('bulkCreate — phase 471 optional `name` on the wire', () {
+    Future<List<Map<String, dynamic>>> postAndCapture(
+      List<MasterServiceBulkItem> items,
+    ) async {
+      final h = _wire();
+      Object? body;
+      h.adapter.onPost(
+        _bulkPath,
+        (s) => s.replyCallback(201, (options) {
+          body = options.data;
+          return <String, Object?>{'success': true, 'data': <Object?>[]};
+        }),
+        data: Matchers.any,
+      );
+      await h.repo.bulkCreate(items);
+      final decoded =
+          (body is String
+                  ? jsonDecode(body! as String)
+                  : jsonDecode(jsonEncode(body)))
+              as Map<String, dynamic>;
+      return (decoded['items'] as List<dynamic>).cast<Map<String, dynamic>>();
+    }
+
+    test('a null name is OMITTED (no `name` key), a set name is sent as '
+        'given; both copies of one type ride in the same request', () async {
+      final wire = await postAndCapture(<MasterServiceBulkItem>[
+        _fixedItem,
+        _fixedItem.copyWith(durationMinutes: 90, name: 'Гель авторський'),
+      ]);
+
+      expect(wire, hasLength(2));
+      expect(wire[0]['serviceTypeId'], wire[1]['serviceTypeId']);
+      expect(
+        wire[0].containsKey('name'),
+        isFalse,
+        reason: 'pre-471 bodies must stay byte-identical — no `name: null`',
+      );
+      expect(wire[1]['name'], 'Гель авторський');
+      expect(wire[1]['durationMinutes'], 90);
+    });
+
+    test('the name rides on a RANGE item too', () async {
+      final wire = await postAndCapture(<MasterServiceBulkItem>[
+        _rangeItem.copyWith(name: 'Авторський'),
+      ]);
+
+      expect(wire.single['name'], 'Авторський');
+      expect(wire.single['priceType'], 'RANGE');
     });
   });
 

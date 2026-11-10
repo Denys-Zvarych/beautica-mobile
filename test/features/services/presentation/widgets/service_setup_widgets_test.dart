@@ -234,4 +234,237 @@ void main() {
       },
     );
   });
+
+  // ── Phase 471 — ServiceRowState copies + additive ServiceTypeRowCard params ──
+  group('phase 471 — copy rows', () {
+    const String id = 'type-massage-classic';
+    const String typeName = 'Класичний масаж';
+
+    ServiceRowState primary({String duration = '60', Set<int>? owned}) {
+      final row = ServiceRowState(
+        serviceTypeId: id,
+        nameUk: typeName,
+        alreadyAdded: owned != null,
+        ownedDurations: owned ?? const <int>{},
+      );
+      row.included = true;
+      row.duration.text = duration;
+      return row;
+    }
+
+    Future<AppLocalizations> pumpCard(
+      WidgetTester tester,
+      ServiceRowState row, {
+      VoidCallback? onAddCopy,
+      VoidCallback? onRemove,
+      bool showNameField = false,
+      double gapBelow = 0,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SizedBox(
+                width: 360,
+                // Mirrors the setup list's per-row bottom gap when set.
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: gapBelow),
+                  child: ServiceTypeRowCard(
+                    row: row,
+                    resolveRangeError: (_) => null,
+                    onAddCopy: onAddCopy,
+                    onRemove: onRemove,
+                    showNameField: showNameField,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return AppLocalizations.of(tester.element(find.byType(Scaffold)));
+    }
+
+    test('copyOf seeds the type, an empty price, included, and the nearest '
+        'free quick-pick above the source duration', () {
+      final source = primary();
+      final copy = ServiceRowState.copyOf(source);
+      addTearDown(source.dispose);
+      addTearDown(copy.dispose);
+      expect(copy.serviceTypeId, id);
+      expect(copy.nameUk, typeName);
+      expect(copy.isExtraCopy, isTrue);
+      expect(copy.keyId, '${id}_copy_1');
+      expect(copy.included, isTrue);
+      expect(copy.duration.text, '90');
+      expect(copy.fixed.text, isEmpty);
+      expect(copy.customName, isNull);
+    });
+
+    test('copyOf skips owned and other-session durations', () {
+      final source = primary(owned: const <int>{90});
+      final copy = ServiceRowState.copyOf(
+        source,
+        takenDurations: const <int>{120},
+        copyIndex: 2,
+      );
+      addTearDown(source.dispose);
+      addTearDown(copy.dispose);
+      expect(copy.duration.text, '150');
+      expect(copy.keyId, '${id}_copy_2');
+    });
+
+    test('effective name: trimmed, lower-cased, blank = type name', () {
+      final row = primary();
+      addTearDown(row.dispose);
+      expect(row.effectiveNameKey, typeName.toLowerCase());
+      row.name.text = '  класичний МАСАЖ ';
+      expect(row.effectiveNameKey, typeName.toLowerCase());
+      expect(row.keepsTypeName, isTrue);
+      row.name.text = 'Масаж спини авторський';
+      expect(row.keepsTypeName, isFalse);
+      expect(row.customName, 'Масаж спини авторський');
+    });
+
+    test('durationTaken: a renamed copy may share an owned duration', () {
+      final row = primary(owned: const <int>{60});
+      addTearDown(row.dispose);
+      row.duration.text = '60';
+      expect(row.durationTaken, isTrue);
+      row.name.text = 'Масаж спини авторський';
+      expect(row.durationTaken, isFalse);
+    });
+
+    testWidgets('no new params -> no copy actions and no name field', (
+      tester,
+    ) async {
+      final row = primary();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row);
+      expect(find.byKey(const Key('btn-setup-row-add-copy-$id')), findsNothing);
+      expect(find.byKey(const Key('btn-setup-row-remove-$id')), findsNothing);
+      expect(find.byKey(const Key('setup_row_name_$id')), findsNothing);
+    });
+
+    testWidgets('onAddCopy renders «+ ще раз» (48dp) and fires on tap', (
+      tester,
+    ) async {
+      final row = primary();
+      addTearDown(row.dispose);
+      var taps = 0;
+      final l10n = await pumpCard(tester, row, onAddCopy: () => taps++);
+      final add = find.byKey(const Key('btn-setup-row-add-copy-$id'));
+      expect(add, findsOneWidget);
+      expect(
+        find.descendant(of: add, matching: find.text(l10n.serviceSetupAddCopy)),
+        findsOneWidget,
+      );
+      await tester.tap(add);
+      expect(taps, 1);
+    });
+
+    testWidgets('«+ ще раз» touch target spans >= 48 dp vertically without '
+        'layout: footer band + slop below the card', (tester) async {
+      final row = primary();
+      addTearDown(row.dispose);
+      var taps = 0;
+      await pumpCard(tester, row, onAddCopy: () => taps++, gapBelow: 16);
+      final Rect band = tester.getRect(
+        find.byKey(const Key('btn-setup-row-add-copy-$id')),
+      );
+      final double cardBottom = tester
+          .getRect(find.byType(ServiceTypeRowCard))
+          .bottom;
+      // The footer band ends on the card's bottom edge.
+      expect(band.bottom, moreOrLessEquals(cardBottom));
+      final double top = band.top + 0.5;
+      final double bottom = cardBottom + 15.5; // inside the 16 dp slop
+      expect(bottom - top, greaterThanOrEqualTo(48));
+      await tester.tapAt(Offset(band.center.dx, top));
+      await tester.tapAt(Offset(band.center.dx, bottom));
+      expect(taps, 2);
+      // Past the slop nothing fires.
+      await tester.tapAt(Offset(band.center.dx, cardBottom + 17));
+      expect(taps, 2);
+    });
+
+    testWidgets('the action line adds at most 20 px to an included row', (
+      tester,
+    ) async {
+      final row = primary();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row);
+      final double plain = tester
+          .getSize(find.byType(ServiceTypeRowCard))
+          .height;
+      await pumpCard(tester, row, onAddCopy: () {}, onRemove: () {});
+      final double withActions = tester
+          .getSize(find.byType(ServiceTypeRowCard))
+          .height;
+      expect(withActions - plain, lessThanOrEqualTo(20));
+    });
+
+    testWidgets('«+ ще раз» is hidden while the row is excluded', (
+      tester,
+    ) async {
+      final row = primary()..included = false;
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, onAddCopy: () {});
+      expect(find.byKey(const Key('btn-setup-row-add-copy-$id')), findsNothing);
+    });
+
+    testWidgets('onRemove renders «Прибрати» and fires on tap', (tester) async {
+      final row = primary();
+      addTearDown(row.dispose);
+      var taps = 0;
+      final l10n = await pumpCard(tester, row, onRemove: () => taps++);
+      final remove = find.byKey(const Key('btn-setup-row-remove-$id'));
+      expect(
+        find.descendant(
+          of: remove,
+          matching: find.text(l10n.serviceSetupRemoveCopy),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(remove);
+      expect(taps, 1);
+    });
+
+    testWidgets('showNameField renders the optional name well bound to the '
+        'row name controller', (tester) async {
+      final row = primary();
+      addTearDown(row.dispose);
+      final l10n = await pumpCard(tester, row, showNameField: true);
+      final field = find.byKey(const Key('setup_row_name_$id'));
+      expect(field, findsOneWidget);
+      expect(
+        find.descendant(
+          of: field,
+          matching: find.text(l10n.serviceSetupCopyNameHint),
+        ),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextField)),
+        'Авторський',
+      );
+      expect(row.name.text, 'Авторський');
+    });
+
+    testWidgets('copyCollision shows serviceSetupCopyCollision inline', (
+      tester,
+    ) async {
+      final row = primary()..copyCollision = true;
+      addTearDown(row.dispose);
+      final l10n = await pumpCard(tester, row, showNameField: true);
+      expect(find.text(l10n.serviceSetupCopyCollision), findsOneWidget);
+      row.copyCollision = false;
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.serviceSetupCopyCollision), findsNothing);
+    });
+  });
 }

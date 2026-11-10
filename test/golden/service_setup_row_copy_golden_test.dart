@@ -13,6 +13,9 @@
 //     to the free quick-pick 90 with no error.
 //   - `duration_taken`: the owned type ON at the owned duration 60 — red rim +
 //     inline `serviceSetupDurationTaken`.
+//   - `extra_copy` (phase 471): a type with an extra copy row — the primary at
+//     60 and its «+ ще раз» copy at 90, both with the optional name field and
+//     «Прибрати»; the primary also shows «+ ще раз».
 //
 // GOLDENS ARE NOT ACCEPTANCE BY THEMSELVES: the `measured ground truth` group
 // below pins the behaviour each picture depends on (seeded value, error copy
@@ -72,6 +75,29 @@ Widget _ownedFixture(double width) => _frame(width, <Widget>[
 Widget _takenFixture(double width) =>
     _frame(width, <Widget>[_card(_ownedRow(included: true, duration: '60'))]);
 
+ServiceRowState _sessionRow({String? name}) {
+  final row = ServiceRowState(serviceTypeId: _typeId, nameUk: _typeName);
+  row.included = true;
+  row.duration.text = '60';
+  row.fixed.text = '500';
+  if (name != null) row.name.text = name;
+  return row;
+}
+
+Widget _copyCard(ServiceRowState row) => ServiceTypeRowCard(
+  row: row,
+  resolveRangeError: (_) => null,
+  onAddCopy: () {},
+  onRemove: () {},
+  showNameField: true,
+);
+
+Widget _extraCopyFixture(double width) {
+  final primary = _sessionRow();
+  final copy = ServiceRowState.copyOf(primary);
+  return _frame(width, <Widget>[_copyCard(primary), _copyCard(copy)]);
+}
+
 Future<AppLocalizations> _pump(WidgetTester tester, Widget child) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -116,6 +142,21 @@ void main() {
     });
   });
 
+  group('extra copy row — measured ground truth (not golden)', () {
+    testWidgets('both rows show the name field, «Прибрати» and «+ ще раз»; '
+        'the copy is seeded to 90', (tester) async {
+      final l10n = await _pump(tester, _extraCopyFixture(width));
+      expect(find.text(l10n.serviceSetupCopyNameHint), findsNWidgets(2));
+      expect(find.text(l10n.serviceSetupRemoveCopy), findsNWidgets(2));
+      expect(find.text(l10n.serviceSetupAddCopy), findsNWidgets(2));
+      expect(
+        find.byKey(const Key('setup_row_name_${_typeId}_copy_1')),
+        findsOneWidget,
+      );
+      expect(find.text('90'), findsOneWidget);
+    });
+  });
+
   group('service setup owned-row copy golden', () {
     for (final double scale in kGoldenTextScales) {
       goldenTest(
@@ -135,6 +176,15 @@ void main() {
         textScaleFactor: scale,
         pumpWidget: goldenPumpWidget(width: width),
         builder: () => _takenFixture(width),
+      );
+      goldenTest(
+        'type with an extra copy row (phase 471) ${width.toInt()}dp x$scale',
+        fileName:
+            'service_setup_row_copy_extra_copy_${widthScaleSuffix(width, scale)}',
+        constraints: BoxConstraints.tight(const Size(width, 880)),
+        textScaleFactor: scale,
+        pumpWidget: goldenPumpWidget(width: width),
+        builder: () => _extraCopyFixture(width),
       );
     }
   });

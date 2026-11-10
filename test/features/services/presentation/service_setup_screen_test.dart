@@ -1418,6 +1418,13 @@ void main() {
         // Collapse the category (tap the chip again). `_expanded` IS the
         // selection set, so collapsing DESELECTS: `_toggleCategory` runs both
         // `row.included = false` AND `row.clearFlag()` on the retained row.
+        // Phase 471: the included row carries a «+ ще раз» line, so the
+        // blocked save's scroll-to-flagged can now move the chip under the
+        // top bar — bring it back before tapping.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('cat_MANICURE')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
         await tester.pumpAndSettle();
         // While collapsed there is no flagged card on screen.
@@ -4591,5 +4598,386 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+  });
+
+  // ── Phase 471 — «+ ще раз» copy rows + client pair check ────────────────────
+  group('phase 471 — copy rows («+ ще раз» / «Прибрати») + pair check', () {
+    const String classic = 'type-classic';
+    const String copy1 = 'type-classic_copy_1';
+
+    Finder inRow(String keyId, Key key) => find.descendant(
+      of: find.byKey(Key('setup_row_$keyId')),
+      matching: find.byKey(key),
+    );
+
+    Future<void> tapKey(WidgetTester tester, Key key) async {
+      await tester.ensureVisible(find.byKey(key));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(key));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> setDuration(
+      WidgetTester tester,
+      String keyId,
+      String value,
+    ) async {
+      await tester.enterText(
+        inRow(keyId, const Key('service-setup-duration')),
+        value,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> setPrice(WidgetTester tester, String keyId, String v) async {
+      await tester.enterText(
+        inRow(keyId, const Key('pricing-fixed-amount')),
+        v,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> setName(WidgetTester tester, String keyId, String v) async {
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(Key('setup_row_name_$keyId')),
+          matching: find.byType(TextField),
+        ),
+        v,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    String durationOf(WidgetTester tester, String keyId) =>
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: inRow(keyId, const Key('service-setup-duration')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text ??
+        '';
+
+    /// SETUP mode, MANICURE expanded, classic included at 60 / 500 ₴, then
+    /// «+ ще раз» tapped once.
+    Future<AppLocalizations> pumpWithCopy(
+      WidgetTester tester, {
+      List<Object>? overrides,
+    }) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 2000),
+        overrides:
+            overrides ??
+            h.overrides(
+              categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+              typesBySlug: <String, List<ServiceTypeOption>>{
+                'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+              },
+            ),
+      );
+      await _expand(tester, 'MANICURE');
+      await _toggleRowOn(tester, classic);
+      await setDuration(tester, classic, '60');
+      await setPrice(tester, classic, '500');
+      await tapKey(tester, const Key('btn-setup-row-add-copy-$classic'));
+      return AppLocalizations.delegate.load(const Locale('uk'));
+    }
+
+    List<List<MasterServiceBulkItem>> captureSaves() {
+      final captured = <List<MasterServiceBulkItem>>[];
+      when(() => h.repo.bulkCreate(any())).thenAnswer((invocation) async {
+        captured.add(
+          invocation.positionalArguments.first as List<MasterServiceBulkItem>,
+        );
+        return _createdService;
+      });
+      return captured;
+    }
+
+    testWidgets('«+ ще раз» adds an included copy row at the nearest free '
+        'duration with an empty price; both rows get the name field and '
+        '«Прибрати»', (tester) async {
+      final l10n = await pumpWithCopy(tester);
+
+      expect(find.byKey(const Key('setup_row_$copy1')), findsOneWidget);
+      expect(durationOf(tester, copy1), '90');
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: inRow(copy1, const Key('pricing-fixed-amount')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        isEmpty,
+      );
+      for (final k in <String>[classic, copy1]) {
+        expect(find.byKey(Key('setup_row_name_$k')), findsOneWidget);
+        expect(find.byKey(Key('btn-setup-row-remove-$k')), findsOneWidget);
+      }
+      // A type without copies keeps the pre-471 row: no name, no remove.
+      expect(find.byKey(const Key('setup_row_name_type-gel')), findsNothing);
+      expect(
+        find.byKey(const Key('btn-setup-row-remove-type-gel')),
+        findsNothing,
+      );
+      expect(find.text(l10n.serviceSetupCtaCreate(2)), findsOneWidget);
+    });
+
+    // Pair-check matrix: (duration equal / different) x (name blank /
+    // same-normalised / different) -> collision + CTA state.
+    final cases =
+        <({String duration, String name, bool collides, String label})>[
+          (duration: '60', name: '', collides: true, label: 'same + blank'),
+          (
+            duration: '60',
+            name: '  класичний МАНІКЮР ',
+            collides: true,
+            label: 'same + same name (trim / case)',
+          ),
+          (
+            duration: '60',
+            name: 'Авторський',
+            collides: false,
+            label: 'same + different name',
+          ),
+          (duration: '90', name: '', collides: false, label: 'diff + blank'),
+          (
+            duration: '90',
+            name: 'класичний манікюр',
+            collides: false,
+            label: 'diff + same name',
+          ),
+          (
+            duration: '90',
+            name: 'Авторський',
+            collides: false,
+            label: 'diff + different name',
+          ),
+        ];
+    for (final c in cases) {
+      testWidgets(
+        'pair check: duration ${c.label} -> '
+        '${c.collides ? 'collision, CTA disabled' : 'no collision, CTA live'}',
+        (tester) async {
+          final l10n = await pumpWithCopy(tester);
+          await setPrice(tester, copy1, '700');
+          await setDuration(tester, copy1, c.duration);
+          if (c.name.isNotEmpty) await setName(tester, copy1, c.name);
+
+          expect(
+            _textInRow(copy1, l10n.serviceSetupCopyCollision),
+            c.collides ? findsOneWidget : findsNothing,
+          );
+          // Only the later row of a pair carries the error.
+          expect(
+            _textInRow(classic, l10n.serviceSetupCopyCollision),
+            findsNothing,
+          );
+          expect(_saveOnPressed(tester), c.collides ? isNull : isNotNull);
+        },
+      );
+    }
+
+    testWidgets('acceptance 2: a blank-name copy at 60 is blocked; typing a '
+        'name clears it and the save sends two items in order, name only '
+        'when non-blank', (tester) async {
+      final captured = captureSaves();
+      final l10n = await pumpWithCopy(tester);
+      await setPrice(tester, copy1, '700');
+      await setDuration(tester, copy1, '60');
+      expect(_saveOnPressed(tester), isNull);
+
+      await setName(tester, copy1, '  Масаж спини авторський ');
+      expect(_textInRow(copy1, l10n.serviceSetupCopyCollision), findsNothing);
+      expect(_saveOnPressed(tester), isNotNull);
+
+      await tapKey(tester, const Key('btn-setup-save'));
+      expect(captured, hasLength(1));
+      final items = captured.single;
+      expect(items, hasLength(2));
+      expect(items[0].serviceTypeId, classic);
+      expect(items[0].durationMinutes, 60);
+      expect(items[0].price, 500);
+      expect(items[0].name, isNull);
+      expect(items[1].serviceTypeId, classic);
+      expect(items[1].durationMinutes, 60);
+      expect(items[1].price, 700);
+      expect(items[1].name, 'Масаж спини авторський');
+    });
+
+    testWidgets('acceptance 4: «Прибрати» on the copy removes it — one item '
+        'of that type in the payload', (tester) async {
+      final captured = captureSaves();
+      final l10n = await pumpWithCopy(tester);
+      await tapKey(tester, const Key('btn-setup-row-remove-$copy1'));
+
+      expect(find.byKey(const Key('setup_row_$copy1')), findsNothing);
+      expect(find.byKey(const Key('setup_row_name_$classic')), findsNothing);
+      expect(find.text(l10n.serviceSetupCtaCreate(1)), findsOneWidget);
+
+      await tapKey(tester, const Key('btn-setup-save'));
+      expect(captured.single, hasLength(1));
+      expect(captured.single.single.durationMinutes, 60);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('D3: removing the FIRST row promotes the copy (keeps its '
+        'values) under the primary keys', (tester) async {
+      await pumpWithCopy(tester);
+      await setDuration(tester, copy1, '120');
+      await tapKey(tester, const Key('btn-setup-row-remove-$classic'));
+
+      expect(find.byKey(const Key('setup_row_$copy1')), findsNothing);
+      expect(find.byKey(const Key('setup_row_$classic')), findsOneWidget);
+      expect(durationOf(tester, classic), '120');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('D2: a copy renamed away from the type name may share an '
+        'owned duration; a blank one at it is blocked', (tester) async {
+      final l10n = await pumpWithCopy(
+        tester,
+        overrides: h.overrides(
+          categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+          typesBySlug: <String, List<ServiceTypeOption>>{
+            'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+          },
+          existingServices: _ownsClassic, // classic at 60
+        ),
+      );
+      // Primary moved off the owned 60 so only the copy is under test.
+      await setDuration(tester, classic, '45');
+      await setPrice(tester, copy1, '700');
+      await setDuration(tester, copy1, '60');
+      expect(_textInRow(copy1, l10n.serviceSetupCopyCollision), findsOneWidget);
+      expect(_saveOnPressed(tester), isNull);
+
+      await setName(tester, copy1, 'Авторський');
+      expect(_textInRow(copy1, l10n.serviceSetupCopyCollision), findsNothing);
+      expect(_saveOnPressed(tester), isNotNull);
+    });
+
+    String nameOf(WidgetTester tester, String keyId) =>
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(Key('setup_row_name_$keyId')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text ??
+        '';
+
+    Iterable<String> wrapperKeyIds(WidgetTester tester) =>
+        (tester.state(find.byType(ServiceSetupScreen))
+                as ServiceSetupRowKeysProbe)
+            .debugRowWrapperKeyIds;
+
+    testWidgets('the copy name field drops characters outside the backend '
+        'allow-list (emoji, #) and keeps the allowed punctuation', (
+      tester,
+    ) async {
+      await pumpWithCopy(tester);
+      await setName(tester, copy1, 'Масаж #1 \u{1F600} «Люкс» – №2: 50%!');
+
+      expect(nameOf(tester, copy1), 'Масаж 1  «Люкс» – №2: 50%!');
+    });
+
+    testWidgets('a 400 on items[0].name marks THAT row\'s name field with the '
+        'localized message, not the copy; editing the name clears it', (
+      tester,
+    ) async {
+      when(() => h.repo.bulkCreate(any())).thenThrow(
+        const ValidationFailure(
+          fieldErrors: <String, String>{'items[0].name': 'Invalid name'},
+        ),
+      );
+      final l10n = await pumpWithCopy(tester);
+      await setPrice(tester, copy1, '700');
+      await setName(tester, classic, 'Авторський');
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(
+        _textInRow(classic, l10n.serviceSetupCopyNameInvalid),
+        findsOneWidget,
+      );
+      expect(_textInRow(copy1, l10n.serviceSetupCopyNameInvalid), findsNothing);
+      expect(find.text('Invalid name'), findsNothing);
+
+      await setName(tester, classic, 'Авторський 2');
+      expect(
+        _textInRow(classic, l10n.serviceSetupCopyNameInvalid),
+        findsNothing,
+      );
+    });
+
+    testWidgets('«Прибрати» releases the removed row\'s cached wrapper key; '
+        'a promoted row releases its old copy key', (tester) async {
+      await pumpWithCopy(tester);
+      expect(wrapperKeyIds(tester), containsAll(<String>[classic, copy1]));
+
+      await tapKey(tester, const Key('btn-setup-row-remove-$copy1'));
+      expect(wrapperKeyIds(tester), contains(classic));
+      expect(wrapperKeyIds(tester), isNot(contains(copy1)));
+
+      // Re-added copy reuses index 1; removing the PRIMARY promotes it.
+      await tapKey(tester, const Key('btn-setup-row-add-copy-$classic'));
+      expect(wrapperKeyIds(tester), contains(copy1));
+      await tapKey(tester, const Key('btn-setup-row-remove-$classic'));
+      expect(wrapperKeyIds(tester), contains(classic));
+      expect(wrapperKeyIds(tester), isNot(contains(copy1)));
+      expect(find.byKey(const Key('setup_row_$classic')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('409 reconcile is on (type, duration, type name): a renamed '
+        'copy at a newly-owned duration stays selected', (tester) async {
+      when(
+        () => h.repo.bulkCreate(any()),
+      ).thenAnswer((_) async => throw const ServiceDuplicateFailure());
+      final servicesList = _MutatingServicesList(<List<MasterService>>[
+        const <MasterService>[],
+        _ownsClassic, // classic at 60 appears after the 409
+      ]);
+      final l10n = await pumpWithCopy(
+        tester,
+        overrides: <Object>[
+          serviceRepositoryProvider.overrideWithValue(h.repo),
+          servicesListProvider.overrideWith(() => servicesList),
+          approvedCategoriesProvider.overrideWith(
+            (ref) => const <ServiceCategoryOption>[_manicure],
+          ),
+          serviceTypesProvider('MANICURE').overrideWith(
+            (ref) => const <ServiceTypeOption>[_typeClassic, _typeGel],
+          ),
+        ],
+      );
+      await setPrice(tester, copy1, '700');
+      await setDuration(tester, copy1, '60');
+      await setName(tester, copy1, 'Авторський');
+      expect(find.text(l10n.serviceSetupCtaCreate(2)), findsOneWidget);
+
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      // The primary (type name, 60) is the duplicate and goes off; the
+      // renamed copy at 60 is a distinct service and stays included.
+      expect(find.text(l10n.serviceSetupCtaCreate(1)), findsOneWidget);
+      expect(
+        _textInRow(classic, l10n.serviceSetupRowAlreadyInMenu),
+        findsOneWidget,
+      );
+      expect(
+        _textInRow(copy1, l10n.serviceSetupRowAlreadyInMenu),
+        findsNothing,
+      );
+    });
   });
 }

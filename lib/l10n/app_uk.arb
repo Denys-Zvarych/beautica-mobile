@@ -2790,6 +2790,26 @@
   "@serviceSetupDurationTaken": {
     "description": "Phase 468. Inline duration error on an add-services row for a service type the master already offers, while the chosen duration matches an existing copy. The save CTA stays disabled until it changes."
   },
+  "serviceSetupAddCopy": "+ ще раз",
+  "@serviceSetupAddCopy": {
+    "description": "Phase 471. Text action under a selected add-services row that adds another copy row of the same service type (its own duration, price and optional name)."
+  },
+  "serviceSetupRemoveCopy": "Прибрати",
+  "@serviceSetupRemoveCopy": {
+    "description": "Phase 471. Text action on an add-services row that removes that copy row of a service type (shown while the type has more than one row)."
+  },
+  "serviceSetupCopyNameHint": "Назва (необов'язково)",
+  "@serviceSetupCopyNameHint": {
+    "description": "Phase 471. Label of the optional name field on an add-services copy row. Blank means the service keeps the service type name."
+  },
+  "serviceSetupCopyNameInvalid": "Назва містить недопустимі символи",
+  "@serviceSetupCopyNameInvalid": {
+    "description": "Phase 471. Inline error under an add-services copy row's name field when the server rejects the name (items[i].name) for disallowed characters."
+  },
+  "serviceSetupCopyCollision": "Така копія вже є — змініть тривалість або назву",
+  "@serviceSetupCopyCollision": {
+    "description": "Phase 471. Inline error on an add-services copy row whose duration AND name (trimmed, case-insensitive; blank = type name) match another row or an existing copy of the same service type. The save CTA stays disabled until it changes."
+  },
   "serviceErrDuplicate": "Ця послуга вже є у вашому переліку.",
   "@serviceErrDuplicate": {
     "description": "Error shown when a service-catalog create/update/bulk write returns 409 DUPLICATE_SERVICE because the service is already in the master's menu."

@@ -132,8 +132,8 @@ abstract class MasterServiceUpdate with _$MasterServiceUpdate {
 /// `POST /api/v1/independent-masters/me/services/bulk` (the empty-catalogue
 /// one-pass setup endpoint). Each item carries the chosen platform service type,
 /// a duration, and the mode-conditional pricing block — the backend derives the
-/// service name + category from the [serviceTypeId], so there is deliberately
-/// no name/category field here.
+/// service name + category from the [serviceTypeId]; [name] optionally
+/// overrides the display name of this copy (phase 471, backend 464).
 ///
 /// Pure Dart: no Flutter imports.
 @freezed
@@ -158,5 +158,10 @@ abstract class MasterServiceBulkItem with _$MasterServiceBulkItem {
     /// RANGE ceiling. Required when [priceType] == RANGE; null for FIXED.
     /// Must be strictly greater than [priceMin].
     double? priceMax,
+
+    /// Phase 471 — optional custom name for this copy of the type (backend
+    /// 464, max 100 chars). Null = the service keeps the type name. Only set
+    /// when the master typed a non-blank name.
+    String? name,
   }) = _MasterServiceBulkItem;
 }
