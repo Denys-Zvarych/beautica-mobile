@@ -274,7 +274,10 @@ abstract final class BeauticaAssetIcons {
   //     `<path fill-rule="evenodd">`, no fill/stroke colour attributes, so
   //     [AppIcon] tints them exactly like the rest of this registry.
   //
-  // All 20 are monochrome — render via `AppIcon(BeauticaAssetIcons.category…,
+  // Phase 467 adds a 21st, `categoryBodyMassage` (user's own drawing, no
+  // licence, same contract as Group B).
+  //
+  // All 21 are monochrome — render via `AppIcon(BeauticaAssetIcons.category…,
   // color: …, size: …)`; never `multicolor: true`.
   // ---------------------------------------------------------------------------
 
@@ -357,6 +360,11 @@ abstract final class BeauticaAssetIcons {
   /// Group B (traced).
   static const String categoryPermanentMakeup =
       '$_base/category_permanent_makeup.svg';
+
+  /// User's own drawing (re-traced via `scripts/icons/trace_icon.py`),
+  /// approved 2026-11-09 for the `BODY_MASSAGE` slug (Phase 467). No licence
+  /// and no Flaticon release-gate obligation.
+  static const String categoryBodyMassage = '$_base/category_body_massage.svg';
 
   // ---------------------------------------------------------------------------
   // Navigation — salon "Команда" (team) tab (Phase 21.8 re-icon)

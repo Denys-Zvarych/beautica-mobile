@@ -19,12 +19,22 @@
 // `fb.clearServices()` BEFORE boot so `GET /independent-masters/me/services`
 // returns `[]`, driving the empty branch of `_ProfileCategoriesSection`.
 //
+// PHASE 467 — BODY_MASSAGE category icon
+// ---------------------------------------
+// The fake catalog (`fb.approvedCategories`) also serves a `BODY_MASSAGE`
+// category. On the setup screen its chip (Key cat_BODY_MASSAGE) and, once
+// expanded, its group header (Key group_BODY_MASSAGE) must render the
+// `category_body_massage.svg` asset — asserted by asset key, and explicitly
+// NOT the cosmetology fallback an unmapped slug would resolve to.
+//
 // KEY POLICY
 // ----------
 // All finders are key-based (see app_harness.dart policy). The destination is
 // asserted both by the setup screen's chrome key (Key('btn-setup-close')) and
 // by the router's current location.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -50,6 +60,11 @@ void main() {
       // Empty the seeded services BEFORE boot so the master-home services
       // section resolves to its zero-services empty branch.
       fb.clearServices();
+      // Phase 467 — a BODY_MASSAGE category in the live catalog.
+      fb.approvedCategories.add(<String, dynamic>{
+        'name': 'BODY_MASSAGE',
+        'displayName': 'Масаж і догляд за тілом',
+      });
 
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
@@ -103,7 +118,39 @@ void main() {
             'tapping the CTA must open the ServiceSetupScreen '
             '(${RouteNames.serviceSetup})',
       );
+
+      // Phase 467 — the BODY_MASSAGE chip resolves to its own icon.
+      final Finder massageChip = find.byKey(
+        const ValueKey<String>('cat_BODY_MASSAGE'),
+      );
+      await tester.pumpUntilFound(massageChip);
+      _expectCategoryIcon(tester, massageChip, 'chip');
+
+      // Expand it — the group header must carry the same icon.
+      await tester.ensureVisible(massageChip);
+      await tester.pump();
+      await tester.tap(massageChip);
+      final Finder massageHeader = find.byKey(
+        const ValueKey<String>('group_BODY_MASSAGE'),
+      );
+      await tester.pumpUntilFound(massageHeader);
+      _expectCategoryIcon(tester, massageHeader, 'group header');
     },
     timeout: const Timeout(Duration(seconds: 30)),
   );
+}
+
+/// Asserts the single [AppIcon] under [owner] is the BODY_MASSAGE asset, not
+/// the cosmetology fallback an unmapped slug resolves to.
+void _expectCategoryIcon(WidgetTester tester, Finder owner, String what) {
+  final AppIcon icon = tester.widget<AppIcon>(
+    find.descendant(of: owner, matching: find.byType(AppIcon)),
+  );
+  expect(
+    icon.asset,
+    BeauticaAssetIcons.categoryBodyMassage,
+    reason: 'the BODY_MASSAGE $what must render category_body_massage.svg',
+  );
+  expect(icon.asset, endsWith('category_body_massage.svg'));
+  expect(icon.asset, isNot(BeauticaAssetIcons.categoryCosmetology));
 }
