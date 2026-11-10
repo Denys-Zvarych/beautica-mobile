@@ -3081,6 +3081,28 @@ final class FakeBackend {
 
   bool _createRejectDuplicate = false;
 
+  /// Phase 468 — when true, `PATCH /api/v1/services/svc-typed` (the edit-form
+  /// save) replies HTTP **409** with the backend's typed
+  /// `{ data: { code: "DUPLICATE_SERVICE", serviceName: null,
+  /// existingServiceDefId } }` envelope instead of the default 200: the edit
+  /// would leave two active copies of one type with the same name AND
+  /// duration (backend 464 rule). Drives `_mapServiceWriteException` →
+  /// [ServiceDuplicateFailure] → `serviceErrDuplicateCopy` on name + duration.
+  /// The PATCH still counts in [patchServiceCalls] / [lastTypedPatchBody].
+  ///
+  /// RE-WIRES ON WRITE — same reason as [createRejectDuplicate]: the status is
+  /// captured at registration, so the setter re-registers the route.
+  bool get typedPatchRejectDuplicate => _typedPatchRejectDuplicate;
+  set typedPatchRejectDuplicate(bool value) {
+    _typedPatchRejectDuplicate = value;
+    _wireTypedServicePatch();
+  }
+
+  bool _typedPatchRejectDuplicate = false;
+
+  /// The `existingServiceDefId` the [typedPatchRejectDuplicate] envelope reports.
+  String typedPatchDuplicateExistingServiceDefId = 'svc-mismatch';
+
   /// The `serviceName` the duplicate-409 envelope reports (the clashing service's
   /// display name). Threaded through so a flow can assert the typed field survives
   /// the decode; the form renders the localized copy regardless of its value.
@@ -3092,6 +3114,42 @@ final class FakeBackend {
   /// «Додати послуги» CTA). Call BEFORE `AppHarness.boot` / before the master
   /// profile's services section resolves.
   void clearServices() => _services.clear();
+
+  /// Phase 468 (acceptance 4) — appends a TYPED row to `master-removable`'s
+  /// salon catalogue ([_salonMasterServices]): `type-nails-classic` at
+  /// [durationMinutes], so the salon-target add-services screen shows that
+  /// type as OWNED and the owner can add a second copy at a free duration.
+  /// Additive — the default fixture stays untyped. Call BEFORE `boot`.
+  void seedSalonMasterTypedCopy({int durationMinutes = 60}) {
+    _salonMasterServices.add(<String, dynamic>{
+      'id': 'salon-assign-typed',
+      'masterId': 'master-removable',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 ₴',
+      'effectiveDurationMinutes': durationMinutes,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'salon-def-typed',
+        'name': 'Класичний манікюр',
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': durationMinutes,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 500,
+        'priceMax': null,
+        'priceDisplay': '500 ₴',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    });
+  }
 
   /// Phase 076 (jank audit) — appends [count] extra services to the master's
   /// own list, spread over [categories] round-robin, so a scroll-perf flow can
@@ -7837,6 +7895,40 @@ final class FakeBackend {
   /// behaviour.
   bool bulkCreatePersists = false;
 
+  /// `PATCH /api/v1/services/svc-typed` — 200 by default, or the typed 409
+  /// DUPLICATE_SERVICE envelope while [typedPatchRejectDuplicate] is armed.
+  void _wireTypedServicePatch() {
+    _adapter.onRoute(
+      '/api/v1/services/svc-typed',
+      (server) => server.replyCallback(_typedPatchRejectDuplicate ? 409 : 200, (
+        req,
+      ) {
+        patchServiceCalls++;
+        final body = _decodeBody(req.data);
+        lastPatchedService = body;
+        lastTypedPatchBody = body;
+        if (_typedPatchRejectDuplicate) {
+          return <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{
+              'code': 'DUPLICATE_SERVICE',
+              'serviceName': null,
+              'existingServiceDefId': typedPatchDuplicateExistingServiceDefId,
+            },
+            'message': 'Duplicate service',
+          };
+        }
+        final idx = _services.indexWhere(
+          (s) =>
+              (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              'svc-typed',
+        );
+        return _ok(_services[idx >= 0 ? idx : 0]);
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+  }
+
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
     _adapter.onRoute(
@@ -9488,22 +9580,7 @@ final class FakeBackend {
     // real save actually fires:
     //   • svc-typed    → 200 (positive flow: re-picked type persists)
     //   • svc-mismatch → fieldless 400 mismatch envelope (negative flow)
-    _adapter.onRoute(
-      '/api/v1/services/svc-typed',
-      (server) => server.replyCallback(200, (req) {
-        patchServiceCalls++;
-        final body = _decodeBody(req.data);
-        lastPatchedService = body;
-        lastTypedPatchBody = body;
-        final idx = _services.indexWhere(
-          (s) =>
-              (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
-              'svc-typed',
-        );
-        return _ok(_services[idx >= 0 ? idx : 0]);
-      }),
-      request: const Request(method: RequestMethods.patch, data: Matchers.any),
-    );
+    _wireTypedServicePatch();
     _adapter.onRoute(
       '/api/v1/services/svc-mismatch',
       (server) => server.replyCallback(400, (req) {

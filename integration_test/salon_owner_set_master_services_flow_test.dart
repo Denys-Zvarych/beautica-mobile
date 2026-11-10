@@ -77,10 +77,12 @@
 // file — content is proven via widget/card KEYS and via wire-call counters,
 // never localized copy.
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -109,6 +111,10 @@ const String _kSalonBulkUri = '$_kSalonServicesUri/bulk';
 /// (`salon-def-1`/`salon-def-2`) carries a `serviceTypeId`, so this type
 /// renders selectable with no ownership exclusion in play.
 const String _kFreeTypeId = 'type-nails-gel';
+
+/// Phase 468 (acceptance 4) — the type `FakeBackend.seedSalonMasterTypedCopy`
+/// gives `master-removable` at 60 min, so it renders OWNED on the salon target.
+const String _kOwnedTypeId = 'type-nails-classic';
 
 // ---------------------------------------------------------------------------
 // Phase 324 (mobile-qa D3) — cross-role bleed. A SECOND roster member of the
@@ -1340,6 +1346,213 @@ void main() {
           find.byKey(const Key('service_card_salon-assign-2')),
           findsOneWidget,
         );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ── Phase 468 acceptance 4 (decision D2) — the salon target uses the SAME
+  // add-services screen: an owner adds a SECOND copy of a type master A
+  // (`master-removable`) already offers, at a free duration, and the bulk POST
+  // goes to A's salon-scoped path carrying that copy. ─────────────────────
+  testWidgets(
+    'SALON_OWNER: an owned type on master A switched on again shows the same '
+    'owned-row copy, seeds a free duration and bulk-creates the copy for A',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..seedSalonMasterTypedCopy();
+        fb.mySalons.add(<String, dynamic>{
+          'id': _kSalonId,
+          'ownerId': 'user-owner-1',
+          'name': 'Студія Краси «Камелія»',
+          'city': 'Київ',
+          'cityId': 'city-kyiv',
+          'oblastId': 'oblast-kyiv',
+          'street': 'вул. Хрещатик',
+          'buildingNo': '12',
+          'isActive': true,
+          'isPrimary': false,
+        });
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        router.go(RouteNames.salonShell(_kSalonId));
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-nav-tile-2')),
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-2')));
+
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-$_kMemberUserId'),
+        );
+        await AppHarness.revealRosterCard(tester, masterCard);
+        await tapWhenReady(tester, masterCard);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonStaffProfileScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder servicesRow = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          servicesRow,
+          timeout: const Duration(seconds: 20),
+        );
+        await lockstepPump(tester);
+        await tapWhenReady(tester, servicesRow);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(ServicesListScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // The salon-scoped list (the owned-durations source) must be warm
+        // before the setup screen snapshots it.
+        final Finder fab = find.byKey(const Key('btn-create-service'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          fab,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, fab);
+        await lockstepPump(tester);
+
+        final Finder setupClose = find.byKey(const Key('btn-setup-close'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          setupClose,
+          timeout: const Duration(seconds: 20),
+        );
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(setupClose),
+        );
+
+        final Finder nailsChip = find.byKey(
+          const ValueKey<String>('cat_NAILS'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          nailsChip,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, nailsChip);
+
+        final Finder ownedRow = find.byKey(
+          const Key('setup_row_$_kOwnedTypeId'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          ownedRow,
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          find.descendant(
+            of: ownedRow,
+            matching: find.text(l10n.serviceSetupRowAlreadyAdded),
+          ),
+          findsOneWidget,
+          reason:
+              'D2 — the salon target renders the SAME owned-row copy as the '
+              "master's own screen; the owned set came from A's salon list",
+        );
+
+        await tapWhenReady(
+          tester,
+          find.byKey(const Key('setup_row_toggle_$_kOwnedTypeId')),
+        );
+        final Finder durationField = find.descendant(
+          of: ownedRow,
+          matching: find.byKey(const Key('service-setup-duration')),
+        );
+        final Finder priceField = find.descendant(
+          of: ownedRow,
+          matching: find.byKey(const Key('pricing-fixed-amount')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          durationField,
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          priceField,
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          tester
+              .widget<EditableText>(
+                find.descendant(
+                  of: durationField,
+                  matching: find.byType(EditableText),
+                ),
+              )
+              .controller
+              .text,
+          '90',
+          reason: "A owns {60}; the row seeds the nearest free quick-pick",
+        );
+        await tester.enterText(priceField, '650');
+        await tester.pump();
+
+        // The taken duration shows the same inline copy and blocks save.
+        await tester.enterText(durationField, '60');
+        await tester.pump();
+        expect(
+          find.descendant(
+            of: ownedRow,
+            matching: find.text(l10n.serviceSetupDurationTaken),
+          ),
+          findsOneWidget,
+        );
+        final Finder saveBtn = find.byKey(const Key('btn-setup-save'));
+        expect(tester.widget<NeumorphicButton>(saveBtn).onPressed, isNull);
+
+        await tester.enterText(durationField, '90');
+        await tester.pump();
+        expect(
+          find.descendant(
+            of: ownedRow,
+            matching: find.text(l10n.serviceSetupDurationTaken),
+          ),
+          findsNothing,
+        );
+        await tapWhenReady(tester, saveBtn);
+
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.salonBulkCreateCalls >= 1,
+          description:
+              "the salon-scoped bulk POST for A's copy — if it never fires "
+              'the owned row was blocked client-side',
+          timeout: const Duration(seconds: 20),
+        );
+        expect(fb.lastSalonBulkPath, _kSalonBulkUri);
+        expect(
+          fb.bulkCreateCalls,
+          0,
+          reason: 'never the independent-master path',
+        );
+        final List<dynamic> items = fb.lastSalonBulkItems!;
+        expect(items, hasLength(1));
+        final Map<String, dynamic> item = items.single as Map<String, dynamic>;
+        expect(
+          item['serviceTypeId'],
+          _kOwnedTypeId,
+          reason: 'phase 468 — the OWNED type ships again as a copy for A',
+        );
+        expect(item['durationMinutes'], 90);
+        expect(item['price'], 650);
       });
     },
     timeout: const Timeout(Duration(seconds: 90)),

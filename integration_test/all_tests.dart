@@ -220,6 +220,7 @@ import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'services_catalogue_refresh_flow_test.dart'
     as services_catalogue_refresh;
+import 'service_copy_flow_test.dart' as service_copy;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
@@ -782,6 +783,9 @@ void main() {
     'salon_owner_unassign_master_service_flow',
     salon_owner_unassign_master_service.main,
   );
+  // Phase 468 — an owned type re-added as a copy: free-duration seed + bulk
+  // save, owned-duration CTA block, edit-form 409 on name + duration.
+  group('service_copy_flow', service_copy.main);
   group('service_crud_flow', service_crud.main);
   group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays

@@ -30,9 +30,12 @@
 // already offers rolls back the WHOLE batch with 409 DUPLICATE_SERVICE. A
 // screen written for an empty catalogue happily lists those types, so reusing
 // it for APPEND without filtering would make some saves impossible. Rows for
-// already-owned types are therefore seeded `alreadyAdded` (see
-// [ServiceRowState.alreadyAdded]) — rendered in place, visibly inert, and
-// structurally un-includable.
+// already-owned types are therefore seeded `alreadyAdded` + `ownedDurations`
+// (see [ServiceRowState]). Phase 468 (backend 464/465): an owned type may be
+// added again as a COPY whose duration or name differs, so the row stays
+// selectable, seeds a free duration, and blocks the CTA while its duration
+// matches an existing copy (the client mirrors the duration half of the rule;
+// the server 409 backstops name collisions).
 //
 // On a successful bulk save the catalogue providers are invalidated and the
 // screen POPS back to the list. Popping (not `go`) is load-bearing: the list's
@@ -141,7 +144,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   GlobalKey _rowWrapperKey(String id) =>
       _rowWrapperKeys.putIfAbsent(id, GlobalKey.new);
 
-  /// Service-type ids the master ALREADY offers, captured ONCE in [initState].
+  /// Durations of the master's existing copies, keyed by service-type id,
+  /// captured ONCE in [initState] (phase 468 — replaces the old id set; the
+  /// key set is "types the master already offers").
   ///
   /// Source: [servicesListProvider] — the master's own «Мої послуги» catalogue.
   /// Chosen over [masterServiceCatalogProvider] deliberately: the latter is the
@@ -161,11 +166,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// 409) rather than to over-blocking, which is the safer failure direction:
   /// the 409 is recoverable and explained, an over-eager exclusion would hide a
   /// service the master genuinely cannot add any other way.
-  late final Set<String> _ownedServiceTypeIds;
+  late final Map<String, Set<int>> _ownedDurationsByType;
 
   /// True when the master already had services on entry — the APPEND case.
-  /// Drives the copy variants only; the exclusion itself keys off
-  /// [_ownedServiceTypeIds].
+  /// Drives the copy variants only; ownership itself keys off
+  /// [_ownedDurationsByType].
   late final bool _appending;
 
   /// The [ServiceRowState]s backing the LAST assembled payload, in submitted
@@ -244,15 +249,36 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // set from another account's services on a shared device. `asData?.value`
     // is null in every non-AsyncData state, giving the empty set: "exclude
     // nothing", which is exactly the SETUP behaviour and is the correct
-    // degradation — see [_ownedServiceTypeIds] on why over-blocking would be
+    // degradation — see [_ownedDurationsByType] on why over-blocking would be
     // the worse failure.
     final List<MasterService> existing =
         ref.read(servicesListProvider).asData?.value ?? const <MasterService>[];
     _appending = existing.isNotEmpty;
-    _ownedServiceTypeIds = <String>{
-      for (final MasterService s in existing)
-        if (s.serviceTypeId case final String id when id.isNotEmpty) id,
-    };
+    _ownedDurationsByType = _durationsByType(existing);
+  }
+
+  /// Groups [services] into `serviceTypeId → {durationMinutes}`. Every copy of
+  /// a type contributes its own duration, so two copies never collapse into
+  /// one entry. Rows without a type id cannot be matched and are skipped.
+  static Map<String, Set<int>> _durationsByType(List<MasterService> services) {
+    final Map<String, Set<int>> out = <String, Set<int>>{};
+    for (final MasterService s in services) {
+      if (s.serviceTypeId case final String id when id.isNotEmpty) {
+        (out[id] ??= <int>{}).add(s.durationMinutes);
+      }
+    }
+    return out;
+  }
+
+  /// True when any included row's duration matches an existing copy of its
+  /// type — the save would be an exact duplicate, so the CTA stays disabled.
+  bool get _anyDurationTaken {
+    for (final rows in _rowsByCategory.values) {
+      for (final row in rows) {
+        if (row.durationTaken) return true;
+      }
+    }
+    return false;
   }
 
   @override
@@ -361,11 +387,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
                 ServiceRowState(
                   serviceTypeId: t.id,
                   nameUk: t.nameUk,
-                  // Seeded at row-construction time so the flag is immutable for
-                  // the row's whole life — an already-owned type can never be
-                  // toggled on, so it can never reach the all-or-nothing payload
-                  // and trip a whole-batch 409.
-                  alreadyAdded: _ownedServiceTypeIds.contains(t.id),
+                  // Seeded at row-construction time, immutable for the row's
+                  // life. An owned type is selectable (phase 468) but blocks
+                  // the save while its duration matches an existing copy.
+                  alreadyAdded: _ownedDurationsByType.containsKey(t.id),
+                  ownedDurations: _ownedDurationsByType[t.id] ?? const <int>{},
                 ),
         ];
         _rowsByCategory[slug] = rows;
@@ -624,6 +650,18 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     _retryingAfterBusy = false;
 
     final l10n = AppLocalizations.of(context);
+    // Defensive: the CTA is disabled while a copy's duration is taken, but a
+    // same-frame tap could still land here — never send a known duplicate.
+    if (_anyDurationTaken) {
+      _scrollToFirstFlagged(
+        ids: <String>{
+          for (final rows in _rowsByCategory.values)
+            for (final row in rows)
+              if (row.durationTaken) row.serviceTypeId,
+        },
+      );
+      return;
+    }
     final items = _assemble();
     if (items == null || items.isEmpty) {
       // Blocked save: surface the first flagged row so the failure is visible.
@@ -689,7 +727,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // navigation away — their unsaved configuration would be lost.
     //
     // The invalidation refreshes the LIST screen behind us so it is correct on
-    // return. It still does NOT re-seed `_ownedServiceTypeIds` / `alreadyAdded`:
+    // return. It still does NOT re-seed `_ownedDurationsByType` / `alreadyAdded`:
     // those are an initState snapshot precisely so rows cannot mutate under a
     // master mid-edit. What DOES happen now is narrower and stated out loud —
     // [_flagRowsNowOwned] re-reads the catalogue and switches off only the rows
@@ -753,16 +791,23 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     }
     if (!mounted) return;
 
-    final owned = <String>{
-      for (final MasterService s in refreshed)
-        if (s.serviceTypeId case final String id when id.isNotEmpty) id,
-    };
+    // Phase 468: a type may legitimately be owned more than once, so only a
+    // row whose (type, duration) pair the refreshed list now claims is the
+    // duplicate — a copy at a different duration stays selected.
+    final owned = _durationsByType(refreshed);
     if (owned.isEmpty) return;
 
     final flagged = <String>{};
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
-        if (!row.included || !owned.contains(row.serviceTypeId)) continue;
+        if (!row.included) continue;
+        final int? duration = int.tryParse(row.duration.text.trim());
+        final Set<int>? ownedDurations = owned[row.serviceTypeId];
+        if (ownedDurations == null ||
+            duration == null ||
+            !ownedDurations.contains(duration)) {
+          continue;
+        }
         // Off FIRST: `included` is what makes a row submittable, so clearing it
         // is what actually unblocks the next save. The flag is the explanation
         // that keeps the change from reading as the app losing the selection.
@@ -971,7 +1016,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
                   total: total,
                   saving: saving,
                   appending: _appending,
-                  onSave: total == 0 ? null : _save,
+                  onSave: total == 0 || _anyDurationTaken ? null : _save,
                 );
               },
             ),
@@ -1136,10 +1181,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       }
 
       final rows = _rowsByCategory[slug] ?? const <ServiceRowState>[];
-      // "n з m" counts only the SELECTABLE types. Counting already-owned ones in
-      // `m` would render "0 з 8" for a master who already offers 8 of 8 — which
-      // reads as a broken screen rather than as "you have them all".
-      final int selectable = rows.where((r) => !r.alreadyAdded).length;
+      // "n з m": since phase 468 an owned type is selectable again (as a copy),
+      // so `m` counts every type in the category.
+      final int selectable = rows.length;
+      final bool allOwned =
+          rows.isNotEmpty && rows.every((r) => r.alreadyAdded);
       // The header's live "n з m" count derives from the aggregate so it tracks
       // include toggles without forcing a full-tree rebuild.
       out.add(
@@ -1167,10 +1213,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
             ),
           ),
         );
-      } else if (selectable == 0) {
+      } else if (allOwned) {
         // Every type here is already in the master's menu. Say so explicitly —
-        // the rows below are all inert, and without this line the category
-        // looks broken rather than complete.
+        // each row below can still be added again at another duration.
         out.add(
           _FixedSlot(
             Padding(

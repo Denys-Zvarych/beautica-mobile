@@ -484,7 +484,7 @@ Finder _textInRow(String typeId, String message) => find.descendant(
 
 /// True when [style] carries the ROLE reserved for a collapsed row's
 /// off-state sub-label: [VelvetText.svcCaptionNote] — the exact style
-/// `service_setup_widgets.dart`'s `else if (!on && (locked || ownedNow))`
+/// `service_setup_widgets.dart`'s `else if (owned || ownedNow)`
 /// branch (~:704-724) renders into. The `ownedNow` arm only overrides
 /// `fontWeight`/`color` via `copyWith`, so `fontSize`/`height`/`fontFamily`
 /// still pin the base token for both branches.
@@ -2197,25 +2197,19 @@ void main() {
     );
   });
 
-  // ── APPEND mode — already-owned service types are structurally excluded ────
+  // ── APPEND mode — already-owned types can be added again (phase 468) ──────
   //
-  // The screen now serves BOTH first-time SETUP and "add more services"
-  // (APPEND). The bulk endpoint is all-or-nothing: ONE item naming a service the
-  // master already offers rolls the WHOLE batch back with 409 DUPLICATE_SERVICE.
-  // So a row whose service-type id is already in the master's catalogue is
-  // seeded `alreadyAdded` — rendered in place, but with NO include switch at all
-  // and a hard refusal in `ServiceRowState.included`'s setter.
-  //
-  // These tests seed `servicesListProvider` (the snapshot source read once in
-  // initState) and assert the exclusion at THREE independent levels: the
-  // rendered row, the group header's "n з m" denominator, and the assembled
-  // bulk payload.
+  // Backend 464/465: a master may hold the same service type more than once if
+  // each active copy differs in duration OR name; an exact duplicate is a 409.
+  // The add-services row has no name field, so the client mirrors only the
+  // DURATION half: an owned type keeps its switch, seeds a FREE quick-pick
+  // duration when selected, and blocks the CTA with an inline error while its
+  // duration matches an existing copy. `_ownsClassic` owns classic at 60 min.
 
-  group('APPEND mode — already-owned types are excluded (HIGH — the '
-      'guaranteed-409 fix)', () {
+  group('APPEND mode — an owned type is selectable as a copy (phase 468)', () {
     testWidgets(
-      'an already-owned type renders «Вже додано» with NO include toggle, while '
-      'its selectable sibling keeps its toggle',
+      'an already-owned type renders «Вже додано» AND its include toggle; the '
+      'unowned sibling is unchanged (toggle, no sub-label)',
       (tester) async {
         await _pump(
           tester,
@@ -2233,19 +2227,10 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-        // Both rows are rendered — an owned type is shown, not hidden, so the
-        // master can see WHY it is unselectable.
-        expect(find.byKey(const Key('setup_row_type-classic')), findsOneWidget);
-        expect(find.byKey(const Key('setup_row_type-gel')), findsOneWidget);
-
-        // The owned row: the include switch does not exist at all (a disabled
-        // switch would still invite tapping), and the sub-label states the fact.
         expect(
           find.byKey(const Key('setup_row_toggle_type-classic')),
-          findsNothing,
-          reason:
-              'an already-added row must render NO include switch — the '
-              'structural guard against the guaranteed-409 batch rollback',
+          findsOneWidget,
+          reason: 'phase 468: an owned type is no longer locked',
         );
         expect(
           _textInRow('type-classic', l10n.serviceSetupRowAlreadyAdded),
@@ -2254,29 +2239,18 @@ void main() {
         expect(
           _textInRow('type-classic', l10n.serviceSetupRowAlreadyInMenu),
           findsNothing,
-          reason:
-              'the already-added fact must take the sub-label slot, not the '
-              'catalogue-refresh «already in menu» fact',
         );
-
-        // The selectable sibling is untouched — proves the exclusion is keyed on
-        // the owned id, not applied blanket to the whole category.
         expect(
           find.byKey(const Key('setup_row_toggle_type-gel')),
           findsOneWidget,
         );
-        // The selectable sibling is merely off (neither locked nor ownedNow),
-        // so it renders no sub-label at all.
         _expectRowHasNoOffStateSubLabel(tester, l10n, 'type-gel');
-
-        // One-of-two owned is NOT the "all already added" case.
         expect(find.text(l10n.serviceSetupAllAlreadyAdded), findsNothing);
       },
     );
 
     testWidgets(
-      'the SAME catalogue with an EMPTY services list keeps BOTH toggles — the '
-      'exclusion is driven by the seeded snapshot, not by the fixture shape',
+      'the SAME catalogue with an EMPTY services list renders no «Вже додано»',
       (tester) async {
         await _pump(
           tester,
@@ -2307,8 +2281,118 @@ void main() {
     );
 
     testWidgets(
-      'the bulk payload after including the SELECTABLE sibling carries ONLY its '
-      'serviceTypeId — the owned type can never reach the all-or-nothing batch',
+      'selecting the owned type seeds a FREE duration (90, not the owned 60), '
+      'no taken error, CTA live, and the payload carries the copy at 90',
+      (tester) async {
+        final captured = <List<MasterServiceBulkItem>>[];
+        when(() => h.repo.bulkCreate(any())).thenAnswer((invocation) async {
+          captured.add(
+            invocation.positionalArguments.first as List<MasterServiceBulkItem>,
+          );
+          return _createdService;
+        });
+
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 1800),
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+            },
+            existingServices: _ownsClassic,
+          ),
+        );
+        await _expand(tester, 'MANICURE');
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        await _toggleRowOn(tester, 'type-classic');
+
+        expect(_durationText(tester, 'type-classic'), '90');
+        expect(
+          _textInRow('type-classic', l10n.serviceSetupDurationTaken),
+          findsNothing,
+        );
+
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('setup_row_type-classic')),
+            matching: find.byKey(const Key('pricing-fixed-amount')),
+          ),
+          '650',
+        );
+        await tester.pumpAndSettle();
+        expect(_saveOnPressed(tester), isNotNull);
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        verify(() => h.repo.bulkCreate(any())).called(1);
+        final item = captured.single.single;
+        expect(item.serviceTypeId, 'type-classic');
+        expect(item.durationMinutes, 90);
+        await pumpPastVelvetSnack(tester);
+      },
+    );
+
+    testWidgets(
+      'choosing the OWNED duration shows the inline taken error + red rim and '
+      'disables the CTA; a free duration clears both',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 1800),
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+            },
+            existingServices: _ownsClassic,
+          ),
+        );
+        await _expand(tester, 'MANICURE');
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        await _toggleRowOn(tester, 'type-classic');
+        await _fillRowFixed(
+          tester,
+          'type-classic',
+          duration: '60',
+          price: '500',
+        );
+
+        expect(
+          _textInRow('type-classic', l10n.serviceSetupDurationTaken),
+          findsOneWidget,
+        );
+        expect(_rowHasErrorRim(tester, 'type-classic'), isTrue);
+        expect(
+          _saveOnPressed(tester),
+          isNull,
+          reason: 'an exact duplicate must never be submittable',
+        );
+
+        await _fillRowFixed(
+          tester,
+          'type-classic',
+          duration: '75',
+          price: '500',
+        );
+
+        expect(
+          _textInRow('type-classic', l10n.serviceSetupDurationTaken),
+          findsNothing,
+        );
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+        expect(_saveOnPressed(tester), isNotNull);
+      },
+    );
+
+    testWidgets(
+      'the payload after including only the UNOWNED sibling carries only its '
+      'serviceTypeId — an owned row that is not selected never leaks in',
       (tester) async {
         final captured = <List<MasterServiceBulkItem>>[];
         when(() => h.repo.bulkCreate(any())).thenAnswer((invocation) async {
@@ -2332,14 +2416,6 @@ void main() {
         );
         await _expand(tester, 'MANICURE');
 
-        // Precondition: the owned row exposes no switch, so the ONLY way it
-        // could land in the payload is a state-level leak (covered by the
-        // ServiceRowState setter unit test below).
-        expect(
-          find.byKey(const Key('setup_row_toggle_type-classic')),
-          findsNothing,
-        );
-
         await _toggleRowOn(tester, 'type-gel');
         await _fillRowFixed(tester, 'type-gel', duration: '90', price: '700');
 
@@ -2347,23 +2423,16 @@ void main() {
         await tester.pumpAndSettle();
 
         verify(() => h.repo.bulkCreate(any())).called(1);
-        expect(captured, hasLength(1));
-        final ids = captured.single.map((i) => i.serviceTypeId).toList();
-        expect(ids, <String>['type-gel']);
-        expect(
-          ids,
-          isNot(contains('type-classic')),
-          reason:
-              'submitting an already-owned service type 409s the ENTIRE batch — '
-              'it must never be assembled into the payload',
-        );
+        expect(captured.single.map((i) => i.serviceTypeId).toList(), <String>[
+          'type-gel',
+        ]);
         await pumpPastVelvetSnack(tester);
       },
     );
 
     testWidgets(
-      'the group header "n з m" denominator counts only SELECTABLE types — 1 of '
-      '2 owned reads «0 з 1», never «0 з 2»',
+      'the group header "n з m" denominator counts every type now that owned '
+      'ones are selectable — 1 of 2 owned reads «0 з 2»',
       (tester) async {
         await _pump(
           tester,
@@ -2381,50 +2450,38 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-        expect(
-          find.text(l10n.serviceSetupGroupCount(0, 1)),
-          findsOneWidget,
-          reason:
-              'm must exclude the already-owned type — counting it would render '
-              '«0 з 8» for a master who already offers 8 of 8',
-        );
-        expect(find.text(l10n.serviceSetupGroupCount(0, 2)), findsNothing);
-
-        // Including the one selectable row moves the numerator, not the
-        // denominator.
-        await _toggleRowOn(tester, 'type-gel');
-        expect(find.text(l10n.serviceSetupGroupCount(1, 1)), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'with an EMPTY catalogue the SAME two types read «0 з 2» — the denominator '
-      'genuinely tracks ownership',
-      (tester) async {
-        await _pump(
-          tester,
-          h,
-          surfaceSize: const Size(800, 1800),
-          overrides: h.overrides(
-            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
-            typesBySlug: <String, List<ServiceTypeOption>>{
-              'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
-            },
-            existingServices: const <MasterService>[],
-          ),
-        );
-        await _expand(tester, 'MANICURE');
-
-        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-
         expect(find.text(l10n.serviceSetupGroupCount(0, 2)), findsOneWidget);
-        expect(find.text(l10n.serviceSetupGroupCount(0, 1)), findsNothing);
+        await _toggleRowOn(tester, 'type-classic');
+        expect(find.text(l10n.serviceSetupGroupCount(1, 2)), findsOneWidget);
       },
     );
 
+    testWidgets('with an EMPTY catalogue the SAME two types read «0 з 2»', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: h.overrides(
+          categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+          typesBySlug: <String, List<ServiceTypeOption>>{
+            'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+          },
+          existingServices: const <MasterService>[],
+        ),
+      );
+      await _expand(tester, 'MANICURE');
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      expect(find.text(l10n.serviceSetupGroupCount(0, 2)), findsOneWidget);
+      expect(find.text(l10n.serviceSetupGroupCount(0, 1)), findsNothing);
+    });
+
     testWidgets(
-      'when EVERY type in the expanded category is already owned the category '
-      'says so (serviceSetupAllAlreadyAdded) instead of looking broken',
+      'when EVERY type in the category is owned the note still says so, but '
+      'both rows keep their toggles',
       (tester) async {
         await _pump(
           tester,
@@ -2443,19 +2500,18 @@ void main() {
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
         expect(find.text(l10n.serviceSetupAllAlreadyAdded), findsOneWidget);
-        // Both rows are inert: neither has a switch, both carry the fact label.
         expect(
           find.byKey(const Key('setup_row_toggle_type-classic')),
-          findsNothing,
+          findsOneWidget,
         );
         expect(
           find.byKey(const Key('setup_row_toggle_type-gel')),
-          findsNothing,
+          findsOneWidget,
         );
         expect(find.text(l10n.serviceSetupRowAlreadyAdded), findsNWidgets(2));
-        // Nothing is selectable → the CTA stays disabled.
+        // Nothing included yet → the CTA stays disabled.
         expect(_saveOnPressed(tester), isNull);
-        expect(find.text(l10n.serviceSetupGroupCount(0, 0)), findsOneWidget);
+        expect(find.text(l10n.serviceSetupGroupCount(0, 2)), findsOneWidget);
       },
     );
   });
@@ -2536,8 +2592,8 @@ void main() {
       // ── classic — locked (owned at load) ──────────────────────────────
       expect(
         find.byKey(const Key('setup_row_toggle_type-classic')),
-        findsNothing,
-        reason: 'a locked row renders no include switch at all',
+        findsOneWidget,
+        reason: 'phase 468: an owned row keeps its include switch',
       );
       expect(
         _textInRow('type-classic', l10n.serviceSetupRowAlreadyAdded),
@@ -2565,9 +2621,7 @@ void main() {
       expect(
         find.byKey(const Key('setup_row_toggle_type-art')),
         findsOneWidget,
-        reason:
-            'unlike locked, ownedNow is not the immutable at-load '
-            'exclusion — the row keeps its (now-off) switch',
+        reason: 'ownedNow keeps its (now-off) switch',
       );
       expect(
         _textInRow('type-art', l10n.serviceSetupRowAlreadyInMenu),
@@ -2616,80 +2670,87 @@ void main() {
     });
   });
 
-  // ── State-level guard — ServiceRowState.included refuses alreadyAdded ───────
-  //
-  // The UI-level proof above (no switch rendered) and this state-level proof are
-  // deliberately independent: the widget test would still pass if the switch were
-  // merely hidden while the flag stayed mutable, and this test would still pass
-  // if the card rendered a live switch over an immutable flag. Only both together
-  // establish that an owned type cannot reach the payload.
+  // ── State-level — ServiceRowState copies (phase 468) ──────────────────────
 
-  group('ServiceRowState.alreadyAdded — the included setter hard-refuses', () {
-    test('setting included = true on an alreadyAdded row leaves it false and '
-        'notifies nobody', () {
+  group('ServiceRowState — owned type as a copy (phase 468)', () {
+    test('including an owned row succeeds and seeds the nearest free '
+        'quick-pick ABOVE the longest owned duration', () {
       final row = ServiceRowState(
         serviceTypeId: 'type-classic',
         nameUk: 'Класичний манікюр',
         alreadyAdded: true,
+        ownedDurations: const <int>{60},
+      );
+      addTearDown(row.dispose);
+
+      row.included = true;
+
+      expect(row.included, isTrue);
+      expect(row.duration.text, '90');
+      expect(row.durationTaken, isFalse);
+    });
+
+    test('a free duration the master typed survives toggling on', () {
+      final row = ServiceRowState(
+        serviceTypeId: 'type-classic',
+        nameUk: 'Класичний манікюр',
+        alreadyAdded: true,
+        ownedDurations: const <int>{60},
+      );
+      addTearDown(row.dispose);
+      row.duration.text = '75';
+
+      row.included = true;
+
+      expect(row.duration.text, '75');
+    });
+
+    test('durationTaken is true only while included at an owned duration', () {
+      final row = ServiceRowState(
+        serviceTypeId: 'type-classic',
+        nameUk: 'Класичний манікюр',
+        alreadyAdded: true,
+        ownedDurations: const <int>{60, 90},
+      );
+      addTearDown(row.dispose);
+      row.duration.text = '60';
+      expect(row.durationTaken, isFalse, reason: 'excluded rows never block');
+
+      row.included = true;
+      expect(row.duration.text, '120', reason: '60 was taken → re-seeded');
+      row.duration.text = ' 90 ';
+      expect(row.durationTaken, isTrue);
+      row.duration.text = '45';
+      expect(row.durationTaken, isFalse);
+    });
+
+    test('nearestFreeQuickPick falls back below, and null when all taken', () {
+      expect(ServiceRowState.nearestFreeQuickPick(const <int>{}), isNull);
+      expect(ServiceRowState.nearestFreeQuickPick(const <int>{240, 180}), 150);
+      expect(
+        ServiceRowState.nearestFreeQuickPick(
+          ServiceRowState.durationQuickPicks.toSet(),
+        ),
+        isNull,
+      );
+    });
+
+    test('a NON-owned row toggles normally and keeps an empty duration', () {
+      final row = ServiceRowState(
+        serviceTypeId: 'type-gel',
+        nameUk: 'Гель-лак',
       );
       addTearDown(row.dispose);
 
       var notifications = 0;
       row.addListener(() => notifications++);
 
-      expect(row.included, isFalse);
-
       row.included = true;
 
-      expect(
-        row.included,
-        isFalse,
-        reason:
-            'the setter must refuse — this is the single choke point that stops '
-            'any call site (a stray toggle, a future "select all") smuggling an '
-            'owned type into the all-or-nothing bulk payload',
-      );
-      expect(
-        notifications,
-        0,
-        reason: 'a refused write must not fake a state change to listeners',
-      );
+      expect(row.included, isTrue);
+      expect(row.duration.text, isEmpty);
+      expect(notifications, 1);
     });
-
-    test(
-      'a NON-owned row still toggles normally — the guard is not blanket',
-      () {
-        final row = ServiceRowState(
-          serviceTypeId: 'type-gel',
-          nameUk: 'Гель-лак',
-        );
-        addTearDown(row.dispose);
-
-        var notifications = 0;
-        row.addListener(() => notifications++);
-
-        row.included = true;
-
-        expect(row.included, isTrue);
-        expect(notifications, 1);
-      },
-    );
-
-    test(
-      'an alreadyAdded row can still be set FALSE (idempotent, no throw)',
-      () {
-        final row = ServiceRowState(
-          serviceTypeId: 'type-classic',
-          nameUk: 'Класичний манікюр',
-          alreadyAdded: true,
-        );
-        addTearDown(row.dispose);
-
-        row.included = false;
-
-        expect(row.included, isFalse);
-      },
-    );
   });
 
   // ── SETUP vs APPEND copy ───────────────────────────────────────────────────
@@ -3819,7 +3880,7 @@ void main() {
   // ── Nullable serviceTypeId degrades toward UNDER-blocking ──────────────────
   //
   // `MasterService.serviceTypeId` is nullable: a pre-Phase-16.3 row carries no
-  // type id. `_ownedServiceTypeIds` is built with
+  // type id. `_ownedDurationsByType` is built with
   // `if (s.serviceTypeId case final String id when id.isNotEmpty)`, so such a
   // row contributes nothing and the corresponding type stays SELECTABLE.
   //
@@ -3885,8 +3946,8 @@ void main() {
     );
 
     testWidgets(
-      'CONTRAST — the SAME row carrying the matching serviceTypeId DOES block '
-      'it, so the test above is about the null and not about the fixture',
+      'CONTRAST — the SAME row carrying the matching serviceTypeId DOES mark '
+      'it owned, so the test above is about the null and not about the fixture',
       (tester) async {
         await _pump(
           tester,
@@ -3902,13 +3963,16 @@ void main() {
         );
         await _expand(tester, 'MANICURE');
 
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        // Phase 468: ownership no longer removes the switch — it marks the row
+        // «Вже додано» (and seeds its owned durations).
         expect(
-          find.byKey(const Key('setup_row_toggle_type-classic')),
-          findsNothing,
+          _textInRow('type-classic', l10n.serviceSetupRowAlreadyAdded),
+          findsOneWidget,
         );
         expect(
-          find.byKey(const Key('setup_row_toggle_type-gel')),
-          findsOneWidget,
+          _textInRow('type-gel', l10n.serviceSetupRowAlreadyAdded),
+          findsNothing,
         );
       },
     );

@@ -333,7 +333,46 @@ class ServiceRowState extends ChangeNotifier {
     required this.serviceTypeId,
     required this.nameUk,
     this.alreadyAdded = false,
+    this.ownedDurations = const <int>{},
   });
+
+  /// Quick-pick duration ladder (minutes) used to seed a free duration when an
+  /// already-owned type is selected again (phase 468). Ascending.
+  static const List<int> durationQuickPicks = <int>[
+    30,
+    45,
+    60,
+    90,
+    120,
+    150,
+    180,
+    240,
+  ];
+
+  /// The quick-pick value to seed for a copy of a type whose existing copies
+  /// run [owned] minutes: the nearest free ladder value ABOVE the longest
+  /// owned duration, else the nearest free one below it, else `null` (every
+  /// ladder value is taken — the master types one).
+  static int? nearestFreeQuickPick(Set<int> owned) {
+    if (owned.isEmpty) return null;
+    final int longest = owned.reduce((int a, int b) => a > b ? a : b);
+    int? best;
+    for (final int v in durationQuickPicks) {
+      if (owned.contains(v)) continue;
+      if (best == null) {
+        best = v;
+        continue;
+      }
+      final bool vAbove = v > longest;
+      final bool bestAbove = best > longest;
+      if (vAbove != bestAbove) {
+        if (vAbove) best = v;
+        continue;
+      }
+      if ((v - longest).abs() < (best - longest).abs()) best = v;
+    }
+    return best;
+  }
 
   /// The platform service-type id submitted in the bulk payload.
   final String serviceTypeId;
@@ -341,20 +380,32 @@ class ServiceRowState extends ChangeNotifier {
   /// Ukrainian display name shown on the row card.
   final String nameUk;
 
-  /// True when the master ALREADY offers this service type, so it must never be
-  /// submitted: the bulk endpoint is all-or-nothing and would reject the whole
-  /// batch with 409 `DUPLICATE_SERVICE` over this one item.
+  /// True when the master ALREADY offers this service type (at least one
+  /// copy). Drives the «Вже додано» label only.
   ///
-  /// Immutable for the row's lifetime — it is seeded from the master's existing
-  /// catalogue when the category's types load. The row still RENDERS (visibly
-  /// disabled + "вже додано"), because a master hunting for a service they
-  /// already have must see why it is unselectable rather than conclude the
-  /// catalogue is broken.
+  /// Phase 468: an owned type is selectable again — the backend accepts a copy
+  /// whose duration OR name differs from every active copy. The add-services
+  /// row has no name field (its name is the type name), so the client mirrors
+  /// only the duration half of the rule via [ownedDurations]; the server 409
+  /// stays the backstop for name collisions.
   ///
-  /// [included] is hard-gated on this: the setter refuses to turn a
-  /// already-added row on, so no code path — not a stray toggle, not a future
-  /// "select all" — can smuggle one into the payload.
+  /// Immutable for the row's lifetime — seeded from the master's existing
+  /// catalogue when the category's types load.
   final bool alreadyAdded;
+
+  /// Durations (minutes) of the master's existing copies of this type. Empty
+  /// for a type the master does not offer. An included row whose duration is
+  /// one of these is [durationTaken] and blocks the save.
+  final Set<int> ownedDurations;
+
+  /// True while the row is included and its current duration matches an
+  /// existing copy of the same type — an exact duplicate the backend would
+  /// reject with 409 `DUPLICATE_SERVICE`.
+  bool get durationTaken {
+    if (!_included || ownedDurations.isEmpty) return false;
+    final int? d = int.tryParse(duration.text.trim());
+    return d != null && ownedDurations.contains(d);
+  }
 
   /// Field controllers, owned by the row so its card can recompute the
   /// cross-field range error from the min/max text without a screen rebuild.
@@ -372,12 +423,19 @@ class ServiceRowState extends ChangeNotifier {
   /// makes its rows required.
   bool get included => _included;
   set included(bool value) {
-    // Hard gate: an already-owned service type can never be included, so it can
-    // never reach the payload. Enforced here rather than at the call sites so a
-    // single missed guard cannot resurrect the guaranteed-409 bug.
-    if (alreadyAdded && value) return;
     if (_included == value) return;
     _included = value;
+    // Phase 468: a re-selected owned type starts at a FREE duration, so the
+    // master is not greeted by an error on a value they did not choose. Only
+    // an empty or already-taken duration is replaced — a value they typed and
+    // that is free survives a toggle off/on.
+    if (value && ownedDurations.isNotEmpty) {
+      final int? current = int.tryParse(duration.text.trim());
+      if (current == null || ownedDurations.contains(current)) {
+        final int? seed = nearestFreeQuickPick(ownedDurations);
+        if (seed != null) duration.text = '$seed';
+      }
+    }
     notifyListeners();
   }
 
@@ -528,9 +586,14 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   String _lastDurationText = '';
   String _lastPriceSignature = '';
 
+  /// Last-seen [ServiceRowState.durationTaken], so a duration edit notifies
+  /// the screen only when the CTA-gating state actually flips.
+  bool _lastDurationTaken = false;
+
   void _attach(ServiceRowState row) {
     _lastDurationText = row.duration.text;
     _lastPriceSignature = _priceSignatureOf(row);
+    _lastDurationTaken = row.durationTaken;
     row.addListener(_onRowChanged);
     // Editing the duration clears any mapped-back server duration error so the
     // red state disappears as the master fixes the value.
@@ -566,6 +629,14 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     if (text == _lastDurationText) return; // caret / selection only
     _lastDurationText = text;
     widget.row.clearServerDurationError();
+    // Phase 468: a duration edit can flip the row into / out of the
+    // taken-duration state, which gates the footer CTA — tell the screen so
+    // its aggregate re-derives. Only on a FLIP, so plain typing stays local.
+    final bool taken = widget.row.durationTaken;
+    if (taken != _lastDurationTaken) {
+      _lastDurationTaken = taken;
+      widget.onChanged?.call();
+    }
     if (mounted) setState(() {});
   }
 
@@ -579,6 +650,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
 
   void _setIncluded(bool v) {
     widget.row.included = v;
+    _lastDurationTaken = widget.row.durationTaken;
     // Toggling clears any stale flag — an excluded row is never required, and a
     // freshly-included one starts clean (its inline hints fire only on save).
     widget.row.clearFlag();
@@ -629,12 +701,13 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final ServiceRowState row = widget.row;
-    // A service the master already offers: rendered in place but inert. It can
-    // never be `included` (the setter refuses), so every downstream
-    // include-derived branch below already resolves to the "off" path — `locked`
-    // only changes the PRESENTATION.
-    final bool locked = row.alreadyAdded;
+    // A service the master already offers. Phase 468: no longer inert — it
+    // keeps its include switch and can be added again at a free duration;
+    // `owned` only drives the «Вже додано» label and the calm camel hairline.
+    final bool owned = row.alreadyAdded;
     final bool on = row.included;
+    // Included copy whose duration matches an existing copy (exact duplicate).
+    final bool durationTaken = row.durationTaken;
     final RowFlagReason reason = row.flagReason;
     // Backend per-field validation mapped back onto this row (null when none).
     // Only ever set on included rows (only included rows are submitted).
@@ -648,7 +721,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     // lets the "виключено" off-state sub-label take over. A mapped-back server
     // error also tints the rim (its message rides the inline field slot).
     final bool clientFlagged = on && row.flagged;
-    final bool flagged = clientFlagged || hasServerError;
+    final bool flagged = clientFlagged || hasServerError || durationTaken;
     // "The refreshed catalogue says you already offer this, so it was switched
     // off." Not a validation fault and not the master's mistake, so it borrows
     // the already-added row's calm camel hairline rather than the red error rim
@@ -682,7 +755,10 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         : (durationMissing ? l10n.serviceSetupDurationRequired : null);
     // Server error wins over the client hint (it is the authoritative,
     // just-returned constraint), then falls back to the client-side hint.
-    final String? durationError = serverDurationError ?? clientDurationError;
+    final String? durationError =
+        serverDurationError ??
+        (durationTaken ? l10n.serviceSetupDurationTaken : null) ??
+        clientDurationError;
     final String? clientFixedPriceError =
         fixedPriceFlagged && row.pricingMode == ServicePriceType.fixed
         ? l10n.serviceSetupPriceRequired
@@ -703,21 +779,20 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         color: BrandColors.base,
         borderRadius: BorderRadius.circular(VelvetRadii.card),
         // Visual weight encodes availability, heaviest to lightest:
-        //   included (extrudedCard) > selectable-but-off (extrudedSmall) >
-        //   already-added (no shadow, hairline camel rule).
-        // The already-added row sits FLAT on the surface so it reads as part of
-        // the page rather than as an object you could pick up.
+        //   included (extrudedCard) > selectable-but-off (extrudedSmall).
+        // An already-added (owned) row is selectable since phase 468, so it
+        // keeps the selectable lift; its hairline camel rule marks the fact.
         border: Border.all(
           color: flagged
               ? BrandColors.error
-              : (locked || ownedNow
+              : ((owned && !on) || ownedNow
                     ? BrandColors.accent.withValues(alpha: 0.35)
                     : Colors.transparent),
-          width: flagged ? 1.4 : (locked || ownedNow ? 1 : 0),
+          width: flagged ? 1.4 : ((owned && !on) || ownedNow ? 1 : 0),
         ),
-        boxShadow: locked
-            ? null
-            : (on ? VelvetShadows.extrudedCard : VelvetShadows.extrudedSmall),
+        boxShadow: on
+            ? VelvetShadows.extrudedCard
+            : VelvetShadows.extrudedSmall,
       ),
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.md + 2,
@@ -765,17 +840,18 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           ),
                         ],
                       ),
-                    ] else if (!on && (locked || ownedNow)) ...<Widget>[
+                    ] else if (owned || ownedNow) ...<Widget>[
                       const SizedBox(height: 2),
                       Text(
                         // One slot, two mutually exclusive facts, most
                         // specific first: an already-added row says "you
-                        // already offer this"; a row the catalogue refresh just
-                        // claimed says "уже у вашому переліку" and is emphasised
-                        // because it CHANGED under the master. A merely-off row
-                        // (neither locked nor ownedNow) renders no sub-label at
-                        // all — nothing to say beyond the switch itself.
-                        locked
+                        // already offer this" (on or off — it explains the
+                        // seeded free duration); a row the catalogue refresh
+                        // just claimed says "уже у вашому переліку" and is
+                        // emphasised because it CHANGED under the master. A
+                        // merely-off row (neither owned nor ownedNow) renders
+                        // no sub-label at all.
+                        owned
                             ? l10n.serviceSetupRowAlreadyAdded
                             : l10n.serviceSetupRowAlreadyInMenu,
                         style: ownedNow
@@ -790,18 +866,12 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                 ),
               ),
               const SizedBox(width: VelvetSpacing.sm),
-              // A disabled switch still invites tapping, so an already-added row
-              // does not render one at all — it gets a static check glyph, which
-              // is a STATUS and cannot be mistaken for a control.
-              if (locked)
-                const _AlreadyAddedMark()
-              else
-                _IncludeSwitch(
-                  key: Key('setup_row_toggle_${row.serviceTypeId}'),
-                  value: on,
-                  onChanged: _setIncluded,
-                  semanticLabel: row.nameUk,
-                ),
+              _IncludeSwitch(
+                key: Key('setup_row_toggle_${row.serviceTypeId}'),
+                value: on,
+                onChanged: _setIncluded,
+                semanticLabel: row.nameUk,
+              ),
             ],
           ),
 
@@ -858,41 +928,6 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// The already-added marker that REPLACES the include switch on a service type
-/// the master already offers.
-///
-/// A recessed circular well with a camel check — the same carved-in language as
-/// every other inset on the page, at the size the switch vacated so the row's
-/// trailing edge stays aligned with its selectable neighbours. Deliberately
-/// inert: no [GestureDetector], no `Semantics(button:)`, no toggled state.
-class _AlreadyAddedMark extends StatelessWidget {
-  const _AlreadyAddedMark();
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Semantics(
-      // Announced as a plain label: screen-reader users must hear a fact, not
-      // an actionable control they cannot actuate.
-      label: l10n.serviceSetupRowAlreadyAdded,
-      child: SizedBox(
-        height: 30,
-        width: 30,
-        child: NeumorphicInset(
-          radius: VelvetRadii.pill,
-          child: Center(
-            child: Icon(
-              Icons.check_rounded,
-              size: 16,
-              color: BrandColors.accent.withValues(alpha: 0.9),
-            ),
-          ),
-        ),
       ),
     );
   }
