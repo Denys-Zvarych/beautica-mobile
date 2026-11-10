@@ -257,6 +257,8 @@ void main() {
       ServiceRowState row, {
       VoidCallback? onAddCopy,
       VoidCallback? onRemove,
+      VoidCallback? onChanged,
+      ValueChanged<bool>? onFieldEdited,
       bool showNameField = false,
       double gapBelow = 0,
     }) async {
@@ -277,6 +279,8 @@ void main() {
                     resolveRangeError: (_) => null,
                     onAddCopy: onAddCopy,
                     onRemove: onRemove,
+                    onChanged: onChanged,
+                    onFieldEdited: onFieldEdited,
                     showNameField: showNameField,
                   ),
                 ),
@@ -465,6 +469,55 @@ void main() {
       row.copyCollision = false;
       await tester.pumpAndSettle();
       expect(find.text(l10n.serviceSetupCopyCollision), findsNothing);
+    });
+
+    test('durationMinutes / customName are cached from the controller TEXT '
+        'and follow every text change', () {
+      final row = ServiceRowState(
+        serviceTypeId: id,
+        nameUk: typeName,
+        name: '  Авторський ',
+      );
+      addTearDown(row.dispose);
+      expect(row.durationMinutes, isNull);
+      expect(row.customName, 'Авторський');
+      row.duration.text = ' 75 ';
+      expect(row.durationMinutes, 75);
+      row.duration.selection = const TextSelection.collapsed(offset: 0);
+      expect(row.durationMinutes, 75);
+      row.duration.text = 'x';
+      expect(row.durationMinutes, isNull);
+      row.name.text = '   ';
+      expect(row.customName, isNull);
+      expect(row.effectiveNameKey, typeName.toLowerCase());
+    });
+
+    testWidgets('onFieldEdited reports every real duration / name edit once '
+        '(with the taken flip) and replaces onChanged for field edits; caret '
+        'moves report nothing', (tester) async {
+      final row = primary(duration: '45', owned: <int>{60});
+      addTearDown(row.dispose);
+      var changed = 0;
+      final flips = <bool>[];
+      await pumpCard(
+        tester,
+        row,
+        showNameField: true,
+        onChanged: () => changed++,
+        onFieldEdited: flips.add,
+      );
+
+      row.duration.selection = const TextSelection.collapsed(offset: 0);
+      row.name.selection = const TextSelection.collapsed(offset: 0);
+      await tester.pump();
+      expect(flips, isEmpty);
+
+      row.duration.text = '60'; // owned → taken flips on
+      row.name.text = 'Авторський'; // renamed → taken flips off
+      row.name.text = 'Авторський 2'; // no flip
+      await tester.pump();
+      expect(flips, <bool>[true, true, false]);
+      expect(changed, 0, reason: 'field edits go through onFieldEdited only');
     });
   });
 }

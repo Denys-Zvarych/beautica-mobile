@@ -3192,6 +3192,47 @@ final class FakeBackend {
     });
   }
 
+  /// Phase 471 (mobile-qa) — appends a RENAMED copy of `type-nails-classic`
+  /// to the independent master's own catalogue ([_services]): [name] at
+  /// [durationMinutes]. A renamed copy is invisible to the add-services
+  /// screen's client pre-check (that only knows type-name copies), so a new
+  /// row colliding with it by canonical name reaches the server 409 backstop
+  /// and the post-409 reconcile. Additive — nothing else calls this. Call
+  /// BEFORE `boot`.
+  void seedOwnedNamedCopy({
+    required String name,
+    required int durationMinutes,
+  }) {
+    _services.add(<String, dynamic>{
+      'id': 'assign-named-copy',
+      'masterId': 'user-master-1',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 700,
+      'priceMax': null,
+      'priceDisplay': '700 ₴',
+      'effectiveDurationMinutes': durationMinutes,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'svc-named-copy',
+        'name': name,
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': durationMinutes,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 700,
+        'priceMax': null,
+        'priceDisplay': '700 ₴',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    });
+  }
+
   /// Phase 076 (jank audit) — appends [count] extra services to the master's
   /// own list, spread over [categories] round-robin, so a scroll-perf flow can
   /// mount a list well past the default three rows. Additive: nothing calls

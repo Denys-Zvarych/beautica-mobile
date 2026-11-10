@@ -1,7 +1,7 @@
 // Phase 469 — a one-line service name with an optional « · {hint}» suffix.
 //
-// Shared by `ServiceInfo` (services list card) and `ServiceTile` (master
-// profile) so the hint layout lives in one place.
+// Shared by `ServiceInfo` (services list card, `service_category_list.dart`)
+// so the hint layout lives in one place.
 //
 // Phase 470 — also the client booking surfaces (catalogue tile, salon
 // accordion row, selected-services shelf, booking recap). Additive params
@@ -21,8 +21,9 @@ const String _fsi = '\u2068';
 const String _pdi = '\u2069';
 
 /// A service name. With a non-null [hint] it appends « · {hint}» in
-/// [hintStyle]; the name keeps priority and the hint is capped at
-/// [_hintMaxFraction] of the row so both ellipsize instead of overflowing.
+/// [hintStyle]. In single-line mode the hint is laid out FIRST (an inflexible
+/// `Row` child) at its natural width capped at [_hintMaxFraction] of the row;
+/// the name takes what is left. Both ellipsize instead of overflowing.
 ///
 /// With [hint] `null` it is exactly one `Text(name, maxLines: 1, ellipsis)`
 /// (or, with [singleLine] `false`, one plain wrapping `Text(name)`).

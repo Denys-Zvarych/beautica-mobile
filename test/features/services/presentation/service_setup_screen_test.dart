@@ -565,6 +565,32 @@ void main() {
     registerFallbackValue(const <MasterServiceBulkItem>[]);
   });
 
+  // ── Log-safe error summary ─────────────────────────────────────────────────
+
+  group('error summary (log-safe)', () {
+    test('a server failure logs type + status code, never its cause', () {
+      final summary = debugServiceSetupErrorSummary(
+        const ServerFailure(statusCode: 409, cause: 'GET /secret/url?token=x'),
+      );
+      expect(summary, 'ServerFailure(409)');
+      expect(summary, isNot(contains('secret')));
+    });
+
+    test('a server failure without a status code logs null', () {
+      expect(
+        debugServiceSetupErrorSummary(const ServerFailure()),
+        'ServerFailure(null)',
+      );
+    });
+
+    test('any other error logs only its runtime type', () {
+      expect(
+        debugServiceSetupErrorSummary(StateError('leaky /path message')),
+        'StateError',
+      );
+    });
+  });
+
   // ── Catalogue states ───────────────────────────────────────────────────────
 
   group('catalogue states', () {
@@ -4977,6 +5003,248 @@ void main() {
       expect(
         _textInRow(copy1, l10n.serviceSetupRowAlreadyInMenu),
         findsNothing,
+      );
+    });
+
+    testWidgets('409 reconcile matches the canonical NAME too: a NAME '
+        'collision (same type + duration, same trimmed / lower-cased name) '
+        'switches off the renamed copy and leaves the type-name primary', (
+      tester,
+    ) async {
+      when(
+        () => h.repo.bulkCreate(any()),
+      ).thenAnswer((_) async => throw const ServiceDuplicateFailure());
+      const authored = <MasterService>[
+        MasterService(
+          id: 'svc-owned-authored',
+          serviceDefId: 'def-owned-authored',
+          name: 'Авторський',
+          serviceTypeId: classic,
+          serviceTypeNameUk: 'Класичний манікюр',
+          durationMinutes: 60,
+          priceMin: 700,
+          priceDisplay: '700 ₴',
+        ),
+      ];
+      final servicesList = _MutatingServicesList(<List<MasterService>>[
+        const <MasterService>[],
+        authored, // «Авторський» at 60 appears after the 409
+      ]);
+      final l10n = await pumpWithCopy(
+        tester,
+        overrides: <Object>[
+          serviceRepositoryProvider.overrideWithValue(h.repo),
+          servicesListProvider.overrideWith(() => servicesList),
+          approvedCategoriesProvider.overrideWith(
+            (ref) => const <ServiceCategoryOption>[_manicure],
+          ),
+          serviceTypesProvider('MANICURE').overrideWith(
+            (ref) => const <ServiceTypeOption>[_typeClassic, _typeGel],
+          ),
+        ],
+      );
+      await setPrice(tester, copy1, '700');
+      await setDuration(tester, copy1, '60');
+      await setName(tester, copy1, '  авторський ');
+      expect(find.text(l10n.serviceSetupCtaCreate(2)), findsOneWidget);
+
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(find.text(l10n.serviceSetupCtaCreate(1)), findsOneWidget);
+      expect(
+        _textInRow(copy1, l10n.serviceSetupRowAlreadyInMenu),
+        findsOneWidget,
+        reason: 'the renamed copy is the one the 409 was about',
+      );
+      expect(
+        _textInRow(classic, l10n.serviceSetupRowAlreadyInMenu),
+        findsNothing,
+        reason: 'the type-name primary at 60 differs by name — not a duplicate',
+      );
+    });
+
+    int pairCheckRuns(WidgetTester tester) =>
+        (tester.state(find.byType(ServiceSetupScreen))
+                as ServiceSetupRowKeysProbe)
+            .debugPairCheckRuns;
+
+    testWidgets('pair check runs once per real edit: caret / selection moves '
+        'never re-run it, a rename runs it exactly once', (tester) async {
+      await pumpWithCopy(tester);
+      await setName(tester, copy1, 'Авторський');
+
+      final Finder nameField = find.descendant(
+        of: find.byKey(const Key('setup_row_name_$copy1')),
+        matching: find.byType(TextField),
+      );
+      final Finder durationField = find.descendant(
+        of: inRow(copy1, const Key('service-setup-duration')),
+        matching: find.byType(TextField),
+      );
+      final TextEditingController name = tester
+          .widget<TextField>(nameField)
+          .controller!;
+      final TextEditingController duration = tester
+          .widget<TextField>(durationField)
+          .controller!;
+
+      final int before = pairCheckRuns(tester);
+      name.selection = const TextSelection.collapsed(offset: 0);
+      await tester.pump();
+      name.selection = const TextSelection(baseOffset: 0, extentOffset: 3);
+      await tester.pump();
+      duration.selection = const TextSelection.collapsed(offset: 0);
+      await tester.pump();
+      expect(
+        pairCheckRuns(tester),
+        before,
+        reason: 'selection-only notifications must not re-run the pair check',
+      );
+
+      await setName(tester, copy1, 'Авторський 2');
+      expect(
+        pairCheckRuns(tester),
+        before + 1,
+        reason:
+            'one rename = one pair check (no screen-listener + onChanged '
+            'double trigger)',
+      );
+
+      await setDuration(tester, copy1, '45');
+      expect(pairCheckRuns(tester), before + 2);
+    });
+
+    testWidgets('toggling an owned type ON runs the pair check ONCE even '
+        'though the toggle re-seeds its duration', (tester) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 2000),
+        overrides: h.overrides(
+          categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+          typesBySlug: <String, List<ServiceTypeOption>>{
+            'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+          },
+          existingServices: _ownsClassic,
+        ),
+      );
+      await _expand(tester, 'MANICURE');
+
+      final int before = pairCheckRuns(tester);
+      await _toggleRowOn(tester, classic);
+
+      expect(
+        durationOf(tester, classic),
+        '90',
+        reason: 'precondition: the toggle re-seeded the owned 60 to a free 90',
+      );
+      expect(
+        pairCheckRuns(tester),
+        before + 1,
+        reason: 'the re-seed is part of the toggle, not a second field edit',
+      );
+    });
+
+    testWidgets('409 reconcile canonicalises the name like backend 464: a '
+        'renamed copy differing only by internal space runs / case is '
+        'switched off', (tester) async {
+      when(
+        () => h.repo.bulkCreate(any()),
+      ).thenAnswer((_) async => throw const ServiceDuplicateFailure());
+      const authored = <MasterService>[
+        MasterService(
+          id: 'svc-owned-authored',
+          serviceDefId: 'def-owned-authored',
+          name: 'Авторський манікюр',
+          serviceTypeId: classic,
+          serviceTypeNameUk: 'Класичний манікюр',
+          durationMinutes: 60,
+          priceMin: 700,
+          priceDisplay: '700 ₴',
+        ),
+      ];
+      final servicesList = _MutatingServicesList(<List<MasterService>>[
+        const <MasterService>[],
+        authored,
+      ]);
+      final l10n = await pumpWithCopy(
+        tester,
+        overrides: <Object>[
+          serviceRepositoryProvider.overrideWithValue(h.repo),
+          servicesListProvider.overrideWith(() => servicesList),
+          approvedCategoriesProvider.overrideWith(
+            (ref) => const <ServiceCategoryOption>[_manicure],
+          ),
+          serviceTypesProvider('MANICURE').overrideWith(
+            (ref) => const <ServiceTypeOption>[_typeClassic, _typeGel],
+          ),
+        ],
+      );
+      await setPrice(tester, copy1, '700');
+      await setDuration(tester, copy1, '60');
+      await setName(tester, copy1, ' авторський   МАНІКЮР ');
+
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(find.text(l10n.serviceSetupCtaCreate(1)), findsOneWidget);
+      expect(
+        _textInRow(copy1, l10n.serviceSetupRowAlreadyInMenu),
+        findsOneWidget,
+        reason: 'the space-run variant is the same canonical name',
+      );
+      expect(
+        _textInRow(classic, l10n.serviceSetupRowAlreadyInMenu),
+        findsNothing,
+      );
+    });
+
+    testWidgets('409 reconcile: an owned copy with a blank name AND no '
+        'serviceTypeNameUk falls back to the catalogue type name, like the '
+        'row does', (tester) async {
+      when(
+        () => h.repo.bulkCreate(any()),
+      ).thenAnswer((_) async => throw const ServiceDuplicateFailure());
+      const unnamed = <MasterService>[
+        MasterService(
+          id: 'svc-owned-unnamed',
+          serviceDefId: 'def-owned-unnamed',
+          name: '',
+          serviceTypeId: classic,
+          durationMinutes: 60,
+          priceMin: 500,
+          priceDisplay: '500 ₴',
+        ),
+      ];
+      final servicesList = _MutatingServicesList(<List<MasterService>>[
+        const <MasterService>[],
+        unnamed,
+      ]);
+      final l10n = await pumpWithCopy(
+        tester,
+        overrides: <Object>[
+          serviceRepositoryProvider.overrideWithValue(h.repo),
+          servicesListProvider.overrideWith(() => servicesList),
+          approvedCategoriesProvider.overrideWith(
+            (ref) => const <ServiceCategoryOption>[_manicure],
+          ),
+          serviceTypesProvider('MANICURE').overrideWith(
+            (ref) => const <ServiceTypeOption>[_typeClassic, _typeGel],
+          ),
+        ],
+      );
+      await setPrice(tester, copy1, '700');
+
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(
+        _textInRow(classic, l10n.serviceSetupRowAlreadyInMenu),
+        findsOneWidget,
+        reason: 'type-name primary at 60 = the unnamed owned copy at 60',
+      );
+      expect(
+        _textInRow(copy1, l10n.serviceSetupRowAlreadyInMenu),
+        findsNothing,
+        reason: 'the copy at 90 is a different duration',
       );
     });
   });

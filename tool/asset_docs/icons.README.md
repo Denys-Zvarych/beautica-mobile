@@ -108,7 +108,7 @@ Premium-re-download release gate above.
 
 | File | Provenance | Approved | SHA-256 (committed file) |
 |---|---|---|---|
-| `category_body_massage.svg` | User's own drawing (`medical.svg`), re-traced via `scripts/icons/trace_icon.py`; copied as-is from `docs/signup-designs/MassageCategoryIcon/assets/icons/category_body_massage_d.svg` | 2026-11-09 | `3dc0e5ddb85caa161c1d7cc5c54546246ce545f170d18b712da79d9ebaf87094` |
+| `category_body_massage.svg` | User's own drawing (`medical.svg`), re-traced via `scripts/icons/trace_icon.py`; path data copied as-is from `docs/signup-designs/MassageCategoryIcon/assets/icons/category_body_massage_d.svg` (provenance comment and editor `id`/`data-name` attrs stripped) | 2026-11-09 | `7a222e0baa1c38d7d0833a5ed9ab50a932d501caf4c6665885ebcb498c371b18` |
 
 No licence, no attribution, outside the Flaticon release gate — no credits entry.
 

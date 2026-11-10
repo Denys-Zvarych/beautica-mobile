@@ -29,6 +29,13 @@
 //       server 409 DUPLICATE_SERVICE → `serviceErrDuplicateCopy` on BOTH the
 //       name and duration fields; the screen stays. Editing the duration clears
 //       the pair (the rule is "duration OR name").
+//   A4. Phase 471 post-409 reconcile, canonical name: the master also owns a
+//       RENAMED copy «Авторський манікюр» at 90 (`seedOwnedNamedCopy`). A new
+//       copy row named « авторський   МАНІКЮР » at 90 passes the client
+//       pre-check (it only knows type-name copies), the bulk POST 409s, and the
+//       reconcile — keyed by (type, duration, `serviceNameKey`) like backend
+//       464 — switches OFF exactly that copy (flagged alreadyInMenu: its
+//       owned-row label turns emphasised); the type-name primary stays on.
 //
 // A3's 409 comes from the shared fake's `typedPatchRejectDuplicate` switch
 // (PATCH `/api/v1/services/svc-typed` → the backend's typed DUPLICATE_SERVICE
@@ -49,6 +56,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 /// Seeded twice in the master's catalogue at 60 min (see header).
@@ -332,4 +340,94 @@ void main() {
     await tester.pump();
     expect(copyError, findsNothing);
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  testWidgets(
+    'A4. a bulk 409 on a copy whose name differs from an owned renamed copy '
+    'only by space runs / case switches that copy off as already in the menu '
+    'and keeps the type-name primary',
+    (tester) async {
+      const String copyId = '${_ownedTypeId}_copy_1';
+      final fb = FakeBackend()
+        ..seedOwnedNamedCopy(name: 'Авторський манікюр', durationMinutes: 90);
+      final h = await _openSetupAndIncludeOwnedRow(tester, fb);
+      await tester.enterText(h.price, '650');
+      await tester.pump();
+
+      final Finder addCopy = find.byKey(
+        const Key('btn-setup-row-add-copy-$_ownedTypeId'),
+      );
+      await tester.ensureVisible(addCopy);
+      await tester.pumpUntilFound(addCopy.hitTestable());
+      await tester.tap(addCopy);
+      final Finder copyRow = find.byKey(const Key('setup_row_$copyId'));
+      await tester.pumpUntilFound(copyRow);
+
+      Finder inCopy(Key key) =>
+          find.descendant(of: copyRow, matching: find.byKey(key));
+      final Finder copyName = find.descendant(
+        of: find.byKey(const Key('setup_row_name_$copyId')),
+        matching: find.byType(EditableText),
+      );
+      await tester.ensureVisible(copyName);
+      await tester.enterText(copyName, ' авторський   МАНІКЮР ');
+      await tester.pump();
+      await tester.enterText(inCopy(const Key('service-setup-duration')), '90');
+      await tester.pump();
+      await tester.enterText(inCopy(const Key('pricing-fixed-amount')), '700');
+      await tester.pump();
+
+      fb.bulkRejectDuplicate = true;
+      await tester.ensureVisible(h.save);
+      await tester.pumpUntilFound(h.save.hitTestable());
+      expect(
+        _saveCallback(tester, h.save),
+        isNotNull,
+        reason: 'a renamed copy is not a client-known duplicate',
+      );
+      expect(find.text(h.l10n.serviceSetupCtaAdd(2)), findsOneWidget);
+      await tester.tap(h.save);
+
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.bulkCreateCalls >= 1,
+        description: 'the bulk POST reaching the (409) server backstop',
+      );
+      final List<dynamic> items = fb.lastBulkItems!;
+      expect(items, hasLength(2));
+      final Map<String, dynamic> sent = items
+          .cast<Map<String, dynamic>>()
+          .singleWhere((Map<String, dynamic> i) => i['name'] != null);
+      expect(sent['durationMinutes'], 90);
+
+      // The reconcile switches the copy OFF (its fields collapse). An owned-type
+      // row keeps its «Вже додано» sub-label in that slot — owned wins over
+      // `serviceSetupRowAlreadyInMenu` (service_setup_widgets.dart) — but the
+      // label turns emphasised (w800) only for a row the refresh just claimed.
+      await tester.pumpUntilGone(inCopy(const Key('service-setup-duration')));
+      final Text copyLabel = tester.widget<Text>(
+        find.descendant(
+          of: copyRow,
+          matching: find.text(h.l10n.serviceSetupRowAlreadyAdded),
+        ),
+      );
+      expect(
+        copyLabel.style?.fontWeight,
+        FontWeight.w800,
+        reason:
+            'same type + duration + canonical name as the owned renamed copy '
+            '— flagged alreadyInMenu by the reconcile',
+      );
+      expect(
+        find.text(h.l10n.serviceSetupCtaAdd(1)),
+        findsOneWidget,
+        reason:
+            'only the reconciled copy was switched off — the type-name '
+            'primary (other name, other duration) stays included',
+      );
+      expect(find.byKey(const Key('btn-setup-close')), findsOneWidget);
+
+      await pumpPastVelvetSnack(tester);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
 }

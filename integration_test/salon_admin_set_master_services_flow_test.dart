@@ -959,7 +959,8 @@ void main() {
         );
         expect(second['serviceTypeId'], _kFreeTypeId);
         expect(second['price'], 560);
-        expect(second['durationMinutes'], isNot(50));
+        // Nearest free quick-pick ABOVE the primary's 50 (phase 471 seed).
+        expect(second['durationMinutes'], 60);
         expect(second['name'], 'Гель адмін');
       });
     },

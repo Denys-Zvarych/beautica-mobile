@@ -23,6 +23,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_key.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
@@ -340,8 +341,40 @@ class ServiceRowState extends ChangeNotifier {
     this.copyIndex = 0,
     String? name,
   }) {
+    // Parsed-value caches (see [durationMinutes] / [customName]) follow the
+    // controllers' TEXT; registered before the seed so it is cached too.
+    duration.addListener(_syncDuration);
+    this.name.addListener(_syncName);
     if (name != null) this.name.text = name;
   }
+
+  /// Text [_durationMinutes] was parsed from; a caret / selection-only
+  /// notification leaves it equal and skips the re-parse.
+  String _durationText = '';
+  int? _durationMinutes;
+
+  /// Text [_customName] was derived from.
+  String _nameText = '';
+  String? _customName;
+
+  void _syncDuration() {
+    final String text = duration.text;
+    if (text == _durationText) return;
+    _durationText = text;
+    _durationMinutes = int.tryParse(text.trim());
+  }
+
+  void _syncName() {
+    final String text = name.text;
+    if (text == _nameText) return;
+    _nameText = text;
+    final String t = text.trim();
+    _customName = t.isEmpty ? null : t;
+  }
+
+  /// The duration field parsed as whole minutes, or null when blank / not a
+  /// number. Cached on text change — reads never re-parse.
+  int? get durationMinutes => _durationMinutes;
 
   /// Phase 471 — an extra copy row of [source]'s type, already included: same
   /// type / name / ownership, an empty price and the nearest free quick-pick
@@ -364,7 +397,7 @@ class ServiceRowState extends ChangeNotifier {
       ownedDurations: source.ownedDurations,
       copyIndex: copyIndex,
     );
-    final int? sourceDuration = int.tryParse(source.duration.text.trim());
+    final int? sourceDuration = source.durationMinutes;
     final Set<int> used = <int>{
       ...source.ownedDurations,
       ...takenDurations,
@@ -440,19 +473,17 @@ class ServiceRowState extends ChangeNotifier {
   /// has more than one row; blank = the type name.
   final TextEditingController name = TextEditingController();
 
-  /// The trimmed custom name, or null when blank.
-  String? get customName {
-    final String t = name.text.trim();
-    return t.isEmpty ? null : t;
-  }
+  /// The trimmed custom name, or null when blank. Cached on text change.
+  String? get customName => _customName;
 
-  /// The name the backend 464 duplicate rule compares: trimmed, lower-cased,
+  /// The name the backend 464 duplicate rule compares ([serviceNameKey]:
+  /// compatibility-folded, space runs collapsed, trimmed, lower-cased),
   /// blank = the type name.
-  String get effectiveNameKey => (customName ?? nameUk).trim().toLowerCase();
+  String get effectiveNameKey => serviceNameKey(customName ?? nameUk);
 
   /// True when this row would be saved under the type name — the name every
   /// existing copy in [ownedDurations] is compared with.
-  bool get keepsTypeName => effectiveNameKey == nameUk.trim().toLowerCase();
+  bool get keepsTypeName => effectiveNameKey == serviceNameKey(nameUk);
 
   bool _copyCollision = false;
 
@@ -491,7 +522,7 @@ class ServiceRowState extends ChangeNotifier {
   /// type name), so only a row that keeps the type name is taken.
   bool get durationTaken {
     if (!_included || ownedDurations.isEmpty) return false;
-    final int? d = int.tryParse(duration.text.trim());
+    final int? d = _durationMinutes;
     return d != null && ownedDurations.contains(d) && keepsTypeName;
   }
 
@@ -518,7 +549,7 @@ class ServiceRowState extends ChangeNotifier {
     // an empty or already-taken duration is replaced — a value they typed and
     // that is free survives a toggle off/on.
     if (value && ownedDurations.isNotEmpty) {
-      final int? current = int.tryParse(duration.text.trim());
+      final int? current = _durationMinutes;
       if (current == null || ownedDurations.contains(current)) {
         final int? seed = nearestFreeQuickPick(ownedDurations);
         if (seed != null) duration.text = '$seed';
@@ -641,6 +672,7 @@ class ServiceTypeRowCard extends StatefulWidget {
     required this.row,
     required this.resolveRangeError,
     this.onChanged,
+    this.onFieldEdited,
     this.onAddCopy,
     this.onRemove,
     this.showNameField = false,
@@ -656,6 +688,13 @@ class ServiceTypeRowCard extends StatefulWidget {
   /// any derived aggregate (footer count, chip badges) can re-derive. The row's
   /// own card already rebuilds itself via its [ServiceRowState] notifier.
   final VoidCallback? onChanged;
+
+  /// Called once per REAL duration / name text change (never on caret or
+  /// selection traffic) with whether [ServiceRowState.durationTaken] flipped.
+  /// When set it REPLACES [onChanged] for field edits, so the owner runs its
+  /// re-derivation (e.g. the copy pair check) exactly once per edit. Null =
+  /// field edits report a taken-flip through [onChanged], as before.
+  final ValueChanged<bool>? onFieldEdited;
 
   /// Phase 471 — when non-null (and the row is included) a «+ ще раз» text
   /// action under the row adds another copy of this type. Null = no action,
@@ -756,28 +795,42 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     if (text == _lastDurationText) return; // caret / selection only
     _lastDurationText = text;
     widget.row.clearServerDurationError();
+    // A toggle-on duration re-seed: [_setIncluded] reports the toggle itself
+    // through [onChanged], so reporting here too would run the pair check twice.
+    if (_settingIncluded) {
+      if (mounted) setState(() {});
+      return;
+    }
     // Phase 468: a duration edit can flip the row into / out of the
     // taken-duration state, which gates the footer CTA — tell the screen so
     // its aggregate re-derives. Only on a FLIP, so plain typing stays local.
-    final bool taken = widget.row.durationTaken;
-    if (taken != _lastDurationTaken) {
-      _lastDurationTaken = taken;
-      widget.onChanged?.call();
-    }
+    _reportFieldEdit();
     if (mounted) setState(() {});
   }
 
   void _onNameChanged() {
     final String text = widget.row.name.text;
-    if (text != _lastNameText) {
-      _lastNameText = text;
-      widget.row.clearServerNameError();
-    }
+    if (text == _lastNameText) return; // caret / selection only
+    _lastNameText = text;
+    widget.row.clearServerNameError();
+    // Phase 471: a rename can flip [ServiceRowState.durationTaken].
+    if (_reportFieldEdit() && mounted) setState(() {});
+  }
+
+  /// One report per real duration / name edit: through [onFieldEdited] when
+  /// set (every edit, with the flip), else through [onChanged] on a flip only.
+  /// Returns whether [ServiceRowState.durationTaken] flipped.
+  bool _reportFieldEdit() {
     final bool taken = widget.row.durationTaken;
-    if (taken == _lastDurationTaken) return; // caret / no CTA-relevant change
+    final bool flipped = taken != _lastDurationTaken;
     _lastDurationTaken = taken;
-    widget.onChanged?.call();
-    if (mounted) setState(() {});
+    final ValueChanged<bool>? onFieldEdited = widget.onFieldEdited;
+    if (onFieldEdited != null) {
+      onFieldEdited(flipped);
+    } else if (flipped) {
+      widget.onChanged?.call();
+    }
+    return flipped;
   }
 
   void _onPriceChanged() {
@@ -788,8 +841,17 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     if (mounted) setState(() {});
   }
 
+  /// True while [_setIncluded] writes the row, whose setter may re-seed the
+  /// duration (phase 468) — that edit is part of the toggle, not its own.
+  bool _settingIncluded = false;
+
   void _setIncluded(bool v) {
-    widget.row.included = v;
+    _settingIncluded = true;
+    try {
+      widget.row.included = v;
+    } finally {
+      _settingIncluded = false;
+    }
     _lastDurationTaken = widget.row.durationTaken;
     // Toggling clears any stale flag — an excluded row is never required, and a
     // freshly-included one starts clean (its inline hints fire only on save).
