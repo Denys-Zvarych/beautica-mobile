@@ -336,7 +336,7 @@ void main() {
       expect(
         find.descendant(
           of: row,
-          matching: find.text(l10n.serviceSetupDurationTaken),
+          matching: find.text(l10n.serviceSetupCopyCollision),
         ),
         findsNothing,
         reason: '90 is free (owned {60}) — the client pre-check passes',

@@ -945,7 +945,15 @@ void main() {
           matching: find.byType(EditableText),
           skipOffstage: false,
         );
-        expect(copyName, findsOneWidget);
+        // Phase 472 (D3): the copy card shows its name with a pencil; the
+        // name well opens from it.
+        expect(copyName, findsNothing);
+        final Finder copyPencil = find.descendant(
+          of: rowOf(copyKeyId),
+          matching: find.byKey(const Key('btn-setup-row-name-$copyKeyId')),
+        );
+        await AppHarness.tapVisible(tester, copyPencil);
+        await AppHarness.pumpUntilFound(tester, copyName);
         expect(
           find.descendant(
             of: rowOf(copyKeyId),

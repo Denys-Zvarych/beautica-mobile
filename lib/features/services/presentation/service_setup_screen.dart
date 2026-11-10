@@ -64,17 +64,13 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/services/application/owner_performed_services_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_name_key.dart';
-import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
-import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart'
-    show isForbiddenFailure;
 import 'package:beautica_mobile/features/services/presentation/service_setup_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
@@ -243,9 +239,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
   /// service the master genuinely cannot add any other way.
   late final Map<String, Set<int>> _ownedDurationsByType;
 
-  /// Phase 472 (D2) — the master's existing services per type, each shown on
-  /// its type's row with its own rename pencil. Same initState snapshot as
-  /// [_ownedDurationsByType].
+  /// Phase 472 — the master's existing services per type: the (duration,
+  /// canonical name) keys [ServiceRowState.durationTaken] compares with. Same
+  /// initState snapshot as [_ownedDurationsByType].
   late final Map<String, List<MasterService>> _ownedByType;
 
   /// True when the master already had services on entry — the APPEND case.
@@ -401,19 +397,17 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
   /// The footer's single pass over every loaded row: the count the save would
   /// create and whether any included row blocks it (phase 471 folded the old
   /// separate duration-taken scan into this one).
-  ({int total, bool blocked, int renames}) _footerScan() {
+  ({int total, bool blocked}) _footerScan() {
     var total = 0;
     var blocked = false;
-    var renames = 0;
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
-        renames += row.pendingRenameCount;
         if (!row.included) continue;
         total++;
         if (!blocked && _isBlocked(row)) blocked = true;
       }
     }
-    return (total: total, blocked: blocked, renames: renames);
+    return (total: total, blocked: blocked);
   }
 
   // -------------------------------------------------------------------------
@@ -632,9 +626,6 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
         final ServiceRowState promoted = group.first;
         _rowWrapperKeys.remove(promoted.keyId);
         promoted.copyIndex = 0;
-        // Phase 472: the owned services (and any unsaved rename) move with
-        // the primary role, so «Прибрати» never drops a pending rename.
-        promoted.adoptOwnedServices(row);
       }
     });
     _disposeAfterFrame(<ServiceRowState>[row]);
@@ -757,9 +748,8 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
                   // the save while its duration matches an existing copy.
                   alreadyAdded: _ownedDurationsByType.containsKey(t.id),
                   ownedDurations: _ownedDurationsByType[t.id] ?? const <int>{},
-                  // Phase 472 (D2): every existing service of the type, one
-                  // rename pencil each; also the (duration, canonical name)
-                  // keys [ServiceRowState.durationTaken] compares with.
+                  // Phase 472: the (duration, canonical name) keys
+                  // [ServiceRowState.durationTaken] compares with.
                   ownedServices: _ownedByType[t.id] ?? const <MasterService>[],
                 ),
               ];
@@ -1037,25 +1027,10 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
       return;
     }
     final items = _assemble();
-    final renames = _pendingRenames();
-    if (items == null || (items.isEmpty && renames.isEmpty)) {
+    if (items == null || items.isEmpty) {
       // Blocked save: surface the first flagged row so the failure is visible.
       _scrollToFirstFlagged();
       return;
-    }
-
-    // Phase 472 — renames of owned services go first, one PATCH each through
-    // the same repository call the service edit form uses. A failed rename
-    // stops the save before the bulk add, so a clash is fixed in one place.
-    if (renames.isNotEmpty) {
-      final bool renamed = await _applyRenames(renames, l10n);
-      if (!mounted || !renamed) return;
-      if (items.isEmpty) {
-        invalidateMasterServiceCatalogues(ref);
-        showSuccessSnack(context, l10n.serviceUpdatedSuccess);
-        _leave();
-        return;
-      }
     }
 
     // Clear any server errors mapped from a PRIOR attempt so this response's
@@ -1153,133 +1128,6 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
         : l10n.errUnknown;
     _showErrorSnack(message);
   }
-
-  /// Owned services with an unsaved rename (and their rows), in on-screen
-  /// order.
-  List<({ServiceRowState row, OwnedServiceName entry})> _pendingRenames() =>
-      <({ServiceRowState row, OwnedServiceName entry})>[
-        for (final rows in _rowsByCategory.values)
-          for (final row in rows)
-            for (final OwnedServiceName e in row.ownedServices)
-              if (row.pendingRenameOf(e) != null) (row: row, entry: e),
-      ];
-
-  /// True while [_applyRenames] runs — drives the CTA spinner.
-  bool _renaming = false;
-
-  /// Phase 472 — renames each row's owned service via
-  /// [ServiceRepository.update] (the service edit form's call), name only: a
-  /// blank well sends the catalogue type name
-  /// ([ServiceRowState.pendingRenameOf] never yields `''`, which the backend
-  /// `@Size(min = 1)` would 400). The PATCHes run together; their outcomes
-  /// are applied in on-screen order. A 409 DUPLICATE_SERVICE / 400 name
-  /// error / 403 / 404 lands on that row's well; any other failure is a
-  /// snack. Returns true when every rename saved — a false stops the bulk
-  /// add. Saved renames are committed on the row, so a retry never re-sends
-  /// them.
-  Future<bool> _applyRenames(
-    List<({ServiceRowState row, OwnedServiceName entry})> renames,
-    AppLocalizations l10n,
-  ) async {
-    final ServiceRepository repository = ref.read(serviceRepositoryProvider);
-    final List<({ServiceRowState row, OwnedServiceName entry, String name})>
-    sends = <({ServiceRowState row, OwnedServiceName entry, String name})>[
-      for (final (:row, :entry) in renames)
-        if (row.pendingRenameOf(entry) case final String name)
-          (row: row, entry: entry, name: name),
-    ];
-    setState(() => _renaming = true);
-    var savedAny = false;
-    ServiceRowState? firstFlagged;
-    try {
-      final List<Object> outcomes = await Future.wait(<Future<Object>>[
-        for (final (row: _, :entry, :name) in sends)
-          _renameOne(repository, entry.service, name),
-      ]);
-      if (!mounted) return false;
-      Failure? fatal;
-      for (var i = 0; i < sends.length; i++) {
-        final (:row, :entry, name: _) = sends[i];
-        switch (outcomes[i]) {
-          case final MasterService updated:
-            row.commitRename(entry, updated);
-            savedAny = true;
-          case ServiceDuplicateFailure():
-            row.setRenameError(entry, l10n.serviceSetupRenameCollision);
-            firstFlagged ??= row;
-          case final ValidationFailure e when e.fieldErrors.containsKey('name'):
-            row.setRenameError(entry, l10n.serviceSetupCopyNameInvalid);
-            firstFlagged ??= row;
-          case final Failure e
-              when e is NotFoundFailure || isForbiddenFailure(e):
-            // Phase 472 audit: a 403 (identity-locked salon definition) or a
-            // 404 (service gone) belongs to that one service — on its row.
-            row.setRenameError(entry, _renameDeniedMessage(e, l10n));
-            firstFlagged ??= row;
-          case final Failure e:
-            fatal ??= e;
-          default:
-            break;
-        }
-      }
-      if (fatal != null) {
-        _showErrorSnack(fatal.userMessage(context));
-        return false;
-      }
-    } finally {
-      if (savedAny && mounted) invalidateMasterServiceCatalogues(ref);
-      if (mounted) setState(() => _renaming = false);
-      _notifyAggregate();
-    }
-    if (firstFlagged case final ServiceRowState flagged) {
-      _scrollToFirstFlagged(ids: <String>{flagged.keyId});
-      return false;
-    }
-    return true;
-  }
-
-  /// One rename PATCH; never throws — any error (thrown synchronously or
-  /// async) is returned as the outcome, so one failed PATCH cannot make
-  /// [Future.wait] rethrow and drop the batch's saved renames. A non-[Failure]
-  /// is returned as an [UnknownFailure] (the generic snack path).
-  static Future<Object> _renameOne(
-    ServiceRepository repository,
-    MasterService target,
-    String name,
-  ) async {
-    try {
-      return await repository.update(
-        target.serviceDefId,
-        MasterServiceUpdate(name: name),
-        assignmentId: target.id,
-      );
-    } on Failure catch (e) {
-      return e;
-    } on Object catch (e, st) {
-      if (kDebugMode) {
-        log(
-          '_renameOne failed: ${_errorSummary(e)}',
-          name: _tag,
-          level: 900,
-          stackTrace: st,
-        );
-      }
-      return const UnknownFailure();
-    }
-  }
-
-  /// The row message for a 403 / 404 rename: under a salon target a 403 is
-  /// the owner-performed identity lock (the service edit form's copy).
-  String _renameDeniedMessage(Failure e, AppLocalizations l10n) =>
-      isForbiddenFailure(e) && _salonId != null
-      ? l10n.serviceEditOwnerPerformedHint
-      : e.userMessage(context);
-
-  /// The salon being managed, or null for the master's own services.
-  String? get _salonId => switch (ref.read(serviceTargetProvider)) {
-    SalonMasterTarget(:final String salonId) => salonId,
-    null => null,
-  };
 
   /// Log-safe summary of a caught error: its type and, for a server failure,
   /// the status code — never the message, which can carry a request URL.
@@ -1542,15 +1390,12 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
             ListenableBuilder(
               listenable: _aggregate,
               builder: (context, _) {
-                final (:total, :blocked, :renames) = _footerScan();
+                final (:total, :blocked) = _footerScan();
                 return _Footer(
                   total: total,
-                  renames: renames,
-                  saving: saving || _renaming,
+                  saving: saving,
                   appending: _appending,
-                  onSave: (total == 0 && renames == 0) || blocked
-                      ? null
-                      : _save,
+                  onSave: total == 0 || blocked ? null : _save,
                 );
               },
             ),
@@ -1813,65 +1658,34 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
   ///
   /// Phase 471: keys use [ServiceRowState.keyId] (the bare type id for the
   /// primary row, so every pre-471 key is unchanged). «+ додати ще» is offered
-  /// on every row (the card shows it only while included); «Прибрати» and the
-  /// name field once the type has more than one row — the name field also
-  /// while a row still carries a custom name, so a sent name is never hidden.
+  /// on every row (the card shows it only while included); «Прибрати» once the
+  /// type has more than one row. Phase 472 (D3): the name well opens from the
+  /// card's pencil (or while the row carries a custom name).
   Widget _rowCard(ServiceRowState row) {
     final id = row.keyId;
     final bool hasCopies = (_typeRows[row.serviceTypeId]?.length ?? 1) > 1;
     final _RowCallbacks callbacks = _callbacksFor(row);
-    final String? salonId = _salonId;
-    Widget card({bool Function(MasterService service)? canRename}) =>
-        ServiceTypeRowCard(
-          key: Key('setup_row_$id'),
-          row: row,
-          resolveRangeError: _rangeResolver,
-          onChanged: callbacks.changed,
-          onFieldEdited: callbacks.fieldEdited,
-          onAddCopy: callbacks.addCopy,
-          onRemove: hasCopies ? callbacks.remove : null,
-          showNameField: hasCopies || row.customName != null,
-          // Phase 472 (D2): pencil → custom name of a new service.
-          offerCustomName: true,
-          canRename: canRename,
-          // A salon definition is shared by every master performing it.
-          renameNote: salonId == null
-              ? null
-              : AppLocalizations.of(context).serviceSetupRenameSharedNote,
-        );
     return KeyedSubtree(
       key: _rowWrapperKey(id),
       child: RepaintBoundary(
         key: ValueKey<String>('rowwrap_$id'),
         child: Padding(
           padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-          child: salonId == null
-              ? card()
-              // Phase 472 audit: the service edit route's identity lock
-              // (owner-performed salon definition) hides that service's
-              // rename pencil; PENDING hides it too (never a rename that
-              // would 403), ERROR fails open like the edit route.
-              : Consumer(
-                  builder: (context, ref, _) {
-                    final Set<String> locked = <String>{
-                      for (final OwnedServiceName e in row.ownedServices)
-                        if (ref.watch(
-                              serviceIdentityLockProvider(
-                                salonId,
-                                e.service.serviceDefId,
-                              ),
-                            ) !=
-                            ServiceIdentityLock.unlocked)
-                          e.service.serviceDefId,
-                    };
-                    return card(
-                      canRename: locked.isEmpty
-                          ? null
-                          : (MasterService s) =>
-                                !locked.contains(s.serviceDefId),
-                    );
-                  },
-                ),
+          child: ServiceTypeRowCard(
+            key: Key('setup_row_$id'),
+            row: row,
+            resolveRangeError: _rangeResolver,
+            onChanged: callbacks.changed,
+            onFieldEdited: callbacks.fieldEdited,
+            onAddCopy: callbacks.addCopy,
+            onRemove: hasCopies ? callbacks.remove : null,
+            // Phase 472 (D3): every card — owned or not, primary or copy —
+            // shows its name with a pencil that reveals the name well; the
+            // well stays visible while the row carries a custom name, so a
+            // sent name is never hidden.
+            showNameField: row.customName != null,
+            offerCustomName: true,
+          ),
         ),
       ),
     );
@@ -2264,14 +2078,10 @@ class _Footer extends StatelessWidget {
     required this.saving,
     required this.appending,
     required this.onSave,
-    this.renames = 0,
   });
 
   final int total;
 
-  /// Phase 472 — owned services with an unsaved rename. With no services to
-  /// add the CTA saves just those («Зберегти зміни»).
-  final int renames;
   final bool saving;
 
   /// APPEND mode — the CTA says "add N" rather than "create my menu of N".
@@ -2282,7 +2092,7 @@ class _Footer extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String label = total == 0
-        ? (renames > 0 ? l10n.servicesSaveChanges : l10n.serviceSetupCtaEmpty)
+        ? l10n.serviceSetupCtaEmpty
         : (appending
               ? l10n.serviceSetupCtaAdd(total)
               : l10n.serviceSetupCtaCreate(total));
@@ -2308,9 +2118,7 @@ class _Footer extends StatelessWidget {
           key: const Key('btn-setup-save'),
           label: label,
           loading: saving,
-          icon: total == 0 && renames == 0
-              ? null
-              : Icons.check_circle_outline_rounded,
+          icon: total == 0 ? null : Icons.check_circle_outline_rounded,
           onPressed: onSave,
         ),
       ),

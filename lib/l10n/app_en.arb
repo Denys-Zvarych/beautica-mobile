@@ -2819,26 +2819,9 @@
   "@serviceSetupCopyCollision": {
     "description": "Phase 471. Inline error on an add-services copy row whose duration AND name (trimmed, case-insensitive; blank = type name) match another row or an existing copy of the same service type. The save CTA stays disabled until it changes."
   },
-  "serviceSetupRenameAction": "Rename",
-  "@serviceSetupRenameAction": {
-    "description": "Phase 472. Accessibility label of the pencil after a service name on the add-services screen (D2: every switched-on row): on a new service it reveals the custom-name field, on an existing service it turns that name into an editable field."
-  },
-  "serviceSetupRenameLabel": "Name of the {minutes}-min service",
-  "@serviceSetupRenameLabel": {
-    "description": "Phase 472 (D2). Label of the inline rename field of one of the master's existing services on the add-services screen; names the service by its duration so the copy being renamed is clear.",
-    "placeholders": {
-      "minutes": {
-        "type": "int"
-      }
-    }
-  },
-  "serviceSetupRenameCollision": "A service with this name and duration already exists — change the name",
-  "@serviceSetupRenameCollision": {
-    "description": "Phase 472. Inline error under the rename field of an already-owned service on the add-services screen when the save returns 409 DUPLICATE_SERVICE (another copy of the type has the same duration and name)."
-  },
-  "serviceSetupRenameSharedNote": "The new name applies to every salon master who performs this service.",
-  "@serviceSetupRenameSharedNote": {
-    "description": "Phase 472 audit. Caption under an open rename field of an existing service on the add-services screen, shown only when an owner/admin manages a salon master: a salon service definition is shared, so the rename changes it for every master who performs it."
+  "serviceSetupNameAction": "New service name",
+  "@serviceSetupNameAction": {
+    "description": "Phase 472 (D3). Accessibility label of the pencil after a service name on every switched-on add-services card (owned or not, primary or «+ додати ще» copy): it reveals that card's custom-name field for the NEW service being added (it never renames an existing service); the name is sent with the add."
   },
   "serviceErrDuplicate": "This service is already in your menu.",
   "@serviceErrDuplicate": {

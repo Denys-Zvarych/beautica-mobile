@@ -16,12 +16,11 @@
 //   - `extra_copy` (phase 471): a type with an extra copy row — the primary at
 //     60 and its «+ додати ще» copy at 90, both with the optional name field
 //     and «Прибрати»; the primary also shows «+ додати ще».
-//   - `rename` (phase 472, decision D2): an owned type owned TWICE (one copy
-//     custom-named) — «Вже додано» then one compact line per copy (name,
-//     duration, pencil) — above the same row after the second copy's pencil
-//     tap, that line turned into the shared name well (labelled with its
-//     duration) carrying a custom name; then a not-owned row switched ON with
-//     the name pencil after its title.
+//   - `name_pencil` (phase 472, decision D3): every switched-on card shows its
+//     name with a pencil — an owned type owned TWICE (only «Вже додано», no
+//     list of its existing services), a not-owned row, and its «+ додати ще»
+//     copy — then a card after the pencil tap: the name well with a custom
+//     name.
 //
 // GOLDENS ARE NOT ACCEPTANCE BY THEMSELVES: the `measured ground truth` group
 // below pins the behaviour each picture depends on (seeded value, error copy
@@ -127,32 +126,32 @@ const List<MasterService> _ownedTwice = <MasterService>[
   ),
 ];
 
-ServiceRowState _renameRow({String? renamed}) {
-  final row = ServiceRowState(
+Widget _pencilCard(ServiceRowState row) => ServiceTypeRowCard(
+  row: row,
+  resolveRangeError: (_) => null,
+  offerCustomName: true,
+);
+
+Widget _namePencilFixture(double width) {
+  final owned = ServiceRowState(
     serviceTypeId: _typeId,
     nameUk: _typeName,
     alreadyAdded: true,
     ownedDurations: const <int>{60, 90},
     ownedServices: _ownedTwice,
-  );
-  if (renamed != null) {
-    final OwnedServiceName second = row.ownedServices.last;
-    row.beginRename(second);
-    second.controller?.text = renamed;
-  }
-  return row;
-}
-
-Widget _renameFixture(double width) => _frame(width, <Widget>[
-  _card(_renameRow()),
+  )..included = true;
+  final fresh = _sessionRow();
+  final copy = ServiceRowState.copyOf(fresh);
+  final named = _sessionRow()..openNameField();
   // i18n-finder-ok: user-typed service name fixture, not UI copy
-  _card(_renameRow(renamed: 'Авторський масаж')),
-  ServiceTypeRowCard(
-    row: _sessionRow(),
-    resolveRangeError: (_) => null,
-    offerCustomName: true,
-  ),
-]);
+  named.name.text = 'Авторський масаж';
+  return _frame(width, <Widget>[
+    _pencilCard(owned),
+    _pencilCard(fresh),
+    _pencilCard(copy),
+    _pencilCard(named),
+  ]);
+}
 
 Future<AppLocalizations> _pump(WidgetTester tester, Widget child) async {
   await tester.pumpWidget(
@@ -215,35 +214,26 @@ void main() {
     });
   });
 
-  group('rename pencils — measured ground truth (not golden)', () {
-    testWidgets('D2: one pencil per owned copy; the tapped copy is the name '
-        'well labelled with its duration; a new ON row has the name pencil', (
-      tester,
-    ) async {
-      final l10n = await _pump(tester, _renameFixture(width));
-      expect(
-        find.byKey(const Key('btn-setup-row-rename-assign-1')),
-        findsNWidgets(2),
-      );
-      expect(
-        find.byKey(const Key('btn-setup-row-rename-assign-2')),
-        findsOneWidget,
-        reason: 'only the untapped card still shows copy 2 as a line',
-      );
-      expect(
-        find.byKey(const Key('setup_row_rename_assign-2')),
-        findsOneWidget,
-      );
-      expect(find.text(l10n.serviceSetupRenameLabel(90)), findsOneWidget);
-      expect(
-        // i18n-finder-ok: user-typed service name fixture, not UI copy
-        find.text('Авторський масаж'),
-        findsOneWidget,
-      );
+  group('name pencils — measured ground truth (not golden)', () {
+    testWidgets('D3: owned, not-owned and copy cards each show a pencil; the '
+        'owned card lists none of its existing services; a tapped card shows '
+        'the name well', (tester) async {
+      final l10n = await _pump(tester, _namePencilFixture(width));
       expect(
         find.byKey(const Key('btn-setup-row-name-$_typeId')),
+        findsNWidgets(2),
+        reason: 'owned + not-owned primary; the named card has its well',
+      );
+      expect(
+        find.byKey(const Key('btn-setup-row-name-${_typeId}_copy_1')),
         findsOneWidget,
       );
+      expect(find.text(l10n.serviceSetupRowAlreadyAdded), findsOneWidget);
+      // i18n-finder-ok: fixture service name, not UI copy
+      expect(find.text('Масаж спини'), findsNothing);
+      expect(find.byKey(const Key('setup_row_name_$_typeId')), findsOneWidget);
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(find.text('Авторський масаж'), findsOneWidget);
     });
   });
 
@@ -277,14 +267,14 @@ void main() {
         builder: () => _extraCopyFixture(width),
       );
       goldenTest(
-        'rename pencils per owned copy + new-service name pencil (472 D2) '
+        'name pencil on every switched-on card (472 D3) '
         '${width.toInt()}dp x$scale',
         fileName:
-            'service_setup_row_copy_rename_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 760)),
+            'service_setup_row_copy_name_pencil_${widthScaleSuffix(width, scale)}',
+        constraints: BoxConstraints.tight(const Size(width, 1200)),
         textScaleFactor: scale,
         pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _renameFixture(width),
+        builder: () => _namePencilFixture(width),
       );
     }
   });

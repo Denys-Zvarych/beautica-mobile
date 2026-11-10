@@ -25,7 +25,7 @@
 //       no autofill) → typed 90, no error → save → the bulk POST carries the
 //       second copy at 90.
 //   A2. Owned row at the OWNED duration 60 → inline
-//       `serviceSetupDurationTaken`, the CTA is disabled and a tap sends
+//       `serviceSetupCopyCollision`, the CTA is disabled and a tap sends
 //       nothing; moving back to a free duration clears it and re-enables save.
 //   A3. Edit form: copy 2 renamed onto copy 1's name at the same duration →
 //       server 409 DUPLICATE_SERVICE → `serviceErrDuplicateCopy` on BOTH the
@@ -183,7 +183,7 @@ void main() {
       expect(
         find.descendant(
           of: h.row,
-          matching: find.text(h.l10n.serviceSetupDurationTaken),
+          matching: find.text(h.l10n.serviceSetupCopyCollision),
         ),
         findsNothing,
         reason: 'a free duration carries no duplicate error',
@@ -221,7 +221,7 @@ void main() {
   );
 
   testWidgets(
-    'A2. picking the owned duration shows serviceSetupDurationTaken, disables '
+    'A2. picking the owned duration shows serviceSetupCopyCollision, disables '
     'save and sends nothing; a free duration clears it',
     (tester) async {
       final fb = FakeBackend();
@@ -239,7 +239,7 @@ void main() {
       expect(
         find.descendant(
           of: h.row,
-          matching: find.text(h.l10n.serviceSetupDurationTaken),
+          matching: find.text(h.l10n.serviceSetupCopyCollision),
         ),
         findsOneWidget,
         reason: '60 is an existing copy of this type — the inline error shows',
@@ -265,7 +265,7 @@ void main() {
       expect(
         find.descendant(
           of: h.row,
-          matching: find.text(h.l10n.serviceSetupDurationTaken),
+          matching: find.text(h.l10n.serviceSetupCopyCollision),
         ),
         findsNothing,
       );
@@ -379,6 +379,12 @@ void main() {
         of: find.byKey(const Key('setup_row_name_$copyId')),
         matching: find.byType(EditableText),
       );
+      // Phase 472 (D3): the copy's name well opens from its pencil.
+      final Finder copyPencil = inCopy(const Key('btn-setup-row-name-$copyId'));
+      await tester.ensureVisible(copyPencil);
+      await tester.pumpUntilFound(copyPencil.hitTestable());
+      await tester.tap(copyPencil);
+      await tester.pumpUntilFound(copyName);
       await tester.ensureVisible(copyName);
       await tester.enterText(copyName, ' авторський   МАНІКЮР ');
       await tester.pump();
@@ -477,7 +483,7 @@ void main() {
       expect(
         find.descendant(
           of: h.row,
-          matching: find.text(h.l10n.serviceSetupDurationTaken),
+          matching: find.text(h.l10n.serviceSetupCopyCollision),
         ),
         findsNothing,
         reason: 'precondition: the client cannot see this clash',

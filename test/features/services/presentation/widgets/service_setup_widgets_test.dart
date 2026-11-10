@@ -262,8 +262,7 @@ void main() {
       ValueChanged<bool>? onFieldEdited,
       bool showNameField = false,
       double gapBelow = 0,
-      bool Function(MasterService service)? canRename,
-      String? renameNote,
+      bool offerCustomName = false,
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -285,8 +284,7 @@ void main() {
                     onChanged: onChanged,
                     onFieldEdited: onFieldEdited,
                     showNameField: showNameField,
-                    canRename: canRename,
-                    renameNote: renameNote,
+                    offerCustomName: offerCustomName,
                   ),
                 ),
               ),
@@ -382,11 +380,6 @@ void main() {
       final copy = ServiceRowState.copyOf(row);
       addTearDown(copy.dispose);
       expect(copy.ownedCopyKeys, row.ownedCopyKeys);
-      expect(
-        copy.ownedServices,
-        isEmpty,
-        reason: 'renames stay on the primary',
-      );
     });
 
     testWidgets('no new params -> no copy actions and no name field', (
@@ -583,81 +576,91 @@ void main() {
       alreadyAdded: true,
       ownedDurations: const <int>{60},
       ownedServices: const <MasterService>[ownedSvc],
-    );
+    )..included = true;
 
-    const Key pencilKey = Key('btn-setup-row-rename-svc-owned');
-    const Key wellKey = Key('setup_row_rename_svc-owned');
+    const Key pencilKey = Key('btn-setup-row-name-$id');
+    const Key wellKey = Key('setup_row_name_$id');
 
-    test('472 audit: a blank rename is sent as the type name, never \'\'', () {
+    testWidgets('D3: an owned card shows its name with a pencil and only the '
+        '«Вже додано» label — no list of existing services', (tester) async {
       final row = ownedRow();
       addTearDown(row.dispose);
-      final OwnedServiceName entry = row.ownedServices.single;
-      row.beginRename(entry);
-      entry.controller?.text = '   ';
-      expect(row.pendingRenameOf(entry), typeName);
-      entry.controller?.text = ' Масаж шиї ';
-      expect(row.pendingRenameOf(entry), 'Масаж шиї');
-      // i18n-finder-ok: fixture service name, not UI copy
-      entry.controller?.text = 'Масаж спини';
-      expect(row.pendingRenameOf(entry), isNull, reason: 'unchanged');
+      final l10n = await pumpCard(tester, row, offerCustomName: true);
+      expect(find.byKey(pencilKey), findsOneWidget);
+      expect(find.text(typeName), findsOneWidget);
+      expect(find.text(l10n.serviceSetupRowAlreadyAdded), findsOneWidget);
+      expect(find.text(ownedSvc.name), findsNothing);
+      expect(find.byKey(const Key('setup_row_owned_svc-owned')), findsNothing);
+      expect(find.byKey(wellKey), findsNothing);
     });
 
-    test('472 audit: a server-normalised saved name is not pending again; '
-        'a case-only change still is', () {
-      final row = ownedRow();
+    testWidgets('D3: a switched-on not-owned card and a «+ додати ще» copy '
+        'card each show their own pencil; an excluded card shows none', (
+      tester,
+    ) async {
+      final row = primary();
       addTearDown(row.dispose);
-      final OwnedServiceName entry = row.ownedServices.single;
-      row.beginRename(entry);
-      // i18n-finder-ok: user-typed service name fixture, not UI copy
-      entry.controller?.text = 'Масаж   шиї';
-      // i18n-finder-ok: user-typed service name fixture, not UI copy
-      expect(row.pendingRenameOf(entry), 'Масаж   шиї');
-      // The backend collapses the space run and echoes the stored name.
-      // i18n-finder-ok: fixture service name, not UI copy
-      row.commitRename(entry, ownedSvc.copyWith(name: 'Масаж шиї'));
-      expect(row.pendingRenameOf(entry), isNull, reason: 'saved, normalised');
-      expect(row.pendingRenameCount, 0);
-      // i18n-finder-ok: user-typed service name fixture, not UI copy
-      entry.controller?.text = 'масаж шиї';
-      // i18n-finder-ok: user-typed service name fixture, not UI copy
-      expect(row.pendingRenameOf(entry), 'масаж шиї', reason: 'case change');
-      entry.controller?.text = '  ';
-      expect(row.pendingRenameOf(entry), typeName, reason: 'blank → type');
-    });
+      await pumpCard(tester, row, offerCustomName: true);
+      expect(find.byKey(pencilKey), findsOneWidget);
 
-    test('472 audit: ownedServices is a read-only view, not a copy', () {
-      final row = ownedRow();
-      addTearDown(row.dispose);
-      expect(row.ownedServices.single, same(row.ownedServices.single));
+      final copy = ServiceRowState.copyOf(row);
+      addTearDown(copy.dispose);
+      await pumpCard(tester, copy, offerCustomName: true);
       expect(
-        () => row.ownedServices.add(OwnedServiceName(ownedSvc)),
-        throwsUnsupportedError,
+        find.byKey(const Key('btn-setup-row-name-${id}_copy_1')),
+        findsOneWidget,
       );
+
+      row.included = false;
+      await pumpCard(tester, row, offerCustomName: true);
+      expect(find.byKey(pencilKey), findsNothing);
     });
 
-    testWidgets('472 audit: the rename pencil touch target is >= 48x48 dp '
-        'without growing the owned line', (tester) async {
+    testWidgets('D3: the pencil turns into the name well; the typed name is '
+        'this card\'s custom name', (tester) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, offerCustomName: true);
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(wellKey), findsOneWidget);
+      expect(find.byKey(pencilKey), findsNothing, reason: 'well replaces it');
+      expect(row.nameFieldOpen, isTrue);
+      expect(row.nameFocus.hasFocus, isTrue);
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(wellKey),
+          matching: find.byType(TextField),
+        ),
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        ' Масаж шиї ',
+      );
+      await tester.pump();
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(row.customName, 'Масаж шиї');
+    });
+
+    testWidgets('472 audit: the pencil touch target is >= 48x48 dp without '
+        'growing the name line', (tester) async {
       for (final double dySign in <double>[-1, 1]) {
         final row = ownedRow();
         addTearDown(row.dispose);
-        final l10n = await pumpCard(tester, row);
+        final l10n = await pumpCard(tester, row, offerCustomName: true);
         final Rect box = tester.getRect(find.byKey(pencilKey));
-        final Rect line = tester.getRect(
-          find.byKey(const Key('setup_row_owned_svc-owned')),
-        );
+        final Rect name = tester.getRect(find.text(typeName));
         expect(box.width, greaterThanOrEqualTo(48));
         expect(
           box.height,
           lessThan(48),
           reason: 'the laid-out box keeps the text line height',
         );
-        expect(line.height, moreOrLessEquals(box.height, epsilon: 4));
+        expect(box.height, lessThanOrEqualTo(name.height + 4));
         final Rect semantics = tester.getSemantics(find.byKey(pencilKey)).rect;
         expect(semantics.width, greaterThanOrEqualTo(48));
         expect(semantics.height, greaterThanOrEqualTo(48));
         expect(
           tester.getSemantics(find.byKey(pencilKey)).label,
-          l10n.serviceSetupRenameAction,
+          l10n.serviceSetupNameAction,
         );
         // A corner of the 48x48 target, outside the laid-out box.
         final Offset corner = Offset(
@@ -675,52 +678,22 @@ void main() {
       }
     });
 
-    testWidgets('472 audit: a tap past the 48 dp target does not rename', (
-      tester,
-    ) async {
+    testWidgets('472 audit: a tap past the 48 dp target does not open the '
+        'name well', (tester) async {
       final row = ownedRow();
       addTearDown(row.dispose);
-      await pumpCard(tester, row);
+      await pumpCard(tester, row, offerCustomName: true);
       final Rect box = tester.getRect(find.byKey(pencilKey));
       await tester.tapAt(Offset(box.center.dx, box.center.dy + 26));
       await tester.pumpAndSettle();
       expect(find.byKey(wellKey), findsNothing);
     });
 
-    testWidgets('472 audit: canRename false hides that service\'s pencil; '
-        'null keeps it', (tester) async {
-      final row = ownedRow();
-      addTearDown(row.dispose);
-      await pumpCard(tester, row, canRename: (s) => s.id != 'svc-owned');
-      expect(
-        find.byKey(const Key('setup_row_owned_svc-owned')),
-        findsOneWidget,
-      );
-      expect(find.byKey(pencilKey), findsNothing);
-      await pumpCard(tester, row);
-      expect(find.byKey(pencilKey), findsOneWidget);
-    });
-
-    testWidgets(
-      '472 audit: renameNote shows only while a rename well is open',
-      (tester) async {
-        final row = ownedRow();
-        addTearDown(row.dispose);
-        const String note = 'shared-note';
-        await pumpCard(tester, row, renameNote: note);
-        expect(find.text(note), findsNothing);
-        await tester.tap(find.byKey(pencilKey));
-        await tester.pumpAndSettle();
-        expect(find.byKey(wellKey), findsOneWidget);
-        expect(find.text(note), findsOneWidget);
-      },
-    );
-
     testWidgets('472 audit: the name well drops the Hangul fillers the backend '
         'rejects', (tester) async {
       final row = ownedRow();
       addTearDown(row.dispose);
-      await pumpCard(tester, row);
+      await pumpCard(tester, row, offerCustomName: true);
       await tester.tap(find.byKey(pencilKey));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -728,10 +701,10 @@ void main() {
           of: find.byKey(wellKey),
           matching: find.byType(TextField),
         ),
-        'А\u115FБ\u1160В\u3164Г\uFFA0Д',
+        'АᅟБᅠВㅤГﾠД',
       );
       await tester.pump();
-      expect(row.ownedServices.single.controller?.text, 'АБВГД');
+      expect(row.name.text, 'АБВГД');
     });
   });
 }
