@@ -376,7 +376,7 @@ void main() {
   group('service_copy_hint_flow', service_copy_hint.main);
   group('client_booking_service_copy_flow', client_booking_service_copy.main);
   group('salon_booking_service_copy_flow', salon_booking_service_copy.main);
-  // Phase 471 — «+ ще раз» adds a copy row to the same add-services save:
+  // Phase 471 — «+ додати ще» adds a copy row to the same add-services save:
   // free-duration seed, blank-name collision, «Прибрати» drops the copy.
   group('service_copy_row_flow', service_copy_row.main);
   group('service_crud_flow', service_crud.main);

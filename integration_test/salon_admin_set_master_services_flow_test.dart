@@ -782,7 +782,7 @@ void main() {
   // carries both items, the name only on the copy (trimmed). Mirrors the
   // owner arm in salon_owner_set_master_services_flow_test.dart. ─────────────
   testWidgets(
-    'SALON_ADMIN: «+ ще раз» on a type for the master adds a named copy row; '
+    'SALON_ADMIN: «+ додати ще» on a type for the master adds a named copy row; '
     'one salon-scoped bulk POST carries both items, the trimmed name on the '
     'copy',
     (tester) async {
@@ -890,7 +890,7 @@ void main() {
         );
         await tester.pump();
 
-        // «+ ще раз» → the copy row, same widget, with the name field.
+        // «+ додати ще» → the copy row, same widget, with the name field.
         await tapWhenReady(
           tester,
           find.byKey(const Key('btn-setup-row-add-copy-$_kFreeTypeId')),
@@ -900,9 +900,50 @@ void main() {
           fieldIn(copyKeyId, 'pricing-fixed-amount'),
           timeout: const Duration(seconds: 20),
         );
+        // Phase 472: the tap jumps into the copy — wait for that reveal to
+        // settle (on screen, no scroll in flight, duration focused) before
+        // typing, so no scroll animation moves a field under the input.
+        final Finder copyDuration = find.descendant(
+          of: find.byKey(
+            const Key('setup_row_$copyKeyId'),
+            skipOffstage: false,
+          ),
+          matching: find.byKey(
+            const Key('service-setup-duration'),
+            skipOffstage: false,
+          ),
+          skipOffstage: false,
+        );
+        await AppHarness.pumpUntilRevealSettled(
+          tester,
+          card: find.byKey(
+            const Key('setup_row_$copyKeyId'),
+            skipOffstage: false,
+          ),
+          durationField: copyDuration,
+        );
+        expect(
+          FocusManager.instance.primaryFocus,
+          same(
+            tester
+                .widget<EditableText>(
+                  find.descendant(
+                    of: copyDuration,
+                    matching: find.byType(EditableText),
+                    skipOffstage: false,
+                  ),
+                )
+                .focusNode,
+          ),
+          reason: "phase 472: focus lands on the copy's duration well",
+        );
         final Finder copyName = find.descendant(
-          of: find.byKey(const Key('setup_row_name_$copyKeyId')),
+          of: find.byKey(
+            const Key('setup_row_name_$copyKeyId'),
+            skipOffstage: false,
+          ),
           matching: find.byType(EditableText),
+          skipOffstage: false,
         );
         expect(copyName, findsOneWidget);
         expect(
@@ -913,6 +954,8 @@ void main() {
           findsOneWidget,
         );
 
+        await tester.ensureVisible(fieldIn(copyKeyId, 'pricing-fixed-amount'));
+        await tester.pump();
         await tester.enterText(
           fieldIn(copyKeyId, 'pricing-fixed-amount'),
           '560',

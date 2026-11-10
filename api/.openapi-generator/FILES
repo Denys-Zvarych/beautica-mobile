@@ -621,11 +621,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/cancel_token_item_response_test.dart
-test/guest_cancel_request_test.dart
-test/guest_cancel_token_test.dart
-test/guest_telegram_link_controller_api_test.dart
-test/guest_telegram_link_response_test.dart
-test/guest_telegram_status_response_test.dart
-test/guest_telegram_token_request_test.dart
-test/telegram_availability_test.dart

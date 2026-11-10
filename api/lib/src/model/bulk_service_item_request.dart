@@ -18,6 +18,7 @@ part 'bulk_service_item_request.g.dart';
 /// * [price]
 /// * [priceMin]
 /// * [priceMax]
+/// * [name]
 @BuiltValue()
 abstract class BulkServiceItemRequest
     implements Built<BulkServiceItemRequest, BulkServiceItemRequestBuilder> {
@@ -39,6 +40,9 @@ abstract class BulkServiceItemRequest
 
   @BuiltValueField(wireName: r'priceMax')
   num? get priceMax;
+
+  @BuiltValueField(wireName: r'name')
+  String? get name;
 
   BulkServiceItemRequest._();
 
@@ -104,6 +108,13 @@ class _$BulkServiceItemRequestSerializer
       yield serializers.serialize(
         object.priceMax,
         specifiedType: const FullType(num),
+      );
+    }
+    if (object.name != null) {
+      yield r'name';
+      yield serializers.serialize(
+        object.name,
+        specifiedType: const FullType(String),
       );
     }
   }
@@ -172,6 +183,13 @@ class _$BulkServiceItemRequestSerializer
             specifiedType: const FullType(num),
           ) as num;
           result.priceMax = valueDes;
+          break;
+        case r'name':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.name = valueDes;
           break;
         default:
           unhandled.add(key);

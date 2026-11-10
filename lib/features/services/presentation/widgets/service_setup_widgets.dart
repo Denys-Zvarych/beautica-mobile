@@ -14,6 +14,9 @@
 // control while its include toggle is ON, and dims to a single muted line while
 // OFF.
 
+import 'dart:collection';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +26,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_name_key.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -340,7 +344,16 @@ class ServiceRowState extends ChangeNotifier {
     this.ownedDurations = const <int>{},
     this.copyIndex = 0,
     String? name,
-  }) {
+    List<MasterService> ownedServices = const <MasterService>[],
+    Set<(int, String)>? ownedCopyKeys,
+  }) : _owned = <OwnedServiceName>[
+         for (final MasterService s in ownedServices) OwnedServiceName(s),
+       ],
+       ownedCopyKeys =
+           ownedCopyKeys ??
+           (ownedServices.isEmpty
+               ? null
+               : copyKeysOf(ownedServices, typeName: nameUk)) {
     // Parsed-value caches (see [durationMinutes] / [customName]) follow the
     // controllers' TEXT; registered before the seed so it is cached too.
     duration.addListener(_syncDuration);
@@ -370,7 +383,13 @@ class ServiceRowState extends ChangeNotifier {
     _nameText = text;
     final String t = text.trim();
     _customName = t.isEmpty ? null : t;
+    _effectiveNameKey = null; // re-derived on next read
   }
+
+  /// [effectiveNameKey] cache, cleared by [_syncName]; [_typeNameKey] is the
+  /// fixed [serviceNameKey] of [nameUk].
+  String? _effectiveNameKey;
+  String? _typeNameKey;
 
   /// The duration field parsed as whole minutes, or null when blank / not a
   /// number. Cached on text change — reads never re-parse.
@@ -395,6 +414,7 @@ class ServiceRowState extends ChangeNotifier {
       nameUk: source.nameUk,
       alreadyAdded: source.alreadyAdded,
       ownedDurations: source.ownedDurations,
+      ownedCopyKeys: source.ownedCopyKeys,
       copyIndex: copyIndex,
     );
     final int? sourceDuration = source.durationMinutes;
@@ -461,7 +481,7 @@ class ServiceRowState extends ChangeNotifier {
   /// 0. Not a notifier field: the screen rebuilds when it changes.
   int copyIndex;
 
-  /// True for an extra copy row added with «+ ще раз» (phase 471).
+  /// True for an extra copy row added with «+ додати ще» (phase 471).
   bool get isExtraCopy => copyIndex > 0;
 
   /// Widget-key id of this row: the bare [serviceTypeId] for the primary row
@@ -479,11 +499,18 @@ class ServiceRowState extends ChangeNotifier {
   /// The name the backend 464 duplicate rule compares ([serviceNameKey]:
   /// compatibility-folded, space runs collapsed, trimmed, lower-cased),
   /// blank = the type name.
-  String get effectiveNameKey => serviceNameKey(customName ?? nameUk);
+  /// Cached with [customName] (phase 472 audit) — the pair check reads it per
+  /// row on every edit.
+  String get effectiveNameKey => _effectiveNameKey ??= switch (customName) {
+    final String n => serviceNameKey(n),
+    null => _typeKey,
+  };
+
+  String get _typeKey => _typeNameKey ??= serviceNameKey(nameUk);
 
   /// True when this row would be saved under the type name — the name every
   /// existing copy in [ownedDurations] is compared with.
-  bool get keepsTypeName => effectiveNameKey == serviceNameKey(nameUk);
+  bool get keepsTypeName => effectiveNameKey == _typeKey;
 
   bool _copyCollision = false;
 
@@ -515,15 +542,45 @@ class ServiceRowState extends ChangeNotifier {
   /// one of these is [durationTaken] and blocks the save.
   final Set<int> ownedDurations;
 
-  /// True while the row is included and its current duration matches an
-  /// existing copy of the same type — an exact duplicate the backend would
-  /// reject with 409 `DUPLICATE_SERVICE`. Phase 471: a row renamed away from
-  /// the type name may share an owned duration (existing copies carry the
-  /// type name), so only a row that keeps the type name is taken.
+  /// Phase 472 — `(durationMinutes, serviceNameKey(name))` of every existing
+  /// copy, the backend 464 rule's (duration, canonical name) half (the type
+  /// is the row's). Null when unknown — [durationTaken] then falls back to
+  /// "existing copies carry the type name" (the pre-472 assumption).
+  final Set<(int, String)>? ownedCopyKeys;
+
+  /// The [ownedCopyKeys] of [services]: a blank name counts as the service's
+  /// own type name, else [typeName] (the row's catalogue name).
+  static Set<(int, String)> copyKeysOf(
+    List<MasterService> services, {
+    required String typeName,
+  }) => <(int, String)>{
+    for (final MasterService s in services)
+      (
+        s.durationMinutes,
+        serviceNameKey(
+          s.name.trim().isNotEmpty
+              ? s.name
+              : ((s.serviceTypeNameUk ?? '').trim().isNotEmpty
+                    ? s.serviceTypeNameUk ?? typeName
+                    : typeName),
+        ),
+      ),
+  };
+
+  /// True while the row is included and its (duration, canonical name)
+  /// matches an existing copy of the same type — an exact duplicate the
+  /// backend would reject with 409 `DUPLICATE_SERVICE`. Phase 472 compares
+  /// [effectiveNameKey] with each copy's canonical name ([ownedCopyKeys]), so
+  /// a renamed existing copy no longer blocks a type-name row at its
+  /// duration; without keys, only a row that keeps the type name is taken
+  /// (phase 471).
   bool get durationTaken {
-    if (!_included || ownedDurations.isEmpty) return false;
+    if (!_included) return false;
     final int? d = _durationMinutes;
-    return d != null && ownedDurations.contains(d) && keepsTypeName;
+    if (d == null) return false;
+    final Set<(int, String)>? keys = ownedCopyKeys;
+    if (keys != null) return keys.contains((d, effectiveNameKey));
+    return ownedDurations.contains(d) && keepsTypeName;
   }
 
   /// Field controllers, owned by the row so its card can recompute the
@@ -544,17 +601,10 @@ class ServiceRowState extends ChangeNotifier {
   set included(bool value) {
     if (_included == value) return;
     _included = value;
-    // Phase 468: a re-selected owned type starts at a FREE duration, so the
-    // master is not greeted by an error on a value they did not choose. Only
-    // an empty or already-taken duration is replaced — a value they typed and
-    // that is free survives a toggle off/on.
-    if (value && ownedDurations.isNotEmpty) {
-      final int? current = _durationMinutes;
-      if (current == null || ownedDurations.contains(current)) {
-        final int? seed = nearestFreeQuickPick(ownedDurations);
-        if (seed != null) duration.text = '$seed';
-      }
-    }
+    // Phase 472: no duration seed on toggle. Phase 468 filled an owned type's
+    // row with a free quick-pick here, which read as an autofilled duration on
+    // every reopen; the master now types the copy's duration themselves
+    // ([durationTaken] still blocks a value an existing copy already has).
     notifyListeners();
   }
 
@@ -643,14 +693,197 @@ class ServiceRowState extends ChangeNotifier {
     serverNameError = null;
   }
 
+  // -------------------------------------------------------------------------
+  // Phase 472 — «+ додати ще» focus jump, custom name of a new service, and
+  // inline rename of the master's existing services (decision D2)
+  // -------------------------------------------------------------------------
+
+  FocusNode? _durationFocus;
+
+  /// Focus node of this row's duration well, created on first use, so the
+  /// screen can move focus into a freshly added copy.
+  FocusNode get durationFocus =>
+      _durationFocus ??= FocusNode(debugLabel: 'setup_duration_$keyId');
+
+  FocusNode? _nameFocus;
+
+  /// Focus node of this row's custom-name well, created on first use, so the
+  /// header pencil can move focus into the well it reveals.
+  FocusNode get nameFocus =>
+      _nameFocus ??= FocusNode(debugLabel: 'setup_name_$keyId');
+
+  bool _nameFieldOpen = false;
+
+  /// D2 — true once the header pencil revealed the custom-name well of a
+  /// not-yet-owned service (the name is sent with the add).
+  bool get nameFieldOpen => _nameFieldOpen;
+
+  /// Reveals the custom-name well (the header pencil of a new service).
+  void openNameField() {
+    if (_nameFieldOpen) return;
+    _nameFieldOpen = true;
+    notifyListeners();
+  }
+
+  List<OwnedServiceName> _owned;
+
+  /// D2 — the master's existing services of this type, each renameable in
+  /// place (one pencil per service). Held by the type's primary row only;
+  /// empty for a type the master does not offer and for extra copy rows.
+  /// A read-only view over the live list (no copy per read).
+  List<OwnedServiceName> get ownedServices =>
+      UnmodifiableListView<OwnedServiceName>(_owned);
+
+  /// The name [entry]'s service is saved under (blank = the type name).
+  String savedNameOf(OwnedServiceName entry) {
+    final String n = entry.service.name.trim();
+    return n.isEmpty ? nameUk : n;
+  }
+
+  /// Opens [entry]'s rename well, pre-filled with its custom name (blank when
+  /// it carries the type name — the type name is the placeholder).
+  void beginRename(OwnedServiceName entry) {
+    if (entry._controller != null || !_owned.contains(entry)) return;
+    final String saved = savedNameOf(entry);
+    entry._controller = TextEditingController(
+      text: saved == nameUk ? '' : saved,
+    );
+    _listenRename(entry);
+    notifyListeners();
+  }
+
+  /// (Re)binds [entry]'s rename-text listener to THIS row: a real text edit
+  /// clears its error and notifies only when the error or the pending state
+  /// flips, so plain typing stays inside the well.
+  void _listenRename(OwnedServiceName entry) {
+    final TextEditingController? c = entry._controller;
+    if (c == null) return;
+    final VoidCallback? old = entry._listener;
+    if (old != null) c.removeListener(old);
+    entry._lastText = c.text;
+    entry._lastPending = pendingRenameOf(entry) != null;
+    void listener() {
+      if (c.text == entry._lastText) return; // caret / selection only
+      entry._lastText = c.text;
+      final bool pending = pendingRenameOf(entry) != null;
+      if (entry._error == null && pending == entry._lastPending) return;
+      entry._error = null;
+      entry._lastPending = pending;
+      notifyListeners();
+    }
+
+    entry._listener = listener;
+    c.addListener(listener);
+  }
+
+  /// The name to send for [entry] — trimmed; a blank well sends the catalogue
+  /// type name [nameUk] (backend `UpdateServiceDefinitionRequest.name` is
+  /// `@Size(min = 1)`, so `''` would 400) — or null when its well is closed or
+  /// matches the saved name. The match is by [serviceNameCanonical] (the form
+  /// the backend stores), so a name the server normalised on save (space
+  /// runs collapsed, full-width folded) is not pending again; a case-only
+  /// change still is. Never returns an empty string.
+  String? pendingRenameOf(OwnedServiceName entry) {
+    final TextEditingController? c = entry._controller;
+    if (c == null) return null;
+    final String typed = c.text.trim();
+    final String effective = typed.isEmpty ? nameUk : typed;
+    return serviceNameCanonical(effective) ==
+            serviceNameCanonical(savedNameOf(entry))
+        ? null
+        : effective;
+  }
+
+  /// Owned services of this row with an unsaved rename.
+  int get pendingRenameCount {
+    var n = 0;
+    for (final OwnedServiceName e in _owned) {
+      if (pendingRenameOf(e) != null) n++;
+    }
+    return n;
+  }
+
+  /// Records a saved rename, so a later save does not send it again.
+  void commitRename(OwnedServiceName entry, MasterService updated) {
+    entry._service = updated;
+    entry._error = null;
+    entry._lastPending = pendingRenameOf(entry) != null;
+    notifyListeners();
+  }
+
+  /// Error on [entry]'s rename well (409 duplicate / 400 name), or null.
+  void setRenameError(OwnedServiceName entry, String? value) {
+    if (entry._error == value) return;
+    entry._error = value;
+    notifyListeners();
+  }
+
+  /// «Прибрати» on the primary row: the promoted row takes over [from]'s
+  /// owned services, open rename wells and unsaved renames included, so a
+  /// pending rename is never lost with the row that showed it.
+  void adoptOwnedServices(ServiceRowState from) {
+    if (identical(from, this) || from._owned.isEmpty) return;
+    _owned = <OwnedServiceName>[..._owned, ...from._owned];
+    from._owned = <OwnedServiceName>[];
+    _owned.forEach(_listenRename);
+    notifyListeners();
+  }
+
   @override
   void dispose() {
+    _durationFocus?.dispose();
+    _nameFocus?.dispose();
+    for (final OwnedServiceName e in _owned) {
+      e._dispose();
+    }
     name.dispose();
     duration.dispose();
     fixed.dispose();
     min.dispose();
     max.dispose();
     super.dispose();
+  }
+}
+
+/// Phase 472 (D2) — one of the master's existing services shown on its
+/// type's add-services row, renameable in place. Mutated only through its
+/// [ServiceRowState] (which notifies); disposed with that row.
+class OwnedServiceName {
+  OwnedServiceName(this._service);
+
+  MasterService _service;
+
+  /// The service as last saved (updated after a successful rename).
+  MasterService get service => _service;
+
+  TextEditingController? _controller;
+
+  /// The rename well's controller; null until its pencil is tapped.
+  TextEditingController? get controller => _controller;
+
+  /// True once the pencil turned this service's line into the rename well.
+  bool get renaming => _controller != null;
+
+  FocusNode? _focus;
+
+  /// Focus node of the rename well, created on first use.
+  FocusNode get focus =>
+      _focus ??= FocusNode(debugLabel: 'setup_rename_${_service.id}');
+
+  String? _error;
+
+  /// Error shown on the rename well (409 duplicate / 400 name), or null.
+  String? get error => _error;
+
+  String _lastText = '';
+  bool _lastPending = false;
+  VoidCallback? _listener;
+
+  void _dispose() {
+    final VoidCallback? l = _listener;
+    if (l != null) _controller?.removeListener(l);
+    _controller?.dispose();
+    _focus?.dispose();
   }
 }
 
@@ -676,6 +909,9 @@ class ServiceTypeRowCard extends StatefulWidget {
     this.onAddCopy,
     this.onRemove,
     this.showNameField = false,
+    this.offerCustomName = false,
+    this.canRename,
+    this.renameNote,
   });
 
   final ServiceRowState row;
@@ -696,7 +932,7 @@ class ServiceTypeRowCard extends StatefulWidget {
   /// field edits report a taken-flip through [onChanged], as before.
   final ValueChanged<bool>? onFieldEdited;
 
-  /// Phase 471 — when non-null (and the row is included) a «+ ще раз» text
+  /// Phase 471 — when non-null (and the row is included) a «+ додати ще» text
   /// action under the row adds another copy of this type. Null = no action,
   /// the row renders exactly as before.
   final VoidCallback? onAddCopy;
@@ -707,6 +943,23 @@ class ServiceTypeRowCard extends StatefulWidget {
   /// Phase 471 — renders the optional name field («Назва (необов'язково)»)
   /// above the duration / price wells while the row is included.
   final bool showNameField;
+
+  /// Phase 472 (D2) — while the row is included, a not-yet-owned type without
+  /// a visible name well shows a pencil after its name that reveals the
+  /// custom-name well ([ServiceRowState.openNameField]). False = no pencil,
+  /// the row renders exactly as before.
+  final bool offerCustomName;
+
+  /// Phase 472 audit — whether an existing [MasterService] of this row may be
+  /// renamed here; false hides its pencil (e.g. a salon definition the owner
+  /// performs is identity-locked for an admin). Null = every one may, exactly
+  /// as before.
+  final bool Function(MasterService service)? canRename;
+
+  /// Phase 472 audit — a caption under the owned services while a rename
+  /// well is open (a salon target: the rename changes the shared definition
+  /// for every master performing it). Null = no caption.
+  final String? renameNote;
 
   @override
   State<ServiceTypeRowCard> createState() => _ServiceTypeRowCardState();
@@ -768,6 +1021,28 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     row.max.addListener(_onPriceChanged);
     // Phase 471: a rename can flip [ServiceRowState.durationTaken].
     row.name.addListener(_onNameChanged);
+    _lastPendingRenames = row.pendingRenameCount;
+  }
+
+  /// Last-seen [ServiceRowState.pendingRenameCount], so only a change reaches
+  /// the screen (its footer counts pending renames).
+  int _lastPendingRenames = 0;
+
+  /// D2 — the header pencil: reveal the custom-name well, then focus it.
+  void _startName() {
+    final ServiceRowState row = widget.row;
+    row.openNameField();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) row.nameFocus.requestFocus();
+    });
+  }
+
+  /// D2 — an owned service's pencil: open its rename well, then focus it.
+  void _startRename(OwnedServiceName entry) {
+    widget.row.beginRename(entry);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) entry.focus.requestFocus();
+    });
   }
 
   void _detach(ServiceRowState row) {
@@ -781,6 +1056,13 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
 
   void _onRowChanged() {
     if (mounted) setState(() {});
+    // A rename well's pending state flipped (or a rename saved): let the
+    // screen's footer re-derive — on a change only.
+    final int pending = widget.row.pendingRenameCount;
+    if (pending != _lastPendingRenames) {
+      _lastPendingRenames = pending;
+      widget.onChanged?.call();
+    }
   }
 
   /// The three price controllers share one listener, so their combined text is
@@ -908,6 +1190,8 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     // `owned` only drives the «Вже додано» label and the calm camel hairline.
     final bool owned = row.alreadyAdded;
     final bool on = row.included;
+    // Phase 472 (D2): the header pencil can reveal the name well too.
+    final bool showName = widget.showNameField || row.nameFieldOpen;
     // Included copy whose duration matches an existing copy (exact duplicate).
     final bool durationTaken = row.durationTaken;
     final RowFlagReason reason = row.flagReason;
@@ -966,7 +1250,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         serverDurationError ??
         (durationTaken
             // A row with a name field can fix the clash by renaming too.
-            ? (widget.showNameField
+            ? (showName
                   ? l10n.serviceSetupCopyCollision
                   : l10n.serviceSetupDurationTaken)
             : null) ??
@@ -985,7 +1269,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         : clientFixedPriceError;
     final String? minPriceError = fixedMode ? null : serverPriceError;
 
-    // Phase 471: the low «+ ще раз» / «Прибрати» footer owns the card's
+    // Phase 471: the low «+ додати ще» / «Прибрати» footer owns the card's
     // bottom inset (see [_RowTextAction]); rows without it keep the pre-471
     // geometry exactly.
     final bool hasActions =
@@ -1031,13 +1315,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      AnimatedDefaultTextStyle(
-                        duration: const Duration(milliseconds: 200),
-                        style: VelvetText.subheading16.copyWith(
-                          color: on ? BrandColors.text : BrandColors.muted,
-                        ),
-                        child: Text(row.nameUk),
-                      ),
+                      _headerName(l10n, row, on, showName: showName),
                       // Header flag line only for CLIENT-side reasons — a pure
                       // server error carries its message on the inline field slot
                       // (below), so a generic header line here would misreport it.
@@ -1083,6 +1361,10 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                               : VelvetText.svcCaptionNote,
                         ),
                       ],
+                      // D2: the master's existing services of this type, one
+                      // pencil each (primary row only; empty otherwise).
+                      if (row.ownedServices.isNotEmpty)
+                        _ownedServices(l10n, row),
                     ],
                   ),
                 ),
@@ -1127,7 +1409,12 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           child: _withNameField(
                             l10n,
                             row,
+                            showName,
                             PricingField(
+                              // Phase 472: keyed so revealing the name well
+                              // above it keeps its state (and a focused
+                              // price well's focus) instead of rebuilding.
+                              key: const ValueKey<String>('row-pricing'),
                               mode: row.pricingMode,
                               onModeChanged: _setMode,
                               fixedController: row.fixed,
@@ -1143,6 +1430,8 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                               compact: true,
                               durationController: row.duration,
                               durationError: durationError,
+                              // Phase 472: lets the screen focus a new copy.
+                              durationFocusNode: row.durationFocus,
                             ),
                           ),
                         ),
@@ -1160,34 +1449,204 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   }
 
   /// Phase 471 — stacks the optional name well above [pricing] when
-  /// [ServiceTypeRowCard.showNameField] is set; otherwise returns [pricing]
-  /// untouched, so a row without copies keeps its exact pre-471 tree.
+  /// [showName] is set ([ServiceTypeRowCard.showNameField] or the D2 header
+  /// pencil). Phase 472: [pricing] always sits last in the same Column (with
+  /// its own key), so the well appearing never rebuilds the pricing wells —
+  /// a focused price field keeps its focus node. Without the well the Column
+  /// is `min`-sized and start-aligned: the pre-471 geometry exactly.
   Widget _withNameField(
     AppLocalizations l10n,
     ServiceRowState row,
+    bool showName,
     Widget pricing,
   ) {
-    if (!widget.showNameField) return pricing;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: showName
+          ? CrossAxisAlignment.stretch
+          : CrossAxisAlignment.start,
       children: <Widget>[
-        NeumorphicTextField(
-          key: Key('setup_row_name_${row.keyId}'),
-          label: l10n.serviceSetupCopyNameHint,
-          controller: row.name,
-          // Blank keeps the type name, so the type name IS the placeholder.
-          hintText: row.nameUk,
-          // Backend 464: BulkServiceItemRequest.name maxLength 100.
-          maxLength: _nameMaxLength,
-          // Mirrors the backend name allow-list (phase 464) so a character the
-          // server would reject can never be typed or pasted in.
-          inputFormatters: _nameInputFormatters,
-          errorText: row.included ? row.serverNameError : null,
-          textInputAction: TextInputAction.done,
-        ),
-        const SizedBox(height: VelvetSpacing.md),
+        if (showName) ...<Widget>[
+          _nameWell(
+            key: Key('setup_row_name_${row.keyId}'),
+            l10n: l10n,
+            row: row,
+            controller: row.name,
+            errorText: row.included ? row.serverNameError : null,
+            focusNode: row.nameFocus,
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+        ],
         pricing,
       ],
+    );
+  }
+
+  /// The custom-name well shared by a copy's name (phase 471) and the inline
+  /// rename of an owned service (phase 472): same label, type-name
+  /// placeholder, length cap and character allow-list.
+  Widget _nameWell({
+    required Key key,
+    required AppLocalizations l10n,
+    required ServiceRowState row,
+    required TextEditingController controller,
+    String? errorText,
+    FocusNode? focusNode,
+    String? label,
+  }) {
+    return NeumorphicTextField(
+      key: key,
+      label: label ?? l10n.serviceSetupCopyNameHint,
+      controller: controller,
+      // Blank keeps the type name, so the type name IS the placeholder.
+      hintText: row.nameUk,
+      // Backend 464: BulkServiceItemRequest.name maxLength 100.
+      maxLength: _nameMaxLength,
+      // Mirrors the backend name allow-list (phase 464) so a character the
+      // server would reject can never be typed or pasted in.
+      inputFormatters: _nameInputFormatters,
+      errorText: errorText,
+      focusNode: focusNode,
+      textInputAction: TextInputAction.done,
+    );
+  }
+
+  /// The header's service name. Phase 472 (D2): while included, a
+  /// not-yet-owned row without a visible name well adds a pencil that
+  /// reveals it ([ServiceTypeRowCard.offerCustomName]); otherwise the exact
+  /// pre-472 text.
+  Widget _headerName(
+    AppLocalizations l10n,
+    ServiceRowState row,
+    bool on, {
+    required bool showName,
+  }) {
+    final Widget name = AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 200),
+      style: VelvetText.subheading16.copyWith(
+        color: on ? BrandColors.text : BrandColors.muted,
+      ),
+      child: Text(row.nameUk),
+    );
+    final bool offer =
+        widget.offerCustomName && on && !row.alreadyAdded && !showName;
+    if (!offer) return name;
+    return Row(
+      children: <Widget>[
+        Flexible(child: name),
+        _pencil(
+          key: Key('btn-setup-row-name-${row.keyId}'),
+          label: l10n.serviceSetupRenameAction,
+          onTap: _startName,
+        ),
+      ],
+    );
+  }
+
+  /// D2 — the master's existing services of this type under «Вже додано»:
+  /// one compact caption line each (saved name, duration, pencil); the
+  /// pencil turns its line into the shared name well, labelled with the
+  /// service's duration so it is clear which copy is being renamed.
+  Widget _ownedServices(AppLocalizations l10n, ServiceRowState row) {
+    final TextStyle nameStyle = VelvetText.svcCaptionNote.copyWith(
+      color: BrandColors.text,
+    );
+    final bool Function(MasterService service)? canRename = widget.canRename;
+    final String? renameNote = widget.renameNote;
+    final bool anyRenaming =
+        renameNote != null && row.ownedServices.any((e) => e.renaming);
+    return Padding(
+      padding: const EdgeInsets.only(top: VelvetSpacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (final OwnedServiceName e in row.ownedServices)
+            if (e.controller case final TextEditingController c)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
+                child: _nameWell(
+                  key: Key('setup_row_rename_${e.service.id}'),
+                  l10n: l10n,
+                  row: row,
+                  controller: c,
+                  errorText: e.error,
+                  focusNode: e.focus,
+                  label: l10n.serviceSetupRenameLabel(
+                    e.service.durationMinutes,
+                  ),
+                ),
+              )
+            else
+              Row(
+                key: Key('setup_row_owned_${e.service.id}'),
+                children: <Widget>[
+                  Flexible(
+                    child: Text(
+                      row.savedNameOf(e),
+                      style: nameStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: VelvetSpacing.xs),
+                  Text(
+                    '${e.service.durationMinutes} '
+                    '${l10n.serviceSetupDurationSuffix}',
+                    style: VelvetText.svcCaptionNote,
+                  ),
+                  if (canRename == null || canRename(e.service))
+                    _pencil(
+                      key: Key('btn-setup-row-rename-${e.service.id}'),
+                      label: l10n.serviceSetupRenameAction,
+                      onTap: () => _startRename(e),
+                    ),
+                ],
+              ),
+          if (anyRenaming)
+            Text(
+              renameNote,
+              key: Key('setup_row_rename_note_${row.keyId}'),
+              style: VelvetText.svcCaptionNote,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The small camel pencil after a name: a 48 dp wide box whose 16 dp glyph
+  /// stays within the text line, so the line keeps its height. Its touch
+  /// target and semantics rect are ≥48×48 dp all the same: [_PencilTarget]
+  /// extends both vertically without taking layout height.
+  Widget _pencil({
+    required Key key,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return _PencilTarget(
+      label: label,
+      onTap: onTap,
+      child: GestureDetector(
+        key: key,
+        behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
+        onTap: onTap,
+        child: const SizedBox(
+          width: _RowTextAction._minTouch,
+          child: Padding(
+            padding: EdgeInsets.only(left: VelvetSpacing.sm),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              widthFactor: 1,
+              heightFactor: 1,
+              child: Icon(
+                Icons.edit_outlined,
+                size: 16,
+                color: BrandColors.accent,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1203,9 +1662,12 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         unicode: true,
       ),
     ),
+    // The backend subtracts the four Hangul fillers from its letter class:
+    // they are `Lo` letters that render blank, so `\p{L}` above admits them.
+    FilteringTextInputFormatter.deny(RegExp('[\u115F\u1160\u3164\uFFA0]')),
   ];
 
-  /// Phase 471 — the «+ ще раз» / «Прибрати» text actions under the row.
+  /// Phase 471 — the «+ додати ще» / «Прибрати» text actions under the row.
   Widget _copyActions(AppLocalizations l10n, ServiceRowState row, bool on) {
     final VoidCallback? onAdd = on ? widget.onAddCopy : null;
     final VoidCallback? onRemove = widget.onRemove;
@@ -1330,6 +1792,9 @@ class _RenderBelowCardHitSlop extends RenderProxyBox {
 
   static const double _clampInset = VelvetSpacing.xs;
 
+  /// Phase 472 audit — the card's [_PencilTarget]s (they register on attach).
+  final Set<_RenderPencilTarget> _pencils = <_RenderPencilTarget>{};
+
   @override
   bool hitTest(BoxHitTestResult result, {required Offset position}) {
     final bool inSlop =
@@ -1338,12 +1803,155 @@ class _RenderBelowCardHitSlop extends RenderProxyBox {
         position.dx < size.width &&
         position.dy >= size.height &&
         position.dy < size.height + slop;
-    return super.hitTest(
-      result,
-      position: inSlop
-          ? Offset(position.dx, size.height - _clampInset)
-          : position,
-    );
+    final Offset at = inSlop
+        ? Offset(position.dx, size.height - _clampInset)
+        : position;
+    return super.hitTest(result, position: _towardPencil(at) ?? at);
+  }
+
+  /// A tap inside a pencil's 48×48 touch rect but outside its laid-out box
+  /// is redirected to the nearest such pencil's centre — unless it lands
+  /// directly on another gesture target (a text field, an action), which
+  /// keeps it. Null = hit-test [at] as is.
+  Offset? _towardPencil(Offset at) {
+    if (_pencils.isEmpty) return null;
+    Offset? best;
+    var bestDistance = double.infinity;
+    for (final _RenderPencilTarget pencil in _pencils) {
+      if (!pencil.attached || !pencil.hasSize) continue;
+      final Matrix4 toCard = pencil.getTransformTo(this);
+      if (!MatrixUtils.transformRect(toCard, pencil.touchRect).contains(at)) {
+        continue;
+      }
+      final Rect box = MatrixUtils.transformRect(
+        toCard,
+        Offset.zero & pencil.size,
+      );
+      if (box.contains(at)) return null; // a direct hit needs no help
+      final double distance = (box.center - at).distanceSquared;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = box.center;
+      }
+    }
+    if (best == null) return null;
+    final BoxHitTestResult probe = BoxHitTestResult();
+    super.hitTest(probe, position: at);
+    for (final HitTestEntry entry in probe.path) {
+      if (entry.target is RenderPointerListener) return null;
+    }
+    return best;
+  }
+}
+
+/// Phase 472 audit — gives the inline pencil a ≥48×48 dp touch target and
+/// semantics rect without layout height: the rect grows vertically (and
+/// horizontally if ever narrower) around the laid-out box; the enclosing
+/// row card ([_RenderBelowCardHitSlop]) routes taps in it to the pencil.
+/// Owns the pencil's button semantics (label + tap).
+class _PencilTarget extends SingleChildRenderObjectWidget {
+  const _PencilTarget({
+    required this.label,
+    required this.onTap,
+    required super.child,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  _RenderPencilTarget createRenderObject(BuildContext context) =>
+      _RenderPencilTarget(
+        label: label,
+        onTap: onTap,
+        textDirection: Directionality.maybeOf(context),
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderPencilTarget renderObject,
+  ) {
+    renderObject
+      ..label = label
+      ..onTap = onTap
+      ..textDirection = Directionality.maybeOf(context);
+  }
+}
+
+class _RenderPencilTarget extends RenderProxyBox {
+  _RenderPencilTarget({
+    required String label,
+    required VoidCallback onTap,
+    TextDirection? textDirection,
+  }) : _label = label,
+       _onTap = onTap,
+       _textDirection = textDirection;
+
+  static const double minTouch = _RowTextAction._minTouch;
+
+  String _label;
+  set label(String value) {
+    if (_label == value) return;
+    _label = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  VoidCallback _onTap;
+  set onTap(VoidCallback value) {
+    if (_onTap == value) return;
+    _onTap = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  TextDirection? _textDirection;
+  set textDirection(TextDirection? value) {
+    if (_textDirection == value) return;
+    _textDirection = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  _RenderBelowCardHitSlop? _host;
+
+  /// The ≥[minTouch]-square touch rect, centred on the laid-out box, in
+  /// this box's coordinates.
+  Rect get touchRect {
+    final double dx = math.max(0, (minTouch - size.width) / 2);
+    final double dy = math.max(0, (minTouch - size.height) / 2);
+    return Rect.fromLTRB(-dx, -dy, size.width + dx, size.height + dy);
+  }
+
+  @override
+  Rect get semanticBounds => touchRect;
+
+  @override
+  void describeSemanticsConfiguration(SemanticsConfiguration config) {
+    super.describeSemanticsConfiguration(config);
+    config
+      ..isSemanticBoundary = true
+      ..isButton = true
+      ..label = _label
+      ..textDirection = _textDirection
+      ..onTap = _onTap;
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    RenderObject? node = parent;
+    while (node != null && node is! _RenderBelowCardHitSlop) {
+      node = node.parent;
+    }
+    if (node is _RenderBelowCardHitSlop) {
+      _host = node.._pencils.add(this);
+    }
+  }
+
+  @override
+  void detach() {
+    _host?._pencils.remove(this);
+    _host = null;
+    super.detach();
   }
 }
 

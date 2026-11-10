@@ -17,8 +17,15 @@ final RegExp _spaceRun = RegExp(' {2,}');
 /// folded here (see [_foldCompatibility]); any other NFKC-only difference
 /// (ligatures, superscripts, half-width katakana, ...) is left to the server
 /// 409, which stays the backstop.
-String serviceNameKey(String name) =>
-    _foldCompatibility(name).replaceAll(_spaceRun, ' ').trim().toLowerCase();
+String serviceNameKey(String name) => serviceNameCanonical(name).toLowerCase();
+
+/// [name] as the backend stores it — `ServiceCatalogService.canonicalName`:
+/// compatibility-folded, internal space runs collapsed, trimmed, case KEPT.
+/// Two names with equal canonical forms save to the same stored name, so
+/// a typed name that only differs from the saved one by this normalisation
+/// is not a rename; a case-only change still is.
+String serviceNameCanonical(String name) =>
+    _foldCompatibility(name).replaceAll(_spaceRun, ' ').trim();
 
 /// The subset of NFKC relevant to service names: full-width ASCII
 /// (U+FF01–U+FF5E) to ASCII, and the Unicode spaces NFKC folds to U+0020

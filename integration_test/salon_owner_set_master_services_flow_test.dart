@@ -1357,7 +1357,8 @@ void main() {
   // goes to A's salon-scoped path carrying that copy. ─────────────────────
   testWidgets(
     'SALON_OWNER: an owned type on master A switched on again shows the same '
-    'owned-row copy, seeds a free duration and bulk-creates the copy for A',
+    'owned-row copy, starts with an empty duration and bulk-creates the copy '
+    'for A',
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend()..seedSalonMasterTypedCopy();
@@ -1499,8 +1500,10 @@ void main() {
               )
               .controller
               .text,
-          '90',
-          reason: "A owns {60}; the row seeds the nearest free quick-pick",
+          '',
+          reason:
+              'phase 472: an owned row starts with an EMPTY duration (the '
+              'phase 468 quick-pick autofill was removed by design)',
         );
         await tester.enterText(priceField, '650');
         await tester.pump();
@@ -1558,12 +1561,12 @@ void main() {
     timeout: const Timeout(Duration(seconds: 90)),
   );
 
-  // ── Phase 471 acceptance 5 — the salon target uses the SAME «+ ще раз» copy
+  // ── Phase 471 acceptance 5 — the salon target uses the SAME «+ додати ще» copy
   // row: an owner adds a named second copy of one type for master A
   // (`master-removable`) and ONE salon-scoped bulk POST carries both items,
   // the name only on the copy (trimmed). ─────────────────────────────────────
   testWidgets(
-    'SALON_OWNER: «+ ще раз» on a type for master A adds a named copy row; one '
+    'SALON_OWNER: «+ додати ще» on a type for master A adds a named copy row; one '
     'salon-scoped bulk POST carries both items, the trimmed name on the copy',
     (tester) async {
       await mockNetworkImagesFor(() async {
@@ -1684,7 +1687,7 @@ void main() {
         );
         await tester.pump();
 
-        // «+ ще раз» → the copy row, same widget, with the name field.
+        // «+ додати ще» → the copy row, same widget, with the name field.
         await tapWhenReady(
           tester,
           find.byKey(const Key('btn-setup-row-add-copy-$_kFreeTypeId')),
@@ -1694,9 +1697,50 @@ void main() {
           fieldIn(copyKeyId, 'pricing-fixed-amount'),
           timeout: const Duration(seconds: 20),
         );
+        // Phase 472: the tap jumps into the copy — wait for that reveal to
+        // settle (on screen, no scroll in flight, duration focused) before
+        // typing, so no scroll animation moves a field under the input.
+        final Finder copyDuration = find.descendant(
+          of: find.byKey(
+            const Key('setup_row_$copyKeyId'),
+            skipOffstage: false,
+          ),
+          matching: find.byKey(
+            const Key('service-setup-duration'),
+            skipOffstage: false,
+          ),
+          skipOffstage: false,
+        );
+        await AppHarness.pumpUntilRevealSettled(
+          tester,
+          card: find.byKey(
+            const Key('setup_row_$copyKeyId'),
+            skipOffstage: false,
+          ),
+          durationField: copyDuration,
+        );
+        expect(
+          FocusManager.instance.primaryFocus,
+          same(
+            tester
+                .widget<EditableText>(
+                  find.descendant(
+                    of: copyDuration,
+                    matching: find.byType(EditableText),
+                    skipOffstage: false,
+                  ),
+                )
+                .focusNode,
+          ),
+          reason: "phase 472: focus lands on the copy's duration well",
+        );
         final Finder copyName = find.descendant(
-          of: find.byKey(const Key('setup_row_name_$copyKeyId')),
+          of: find.byKey(
+            const Key('setup_row_name_$copyKeyId'),
+            skipOffstage: false,
+          ),
           matching: find.byType(EditableText),
+          skipOffstage: false,
         );
         expect(copyName, findsOneWidget);
         expect(
@@ -1707,6 +1751,8 @@ void main() {
           findsOneWidget,
         );
 
+        await tester.ensureVisible(fieldIn(copyKeyId, 'pricing-fixed-amount'));
+        await tester.pump();
         await tester.enterText(
           fieldIn(copyKeyId, 'pricing-fixed-amount'),
           '500',

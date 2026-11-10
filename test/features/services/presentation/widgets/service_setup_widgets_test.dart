@@ -23,6 +23,7 @@
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_setup_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -261,6 +262,8 @@ void main() {
       ValueChanged<bool>? onFieldEdited,
       bool showNameField = false,
       double gapBelow = 0,
+      bool Function(MasterService service)? canRename,
+      String? renameNote,
     }) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -282,6 +285,8 @@ void main() {
                     onChanged: onChanged,
                     onFieldEdited: onFieldEdited,
                     showNameField: showNameField,
+                    canRename: canRename,
+                    renameNote: renameNote,
                   ),
                 ),
               ),
@@ -343,6 +348,47 @@ void main() {
       expect(row.durationTaken, isFalse);
     });
 
+    test('B6 (472): durationTaken compares each owned copy\'s canonical name '
+        '— a renamed existing copy does not block a type-name row', () {
+      MasterService svc(String name, int minutes) => MasterService(
+        id: 'svc-$minutes',
+        serviceDefId: 'def-$minutes',
+        name: name,
+        serviceTypeId: id,
+        durationMinutes: minutes,
+        priceMin: 500,
+        priceDisplay: '500 ₴',
+      );
+      final row = ServiceRowState(
+        serviceTypeId: id,
+        nameUk: typeName,
+        alreadyAdded: true,
+        ownedDurations: const <int>{60, 90},
+        ownedServices: <MasterService>[
+          // i18n-finder-ok: fixture service name, not UI copy
+          svc('Масаж спини авторський', 60),
+          svc('', 90), // blank = the type name
+        ],
+      );
+      addTearDown(row.dispose);
+      row.included = true;
+      row.duration.text = '60';
+      expect(row.durationTaken, isFalse, reason: 'the 60-min copy is renamed');
+      row.name.text = '  масаж   СПИНИ авторський ';
+      expect(row.durationTaken, isTrue, reason: 'same canonical name at 60');
+      row.name.text = '';
+      row.duration.text = '90';
+      expect(row.durationTaken, isTrue, reason: 'blank owned name = type name');
+      final copy = ServiceRowState.copyOf(row);
+      addTearDown(copy.dispose);
+      expect(copy.ownedCopyKeys, row.ownedCopyKeys);
+      expect(
+        copy.ownedServices,
+        isEmpty,
+        reason: 'renames stay on the primary',
+      );
+    });
+
     testWidgets('no new params -> no copy actions and no name field', (
       tester,
     ) async {
@@ -354,7 +400,7 @@ void main() {
       expect(find.byKey(const Key('setup_row_name_$id')), findsNothing);
     });
 
-    testWidgets('onAddCopy renders «+ ще раз» (48dp) and fires on tap', (
+    testWidgets('onAddCopy renders «+ додати ще» (48dp) and fires on tap', (
       tester,
     ) async {
       final row = primary();
@@ -371,7 +417,7 @@ void main() {
       expect(taps, 1);
     });
 
-    testWidgets('«+ ще раз» touch target spans >= 48 dp vertically without '
+    testWidgets('«+ додати ще» touch target spans >= 48 dp vertically without '
         'layout: footer band + slop below the card', (tester) async {
       final row = primary();
       addTearDown(row.dispose);
@@ -412,7 +458,7 @@ void main() {
       expect(withActions - plain, lessThanOrEqualTo(20));
     });
 
-    testWidgets('«+ ще раз» is hidden while the row is excluded', (
+    testWidgets('«+ додати ще» is hidden while the row is excluded', (
       tester,
     ) async {
       final row = primary()..included = false;
@@ -518,6 +564,174 @@ void main() {
       await tester.pump();
       expect(flips, <bool>[true, true, false]);
       expect(changed, 0, reason: 'field edits go through onFieldEdited only');
+    });
+
+    const MasterService ownedSvc = MasterService(
+      id: 'svc-owned',
+      serviceDefId: 'def-owned',
+      // i18n-finder-ok: fixture service name, not UI copy
+      name: 'Масаж спини',
+      serviceTypeId: id,
+      durationMinutes: 60,
+      priceMin: 500,
+      priceDisplay: '500 ₴',
+    );
+
+    ServiceRowState ownedRow() => ServiceRowState(
+      serviceTypeId: id,
+      nameUk: typeName,
+      alreadyAdded: true,
+      ownedDurations: const <int>{60},
+      ownedServices: const <MasterService>[ownedSvc],
+    );
+
+    const Key pencilKey = Key('btn-setup-row-rename-svc-owned');
+    const Key wellKey = Key('setup_row_rename_svc-owned');
+
+    test('472 audit: a blank rename is sent as the type name, never \'\'', () {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      final OwnedServiceName entry = row.ownedServices.single;
+      row.beginRename(entry);
+      entry.controller?.text = '   ';
+      expect(row.pendingRenameOf(entry), typeName);
+      entry.controller?.text = ' Масаж шиї ';
+      expect(row.pendingRenameOf(entry), 'Масаж шиї');
+      // i18n-finder-ok: fixture service name, not UI copy
+      entry.controller?.text = 'Масаж спини';
+      expect(row.pendingRenameOf(entry), isNull, reason: 'unchanged');
+    });
+
+    test('472 audit: a server-normalised saved name is not pending again; '
+        'a case-only change still is', () {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      final OwnedServiceName entry = row.ownedServices.single;
+      row.beginRename(entry);
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      entry.controller?.text = 'Масаж   шиї';
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(row.pendingRenameOf(entry), 'Масаж   шиї');
+      // The backend collapses the space run and echoes the stored name.
+      // i18n-finder-ok: fixture service name, not UI copy
+      row.commitRename(entry, ownedSvc.copyWith(name: 'Масаж шиї'));
+      expect(row.pendingRenameOf(entry), isNull, reason: 'saved, normalised');
+      expect(row.pendingRenameCount, 0);
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      entry.controller?.text = 'масаж шиї';
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(row.pendingRenameOf(entry), 'масаж шиї', reason: 'case change');
+      entry.controller?.text = '  ';
+      expect(row.pendingRenameOf(entry), typeName, reason: 'blank → type');
+    });
+
+    test('472 audit: ownedServices is a read-only view, not a copy', () {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      expect(row.ownedServices.single, same(row.ownedServices.single));
+      expect(
+        () => row.ownedServices.add(OwnedServiceName(ownedSvc)),
+        throwsUnsupportedError,
+      );
+    });
+
+    testWidgets('472 audit: the rename pencil touch target is >= 48x48 dp '
+        'without growing the owned line', (tester) async {
+      for (final double dySign in <double>[-1, 1]) {
+        final row = ownedRow();
+        addTearDown(row.dispose);
+        final l10n = await pumpCard(tester, row);
+        final Rect box = tester.getRect(find.byKey(pencilKey));
+        final Rect line = tester.getRect(
+          find.byKey(const Key('setup_row_owned_svc-owned')),
+        );
+        expect(box.width, greaterThanOrEqualTo(48));
+        expect(
+          box.height,
+          lessThan(48),
+          reason: 'the laid-out box keeps the text line height',
+        );
+        expect(line.height, moreOrLessEquals(box.height, epsilon: 4));
+        final Rect semantics = tester.getSemantics(find.byKey(pencilKey)).rect;
+        expect(semantics.width, greaterThanOrEqualTo(48));
+        expect(semantics.height, greaterThanOrEqualTo(48));
+        expect(
+          tester.getSemantics(find.byKey(pencilKey)).label,
+          l10n.serviceSetupRenameAction,
+        );
+        // A corner of the 48x48 target, outside the laid-out box.
+        final Offset corner = Offset(
+          dySign < 0 ? box.left + 1 : box.right - 1,
+          box.center.dy + dySign * 23,
+        );
+        expect(box.contains(corner), isFalse);
+        await tester.tapAt(corner);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(wellKey),
+          findsOneWidget,
+          reason: 'a tap ${dySign < 0 ? 'above' : 'below'} the glyph opens it',
+        );
+      }
+    });
+
+    testWidgets('472 audit: a tap past the 48 dp target does not rename', (
+      tester,
+    ) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row);
+      final Rect box = tester.getRect(find.byKey(pencilKey));
+      await tester.tapAt(Offset(box.center.dx, box.center.dy + 26));
+      await tester.pumpAndSettle();
+      expect(find.byKey(wellKey), findsNothing);
+    });
+
+    testWidgets('472 audit: canRename false hides that service\'s pencil; '
+        'null keeps it', (tester) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, canRename: (s) => s.id != 'svc-owned');
+      expect(
+        find.byKey(const Key('setup_row_owned_svc-owned')),
+        findsOneWidget,
+      );
+      expect(find.byKey(pencilKey), findsNothing);
+      await pumpCard(tester, row);
+      expect(find.byKey(pencilKey), findsOneWidget);
+    });
+
+    testWidgets(
+      '472 audit: renameNote shows only while a rename well is open',
+      (tester) async {
+        final row = ownedRow();
+        addTearDown(row.dispose);
+        const String note = 'shared-note';
+        await pumpCard(tester, row, renameNote: note);
+        expect(find.text(note), findsNothing);
+        await tester.tap(find.byKey(pencilKey));
+        await tester.pumpAndSettle();
+        expect(find.byKey(wellKey), findsOneWidget);
+        expect(find.text(note), findsOneWidget);
+      },
+    );
+
+    testWidgets('472 audit: the name well drops the Hangul fillers the backend '
+        'rejects', (tester) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row);
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(wellKey),
+          matching: find.byType(TextField),
+        ),
+        'А\u115FБ\u1160В\u3164Г\uFFA0Д',
+      );
+      await tester.pump();
+      expect(row.ownedServices.single.controller?.text, 'АБВГД');
     });
   });
 }

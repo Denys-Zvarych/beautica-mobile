@@ -27,10 +27,12 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/application/owner_performed_services_provider.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
@@ -563,6 +565,7 @@ void main() {
   setUp(() {
     h = _Harness();
     registerFallbackValue(const <MasterServiceBulkItem>[]);
+    registerFallbackValue(const MasterServiceUpdate());
   });
 
   // ── Log-safe error summary ─────────────────────────────────────────────────
@@ -1444,7 +1447,7 @@ void main() {
         // Collapse the category (tap the chip again). `_expanded` IS the
         // selection set, so collapsing DESELECTS: `_toggleCategory` runs both
         // `row.included = false` AND `row.clearFlag()` on the retained row.
-        // Phase 471: the included row carries a «+ ще раз» line, so the
+        // Phase 471: the included row carries a «+ додати ще» line, so the
         // blocked save's scroll-to-flagged can now move the chip under the
         // top bar — bring it back before tapping.
         await tester.ensureVisible(
@@ -2235,8 +2238,9 @@ void main() {
   // Backend 464/465: a master may hold the same service type more than once if
   // each active copy differs in duration OR name; an exact duplicate is a 409.
   // The add-services row has no name field, so the client mirrors only the
-  // DURATION half: an owned type keeps its switch, seeds a FREE quick-pick
-  // duration when selected, and blocks the CTA with an inline error while its
+  // DURATION half: an owned type keeps its switch, starts with an EMPTY
+  // duration when selected (phase 472 dropped the free quick-pick seed), and
+  // blocks the CTA with an inline error while its
   // duration matches an existing copy. `_ownsClassic` owns classic at 60 min.
 
   group('APPEND mode — an owned type is selectable as a copy (phase 468)', () {
@@ -2314,8 +2318,9 @@ void main() {
     );
 
     testWidgets(
-      'selecting the owned type seeds a FREE duration (90, not the owned 60), '
-      'no taken error, CTA live, and the payload carries the copy at 90',
+      'phase 472: selecting the owned type leaves the duration EMPTY (no '
+      'autofill); a typed free 90 has no taken error, CTA live, and the '
+      'payload carries the copy at 90',
       (tester) async {
         final captured = <List<MasterServiceBulkItem>>[];
         when(() => h.repo.bulkCreate(any())).thenAnswer((invocation) async {
@@ -2342,7 +2347,19 @@ void main() {
 
         await _toggleRowOn(tester, 'type-classic');
 
-        expect(_durationText(tester, 'type-classic'), '90');
+        expect(
+          _durationText(tester, 'type-classic'),
+          isEmpty,
+          reason: 'phase 472: an owned row is no longer autofilled on toggle',
+        );
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('setup_row_type-classic')),
+            matching: find.byKey(const Key('service-setup-duration')),
+          ),
+          '90',
+        );
+        await tester.pumpAndSettle();
         expect(
           _textInRow('type-classic', l10n.serviceSetupDurationTaken),
           findsNothing,
@@ -2706,8 +2723,8 @@ void main() {
   // ── State-level — ServiceRowState copies (phase 468) ──────────────────────
 
   group('ServiceRowState — owned type as a copy (phase 468)', () {
-    test('including an owned row succeeds and seeds the nearest free '
-        'quick-pick ABOVE the longest owned duration', () {
+    test('phase 472: including an owned row succeeds and leaves the duration '
+        'EMPTY (no quick-pick autofill)', () {
       final row = ServiceRowState(
         serviceTypeId: 'type-classic',
         nameUk: 'Класичний манікюр',
@@ -2719,7 +2736,8 @@ void main() {
       row.included = true;
 
       expect(row.included, isTrue);
-      expect(row.duration.text, '90');
+      expect(row.duration.text, isEmpty);
+      expect(row.durationMinutes, isNull);
       expect(row.durationTaken, isFalse);
     });
 
@@ -2750,7 +2768,12 @@ void main() {
       expect(row.durationTaken, isFalse, reason: 'excluded rows never block');
 
       row.included = true;
-      expect(row.duration.text, '120', reason: '60 was taken → re-seeded');
+      expect(
+        row.duration.text,
+        '60',
+        reason: 'phase 472: the toggle no longer replaces a taken duration',
+      );
+      expect(row.durationTaken, isTrue);
       row.duration.text = ' 90 ';
       expect(row.durationTaken, isTrue);
       row.duration.text = '45';
@@ -4626,8 +4649,8 @@ void main() {
     );
   });
 
-  // ── Phase 471 — «+ ще раз» copy rows + client pair check ────────────────────
-  group('phase 471 — copy rows («+ ще раз» / «Прибрати») + pair check', () {
+  // ── Phase 471 — «+ додати ще» copy rows + client pair check ────────────────────
+  group('phase 471 — copy rows («+ додати ще» / «Прибрати») + pair check', () {
     const String classic = 'type-classic';
     const String copy1 = 'type-classic_copy_1';
 
@@ -4687,7 +4710,7 @@ void main() {
         '';
 
     /// SETUP mode, MANICURE expanded, classic included at 60 / 500 ₴, then
-    /// «+ ще раз» tapped once.
+    /// «+ додати ще» tapped once.
     Future<AppLocalizations> pumpWithCopy(
       WidgetTester tester, {
       List<Object>? overrides,
@@ -4724,7 +4747,7 @@ void main() {
       return captured;
     }
 
-    testWidgets('«+ ще раз» adds an included copy row at the nearest free '
+    testWidgets('«+ додати ще» adds an included copy row at the nearest free '
         'duration with an empty price; both rows get the name field and '
         '«Прибрати»', (tester) async {
       final l10n = await pumpWithCopy(tester);
@@ -5114,8 +5137,8 @@ void main() {
       expect(pairCheckRuns(tester), before + 2);
     });
 
-    testWidgets('toggling an owned type ON runs the pair check ONCE even '
-        'though the toggle re-seeds its duration', (tester) async {
+    testWidgets('toggling an owned type ON runs the pair check ONCE and '
+        '(phase 472) leaves its duration empty', (tester) async {
       await _pump(
         tester,
         h,
@@ -5135,13 +5158,13 @@ void main() {
 
       expect(
         durationOf(tester, classic),
-        '90',
-        reason: 'precondition: the toggle re-seeded the owned 60 to a free 90',
+        isEmpty,
+        reason: 'phase 472: no duration autofill on an owned row',
       );
       expect(
         pairCheckRuns(tester),
         before + 1,
-        reason: 'the re-seed is part of the toggle, not a second field edit',
+        reason: 'one toggle = one pair check',
       );
     });
 
@@ -5246,6 +5269,998 @@ void main() {
         findsNothing,
         reason: 'the copy at 90 is a different duration',
       );
+    });
+  });
+
+  // ── Phase 472 — «+ додати ще» jump + owned-service rename ─────────────────
+  group('phase 472 — add-copy jump + inline rename of an owned service', () {
+    const String classic = 'type-classic';
+    const String copy1 = 'type-classic_copy_1';
+    // Owned-service rename keys are per SERVICE (D2: one pencil per copy).
+    const String owned = 'svc-owned-classic';
+
+    Finder inRow(String keyId, Key key) => find.descendant(
+      of: find.byKey(Key('setup_row_$keyId')),
+      matching: find.byKey(key),
+    );
+
+    TextField durationField(WidgetTester tester, String keyId) =>
+        tester.widget<TextField>(
+          find.descendant(
+            of: inRow(keyId, const Key('service-setup-duration')),
+            matching: find.byType(TextField),
+          ),
+        );
+
+    Finder renameField(String serviceId) => find.descendant(
+      of: find.byKey(Key('setup_row_rename_$serviceId')),
+      matching: find.byType(TextField),
+    );
+
+    Future<void> tapKey(WidgetTester tester, Key key) async {
+      await tester.ensureVisible(find.byKey(key));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(key));
+      await tester.pumpAndSettle();
+    }
+
+    List<Object> ownedOverrides(List<MasterService> existing) => h.overrides(
+      categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+      typesBySlug: <String, List<ServiceTypeOption>>{
+        'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+      },
+      existingServices: existing,
+    );
+
+    testWidgets('«+ додати ще» shows the new label, scrolls the new copy card '
+        'fully into view and focuses its duration well', (tester) async {
+      // A short viewport, so the copy lands below the fold without the jump.
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 640),
+        overrides: h.overrides(
+          categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+          typesBySlug: <String, List<ServiceTypeOption>>{
+            'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+          },
+        ),
+      );
+      await _expand(tester, 'MANICURE');
+      await _toggleRowOn(tester, classic);
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      const Key add = Key('btn-setup-row-add-copy-$classic');
+      expect(
+        find.descendant(
+          of: find.byKey(add),
+          matching: find.text(l10n.serviceSetupAddCopy),
+        ),
+        findsOneWidget,
+      );
+      await tapKey(tester, add);
+
+      final Rect card = tester.getRect(
+        find.byKey(const Key('setup_row_$copy1')),
+      );
+      final Rect viewport = tester.getRect(find.byType(CustomScrollView));
+      expect(card.top, greaterThanOrEqualTo(viewport.top));
+      expect(
+        card.bottom,
+        lessThanOrEqualTo(viewport.bottom),
+        reason: 'the whole new copy card is on screen after the jump',
+      );
+      expect(
+        durationField(tester, copy1).focusNode?.hasFocus,
+        isTrue,
+        reason: 'focus moves into the new copy duration well',
+      );
+      expect(durationField(tester, classic).focusNode?.hasFocus, isFalse);
+    });
+
+    const List<MasterService> ownsGelTwice = <MasterService>[
+      MasterService(
+        id: 'svc-gel-1',
+        serviceDefId: 'def-gel-1',
+        name: 'Гель-лак',
+        serviceTypeId: 'type-gel',
+        durationMinutes: 60,
+        priceMin: 500,
+        priceDisplay: '500 ₴',
+      ),
+      MasterService(
+        id: 'svc-gel-2',
+        serviceDefId: 'def-gel-2',
+        name: 'Гель-лак',
+        serviceTypeId: 'type-gel',
+        durationMinutes: 90,
+        priceMin: 600,
+        priceDisplay: '600 ₴',
+      ),
+    ];
+
+    testWidgets('D2: one rename pencil per owned copy (a type owned twice has '
+        'two); a not-owned row gets its name pencil only once switched on', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: h.overrides(
+          categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+          typesBySlug: <String, List<ServiceTypeOption>>{
+            'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+          },
+          existingServices: ownsGelTwice,
+        ),
+      );
+      await _expand(tester, 'MANICURE');
+
+      for (final String id in <String>['svc-gel-1', 'svc-gel-2']) {
+        expect(
+          inRow('type-gel', Key('btn-setup-row-rename-$id')),
+          findsOneWidget,
+        );
+      }
+      expect(
+        find.byKey(const Key('btn-setup-row-name-$classic')),
+        findsNothing,
+        reason: 'the new-service name pencil appears only on a switched-on row',
+      );
+      await _toggleRowOn(tester, classic);
+      expect(
+        find.byKey(const Key('btn-setup-row-name-$classic')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('btn-setup-row-name-type-gel')),
+        findsNothing,
+        reason: 'an owned type renames its existing copies instead',
+      );
+    });
+
+    testWidgets('D2: the name pencil of a new service reveals the copy name '
+        'well (focused); the typed name is sent with the add', (tester) async {
+      when(
+        () => h.repo.bulkCreate(any()),
+      ).thenAnswer((_) async => _createdService);
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(const <MasterService>[]),
+      );
+      await _expand(tester, 'MANICURE');
+      await _toggleRowOn(tester, classic);
+      await tapKey(tester, const Key('btn-setup-row-name-$classic'));
+
+      final Finder well = find.descendant(
+        of: find.byKey(const Key('setup_row_name_$classic')),
+        matching: find.byType(TextField),
+      );
+      expect(well, findsOneWidget);
+      expect(tester.widget<TextField>(well).focusNode?.hasFocus, isTrue);
+      expect(
+        find.byKey(const Key('btn-setup-row-name-$classic')),
+        findsNothing,
+        reason: 'the pencil gives way to the well it opened',
+      );
+
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(well, 'Авторський манікюр');
+      await tester.enterText(
+        inRow(classic, const Key('service-setup-duration')),
+        '60',
+      );
+      await tester.enterText(
+        inRow(classic, const Key('pricing-fixed-amount')),
+        '500',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      final captured = verify(() => h.repo.bulkCreate(captureAny())).captured;
+      final items = captured.single as List<MasterServiceBulkItem>;
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(items.single.name, 'Авторський манікюр');
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('D2: each copy of a type owned twice renames its own service', (
+      tester,
+    ) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenAnswer((_) async => ownsGelTwice.last);
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(ownsGelTwice),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tapKey(tester, const Key('btn-setup-row-rename-svc-gel-2'));
+
+      expect(renameField('svc-gel-2'), findsOneWidget);
+      expect(renameField('svc-gel-1'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('setup_row_rename_svc-gel-2')),
+          matching: find.text(l10n.serviceSetupRenameLabel(90)),
+        ),
+        findsOneWidget,
+        reason: 'the well names the copy by its duration',
+      );
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(renameField('svc-gel-2'), 'Гель-лак довгий');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      final captured = verify(
+        () =>
+            h.repo.update('def-gel-2', captureAny(), assignmentId: 'svc-gel-2'),
+      ).captured;
+      expect(
+        captured.single,
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        const MasterServiceUpdate(name: 'Гель-лак довгий'),
+      );
+      verifyNever(
+        () => h.repo.update(
+          'def-gel-1',
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('B7: «Прибрати» on the primary row keeps a pending rename — '
+        'the promoted row shows it and the save still sends it', (
+      tester,
+    ) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenAnswer((_) async => _ownsClassic.single);
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(_ownsClassic),
+      );
+      await _expand(tester, 'MANICURE');
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(renameField(owned), 'Авторський манікюр');
+      await tester.pumpAndSettle();
+      await _toggleRowOn(tester, classic);
+      await tapKey(tester, const Key('btn-setup-row-add-copy-$classic'));
+      await tapKey(tester, const Key('btn-setup-row-remove-$classic'));
+
+      // The copy was promoted to the primary key and carries the rename well.
+      expect(find.byKey(const Key('setup_row_$copy1')), findsNothing);
+      expect(
+        inRow(classic, const Key('setup_row_rename_$owned')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<TextField>(renameField(owned)).controller?.text,
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        'Авторський манікюр',
+      );
+      // Switch the promoted copy off, so the save is the rename alone.
+      await tester.tap(
+        find
+            .descendant(
+              of: find.byKey(const Key('setup_row_toggle_$classic')),
+              matching: find.byType(GestureDetector),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      final captured = verify(
+        () => h.repo.update(
+          'def-owned-classic',
+          captureAny(),
+          assignmentId: owned,
+        ),
+      ).captured;
+      expect(
+        captured.single,
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        const MasterServiceUpdate(name: 'Авторський манікюр'),
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets(
+      'A1: «+ додати ще» tapped while the source price well has focus '
+      'still jumps into the new copy (the source pricing is not rebuilt)',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 1800),
+          overrides: ownedOverrides(const <MasterService>[]),
+        );
+        await _expand(tester, 'MANICURE');
+        await _toggleRowOn(tester, classic);
+        final Finder price = find.descendant(
+          of: inRow(classic, const Key('pricing-fixed-amount')),
+          matching: find.byType(TextField),
+        );
+        await tester.tap(price);
+        await tester.pumpAndSettle();
+        final FocusNode? priceFocus = tester.widget<TextField>(price).focusNode;
+        expect(priceFocus?.hasFocus, isTrue);
+
+        await tapKey(tester, const Key('btn-setup-row-add-copy-$classic'));
+
+        expect(
+          tester.widget<TextField>(price).focusNode,
+          same(priceFocus),
+          reason: 'the name well appearing above keeps the pricing wells',
+        );
+        expect(durationField(tester, copy1).focusNode?.hasFocus, isTrue);
+      },
+    );
+
+    testWidgets('pencil → inline name well; save renames via the edit form '
+        'repository update (name only) without a bulk add', (tester) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenAnswer(
+        (_) async => const MasterService(
+          id: 'svc-owned-classic',
+          serviceDefId: 'def-owned-classic',
+          name: 'Авторський манікюр',
+          serviceTypeId: 'type-classic',
+          durationMinutes: 60,
+          priceMin: 500,
+          priceDisplay: '500 ₴',
+        ),
+      );
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(_ownsClassic),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      expect(_saveOnPressed(tester), isNull, reason: 'nothing to save yet');
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+
+      expect(renameField(owned), findsOneWidget);
+      final TextField field = tester.widget<TextField>(renameField(owned));
+      expect(
+        field.controller?.text,
+        isEmpty,
+        reason: 'the service carries the type name, so the well starts blank',
+      );
+      expect(field.focusNode?.hasFocus, isTrue);
+      expect(
+        tester.widget<TextField>(renameField(owned)).maxLength,
+        100,
+        reason: 'same 100-char cap as the copy name well',
+      );
+
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(renameField(owned), 'Авторський манікюр');
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.servicesSaveChanges), findsOneWidget);
+      expect(_saveOnPressed(tester), isNotNull);
+
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      final captured = verify(
+        () => h.repo.update(
+          'def-owned-classic',
+          captureAny(),
+          assignmentId: 'svc-owned-classic',
+        ),
+      ).captured;
+      expect(
+        captured.single,
+        const MasterServiceUpdate(name: 'Авторський манікюр'),
+      );
+      verifyNever(() => h.repo.bulkCreate(any()));
+      expect(h.pushedRoutes, contains(RouteNames.services));
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('a blank rename sends the catalogue type name, never an empty '
+        'name (backend UpdateServiceDefinitionRequest.name is @Size(min=1))', (
+      tester,
+    ) async {
+      const custom = <MasterService>[
+        MasterService(
+          id: 'svc-owned-classic',
+          serviceDefId: 'def-owned-classic',
+          name: 'Авторський манікюр',
+          serviceTypeId: 'type-classic',
+          durationMinutes: 60,
+          priceMin: 500,
+          priceDisplay: '500 ₴',
+        ),
+      ];
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenAnswer((_) async => _ownsClassic.single);
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(custom),
+      );
+      await _expand(tester, 'MANICURE');
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+
+      expect(
+        tester.widget<TextField>(renameField(owned)).controller?.text,
+        // i18n-finder-ok: fixture service name, not UI copy
+        'Авторський манікюр',
+        reason: 'a custom name pre-fills the well',
+      );
+      await tester.enterText(renameField(owned), '   ');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      final captured = verify(
+        () => h.repo.update(
+          'def-owned-classic',
+          captureAny(),
+          assignmentId: 'svc-owned-classic',
+        ),
+      ).captured;
+      expect(
+        captured.single,
+        MasterServiceUpdate(name: _typeClassic.nameUk),
+        reason: 'blank → the type name, never \'\' (a 400)',
+      );
+      expect((captured.single as MasterServiceUpdate).name, isNotEmpty);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    const String salonId = 'salon-1';
+    List<Object> salonOverrides(ServiceIdentityLock lock) => <Object>[
+      ...ownedOverrides(_ownsClassic),
+      serviceTargetProvider.overrideWithValue(
+        const ServiceTarget.salonMaster(salonId: salonId, masterId: 'm-1'),
+      ),
+      serviceIdentityLockProvider(
+        salonId,
+        'def-owned-classic',
+      ).overrideWithValue(lock),
+    ];
+
+    testWidgets('salon admin: no rename pencil on an identity-locked '
+        '(owner-performed) service', (tester) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: salonOverrides(ServiceIdentityLock.locked),
+      );
+      await _expand(tester, 'MANICURE');
+      expect(
+        find.byKey(const Key('setup_row_owned_$owned')),
+        findsOneWidget,
+        reason: 'the owned service line itself still shows',
+      );
+      expect(
+        find.byKey(const Key('btn-setup-row-rename-$owned')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('salon target, unlocked: pencil shows and the open rename well '
+        'carries the shared-definition note', (tester) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: salonOverrides(ServiceIdentityLock.unlocked),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(
+        _textInRow(classic, l10n.serviceSetupRenameSharedNote),
+        findsNothing,
+        reason: 'no note until a rename well is open',
+      );
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+      expect(
+        _textInRow(classic, l10n.serviceSetupRenameSharedNote),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('own services (no salon target): an open rename well shows no '
+        'shared-definition note', (tester) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(_ownsClassic),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+      expect(renameField(owned), findsOneWidget);
+      expect(
+        _textInRow(classic, l10n.serviceSetupRenameSharedNote),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a 403 on a salon rename lands on that row (owner-performed '
+        'copy), keeps the screen and skips the bulk add', (tester) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenThrow(const ServerFailure(statusCode: 403));
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: salonOverrides(ServiceIdentityLock.unlocked),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(renameField(owned), 'Авторський манікюр');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('setup_row_rename_$owned')),
+          matching: find.text(l10n.serviceEditOwnerPerformedHint),
+        ),
+        findsOneWidget,
+      );
+      verifyNever(() => h.repo.bulkCreate(any()));
+      expect(h.pushedRoutes, isEmpty);
+    });
+
+    testWidgets('a 404 on a rename lands on that row', (tester) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenThrow(const NotFoundFailure());
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(_ownsClassic),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(renameField(owned), 'Авторський манікюр');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('setup_row_rename_$owned')),
+          matching: find.text(l10n.errNotFound),
+        ),
+        findsOneWidget,
+      );
+      expect(h.pushedRoutes, isEmpty);
+    });
+
+    testWidgets('a user drag stops the «+ додати ще» reveal loop — the list '
+        'stays where the master dragged it', (tester) async {
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 640),
+        overrides: ownedOverrides(const <MasterService>[]),
+      );
+      await _expand(tester, 'MANICURE');
+      await _toggleRowOn(tester, classic);
+      const Key add = Key('btn-setup-row-add-copy-$classic');
+      await tester.ensureVisible(find.byKey(add));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(add));
+      await tester.pump(); // insert + post-frame reveal starts
+      // fixed-wait-ok: lands mid-way through the 140 ms reveal animation, so
+      // the drag below interrupts a running pass (the case under test).
+      await tester.pump(const Duration(milliseconds: 40));
+      final Rect viewport = tester.getRect(find.byType(CustomScrollView));
+      // Drag the content DOWN (toward the top of the list).
+      await tester.dragFrom(
+        Offset(viewport.center.dx, viewport.top + 40),
+        const Offset(0, 500),
+      );
+      await tester.pumpAndSettle();
+
+      final ScrollPosition position = tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byType(CustomScrollView),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position;
+      expect(
+        position.pixels,
+        moreOrLessEquals(position.minScrollExtent),
+        reason: 'no further reveal pass scrolled the list back down',
+      );
+    });
+
+    testWidgets('409 DUPLICATE_SERVICE on a rename shows the clash on that '
+        'row, keeps the screen, and skips the bulk add', (tester) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenThrow(const ServiceDuplicateFailure());
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(_ownsClassic),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tapKey(tester, const Key('btn-setup-row-rename-$owned'));
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(renameField(owned), 'Гель-лак');
+      await tester.pumpAndSettle();
+      // A bulk add rides the same save — it must not run after the clash.
+      await _toggleRowOn(tester, 'type-gel');
+      await tester.enterText(
+        inRow('type-gel', const Key('service-setup-duration')),
+        '60',
+      );
+      await tester.enterText(
+        inRow('type-gel', const Key('pricing-fixed-amount')),
+        '500',
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      expect(
+        _textInRow(classic, l10n.serviceSetupRenameCollision),
+        findsOneWidget,
+      );
+      verifyNever(() => h.repo.bulkCreate(any()));
+      expect(h.pushedRoutes, isEmpty);
+
+      // Editing the name clears the row error.
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await tester.enterText(renameField(owned), 'Гель-лак 2');
+      await tester.pumpAndSettle();
+      expect(
+        _textInRow(classic, l10n.serviceSetupRenameCollision),
+        findsNothing,
+      );
+    });
+
+    // ── mobile-qa (472 audit) — parallel renames, 400, fatal failure ────────
+    Future<void> renameTo(WidgetTester tester, String id, String name) async {
+      await tapKey(tester, Key('btn-setup-row-rename-$id'));
+      await tester.enterText(renameField(id), name);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> includeClassicPriced(WidgetTester tester) async {
+      await _toggleRowOn(tester, classic);
+      await tester.enterText(
+        inRow(classic, const Key('service-setup-duration')),
+        '60',
+      );
+      await tester.enterText(
+        inRow(classic, const Key('pricing-fixed-amount')),
+        '500',
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'two renames PATCH in parallel; a 409 on one commits the other, '
+      'blocks the bulk add, and the retry re-sends only the failed one',
+      (tester) async {
+        // gel-1 resolves only once gel-2's PATCH has started — a sequential
+        // implementation never reaches gel-2 and this test goes red.
+        final Completer<void> bothInFlight = Completer<void>();
+        var gel2Rejects = true;
+        when(
+          () => h.repo.update(
+            'def-gel-1',
+            any(),
+            assignmentId: any(named: 'assignmentId'),
+          ),
+        ).thenAnswer((_) async {
+          await bothInFlight.future;
+          // The server echoes the renamed service.
+          // i18n-finder-ok: user-typed service name fixture, not UI copy
+          return ownsGelTwice.first.copyWith(name: 'Гель короткий');
+        });
+        when(
+          () => h.repo.update(
+            'def-gel-2',
+            any(),
+            assignmentId: any(named: 'assignmentId'),
+          ),
+        ).thenAnswer((_) async {
+          if (!bothInFlight.isCompleted) bothInFlight.complete();
+          if (gel2Rejects) throw const ServiceDuplicateFailure();
+          // i18n-finder-ok: user-typed service name fixture, not UI copy
+          return ownsGelTwice.last.copyWith(name: 'Гель довгий 2');
+        });
+        when(
+          () => h.repo.bulkCreate(any()),
+        ).thenAnswer((_) async => _createdService);
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 2200),
+          overrides: ownedOverrides(ownsGelTwice),
+        );
+        await _expand(tester, 'MANICURE');
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        // i18n-finder-ok: user-typed service name fixtures, not UI copy
+        await renameTo(tester, 'svc-gel-1', 'Гель короткий');
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        await renameTo(tester, 'svc-gel-2', 'Гель довгий');
+        await includeClassicPriced(tester);
+
+        await tapKey(tester, const Key('btn-setup-save'));
+
+        verify(
+          () => h.repo.update('def-gel-1', any(), assignmentId: 'svc-gel-1'),
+        ).called(1);
+        verify(
+          () => h.repo.update('def-gel-2', any(), assignmentId: 'svc-gel-2'),
+        ).called(1);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('setup_row_rename_svc-gel-2')),
+            matching: find.text(l10n.serviceSetupRenameCollision),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('setup_row_rename_svc-gel-1')),
+            matching: find.text(l10n.serviceSetupRenameCollision),
+          ),
+          findsNothing,
+        );
+        verifyNever(() => h.repo.bulkCreate(any()));
+        expect(h.pushedRoutes, isEmpty);
+
+        // Fix the clash and retry: only gel-2 is PATCHed again, then the add.
+        gel2Rejects = false;
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        await tester.enterText(renameField('svc-gel-2'), 'Гель довгий 2');
+        await tester.pumpAndSettle();
+        await tapKey(tester, const Key('btn-setup-save'));
+
+        verifyNever(
+          () => h.repo.update(
+            'def-gel-1',
+            any(),
+            assignmentId: any(named: 'assignmentId'),
+          ),
+        );
+        final captured = verify(
+          () => h.repo.update(
+            'def-gel-2',
+            captureAny(),
+            assignmentId: 'svc-gel-2',
+          ),
+        ).captured;
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        expect(
+          captured.single,
+          const MasterServiceUpdate(name: 'Гель довгий 2'),
+        );
+        verify(() => h.repo.bulkCreate(any())).called(1);
+        expect(h.pushedRoutes, contains(RouteNames.services));
+        await pumpPastVelvetSnack(tester);
+      },
+    );
+
+    testWidgets(
+      '472 audit: a non-Failure error on one rename still commits the other '
+      'saved rename — generic snack, no bulk add, the retry skips the saved one',
+      (tester) async {
+        final Completer<void> bothInFlight = Completer<void>();
+        var gel2Throws = true;
+        when(
+          () => h.repo.update(
+            'def-gel-1',
+            any(),
+            assignmentId: any(named: 'assignmentId'),
+          ),
+        ).thenAnswer((_) async {
+          await bothInFlight.future;
+          // i18n-finder-ok: user-typed service name fixture, not UI copy
+          return ownsGelTwice.first.copyWith(name: 'Гель короткий');
+        });
+        when(
+          () => h.repo.update(
+            'def-gel-2',
+            any(),
+            assignmentId: any(named: 'assignmentId'),
+          ),
+        ).thenAnswer((_) async {
+          if (!bothInFlight.isCompleted) bothInFlight.complete();
+          if (gel2Throws) throw StateError('not a Failure');
+          // i18n-finder-ok: user-typed service name fixture, not UI copy
+          return ownsGelTwice.last.copyWith(name: 'Гель довгий');
+        });
+        when(
+          () => h.repo.bulkCreate(any()),
+        ).thenAnswer((_) async => _createdService);
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 2200),
+          overrides: ownedOverrides(ownsGelTwice),
+        );
+        await _expand(tester, 'MANICURE');
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        // i18n-finder-ok: user-typed service name fixtures, not UI copy
+        await renameTo(tester, 'svc-gel-1', 'Гель короткий');
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        await renameTo(tester, 'svc-gel-2', 'Гель довгий');
+        await includeClassicPriced(tester);
+
+        await tapKey(tester, const Key('btn-setup-save'));
+
+        expect(tester.takeException(), isNull);
+        expect(find.text(l10n.errUnknown), findsOneWidget);
+        verifyNever(() => h.repo.bulkCreate(any()));
+        expect(h.pushedRoutes, isEmpty);
+        await pumpPastVelvetSnack(tester);
+
+        // Retry: gel-1 was committed despite gel-2's error — not re-sent.
+        gel2Throws = false;
+        clearInteractions(h.repo);
+        await tapKey(tester, const Key('btn-setup-save'));
+
+        verifyNever(
+          () => h.repo.update(
+            'def-gel-1',
+            any(),
+            assignmentId: any(named: 'assignmentId'),
+          ),
+        );
+        verify(
+          () => h.repo.update('def-gel-2', any(), assignmentId: 'svc-gel-2'),
+        ).called(1);
+        verify(() => h.repo.bulkCreate(any())).called(1);
+        await pumpPastVelvetSnack(tester);
+      },
+    );
+
+    testWidgets('a 400 name error on a rename lands on that row as the '
+        'invalid-name copy and skips the bulk add', (tester) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenAnswer(
+        (_) async => throw const ValidationFailure(
+          fieldErrors: <String, String>{'name': 'invalid characters'},
+        ),
+      );
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(_ownsClassic),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await renameTo(tester, owned, 'Авторський манікюр');
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('setup_row_rename_$owned')),
+          matching: find.text(l10n.serviceSetupCopyNameInvalid),
+        ),
+        findsOneWidget,
+      );
+      verifyNever(() => h.repo.bulkCreate(any()));
+      expect(h.pushedRoutes, isEmpty);
+    });
+
+    testWidgets('a 5xx on a rename is a snack (no row error), keeps the screen '
+        'and skips the bulk add', (tester) async {
+      when(
+        () => h.repo.update(
+          any(),
+          any(),
+          assignmentId: any(named: 'assignmentId'),
+        ),
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 500));
+      await _pump(
+        tester,
+        h,
+        surfaceSize: const Size(800, 1800),
+        overrides: ownedOverrides(_ownsClassic),
+      );
+      await _expand(tester, 'MANICURE');
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await renameTo(tester, owned, 'Авторський манікюр');
+      await _toggleRowOn(tester, 'type-gel');
+      await tester.enterText(
+        inRow('type-gel', const Key('service-setup-duration')),
+        '60',
+      );
+      await tester.enterText(
+        inRow('type-gel', const Key('pricing-fixed-amount')),
+        '500',
+      );
+      await tester.pumpAndSettle();
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(find.text(l10n.errServer), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('setup_row_rename_$owned')),
+          matching: find.text(l10n.errServer),
+        ),
+        findsNothing,
+      );
+      verifyNever(() => h.repo.bulkCreate(any()));
+      expect(h.pushedRoutes, isEmpty);
+      await pumpPastVelvetSnack(tester);
     });
   });
 }

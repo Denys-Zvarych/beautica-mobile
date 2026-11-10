@@ -65,8 +65,9 @@ void _popServiceEditScreen(BuildContext context) {
 
 /// `true` for a backend 403 (a [ServerFailure] with status 403, or a failure
 /// whose [DioException] cause carries one — the salon-master write paths map a
-/// 403 through the generic fallbacks).
-bool _isForbidden(Object e) {
+/// 403 through the generic fallbacks). Also read by the add-services rename
+/// (phase 472), so a 403 is recognised one way across the feature.
+bool isForbiddenFailure(Object e) {
   if (e is ServerFailure && e.statusCode == 403) return true;
   if (e is Failure) {
     final Object? cause = e.cause;
@@ -377,7 +378,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
           // 403s because the owner performs the service. Scoped to the
           // salon-master edit (never the independent master): explain it in the
           // owner-performed copy instead of the generic server error.
-          if (_isForbidden(e) &&
+          if (isForbiddenFailure(e) &&
               ref.read(serviceTargetProvider) is SalonMasterTarget) {
             showErrorSnack(context, l10n.serviceEditOwnerPerformedHint);
             return;

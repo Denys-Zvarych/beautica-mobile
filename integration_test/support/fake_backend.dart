@@ -3194,11 +3194,11 @@ final class FakeBackend {
 
   /// Phase 471 (mobile-qa) — appends a RENAMED copy of `type-nails-classic`
   /// to the independent master's own catalogue ([_services]): [name] at
-  /// [durationMinutes]. A renamed copy is invisible to the add-services
-  /// screen's client pre-check (that only knows type-name copies), so a new
-  /// row colliding with it by canonical name reaches the server 409 backstop
-  /// and the post-409 reconcile. Additive — nothing else calls this. Call
-  /// BEFORE `boot`.
+  /// [durationMinutes]. Since phase 472 (B6) the add-services pre-check
+  /// knows every owned copy's canonical name, so seeded BEFORE `boot` it is a
+  /// client-caught clash (`service_copy_flow_test` A4). Seeded AFTER the
+  /// setup screen took its snapshot it is a server-only duplicate: the list
+  /// GET reads [_services] live, so the post-409 reconcile sees it (A5).
   void seedOwnedNamedCopy({
     required String name,
     required int durationMinutes,

@@ -15,13 +15,15 @@
 // The fake backend seeds the master with two copies of `type-nails-classic`
 // (`assign-typed` / `assign-mismatch`, both 60 min, both named after the type).
 // That is the phase doc's «Класичний масаж 60» case on the type the shared
-// fixture already owns: owned durations = {60}, so the nearest free quick-pick
-// the row must seed is 90 (`ServiceRowState.nearestFreeQuickPick`).
+// fixture already owns: owned durations = {60}. Since phase 472 the owned row
+// is NOT autofilled on toggle — its duration starts empty and the master types
+// a free one (90 here).
 //
 // ARMS
 // ----
-//   A1. Owned row switched on → «Вже додано» + seeded 90 (not 60), no error →
-//       save → the bulk POST carries the second copy at 90.
+//   A1. Owned row switched on → «Вже додано» + an EMPTY duration (phase 472,
+//       no autofill) → typed 90, no error → save → the bulk POST carries the
+//       second copy at 90.
 //   A2. Owned row at the OWNED duration 60 → inline
 //       `serviceSetupDurationTaken`, the CTA is disabled and a tap sends
 //       nothing; moving back to a free duration clears it and re-enables save.
@@ -29,13 +31,19 @@
 //       server 409 DUPLICATE_SERVICE → `serviceErrDuplicateCopy` on BOTH the
 //       name and duration fields; the screen stays. Editing the duration clears
 //       the pair (the rule is "duration OR name").
-//   A4. Phase 471 post-409 reconcile, canonical name: the master also owns a
-//       RENAMED copy «Авторський манікюр» at 90 (`seedOwnedNamedCopy`). A new
-//       copy row named « авторський   МАНІКЮР » at 90 passes the client
-//       pre-check (it only knows type-name copies), the bulk POST 409s, and the
-//       reconcile — keyed by (type, duration, `serviceNameKey`) like backend
-//       464 — switches OFF exactly that copy (flagged alreadyInMenu: its
-//       owned-row label turns emphasised); the type-name primary stays on.
+//   A4. Phase 472 (B6) client pre-check, canonical name: the master also owns
+//       a RENAMED copy «Авторський манікюр» at 90 (`seedOwnedNamedCopy`). A
+//       new copy row named « авторський   МАНІКЮР » at 90 is now caught on the
+//       client — the pre-check compares (duration, `serviceNameKey`) of every
+//       owned copy, like backend 464 — so the row shows
+//       `serviceSetupCopyCollision`, the CTA is disabled and nothing is sent;
+//       a distinct name clears it and ONE bulk POST carries both rows.
+//   A5. Server-only duplicate → post-409 reconcile end to end: after the
+//       screen snapshots owned {60}, a type-name copy at 90 lands on the
+//       server (`seedOwnedNamedCopy` after boot — the list GET is live). The
+//       owned row at 90 + a gel row pass the client check, the bulk POST 409s
+//       (`bulkRejectDuplicate`), and the reconcile switches off ONLY the
+//       claimed row (emphasised «Вже додано»); the re-save sends the gel row.
 //
 // A3's 409 comes from the shared fake's `typedPatchRejectDuplicate` switch
 // (PATCH `/api/v1/services/svc-typed` → the backend's typed DUPLICATE_SERVICE
@@ -159,26 +167,26 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'A1. an owned type switched on again seeds a FREE duration (90, not the '
-    'owned 60) and the bulk save carries the second copy',
+    'A1. an owned type switched on again starts with an EMPTY duration (phase '
+    '472); a typed free 90 saves the second copy',
     (tester) async {
       final fb = FakeBackend();
       final h = await _openSetupAndIncludeOwnedRow(tester, fb);
 
       expect(
         _durationText(tester, h.duration),
-        '90',
-        reason:
-            'owned durations are {60}; the row must seed the nearest free '
-            'quick-pick above it, never greet the master with a taken value',
+        isEmpty,
+        reason: 'phase 472: an owned row is not autofilled on reopen/toggle',
       );
+      await tester.enterText(h.duration, '90');
+      await tester.pump();
       expect(
         find.descendant(
           of: h.row,
           matching: find.text(h.l10n.serviceSetupDurationTaken),
         ),
         findsNothing,
-        reason: 'a seeded free duration carries no duplicate error',
+        reason: 'a free duration carries no duplicate error',
       );
 
       await tester.enterText(h.price, '650');
@@ -342,15 +350,18 @@ void main() {
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   testWidgets(
-    'A4. a bulk 409 on a copy whose name differs from an owned renamed copy '
-    'only by space runs / case switches that copy off as already in the menu '
-    'and keeps the type-name primary',
+    'A4. a copy whose name differs from an owned renamed copy only by space '
+    'runs / case is blocked on the client (B6); a distinct name saves',
     (tester) async {
       const String copyId = '${_ownedTypeId}_copy_1';
       final fb = FakeBackend()
         ..seedOwnedNamedCopy(name: 'Авторський манікюр', durationMinutes: 90);
       final h = await _openSetupAndIncludeOwnedRow(tester, fb);
       await tester.enterText(h.price, '650');
+      await tester.pump();
+      // Phase 472: no autofill — the type-name primary needs a free duration
+      // (owned {60, 90}).
+      await tester.enterText(h.duration, '120');
       await tester.pump();
 
       final Finder addCopy = find.byKey(
@@ -376,21 +387,39 @@ void main() {
       await tester.enterText(inCopy(const Key('pricing-fixed-amount')), '700');
       await tester.pump();
 
-      fb.bulkRejectDuplicate = true;
+      // B6: the owned renamed copy's canonical name is known on the client.
+      final Finder clash = find.descendant(
+        of: copyRow,
+        matching: find.text(h.l10n.serviceSetupCopyCollision),
+      );
+      await tester.pumpUntilFound(clash);
       await tester.ensureVisible(h.save);
-      await tester.pumpUntilFound(h.save.hitTestable());
+      await tester.pump();
       expect(
         _saveCallback(tester, h.save),
-        isNotNull,
-        reason: 'a renamed copy is not a client-known duplicate',
+        isNull,
+        reason:
+            'same type + duration + canonical name as the owned renamed copy '
+            '— a client-known duplicate since phase 472',
       );
+      await tester.tap(h.save, warnIfMissed: false);
+      await tester.pump();
+      expect(fb.bulkCreateCalls, 0, reason: 'a blocked save sends nothing');
+
+      await tester.ensureVisible(copyName);
+      await tester.enterText(copyName, 'Авторський манікюр 2');
+      await tester.pump();
+      await tester.pumpUntilGone(clash);
+      await tester.ensureVisible(h.save);
+      await tester.pumpUntilFound(h.save.hitTestable());
+      expect(_saveCallback(tester, h.save), isNotNull);
       expect(find.text(h.l10n.serviceSetupCtaAdd(2)), findsOneWidget);
       await tester.tap(h.save);
 
       await AppHarness.pumpUntilCondition(
         tester,
         () => fb.bulkCreateCalls >= 1,
-        description: 'the bulk POST reaching the (409) server backstop',
+        description: 'the bulk POST carrying the primary and the named copy',
       );
       final List<dynamic> items = fb.lastBulkItems!;
       expect(items, hasLength(2));
@@ -398,34 +427,111 @@ void main() {
           .cast<Map<String, dynamic>>()
           .singleWhere((Map<String, dynamic> i) => i['name'] != null);
       expect(sent['durationMinutes'], 90);
+      expect(sent['name'], 'Авторський манікюр 2');
+      await pumpPastVelvetSnack(tester);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
 
-      // The reconcile switches the copy OFF (its fields collapse). An owned-type
-      // row keeps its «Вже додано» sub-label in that slot — owned wins over
-      // `serviceSetupRowAlreadyInMenu` (service_setup_widgets.dart) — but the
-      // label turns emphasised (w800) only for a row the refresh just claimed.
-      await tester.pumpUntilGone(inCopy(const Key('service-setup-duration')));
-      final Text copyLabel = tester.widget<Text>(
+  testWidgets(
+    'A5. a server-only duplicate (added elsewhere after the screen opened) '
+    'reaches the bulk 409; the reconcile switches off exactly that row and '
+    'the re-save sends the rest',
+    (tester) async {
+      const String gelTypeId = 'type-nails-gel';
+      final fb = FakeBackend();
+      final h = await _openSetupAndIncludeOwnedRow(tester, fb);
+      await tester.enterText(h.price, '650');
+      await tester.enterText(h.duration, '90');
+      await tester.pump();
+
+      // A second, unrelated row rides the same save.
+      final Finder gelRow = find.byKey(const Key('setup_row_$gelTypeId'));
+      final Finder gelToggle = find.byKey(
+        const Key('setup_row_toggle_$gelTypeId'),
+      );
+      // The row sits below the fold of the lazy list — scroll it in.
+      await tester.scrollUntilVisible(
+        gelToggle,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpUntilFound(gelToggle.hitTestable());
+      await tester.tap(gelToggle);
+      Finder inGel(Key key) =>
+          find.descendant(of: gelRow, matching: find.byKey(key));
+      await tester.pumpUntilFound(inGel(const Key('pricing-fixed-amount')));
+      await tester.enterText(inGel(const Key('service-setup-duration')), '60');
+      await tester.enterText(inGel(const Key('pricing-fixed-amount')), '500');
+      await tester.pump();
+
+      // The client snapshot owns {60} only, so 90 passes the pre-check. The
+      // clash exists only on the server: the same type-name copy at 90 lands
+      // (another device) after the screen took its snapshot. The list GET
+      // reads the fake's live catalogue, so the post-409 refresh sees it.
+      expect(
         find.descendant(
-          of: copyRow,
+          of: h.row,
+          matching: find.text(h.l10n.serviceSetupDurationTaken),
+        ),
+        findsNothing,
+        reason: 'precondition: the client cannot see this clash',
+      );
+      fb
+        // i18n-finder-ok: fixture service name (user data), not l10n copy
+        ..seedOwnedNamedCopy(name: 'Класичний манікюр', durationMinutes: 90)
+        ..bulkRejectDuplicate = true;
+
+      await tester.ensureVisible(h.save);
+      await tester.pumpUntilFound(h.save.hitTestable());
+      expect(find.text(h.l10n.serviceSetupCtaAdd(2)), findsOneWidget);
+      await tester.tap(h.save);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.bulkCreateCalls >= 1,
+        description: 'the bulk POST reaching the (409) server backstop',
+      );
+      expect(fb.lastBulkItems, hasLength(2));
+
+      // Reconcile: the claimed row collapses (switched off) and its owned
+      // label turns emphasised — the alreadyInMenu flag.
+      await tester.pumpUntilGone(h.duration);
+      final Text label = tester.widget<Text>(
+        find.descendant(
+          of: h.row,
           matching: find.text(h.l10n.serviceSetupRowAlreadyAdded),
         ),
       );
-      expect(
-        copyLabel.style?.fontWeight,
-        FontWeight.w800,
-        reason:
-            'same type + duration + canonical name as the owned renamed copy '
-            '— flagged alreadyInMenu by the reconcile',
-      );
+      expect(label.style?.fontWeight, FontWeight.w800);
       expect(
         find.text(h.l10n.serviceSetupCtaAdd(1)),
         findsOneWidget,
-        reason:
-            'only the reconciled copy was switched off — the type-name '
-            'primary (other name, other duration) stays included',
+        reason: 'only the server-claimed row was switched off',
       );
+      expect(inGel(const Key('service-setup-duration')), findsOneWidget);
       expect(find.byKey(const Key('btn-setup-close')), findsOneWidget);
 
+      fb.bulkRejectDuplicate = false;
+      await pumpPastVelvetSnack(tester);
+      await tester.ensureVisible(h.save);
+      await tester.pumpUntilFound(h.save.hitTestable());
+      await tester.tap(h.save);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.bulkCreateCalls >= 2,
+        description: 'the re-save without the reconciled row',
+      );
+      final List<dynamic> items = fb.lastBulkItems!;
+      expect(items, hasLength(1));
+      expect(
+        (items.single as Map<String, dynamic>)['serviceTypeId'],
+        gelTypeId,
+      );
       await pumpPastVelvetSnack(tester);
     },
     timeout: const Timeout(Duration(seconds: 60)),

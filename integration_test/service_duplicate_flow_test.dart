@@ -268,7 +268,8 @@ void main() {
     'server 409 backstop (name collision) as the duplicate snackbar, with the '
     'selection kept',
     (tester) async {
-      // Seeded twice at 60 min — the row seeds the free duration 90.
+      // Seeded twice at 60 min. Phase 472: the owned row starts with an EMPTY
+      // duration (no autofill), so the flow types the free duration 90.
       const String ownedTypeId = 'type-nails-classic';
 
       final fb = FakeBackend();
@@ -313,6 +314,34 @@ void main() {
       await tester.enterText(priceField, '400');
       await tester.pump();
 
+      final Finder durationField = find.descendant(
+        of: row,
+        matching: find.byKey(const Key('service-setup-duration')),
+      );
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: durationField,
+                matching: find.byType(EditableText),
+              ),
+            )
+            .controller
+            .text,
+        isEmpty,
+        reason: 'phase 472: no duration autofill on an owned row',
+      );
+      await tester.enterText(durationField, '90');
+      await tester.pump();
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.text(l10n.serviceSetupDurationTaken),
+        ),
+        findsNothing,
+        reason: '90 is free (owned {60}) — the client pre-check passes',
+      );
+
       fb.bulkRejectDuplicate = true;
 
       final Finder saveBtn = find.byKey(const Key('btn-setup-save'));
@@ -332,7 +361,7 @@ void main() {
       expect(
         item['durationMinutes'],
         90,
-        reason: 'the seeded free duration, never the owned 60',
+        reason: 'the typed free duration, never the owned 60',
       );
 
       await tester.pumpUntilFound(find.text(l10n.serviceErrDuplicate));

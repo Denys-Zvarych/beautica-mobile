@@ -33,8 +33,8 @@
 // already-owned types are therefore seeded `alreadyAdded` + `ownedDurations`
 // (see [ServiceRowState]). Phase 468 (backend 464/465): an owned type may be
 // added again as a COPY whose duration or name differs, so the row stays
-// selectable, seeds a free duration, and blocks the CTA while its duration
-// matches an existing copy (the client mirrors the duration half of the rule;
+// selectable, starts with an empty duration (phase 472), and blocks the CTA
+// while its duration matches an existing copy (the client mirrors the duration half of the rule;
 // the server 409 backstops name collisions).
 //
 // On a successful bulk save the catalogue providers are invalidated and the
@@ -64,13 +64,17 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/application/owner_performed_services_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_name_key.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart'
+    show isForbiddenFailure;
 import 'package:beautica_mobile/features/services/presentation/service_setup_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
@@ -164,7 +168,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
       <String, List<ServiceRowState>>{};
 
   /// Phase 471 — every row of each service type, in on-screen order (the
-  /// primary row first, then its «+ ще раз» copies). The same objects as in
+  /// primary row first, then its «+ додати ще» copies). The same objects as in
   /// [_rowsByCategory], where a type's rows sit adjacent.
   final Map<String, List<ServiceRowState>> _typeRows =
       <String, List<ServiceRowState>>{};
@@ -238,6 +242,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
   /// the 409 is recoverable and explained, an over-eager exclusion would hide a
   /// service the master genuinely cannot add any other way.
   late final Map<String, Set<int>> _ownedDurationsByType;
+
+  /// Phase 472 (D2) — the master's existing services per type, each shown on
+  /// its type's row with its own rename pencil. Same initState snapshot as
+  /// [_ownedDurationsByType].
+  late final Map<String, List<MasterService>> _ownedByType;
 
   /// True when the master already had services on entry — the APPEND case.
   /// Drives the copy variants only; ownership itself keys off
@@ -326,6 +335,22 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
         ref.read(servicesListProvider).asData?.value ?? const <MasterService>[];
     _appending = existing.isNotEmpty;
     _ownedDurationsByType = _durationsByType(existing);
+    _ownedByType = _servicesByType(existing);
+  }
+
+  /// `serviceTypeId → [service, …]` in catalogue order. Rows without a type
+  /// id cannot be matched and are skipped.
+  static Map<String, List<MasterService>> _servicesByType(
+    List<MasterService> services,
+  ) {
+    final Map<String, List<MasterService>> out =
+        <String, List<MasterService>>{};
+    for (final MasterService s in services) {
+      if (s.serviceTypeId case final String id when id.isNotEmpty) {
+        (out[id] ??= <MasterService>[]).add(s);
+      }
+    }
+    return out;
   }
 
   /// Groups [services] into `serviceTypeId → {durationMinutes}`. Every copy of
@@ -376,21 +401,23 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
   /// The footer's single pass over every loaded row: the count the save would
   /// create and whether any included row blocks it (phase 471 folded the old
   /// separate duration-taken scan into this one).
-  ({int total, bool blocked}) _footerScan() {
+  ({int total, bool blocked, int renames}) _footerScan() {
     var total = 0;
     var blocked = false;
+    var renames = 0;
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
+        renames += row.pendingRenameCount;
         if (!row.included) continue;
         total++;
         if (!blocked && _isBlocked(row)) blocked = true;
       }
     }
-    return (total: total, blocked: blocked);
+    return (total: total, blocked: blocked, renames: renames);
   }
 
   // -------------------------------------------------------------------------
-  // Phase 471 — copy rows («+ ще раз» / «Прибрати») + pair check
+  // Phase 471 — copy rows («+ додати ще» / «Прибрати») + pair check
   // -------------------------------------------------------------------------
 
   /// Re-runs the pair check for [typeId]: an included row collides when an
@@ -450,7 +477,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
     return null;
   }
 
-  /// «+ ще раз»: adds an included copy row of [source]'s type right after the
+  /// «+ додати ще»: adds an included copy row of [source]'s type right after the
   /// type's last row, at the nearest free quick-pick duration.
   void _addCopy(ServiceRowState source) {
     final String typeId = source.serviceTypeId;
@@ -468,13 +495,124 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
       takenDurations: taken,
       copyIndex: nextIndex,
     );
+    final ServiceRowState previous = group.last;
     setState(() {
-      final int at = categoryRows.indexWhere((r) => identical(r, group.last));
+      final int at = categoryRows.indexWhere((r) => identical(r, previous));
       categoryRows.insert(at + 1, copy);
       group.add(copy);
     });
     _onRowChanged(typeId);
+    _revealCopy(
+      copy,
+      previous,
+      focusAtTap: FocusManager.instance.primaryFocus,
+      token: ++_revealToken,
+    );
   }
+
+  /// Phase 472 audit — the live reveal loop's token. Each «+ додати ще» tap
+  /// takes a fresh one (so only the latest reveal runs) and a user drag of
+  /// the list bumps it (so the loop never fights the master's scroll).
+  int _revealToken = 0;
+
+  /// A reveal started with [token] may continue.
+  bool _revealLive(int token) => mounted && token == _revealToken;
+
+  /// A user drag on the setup list (depth 0 — never a text field's own
+  /// scrollable) cancels a running reveal; programmatic scrolls carry no
+  /// drag details.
+  bool _onScrollStart(ScrollStartNotification n) {
+    if (n.depth == 0 && n.dragDetails != null) _revealToken++;
+    return false;
+  }
+
+  /// Phase 472 — after «+ додати ще»: focuses the new [copy]'s duration well
+  /// and scrolls its card fully into view, both starting in the first frame
+  /// after the tap. When the copy is not laid out yet (inserted past the
+  /// list's cache extent) the [previous] row is scrolled to first, then the
+  /// copy is retried once. Focus moves unless the master put it into another
+  /// field meanwhile (see [_focusUnmovedSinceTap]).
+  void _revealCopy(
+    ServiceRowState copy,
+    ServiceRowState previous, {
+    required FocusNode? focusAtTap,
+    required int token,
+    bool retried = false,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!_revealLive(token)) return;
+      final BuildContext? target = _rowWrapperKeys[copy.keyId]?.currentContext;
+      if (target == null) {
+        final BuildContext? prev =
+            _rowWrapperKeys[previous.keyId]?.currentContext;
+        if (retried || prev == null) return;
+        await Scrollable.ensureVisible(
+          prev,
+          duration: _revealDuration,
+          curve: Curves.easeOutCubic,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+        );
+        if (_revealLive(token)) {
+          _revealCopy(
+            copy,
+            previous,
+            focusAtTap: focusAtTap,
+            token: token,
+            retried: true,
+          );
+        }
+        return;
+      }
+      if (_focusUnmovedSinceTap(focusAtTap, previous)) {
+        copy.durationFocus.requestFocus();
+      }
+      await _settleInView(target, token);
+    });
+  }
+
+  /// True unless focus moved into another field after the «+ додати ще» tap:
+  /// it is still on the node focused at the tap, that node was detached (a
+  /// rebuild of the row above disposed it), nothing is focused, or it sits on
+  /// the row above's duration well (where a rebuild can hand it).
+  bool _focusUnmovedSinceTap(FocusNode? atTap, ServiceRowState previous) {
+    final FocusNode? now = FocusManager.instance.primaryFocus;
+    if (identical(now, atTap)) return true;
+    if (atTap != null && atTap.context == null) return true;
+    if (now == null || now is FocusScopeNode) return true;
+    return identical(now, previous.durationFocus);
+  }
+
+  /// Keeps [target]'s card fully on screen while the layout above it settles
+  /// (the row above grows as its name well animates in; the focused field's
+  /// caret reveal may interrupt a pass). Short passes back to back, ending
+  /// once two in a row leave the scroll offset where it was — or as soon as
+  /// [token] goes stale (a user drag, or a newer «+ додати ще» tap).
+  Future<void> _settleInView(BuildContext target, int token) async {
+    var idle = 0;
+    for (var pass = 0; pass < _revealMaxPasses && idle < 2; pass++) {
+      if (!_revealLive(token) || !target.mounted) return;
+      final ScrollPosition? position = Scrollable.maybeOf(target)?.position;
+      final double? before = position?.pixels;
+      await Scrollable.ensureVisible(
+        target,
+        duration: _revealDuration,
+        curve: Curves.easeOutCubic,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+      if (position == null || position.pixels == before) {
+        idle++;
+        await WidgetsBinding.instance.endOfFrame;
+      } else {
+        idle = 0;
+      }
+    }
+  }
+
+  static const Duration _revealDuration = Duration(milliseconds: 140);
+
+  /// Upper bound on [_settleInView] passes — a layout that never settles
+  /// cannot keep scrolling forever.
+  static const int _revealMaxPasses = 12;
 
   /// «Прибрати»: removes [row]. Removing the primary row promotes the next
   /// one (it keeps its values); the row is disposed after the frame that
@@ -494,6 +632,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
         final ServiceRowState promoted = group.first;
         _rowWrapperKeys.remove(promoted.keyId);
         promoted.copyIndex = 0;
+        // Phase 472: the owned services (and any unsaved rename) move with
+        // the primary role, so «Прибрати» never drops a pending rename.
+        promoted.adoptOwnedServices(row);
       }
     });
     _disposeAfterFrame(<ServiceRowState>[row]);
@@ -595,7 +736,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
       // check means it does not even re-attach its listeners. Only types that
       // vanished from the catalogue are dropped, and their controllers are
       // disposed AFTER the frame that unmounts their card, never during it.
-      // Phase 471: carried per TYPE, so a type's «+ ще раз» copies survive a
+      // Phase 471: carried per TYPE, so a type's «+ додати ще» copies survive a
       // refetch together with its primary row, in order.
       final Map<String, List<ServiceRowState>> carried =
           <String, List<ServiceRowState>>{};
@@ -616,6 +757,10 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
                   // the save while its duration matches an existing copy.
                   alreadyAdded: _ownedDurationsByType.containsKey(t.id),
                   ownedDurations: _ownedDurationsByType[t.id] ?? const <int>{},
+                  // Phase 472 (D2): every existing service of the type, one
+                  // rename pencil each; also the (duration, canonical name)
+                  // keys [ServiceRowState.durationTaken] compares with.
+                  ownedServices: _ownedByType[t.id] ?? const <MasterService>[],
                 ),
               ];
           _typeRows[t.id] = typeRows;
@@ -892,10 +1037,25 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
       return;
     }
     final items = _assemble();
-    if (items == null || items.isEmpty) {
+    final renames = _pendingRenames();
+    if (items == null || (items.isEmpty && renames.isEmpty)) {
       // Blocked save: surface the first flagged row so the failure is visible.
       _scrollToFirstFlagged();
       return;
+    }
+
+    // Phase 472 — renames of owned services go first, one PATCH each through
+    // the same repository call the service edit form uses. A failed rename
+    // stops the save before the bulk add, so a clash is fixed in one place.
+    if (renames.isNotEmpty) {
+      final bool renamed = await _applyRenames(renames, l10n);
+      if (!mounted || !renamed) return;
+      if (items.isEmpty) {
+        invalidateMasterServiceCatalogues(ref);
+        showSuccessSnack(context, l10n.serviceUpdatedSuccess);
+        _leave();
+        return;
+      }
     }
 
     // Clear any server errors mapped from a PRIOR attempt so this response's
@@ -993,6 +1153,133 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
         : l10n.errUnknown;
     _showErrorSnack(message);
   }
+
+  /// Owned services with an unsaved rename (and their rows), in on-screen
+  /// order.
+  List<({ServiceRowState row, OwnedServiceName entry})> _pendingRenames() =>
+      <({ServiceRowState row, OwnedServiceName entry})>[
+        for (final rows in _rowsByCategory.values)
+          for (final row in rows)
+            for (final OwnedServiceName e in row.ownedServices)
+              if (row.pendingRenameOf(e) != null) (row: row, entry: e),
+      ];
+
+  /// True while [_applyRenames] runs — drives the CTA spinner.
+  bool _renaming = false;
+
+  /// Phase 472 — renames each row's owned service via
+  /// [ServiceRepository.update] (the service edit form's call), name only: a
+  /// blank well sends the catalogue type name
+  /// ([ServiceRowState.pendingRenameOf] never yields `''`, which the backend
+  /// `@Size(min = 1)` would 400). The PATCHes run together; their outcomes
+  /// are applied in on-screen order. A 409 DUPLICATE_SERVICE / 400 name
+  /// error / 403 / 404 lands on that row's well; any other failure is a
+  /// snack. Returns true when every rename saved — a false stops the bulk
+  /// add. Saved renames are committed on the row, so a retry never re-sends
+  /// them.
+  Future<bool> _applyRenames(
+    List<({ServiceRowState row, OwnedServiceName entry})> renames,
+    AppLocalizations l10n,
+  ) async {
+    final ServiceRepository repository = ref.read(serviceRepositoryProvider);
+    final List<({ServiceRowState row, OwnedServiceName entry, String name})>
+    sends = <({ServiceRowState row, OwnedServiceName entry, String name})>[
+      for (final (:row, :entry) in renames)
+        if (row.pendingRenameOf(entry) case final String name)
+          (row: row, entry: entry, name: name),
+    ];
+    setState(() => _renaming = true);
+    var savedAny = false;
+    ServiceRowState? firstFlagged;
+    try {
+      final List<Object> outcomes = await Future.wait(<Future<Object>>[
+        for (final (row: _, :entry, :name) in sends)
+          _renameOne(repository, entry.service, name),
+      ]);
+      if (!mounted) return false;
+      Failure? fatal;
+      for (var i = 0; i < sends.length; i++) {
+        final (:row, :entry, name: _) = sends[i];
+        switch (outcomes[i]) {
+          case final MasterService updated:
+            row.commitRename(entry, updated);
+            savedAny = true;
+          case ServiceDuplicateFailure():
+            row.setRenameError(entry, l10n.serviceSetupRenameCollision);
+            firstFlagged ??= row;
+          case final ValidationFailure e when e.fieldErrors.containsKey('name'):
+            row.setRenameError(entry, l10n.serviceSetupCopyNameInvalid);
+            firstFlagged ??= row;
+          case final Failure e
+              when e is NotFoundFailure || isForbiddenFailure(e):
+            // Phase 472 audit: a 403 (identity-locked salon definition) or a
+            // 404 (service gone) belongs to that one service — on its row.
+            row.setRenameError(entry, _renameDeniedMessage(e, l10n));
+            firstFlagged ??= row;
+          case final Failure e:
+            fatal ??= e;
+          default:
+            break;
+        }
+      }
+      if (fatal != null) {
+        _showErrorSnack(fatal.userMessage(context));
+        return false;
+      }
+    } finally {
+      if (savedAny && mounted) invalidateMasterServiceCatalogues(ref);
+      if (mounted) setState(() => _renaming = false);
+      _notifyAggregate();
+    }
+    if (firstFlagged case final ServiceRowState flagged) {
+      _scrollToFirstFlagged(ids: <String>{flagged.keyId});
+      return false;
+    }
+    return true;
+  }
+
+  /// One rename PATCH; never throws — any error (thrown synchronously or
+  /// async) is returned as the outcome, so one failed PATCH cannot make
+  /// [Future.wait] rethrow and drop the batch's saved renames. A non-[Failure]
+  /// is returned as an [UnknownFailure] (the generic snack path).
+  static Future<Object> _renameOne(
+    ServiceRepository repository,
+    MasterService target,
+    String name,
+  ) async {
+    try {
+      return await repository.update(
+        target.serviceDefId,
+        MasterServiceUpdate(name: name),
+        assignmentId: target.id,
+      );
+    } on Failure catch (e) {
+      return e;
+    } on Object catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '_renameOne failed: ${_errorSummary(e)}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      return const UnknownFailure();
+    }
+  }
+
+  /// The row message for a 403 / 404 rename: under a salon target a 403 is
+  /// the owner-performed identity lock (the service edit form's copy).
+  String _renameDeniedMessage(Failure e, AppLocalizations l10n) =>
+      isForbiddenFailure(e) && _salonId != null
+      ? l10n.serviceEditOwnerPerformedHint
+      : e.userMessage(context);
+
+  /// The salon being managed, or null for the master's own services.
+  String? get _salonId => switch (ref.read(serviceTargetProvider)) {
+    SalonMasterTarget(:final String salonId) => salonId,
+    null => null,
+  };
 
   /// Log-safe summary of a caught error: its type and, for a server failure,
   /// the status code — never the message, which can carry a request URL.
@@ -1255,12 +1542,15 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
             ListenableBuilder(
               listenable: _aggregate,
               builder: (context, _) {
-                final (:total, :blocked) = _footerScan();
+                final (:total, :blocked, :renames) = _footerScan();
                 return _Footer(
                   total: total,
-                  saving: saving,
+                  renames: renames,
+                  saving: saving || _renaming,
                   appending: _appending,
-                  onSave: total == 0 || blocked ? null : _save,
+                  onSave: (total == 0 && renames == 0) || blocked
+                      ? null
+                      : _save,
                 );
               },
             ),
@@ -1291,49 +1581,52 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
       };
       if (key != null) slotIndexByKey[key] = i;
     }
-    return CustomScrollView(
-      physics: const BouncingScrollPhysics(),
-      slivers: <Widget>[
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.sm,
-            VelvetSpacing.lg,
-            0,
-          ),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                // Sits directly above the chip Wrap — the CATEGORY-selection
-                // surface — because that is the scope it acts on.
-                _MissingCategoryPrompt(onTap: _requestCategory),
-                const SizedBox(height: VelvetSpacing.lg),
-                _categorySection(l10n, categories),
-                const SizedBox(height: VelvetSpacing.lg),
-              ],
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: _onScrollStart,
+      child: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              VelvetSpacing.sm,
+              VelvetSpacing.lg,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  // Sits directly above the chip Wrap — the CATEGORY-selection
+                  // surface — because that is the scope it acts on.
+                  _MissingCategoryPrompt(onTap: _requestCategory),
+                  const SizedBox(height: VelvetSpacing.lg),
+                  _categorySection(l10n, categories),
+                  const SizedBox(height: VelvetSpacing.lg),
+                ],
+              ),
             ),
           ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            0,
-            VelvetSpacing.lg,
-            VelvetSpacing.xl,
-          ),
-          sliver: SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => switch (slots[index]) {
-                _FixedSlot(:final Widget child) => child,
-                _RowSlot(:final ServiceRowState row) => _rowCard(row),
-              },
-              childCount: slots.length,
-              findChildIndexCallback: (key) => slotIndexByKey[key],
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              0,
+              VelvetSpacing.lg,
+              VelvetSpacing.xl,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => switch (slots[index]) {
+                  _FixedSlot(:final Widget child) => child,
+                  _RowSlot(:final ServiceRowState row) => _rowCard(row),
+                },
+                childCount: slots.length,
+                findChildIndexCallback: (key) => slotIndexByKey[key],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1519,7 +1812,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
   /// per-row expand/collapse animation's repaint blast radius to this one card.
   ///
   /// Phase 471: keys use [ServiceRowState.keyId] (the bare type id for the
-  /// primary row, so every pre-471 key is unchanged). «+ ще раз» is offered
+  /// primary row, so every pre-471 key is unchanged). «+ додати ще» is offered
   /// on every row (the card shows it only while included); «Прибрати» and the
   /// name field once the type has more than one row — the name field also
   /// while a row still carries a custom name, so a sent name is never hidden.
@@ -1527,22 +1820,58 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
     final id = row.keyId;
     final bool hasCopies = (_typeRows[row.serviceTypeId]?.length ?? 1) > 1;
     final _RowCallbacks callbacks = _callbacksFor(row);
+    final String? salonId = _salonId;
+    Widget card({bool Function(MasterService service)? canRename}) =>
+        ServiceTypeRowCard(
+          key: Key('setup_row_$id'),
+          row: row,
+          resolveRangeError: _rangeResolver,
+          onChanged: callbacks.changed,
+          onFieldEdited: callbacks.fieldEdited,
+          onAddCopy: callbacks.addCopy,
+          onRemove: hasCopies ? callbacks.remove : null,
+          showNameField: hasCopies || row.customName != null,
+          // Phase 472 (D2): pencil → custom name of a new service.
+          offerCustomName: true,
+          canRename: canRename,
+          // A salon definition is shared by every master performing it.
+          renameNote: salonId == null
+              ? null
+              : AppLocalizations.of(context).serviceSetupRenameSharedNote,
+        );
     return KeyedSubtree(
       key: _rowWrapperKey(id),
       child: RepaintBoundary(
         key: ValueKey<String>('rowwrap_$id'),
         child: Padding(
           padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-          child: ServiceTypeRowCard(
-            key: Key('setup_row_$id'),
-            row: row,
-            resolveRangeError: _rangeResolver,
-            onChanged: callbacks.changed,
-            onFieldEdited: callbacks.fieldEdited,
-            onAddCopy: callbacks.addCopy,
-            onRemove: hasCopies ? callbacks.remove : null,
-            showNameField: hasCopies || row.customName != null,
-          ),
+          child: salonId == null
+              ? card()
+              // Phase 472 audit: the service edit route's identity lock
+              // (owner-performed salon definition) hides that service's
+              // rename pencil; PENDING hides it too (never a rename that
+              // would 403), ERROR fails open like the edit route.
+              : Consumer(
+                  builder: (context, ref, _) {
+                    final Set<String> locked = <String>{
+                      for (final OwnedServiceName e in row.ownedServices)
+                        if (ref.watch(
+                              serviceIdentityLockProvider(
+                                salonId,
+                                e.service.serviceDefId,
+                              ),
+                            ) !=
+                            ServiceIdentityLock.unlocked)
+                          e.service.serviceDefId,
+                    };
+                    return card(
+                      canRename: locked.isEmpty
+                          ? null
+                          : (MasterService s) =>
+                                !locked.contains(s.serviceDefId),
+                    );
+                  },
+                ),
         ),
       ),
     );
@@ -1935,9 +2264,14 @@ class _Footer extends StatelessWidget {
     required this.saving,
     required this.appending,
     required this.onSave,
+    this.renames = 0,
   });
 
   final int total;
+
+  /// Phase 472 — owned services with an unsaved rename. With no services to
+  /// add the CTA saves just those («Зберегти зміни»).
+  final int renames;
   final bool saving;
 
   /// APPEND mode — the CTA says "add N" rather than "create my menu of N".
@@ -1948,7 +2282,7 @@ class _Footer extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String label = total == 0
-        ? l10n.serviceSetupCtaEmpty
+        ? (renames > 0 ? l10n.servicesSaveChanges : l10n.serviceSetupCtaEmpty)
         : (appending
               ? l10n.serviceSetupCtaAdd(total)
               : l10n.serviceSetupCtaCreate(total));
@@ -1974,7 +2308,9 @@ class _Footer extends StatelessWidget {
           key: const Key('btn-setup-save'),
           label: label,
           loading: saving,
-          icon: total == 0 ? null : Icons.check_circle_outline_rounded,
+          icon: total == 0 && renames == 0
+              ? null
+              : Icons.check_circle_outline_rounded,
           onPressed: onSave,
         ),
       ),

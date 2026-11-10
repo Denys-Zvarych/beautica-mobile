@@ -9,19 +9,26 @@
 //
 // SCENARIOS (360dp x {1.0, 1.3})
 //   - `owned`: an owned type (owned durations {60}) OFF — «Вже додано» + the
-//     include switch it gained in phase 468 — above the same type ON, seeded
-//     to the free quick-pick 90 with no error.
+//     include switch it gained in phase 468 — above the same type ON with an
+//     EMPTY duration (phase 472 dropped the free quick-pick autofill).
 //   - `duration_taken`: the owned type ON at the owned duration 60 — red rim +
 //     inline `serviceSetupDurationTaken`.
 //   - `extra_copy` (phase 471): a type with an extra copy row — the primary at
-//     60 and its «+ ще раз» copy at 90, both with the optional name field and
-//     «Прибрати»; the primary also shows «+ ще раз».
+//     60 and its «+ додати ще» copy at 90, both with the optional name field
+//     and «Прибрати»; the primary also shows «+ додати ще».
+//   - `rename` (phase 472, decision D2): an owned type owned TWICE (one copy
+//     custom-named) — «Вже додано» then one compact line per copy (name,
+//     duration, pencil) — above the same row after the second copy's pencil
+//     tap, that line turned into the shared name well (labelled with its
+//     duration) carrying a custom name; then a not-owned row switched ON with
+//     the name pencil after its title.
 //
 // GOLDENS ARE NOT ACCEPTANCE BY THEMSELVES: the `measured ground truth` group
 // below pins the behaviour each picture depends on (seeded value, error copy
 // present / absent) so a baseline cannot silently capture the wrong state.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_setup_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -98,6 +105,55 @@ Widget _extraCopyFixture(double width) {
   return _frame(width, <Widget>[_copyCard(primary), _copyCard(copy)]);
 }
 
+const List<MasterService> _ownedTwice = <MasterService>[
+  MasterService(
+    id: 'assign-1',
+    serviceDefId: 'def-1',
+    name: _typeName,
+    serviceTypeId: _typeId,
+    durationMinutes: 60,
+    priceMin: 500,
+    priceDisplay: '500 ₴',
+  ),
+  MasterService(
+    id: 'assign-2',
+    serviceDefId: 'def-2',
+    // i18n-finder-ok: fixture service name, not UI copy
+    name: 'Масаж спини',
+    serviceTypeId: _typeId,
+    durationMinutes: 90,
+    priceMin: 700,
+    priceDisplay: '700 ₴',
+  ),
+];
+
+ServiceRowState _renameRow({String? renamed}) {
+  final row = ServiceRowState(
+    serviceTypeId: _typeId,
+    nameUk: _typeName,
+    alreadyAdded: true,
+    ownedDurations: const <int>{60, 90},
+    ownedServices: _ownedTwice,
+  );
+  if (renamed != null) {
+    final OwnedServiceName second = row.ownedServices.last;
+    row.beginRename(second);
+    second.controller?.text = renamed;
+  }
+  return row;
+}
+
+Widget _renameFixture(double width) => _frame(width, <Widget>[
+  _card(_renameRow()),
+  // i18n-finder-ok: user-typed service name fixture, not UI copy
+  _card(_renameRow(renamed: 'Авторський масаж')),
+  ServiceTypeRowCard(
+    row: _sessionRow(),
+    resolveRangeError: (_) => null,
+    offerCustomName: true,
+  ),
+]);
+
 Future<AppLocalizations> _pump(WidgetTester tester, Widget child) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -116,7 +172,9 @@ void main() {
 
   group('owned row copy — measured ground truth (not golden)', () {
     testWidgets('owned fixture: OFF row keeps a switch + «Вже додано»; ON row '
-        'is seeded to 90 with no duration-taken error', (tester) async {
+        'has an EMPTY duration (phase 472) and no duration-taken error', (
+      tester,
+    ) async {
       final l10n = await _pump(tester, _ownedFixture(width));
 
       expect(
@@ -131,7 +189,7 @@ void main() {
           matching: find.byType(EditableText),
         ),
       );
-      expect(seeded.controller.text, '90');
+      expect(seeded.controller.text, isEmpty);
     });
 
     testWidgets('taken fixture renders serviceSetupDurationTaken', (
@@ -143,7 +201,7 @@ void main() {
   });
 
   group('extra copy row — measured ground truth (not golden)', () {
-    testWidgets('both rows show the name field, «Прибрати» and «+ ще раз»; '
+    testWidgets('both rows show the name field, «Прибрати» and «+ додати ще»; '
         'the copy is seeded to 90', (tester) async {
       final l10n = await _pump(tester, _extraCopyFixture(width));
       expect(find.text(l10n.serviceSetupCopyNameHint), findsNWidgets(2));
@@ -157,10 +215,42 @@ void main() {
     });
   });
 
+  group('rename pencils — measured ground truth (not golden)', () {
+    testWidgets('D2: one pencil per owned copy; the tapped copy is the name '
+        'well labelled with its duration; a new ON row has the name pencil', (
+      tester,
+    ) async {
+      final l10n = await _pump(tester, _renameFixture(width));
+      expect(
+        find.byKey(const Key('btn-setup-row-rename-assign-1')),
+        findsNWidgets(2),
+      );
+      expect(
+        find.byKey(const Key('btn-setup-row-rename-assign-2')),
+        findsOneWidget,
+        reason: 'only the untapped card still shows copy 2 as a line',
+      );
+      expect(
+        find.byKey(const Key('setup_row_rename_assign-2')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.serviceSetupRenameLabel(90)), findsOneWidget);
+      expect(
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        find.text('Авторський масаж'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('btn-setup-row-name-$_typeId')),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('service setup owned-row copy golden', () {
     for (final double scale in kGoldenTextScales) {
       goldenTest(
-        'owned row OFF + ON (seeded free duration) ${width.toInt()}dp x$scale',
+        'owned row OFF + ON (empty duration) ${width.toInt()}dp x$scale',
         fileName:
             'service_setup_row_copy_owned_${widthScaleSuffix(width, scale)}',
         constraints: BoxConstraints.tight(const Size(width, 520)),
@@ -185,6 +275,16 @@ void main() {
         textScaleFactor: scale,
         pumpWidget: goldenPumpWidget(width: width),
         builder: () => _extraCopyFixture(width),
+      );
+      goldenTest(
+        'rename pencils per owned copy + new-service name pencil (472 D2) '
+        '${width.toInt()}dp x$scale',
+        fileName:
+            'service_setup_row_copy_rename_${widthScaleSuffix(width, scale)}',
+        constraints: BoxConstraints.tight(const Size(width, 760)),
+        textScaleFactor: scale,
+        pumpWidget: goldenPumpWidget(width: width),
+        builder: () => _renameFixture(width),
       );
     }
   });

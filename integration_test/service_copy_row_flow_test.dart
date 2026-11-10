@@ -1,21 +1,36 @@
-// E2E — phase 471: «+ ще раз» adds a second copy row of one service type to
-// the SAME add-services save (acceptance 1, 2, 4).
+// E2E — phase 471: «+ додати ще» adds a second copy row of one service type
+// to the SAME add-services save (acceptance 1, 2, 4); phase 472: the tap jumps
+// to the new card (on screen, duration focused), and the pencil on each owned
+// copy (decision D2) renames that service through the edit form's PATCH.
 //
 // FIXTURE
 // -------
 // The shared fake backend seeds the master with `type-nails-classic` at 60
-// min (owned durations {60}), so switching that row on seeds 90; «+ ще раз»
-// then seeds the copy at the nearest free quick-pick above 90 → 120.
+// min (owned durations {60}). Since phase 472 switching that row on leaves the
+// duration EMPTY (no autofill), so the flow types 90; «+ додати ще» then seeds
+// the copy at the nearest free quick-pick above 90 → 120.
 //
 // ARMS
 // ----
-//   C1 (acceptance 1). «+ ще раз» → a copy row at a free duration with an
+//   C1 (acceptance 1). «+ додати ще» → a copy row at a free duration with an
 //       empty price and the name field → price it → save → ONE bulk POST with
 //       two items of the type, the copy without a `name` key (blank name).
 //   C2 (acceptance 2). The copy moved onto the primary's duration with a
 //       blank name → inline `serviceSetupCopyCollision`, CTA disabled, nothing
 //       sent; typing a name clears it → the POST carries that name.
 //   C3 (acceptance 4). «Прибрати» on the copy → the POST has one item.
+//   C4 (phase 472). The copy card is fully on screen with its duration focused.
+//   C5 (phase 472, D2). `type-nails-classic` is owned TWICE (`assign-typed`,
+//       `assign-mismatch`): each copy has its own pencil. The `assign-typed`
+//       pencil turns that line into a field; a 409 rename shows
+//       `serviceSetupRenameCollision` on the row; a new name then saves
+//       through `PATCH /api/v1/services/svc-typed` carrying only `name`.
+//   C6 (phase 472, mobile-qa). With `typedPatchPersists`, a rename from this
+//       screen lands on the services list card; reopening and saving the well
+//       BLANK sends the catalogue type name and the card shows it again.
+//   C7 (phase 472, D2). The name pencil of a not-yet-owned switched-on row
+//       (`type-nails-gel`) opens its name well; the typed name rides the
+//       bulk POST item.
 //
 // KEY POLICY: interaction finders are key-based; copy assertions read
 // `AppLocalizations` off a live context, never a re-typed literal.
@@ -31,6 +46,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 const String _typeId = 'type-nails-classic';
@@ -63,6 +79,16 @@ String _text(WidgetTester tester, Finder field) => tester
     .controller
     .text;
 
+bool _durationFocused(WidgetTester tester, String keyId) => tester
+    .widget<EditableText>(
+      find.descendant(
+        of: _durationOf(keyId),
+        matching: find.byType(EditableText),
+      ),
+    )
+    .focusNode
+    .hasFocus;
+
 VoidCallback? _saveCallback(WidgetTester tester) => tester
     .widget<NeumorphicButton>(find.byKey(const Key('btn-setup-save')))
     .onPressed;
@@ -74,7 +100,7 @@ Future<void> _tap(WidgetTester tester, Finder target) async {
 }
 
 /// Login → /services → FAB → setup (APPEND) → NAILS → owned row ON + priced →
-/// «+ ще раз». Returns the live l10n.
+/// «+ додати ще». Returns the live l10n.
 Future<AppLocalizations> _openWithCopyRow(
   WidgetTester tester,
   FakeBackend fb,
@@ -100,7 +126,13 @@ Future<AppLocalizations> _openWithCopyRow(
   await tester.pumpUntilFound(_priceOf(_typeId));
   await tester.enterText(_priceOf(_typeId), '650');
   await tester.pump();
-  expect(_text(tester, _durationOf(_typeId)), '90');
+  expect(
+    _text(tester, _durationOf(_typeId)),
+    isEmpty,
+    reason: 'phase 472: no duration autofill on an owned row',
+  );
+  await tester.enterText(_durationOf(_typeId), '90');
+  await tester.pump();
 
   final Finder addCopy = find.byKey(
     const Key('btn-setup-row-add-copy-$_typeId'),
@@ -108,7 +140,66 @@ Future<AppLocalizations> _openWithCopyRow(
   await _tap(tester, addCopy);
   await tester.pumpUntilFound(_row(_copyKeyId));
   await tester.pumpUntilFound(_priceOf(_copyKeyId));
+  // Phase 472: the jump focuses the copy's duration well.
+  await AppHarness.pumpUntilCondition(
+    tester,
+    () => _durationFocused(tester, _copyKeyId),
+    description: 'the «+ додати ще» jump focusing the copy duration',
+  );
   return l10n;
+}
+
+/// Login → /services → FAB → setup (APPEND) → NAILS expanded. Returns the
+/// router and the live l10n.
+Future<(GoRouter, AppLocalizations)> _openSetupOnNails(
+  WidgetTester tester,
+  FakeBackend fb,
+) async {
+  final GoRouter router = await AppHarness.boot(tester, fb);
+  await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+  AppHarness.expectLocation(router, RouteNames.masterProfile);
+  router.go(RouteNames.services);
+  final AppLocalizations l10n = await _reopenSetupOnNails(tester);
+  return (router, l10n);
+}
+
+/// From /services: FAB → setup → NAILS chip → the owned row mounted.
+Future<AppLocalizations> _reopenSetupOnNails(WidgetTester tester) async {
+  final Finder fab = find.byKey(const Key('btn-create-service'));
+  await tester.pumpUntilFound(fab.hitTestable());
+  await tester.tap(fab);
+  final Finder closeBtn = find.byKey(const Key('btn-setup-close'));
+  await tester.pumpUntilFound(closeBtn);
+  final AppLocalizations l10n = AppLocalizations.of(tester.element(closeBtn));
+  final Finder nailsChip = find.byKey(const ValueKey<String>('cat_NAILS'));
+  await tester.pumpUntilFound(nailsChip.hitTestable());
+  await tester.tap(nailsChip);
+  await tester.pumpUntilFound(_row(_typeId));
+  return l10n;
+}
+
+/// Back on /services after a save: the NAILS section expanded and the
+/// `assign-typed` card carrying [name] (a re-fetched list).
+Future<void> _expectListCardName(
+  WidgetTester tester,
+  GoRouter router,
+  String name,
+) async {
+  final Finder nails = find.byKey(const Key('category_section_NAILS'));
+  await AppHarness.pumpUntilFound(tester, nails);
+  AppHarness.expectLocation(router, RouteNames.services);
+  const Key card = Key('service_card_assign-typed');
+  if (find.byKey(card).evaluate().isEmpty) {
+    await AppHarness.tapVisible(tester, nails);
+  }
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.descendant(
+      of: find.byKey(card),
+      // i18n-finder-ok: fixture / user-typed service NAME, not l10n copy
+      matching: find.text(name),
+    ),
+  );
 }
 
 Future<List<dynamic>> _saveAndCapture(
@@ -132,7 +223,7 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'C1. «+ ще раз» adds a copy row at a free duration with an empty price and '
+    'C1. «+ додати ще» adds a copy row at a free duration with an empty price and '
     'the name field; one save sends both items',
     (tester) async {
       final fb = FakeBackend();
@@ -234,6 +325,209 @@ void main() {
       final List<dynamic> items = await _saveAndCapture(tester, fb);
       expect(items, hasLength(1));
       expect((items.single as Map<String, dynamic>)['durationMinutes'], 90);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  testWidgets(
+    'C4. «+ додати ще» brings the new copy card fully on screen and focuses '
+    'its duration well',
+    (tester) async {
+      final fb = FakeBackend();
+      await _openWithCopyRow(tester, fb);
+      await tester.pumpUntilFound(_durationOf(_copyKeyId).hitTestable());
+      await AppHarness.settle(tester);
+
+      final Rect card = tester.getRect(_row(_copyKeyId));
+      final Rect viewport = tester.getRect(find.byType(CustomScrollView));
+      expect(card.top, greaterThanOrEqualTo(viewport.top));
+      expect(card.bottom, lessThanOrEqualTo(viewport.bottom));
+      expect(_durationFocused(tester, _copyKeyId), isTrue);
+      expect(_durationFocused(tester, _typeId), isFalse);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  testWidgets(
+    'C5. each owned copy has a pencil; one renames its service, a 409 lands '
+    'on the row, a free name saves via the edit-form PATCH',
+    (tester) async {
+      final fb = FakeBackend();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
+
+      router.go(RouteNames.services);
+      final Finder fab = find.byKey(const Key('btn-create-service'));
+      await tester.pumpUntilFound(fab.hitTestable());
+      await tester.tap(fab);
+      final Finder closeBtn = find.byKey(const Key('btn-setup-close'));
+      await tester.pumpUntilFound(closeBtn);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(closeBtn),
+      );
+      final Finder nailsChip = find.byKey(const ValueKey<String>('cat_NAILS'));
+      await tester.pumpUntilFound(nailsChip.hitTestable());
+      await tester.tap(nailsChip);
+      await tester.pumpUntilFound(_row(_typeId));
+
+      expect(
+        _inRow(_typeId, const Key('btn-setup-row-rename-assign-mismatch')),
+        findsOneWidget,
+        reason: 'D2: one pencil per owned copy',
+      );
+      await _tap(
+        tester,
+        find.byKey(const Key('btn-setup-row-rename-assign-typed')),
+      );
+      final Finder rename = find.descendant(
+        of: find.byKey(const Key('setup_row_rename_assign-typed')),
+        matching: find.byType(EditableText),
+      );
+      await tester.pumpUntilFound(rename);
+
+      fb.typedPatchRejectDuplicate = true;
+      await tester.enterText(rename, 'Манікюр гель-лак');
+      await tester.pump();
+      final Finder save = find.byKey(const Key('btn-setup-save'));
+      await _tap(tester, save);
+      final Finder clash = find.descendant(
+        of: _row(_typeId),
+        matching: find.text(l10n.serviceSetupRenameCollision),
+      );
+      await tester.pumpUntilFound(clash);
+      expect(fb.patchServiceCalls, 1);
+      expect(fb.bulkCreateCalls, 0);
+
+      fb.typedPatchRejectDuplicate = false;
+      await tester.enterText(rename, 'Авторський манікюр');
+      await tester.pump();
+      expect(clash, findsNothing);
+      await _tap(tester, save);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.patchServiceCalls >= 2,
+        description: 'the rename PATCH on the owned service',
+      );
+      expect(fb.lastTypedPatchBody, <String, dynamic>{
+        'name': 'Авторський манікюр',
+      });
+      expect(fb.bulkCreateCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  testWidgets(
+    'C6. a rename from this screen shows on the services list; a blank '
+    'rename resets the service to the catalogue type name',
+    (tester) async {
+      // i18n-finder-ok: fixture / user-typed service names, not l10n copy
+      const String custom = 'Авторський манікюр';
+      // i18n-finder-ok: the seeded catalogue type name (fixture data)
+      const String typeName = 'Класичний манікюр';
+      final fb = FakeBackend()..typedPatchPersists = true;
+      final (GoRouter router, _) = await _openSetupOnNails(tester, fb);
+
+      final Finder pencil = find.byKey(
+        const Key('btn-setup-row-rename-assign-typed'),
+      );
+      final Finder rename = find.descendant(
+        of: find.byKey(const Key('setup_row_rename_assign-typed')),
+        matching: find.byType(EditableText),
+      );
+      final Finder save = find.byKey(const Key('btn-setup-save'));
+
+      await _tap(tester, pencil);
+      await tester.pumpUntilFound(rename);
+      await tester.enterText(rename, custom);
+      await tester.pump();
+      await _tap(tester, save);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.patchServiceCalls >= 1,
+        description: 'the rename PATCH on the owned service',
+      );
+      expect(fb.lastTypedPatchBody, <String, dynamic>{'name': custom});
+      expect(fb.bulkCreateCalls, 0);
+      await _expectListCardName(tester, router, custom);
+      await pumpPastVelvetSnack(tester);
+
+      // Reopen: the well pre-fills the custom name; blank it and save.
+      await _reopenSetupOnNails(tester);
+      await _tap(tester, pencil);
+      await tester.pumpUntilFound(rename);
+      expect(_text(tester, rename), custom);
+      await tester.enterText(rename, '');
+      await tester.pump();
+      await _tap(tester, save);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.patchServiceCalls >= 2,
+        description: 'the blank-rename PATCH',
+      );
+      expect(
+        fb.lastTypedPatchBody,
+        <String, dynamic>{'name': typeName},
+        reason: 'blank → the catalogue type name, never an empty name',
+      );
+      await _expectListCardName(tester, router, typeName);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('service_card_assign-typed')),
+          // i18n-finder-ok: user-typed service NAME, not l10n copy
+          matching: find.text(custom),
+        ),
+        findsNothing,
+      );
+      await pumpPastVelvetSnack(tester);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  testWidgets(
+    'C7. the name pencil on a not-yet-owned switched-on row sends its custom '
+    'name with the add',
+    (tester) async {
+      const String gelTypeId = 'type-nails-gel';
+      // i18n-finder-ok: user-typed service name fixture, not l10n copy
+      const String custom = 'Гель авторський';
+      final fb = FakeBackend();
+      await _openSetupOnNails(tester, fb);
+
+      final Finder gelToggle = find.byKey(
+        const Key('setup_row_toggle_$gelTypeId'),
+      );
+      // The row sits below the fold of the lazy list — scroll it in.
+      await tester.scrollUntilVisible(
+        gelToggle,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(CustomScrollView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await _tap(tester, gelToggle);
+      final Finder namePencil = find.byKey(
+        const Key('btn-setup-row-name-$gelTypeId'),
+      );
+      await tester.pumpUntilFound(namePencil);
+      await _tap(tester, namePencil);
+      final Finder well = _nameOf(gelTypeId);
+      await tester.pumpUntilFound(well);
+      await tester.enterText(well, custom);
+      await tester.enterText(_durationOf(gelTypeId), '60');
+      await tester.enterText(_priceOf(gelTypeId), '500');
+      await tester.pump();
+
+      final List<dynamic> items = await _saveAndCapture(tester, fb);
+      expect(items, hasLength(1));
+      final Map<String, dynamic> item = items.single as Map<String, dynamic>;
+      expect(item['serviceTypeId'], gelTypeId);
+      expect(item['durationMinutes'], 60);
+      expect(item['name'], custom);
+      await pumpPastVelvetSnack(tester);
     },
     timeout: const Timeout(Duration(seconds: 60)),
   );
