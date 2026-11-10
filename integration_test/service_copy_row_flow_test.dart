@@ -50,6 +50,10 @@ import 'support/app_harness.dart';
 const String _typeId = 'type-nails-classic';
 const String _copyKeyId = '${_typeId}_copy_1';
 
+/// The fake catalogue's `nameUk` for [_typeId] — the D4 pencil pre-fill.
+// i18n-finder-ok: fake-backend catalogue fixture, not l10n copy
+const String _nailsTypeName = 'Класичний манікюр';
+
 Finder _row(String keyId) => find.byKey(Key('setup_row_$keyId'));
 
 Finder _inRow(String keyId, Key key) =>
@@ -207,16 +211,17 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'C1. «+ додати ще» adds a copy row at a free duration with an empty price and '
-    'a name pencil; one save sends both items',
+    'C1. «+ додати ще» adds a copy row with an EMPTY duration (D4), an empty '
+    'price and a name pencil; a pre-filled, unchanged name is not sent; one '
+    'save sends both items',
     (tester) async {
       final fb = FakeBackend();
       final l10n = await _openWithCopyRow(tester, fb);
 
       expect(
         _text(tester, _durationOf(_copyKeyId)),
-        '120',
-        reason: 'free of the owned 60 and the primary 90',
+        isEmpty,
+        reason: 'D4: no nearest-free duration seed on a new copy',
       );
       expect(_text(tester, _priceOf(_copyKeyId)), isEmpty);
       // D3: the copy card shows its name with a pencil; the well opens on tap.
@@ -230,6 +235,22 @@ void main() {
         findsNothing,
       );
 
+      // D4: the pencil pre-fills the type name; left unchanged it is not sent.
+      // D4.3: the field replaces the title IN PLACE — the card keeps its size.
+      final double rowHeight = tester.getSize(_row(_copyKeyId)).height;
+      await _openName(tester, _copyKeyId);
+      expect(_text(tester, _nameOf(_copyKeyId)), _nailsTypeName);
+      expect(_namePencil(_copyKeyId), findsNothing, reason: 'field in place');
+      // The duration well's focus ring animates out as the name takes focus;
+      // compare settled geometry, not a mid-animation frame.
+      await AppHarness.settle(tester);
+      expect(
+        tester.getSize(_row(_copyKeyId)).height,
+        moreOrLessEquals(rowHeight, epsilon: 0.5),
+        reason: 'D4.3: the pencil never resizes the card',
+      );
+      await tester.enterText(_durationOf(_copyKeyId), '120');
+      await tester.pump();
       await tester.enterText(_priceOf(_copyKeyId), '800');
       await tester.pump();
       final List<dynamic> items = await _saveAndCapture(tester, fb);
@@ -245,7 +266,7 @@ void main() {
       expect(
         second.containsKey('name'),
         isFalse,
-        reason: 'a blank name is not sent — the copy keeps the type name',
+        reason: 'an unchanged pre-filled name is not sent — the type name',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),
@@ -383,6 +404,8 @@ void main() {
         reason: 'D3: the owned card lists none of the existing services',
       );
 
+      await tester.enterText(_durationOf(_copyKeyId), '120');
+      await tester.pump();
       await tester.enterText(_priceOf(_copyKeyId), '800');
       await tester.pump();
       await _openName(tester, _typeId);

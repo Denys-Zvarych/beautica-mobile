@@ -2778,17 +2778,6 @@ void main() {
       expect(row.durationTaken, isFalse);
     });
 
-    test('nearestFreeQuickPick falls back below, and null when all taken', () {
-      expect(ServiceRowState.nearestFreeQuickPick(const <int>{}), isNull);
-      expect(ServiceRowState.nearestFreeQuickPick(const <int>{240, 180}), 150);
-      expect(
-        ServiceRowState.nearestFreeQuickPick(
-          ServiceRowState.durationQuickPicks.toSet(),
-        ),
-        isNull,
-      );
-    });
-
     test('a NON-owned row toggles normally and keeps an empty duration', () {
       final row = ServiceRowState(
         serviceTypeId: 'type-gel',
@@ -4749,13 +4738,13 @@ void main() {
       return captured;
     }
 
-    testWidgets('«+ додати ще» adds an included copy row at the nearest free '
-        'duration with an empty price; both rows get a name pencil (D3) and '
-        '«Прибрати»', (tester) async {
+    testWidgets('«+ додати ще» adds an included copy row with an EMPTY '
+        'duration (D4) and an empty price; both rows get a name pencil (D3) '
+        'and «Прибрати»', (tester) async {
       final l10n = await pumpWithCopy(tester);
 
       expect(find.byKey(const Key('setup_row_$copy1')), findsOneWidget);
-      expect(durationOf(tester, copy1), '90');
+      expect(durationOf(tester, copy1), isEmpty);
       expect(
         tester
             .widget<TextField>(
@@ -4934,6 +4923,71 @@ void main() {
                 as ServiceSetupRowKeysProbe)
             .debugRowWrapperKeyIds;
 
+    Future<void> openPencil(WidgetTester tester, String keyId) =>
+        tapKey(tester, Key('btn-setup-row-name-$keyId'));
+
+    testWidgets('D4: pencils opened and left pre-filled count as NO name — '
+        'no pair collision at different durations, no name sent', (
+      tester,
+    ) async {
+      final captured = captureSaves();
+      final l10n = await pumpWithCopy(tester);
+      await setDuration(tester, copy1, '90');
+      await setPrice(tester, copy1, '700');
+      await openPencil(tester, classic);
+      expect(nameOf(tester, classic), _typeClassic.nameUk);
+      await openPencil(tester, copy1);
+      expect(nameOf(tester, copy1), _typeClassic.nameUk);
+
+      for (final k in <String>[classic, copy1]) {
+        expect(_textInRow(k, l10n.serviceSetupCopyCollision), findsNothing);
+        expect(_textInRow(k, l10n.serviceSetupDurationTaken), findsNothing);
+      }
+      expect(_saveOnPressed(tester), isNotNull);
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(
+        <(String?, int)>[
+          for (final i in captured.single) (i.name, i.durationMinutes),
+        ],
+        <(String?, int)>[(null, 60), (null, 90)],
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('D4: a pre-filled, unchanged copy at the SAME duration '
+        'collides exactly like a blank one', (tester) async {
+      final l10n = await pumpWithCopy(tester);
+      await setDuration(tester, copy1, '60');
+      await setPrice(tester, copy1, '700');
+      await openPencil(tester, copy1);
+      expect(nameOf(tester, copy1), _typeClassic.nameUk);
+      expect(_textInRow(copy1, l10n.serviceSetupCopyCollision), findsOneWidget);
+      expect(_saveOnPressed(tester), isNull);
+    });
+
+    testWidgets('D4: the pre-filled name, edited, is sent as the custom name', (
+      tester,
+    ) async {
+      final captured = captureSaves();
+      await pumpWithCopy(tester);
+      await setDuration(tester, copy1, '60');
+      await setPrice(tester, copy1, '700');
+      await openPencil(tester, copy1);
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      await setName(tester, copy1, '${_typeClassic.nameUk} люкс');
+      await tapKey(tester, const Key('btn-setup-save'));
+
+      expect(
+        <(String?, int)>[
+          for (final i in captured.single) (i.name, i.durationMinutes),
+        ],
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        <(String?, int)>[(null, 60), ('Класичний манікюр люкс', 60)],
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
     testWidgets('the copy name field drops characters outside the backend '
         'allow-list (emoji, #) and keeps the allowed punctuation', (
       tester,
@@ -4954,6 +5008,8 @@ void main() {
         ),
       );
       final l10n = await pumpWithCopy(tester);
+      // D4: the copy starts with an empty duration.
+      await setDuration(tester, copy1, '90');
       await setPrice(tester, copy1, '700');
       await setName(tester, classic, 'Авторський');
       await tapKey(tester, const Key('btn-setup-save'));
@@ -5259,6 +5315,8 @@ void main() {
           ),
         ],
       );
+      // D4: the copy starts with an empty duration.
+      await setDuration(tester, copy1, '90');
       await setPrice(tester, copy1, '700');
 
       await tapKey(tester, const Key('btn-setup-save'));

@@ -296,8 +296,8 @@ void main() {
       return AppLocalizations.of(tester.element(find.byType(Scaffold)));
     }
 
-    test('copyOf seeds the type, an empty price, included, and the nearest '
-        'free quick-pick above the source duration', () {
+    test('D4: copyOf seeds the type, included, an EMPTY duration and an '
+        'empty price — no nearest-free duration seed', () {
       final source = primary();
       final copy = ServiceRowState.copyOf(source);
       addTearDown(source.dispose);
@@ -307,22 +307,38 @@ void main() {
       expect(copy.isExtraCopy, isTrue);
       expect(copy.keyId, '${id}_copy_1');
       expect(copy.included, isTrue);
-      expect(copy.duration.text, '90');
+      expect(copy.duration.text, isEmpty);
+      expect(copy.durationMinutes, isNull);
       expect(copy.fixed.text, isEmpty);
       expect(copy.customName, isNull);
     });
 
-    test('copyOf skips owned and other-session durations', () {
+    test('D4: a copy of an owned type starts empty too', () {
       final source = primary(owned: const <int>{90});
-      final copy = ServiceRowState.copyOf(
-        source,
-        takenDurations: const <int>{120},
-        copyIndex: 2,
-      );
+      final copy = ServiceRowState.copyOf(source, copyIndex: 2);
       addTearDown(source.dispose);
       addTearDown(copy.dispose);
-      expect(copy.duration.text, '150');
+      expect(copy.duration.text, isEmpty);
+      expect(copy.durationTaken, isFalse);
       expect(copy.keyId, '${id}_copy_2');
+    });
+
+    test('D4: text canonically equal to the type name is no custom name', () {
+      final row = primary();
+      addTearDown(row.dispose);
+      row.name.text = typeName;
+      expect(row.customName, isNull);
+      expect(row.keepsTypeName, isTrue);
+      // Space runs / full-width spaces fold away (serviceNameCanonical).
+      row.name.text = ' Класичний\u3000 масаж ';
+      expect(row.customName, isNull);
+      // A case-only change IS a custom name (the stored name differs), but it
+      // still compares as the type name in the duplicate rule.
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      row.name.text = 'класичний масаж';
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(row.customName, 'класичний масаж');
+      expect(row.keepsTypeName, isTrue);
     });
 
     test('effective name: trimmed, lower-cased, blank = type name', () {
@@ -484,12 +500,33 @@ void main() {
       final l10n = await pumpCard(tester, row, showNameField: true);
       final field = find.byKey(const Key('setup_row_name_$id'));
       expect(field, findsOneWidget);
+      // D4: compact — no visible label; it stays the semantics label.
       expect(
         find.descendant(
           of: field,
           matching: find.text(l10n.serviceSetupCopyNameHint),
         ),
-        findsOneWidget,
+        findsNothing,
+      );
+      final semantics = tester.ensureSemantics();
+      expect(
+        tester
+            .getSemantics(
+              find.descendant(of: field, matching: find.byType(EditableText)),
+            )
+            .getSemanticsData()
+            .label,
+        contains(l10n.serviceSetupCopyNameHint),
+      );
+      semantics.dispose();
+      // D4.3: the field takes the title's place — no second title line.
+      expect(
+        find.text(typeName).evaluate().length,
+        find
+            .descendant(of: field, matching: find.text(typeName))
+            .evaluate()
+            .length,
+        reason: 'every title-text match is the field (its hint), not a title',
       );
       await tester.enterText(
         find.descendant(of: field, matching: find.byType(TextField)),
@@ -627,6 +664,27 @@ void main() {
       expect(find.byKey(pencilKey), findsNothing, reason: 'well replaces it');
       expect(row.nameFieldOpen, isTrue);
       expect(row.nameFocus.hasFocus, isTrue);
+      // D4: pre-filled with the type name as editable TEXT, caret at the end;
+      // unchanged it is no custom name.
+      expect(row.name.text, typeName);
+      expect(
+        row.name.selection,
+        const TextSelection.collapsed(offset: typeName.length),
+      );
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: find.byKey(wellKey),
+                matching: find.byType(EditableText),
+              ),
+            )
+            .controller
+            .text,
+        typeName,
+      );
+      expect(row.customName, isNull);
+      expect(row.keepsTypeName, isTrue);
       await tester.enterText(
         find.descendant(
           of: find.byKey(wellKey),
@@ -638,6 +696,89 @@ void main() {
       await tester.pump();
       // i18n-finder-ok: user-typed service name fixture, not UI copy
       expect(row.customName, 'Масаж шиї');
+    });
+
+    testWidgets('D4.3: the pencil swaps the title for the field in place — '
+        'card size unchanged, title replaced not duplicated; focus loss '
+        'returns title + pencil with the edited name', (tester) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, offerCustomName: true);
+      final Finder card = find.byType(ServiceTypeRowCard);
+      final Size before = tester.getSize(card);
+      final Rect title = tester.getRect(find.text(typeName));
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+      final Finder field = find.byKey(wellKey);
+      expect(field, findsOneWidget);
+      expect(tester.getSize(card), before, reason: 'card never resizes');
+      final Rect fieldRect = tester.getRect(field);
+      expect(fieldRect.top, moreOrLessEquals(title.top, epsilon: 0.5));
+      expect(fieldRect.height, moreOrLessEquals(title.height, epsilon: 0.5));
+      // The only title-text matches are inside the field (text + hint).
+      expect(
+        find.text(typeName).evaluate().length,
+        find
+            .descendant(of: field, matching: find.text(typeName))
+            .evaluate()
+            .length,
+      );
+      expect(find.byKey(pencilKey), findsNothing);
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextField)),
+        // i18n-finder-ok: user-typed service name fixture, not UI copy
+        'Масаж шиї',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(find.byKey(wellKey), findsNothing);
+      expect(find.byKey(pencilKey), findsOneWidget);
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(find.text('Масаж шиї'), findsOneWidget);
+      expect(tester.getSize(card), before);
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(row.customName, 'Масаж шиї');
+    });
+
+    test('D4: a pencil on a card that already has a custom name '
+        'pre-fills that name', () {
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      final row = ownedRow()..name.text = 'Масаж шиї';
+      addTearDown(row.dispose);
+      row.openNameField();
+      // i18n-finder-ok: user-typed service name fixture, not UI copy
+      expect(row.name.text, 'Масаж шиї');
+    });
+
+    testWidgets('D4: a pre-filled, unchanged name at an owned type-name '
+        'duration is taken exactly like no name', (tester) async {
+      const MasterService typeNamed = MasterService(
+        id: 'svc-type',
+        serviceDefId: 'def-type',
+        name: '',
+        serviceTypeId: id,
+        durationMinutes: 60,
+        priceMin: 500,
+        priceDisplay: '500 ₴',
+      );
+      final row = ServiceRowState(
+        serviceTypeId: id,
+        nameUk: typeName,
+        alreadyAdded: true,
+        ownedDurations: const <int>{60},
+        ownedServices: const <MasterService>[typeNamed],
+      )..included = true;
+      addTearDown(row.dispose);
+      row.duration.text = '60';
+      expect(row.durationTaken, isTrue);
+      await pumpCard(tester, row, offerCustomName: true);
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+      expect(row.name.text, typeName);
+      expect(row.customName, isNull);
+      expect(row.durationTaken, isTrue, reason: 'unchanged = the type name');
+      row.duration.text = '90';
+      expect(row.durationTaken, isFalse, reason: 'not a type-name clash');
     });
 
     testWidgets('472 audit: the pencil touch target is >= 48x48 dp without '
@@ -705,6 +846,89 @@ void main() {
       );
       await tester.pump();
       expect(row.name.text, 'АБВГД');
+    });
+
+    testWidgets('D4 (QA): a type name with a character outside the allow-list '
+        'is pre-filled filtered; left untouched it sends no name', (
+      tester,
+    ) async {
+      // i18n-finder-ok: catalogue type-name fixture, not UI copy
+      const String hashName = 'Масаж #1 спини';
+      final row = ServiceRowState(serviceTypeId: id, nameUk: hashName)
+        ..included = true;
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, offerCustomName: true);
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: catalogue type-name fixture, not UI copy
+      const String filtered = 'Масаж 1 спини';
+      expect(row.name.text, filtered, reason: '«#» is not in the allow-list');
+      expect(
+        row.name.selection,
+        const TextSelection.collapsed(offset: filtered.length),
+      );
+      expect(row.customName, isNull, reason: 'untouched pre-fill = no name');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(row.customName, isNull);
+      expect(find.byKey(wellKey), findsNothing);
+    });
+
+    testWidgets('D4.3 (QA): a plain blur (focus moves to the duration well) '
+        'closes the in-place field back to title + pencil', (tester) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, offerCustomName: true);
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+      expect(row.nameFocus.hasFocus, isTrue);
+
+      row.durationFocus.requestFocus();
+      await tester.pumpAndSettle();
+
+      expect(row.nameFieldOpen, isFalse);
+      expect(find.byKey(wellKey), findsNothing);
+      expect(find.byKey(pencilKey), findsOneWidget);
+    });
+
+    testWidgets('D4.3 (QA): a server name error keeps the in-place field open '
+        'through a blur', (tester) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, offerCustomName: true);
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+      // i18n-finder-ok: server error fixture, not UI copy
+      row.serverNameError = 'Недопустимі символи';
+      await tester.pump();
+
+      row.durationFocus.requestFocus();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(wellKey), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(wellKey),
+          // i18n-finder-ok: server error fixture, not UI copy
+          matching: find.text('Недопустимі символи'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('D4.3 (QA): a closed card attaches no blur listener to the '
+        'name focus node; opening the field does', (tester) async {
+      final row = ownedRow();
+      addTearDown(row.dispose);
+      await pumpCard(tester, row, offerCustomName: true);
+      // ignore: invalid_use_of_protected_member — test-only listener probe
+      expect(row.nameFocus.hasListeners, isFalse);
+
+      await tester.tap(find.byKey(pencilKey));
+      await tester.pumpAndSettle();
+      // ignore: invalid_use_of_protected_member — test-only listener probe
+      expect(row.nameFocus.hasListeners, isTrue);
     });
   });
 }

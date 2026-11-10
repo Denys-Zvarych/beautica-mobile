@@ -472,23 +472,18 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
   }
 
   /// «+ додати ще»: adds an included copy row of [source]'s type right after the
-  /// type's last row, at the nearest free quick-pick duration.
+  /// type's last row, with an empty duration (phase 472 D4).
   void _addCopy(ServiceRowState source) {
     final String typeId = source.serviceTypeId;
     final group = _typeRows[typeId];
     final categoryRows = _categoryListOf(source);
     if (group == null || categoryRows == null) return;
     var nextIndex = 1;
-    final taken = <int>{};
     for (final r in group) {
       if (r.copyIndex >= nextIndex) nextIndex = r.copyIndex + 1;
-      if (r.durationMinutes case final int d) taken.add(d);
     }
-    final copy = ServiceRowState.copyOf(
-      source,
-      takenDurations: taken,
-      copyIndex: nextIndex,
-    );
+    // Phase 472 (D4): the copy starts with an empty duration.
+    final copy = ServiceRowState.copyOf(source, copyIndex: nextIndex);
     final ServiceRowState previous = group.last;
     setState(() {
       final int at = categoryRows.indexWhere((r) => identical(r, previous));
@@ -1679,11 +1674,10 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
             onFieldEdited: callbacks.fieldEdited,
             onAddCopy: callbacks.addCopy,
             onRemove: hasCopies ? callbacks.remove : null,
-            // Phase 472 (D3): every card — owned or not, primary or copy —
-            // shows its name with a pencil that reveals the name well; the
-            // well stays visible while the row carries a custom name, so a
-            // sent name is never hidden.
-            showNameField: row.customName != null,
+            // Phase 472 (D3/D4.3): every card — owned or not, primary or
+            // copy — shows its name with a pencil that edits the title in
+            // place; the title shows the custom name, so a sent name is
+            // never hidden.
             offerCustomName: true,
           ),
         ),

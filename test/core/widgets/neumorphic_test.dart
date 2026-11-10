@@ -322,6 +322,79 @@ void main() {
         );
       },
     );
+
+    testWidgets('phase 472 D4: compact / textStyle / ringOverlay are off by '
+        'default — labelled field, fixed height, border ring', (
+      WidgetTester tester,
+    ) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      final NeumorphicTextField field = NeumorphicTextField(
+        label: 'Назва',
+        controller: controller,
+      );
+      expect(field.compact, isFalse);
+      expect(field.textStyle, isNull);
+      expect(const NeumorphicInset(child: SizedBox()).ringOverlay, isFalse);
+
+      await tester.pumpWidget(
+        _wrap(
+          NeumorphicTextField(
+            key: const Key('tf_default'),
+            label: 'Назва',
+            controller: controller,
+          ),
+        ),
+      );
+
+      expect(find.text('Назва'), findsOneWidget);
+      final Finder inset = find.descendant(
+        of: find.byKey(const Key('tf_default')),
+        matching: find.byType(NeumorphicInset),
+      );
+      expect(tester.widget<NeumorphicInset>(inset).ringOverlay, isFalse);
+      expect(
+        tester
+            .getSize(
+              find.descendant(of: inset, matching: find.byType(SizedBox)).first,
+            )
+            .height,
+        VelvetSizes.field,
+      );
+    });
+
+    testWidgets('phase 472 D4: compact hides the visible label, keeps it as '
+        'semantics, overlays the ring and uses the given text style', (
+      WidgetTester tester,
+    ) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      const TextStyle style = TextStyle(fontSize: 16, height: 1.25);
+      final SemanticsHandle semantics = tester.ensureSemantics();
+
+      await tester.pumpWidget(
+        _wrap(
+          NeumorphicTextField(
+            key: const Key('tf_compact'),
+            label: 'Назва',
+            controller: controller,
+            compact: true,
+            textStyle: style,
+          ),
+        ),
+      );
+
+      expect(find.text('Назва'), findsNothing);
+      expect(find.bySemanticsLabel('Назва'), findsOneWidget);
+      expect(
+        tester
+            .widget<NeumorphicInset>(find.byType(NeumorphicInset))
+            .ringOverlay,
+        isTrue,
+      );
+      expect(tester.widget<TextField>(find.byType(TextField)).style, style);
+      semantics.dispose();
+    });
   });
 
   // -------------------------------------------------------------------------

@@ -200,24 +200,36 @@ void main() {
   });
 
   group('extra copy row — measured ground truth (not golden)', () {
-    testWidgets('both rows show the name field, «Прибрати» and «+ додати ще»; '
-        'the copy is seeded to 90', (tester) async {
+    testWidgets('both rows show the in-title name field (D4.3: no visible '
+        'label), «Прибрати» and «+ додати ще»; the copy duration is EMPTY '
+        '(D4)', (tester) async {
       final l10n = await _pump(tester, _extraCopyFixture(width));
-      expect(find.text(l10n.serviceSetupCopyNameHint), findsNWidgets(2));
+      expect(find.text(l10n.serviceSetupCopyNameHint), findsNothing);
+      expect(find.byKey(const Key('setup_row_name_$_typeId')), findsOneWidget);
       expect(find.text(l10n.serviceSetupRemoveCopy), findsNWidgets(2));
       expect(find.text(l10n.serviceSetupAddCopy), findsNWidgets(2));
       expect(
         find.byKey(const Key('setup_row_name_${_typeId}_copy_1')),
         findsOneWidget,
       );
-      expect(find.text('90'), findsOneWidget);
+      final List<String> durations = <String>[
+        for (final EditableText e in tester.widgetList<EditableText>(
+          find.descendant(
+            of: find.byKey(const Key('service-setup-duration')),
+            matching: find.byType(EditableText),
+          ),
+        ))
+          e.controller.text,
+      ];
+      expect(durations, hasLength(2));
+      expect(durations.last, isEmpty, reason: 'no seeded copy duration');
     });
   });
 
   group('name pencils — measured ground truth (not golden)', () {
     testWidgets('D3: owned, not-owned and copy cards each show a pencil; the '
         'owned card lists none of its existing services; a tapped card shows '
-        'the name well', (tester) async {
+        'the name field in its title\'s place', (tester) async {
       final l10n = await _pump(tester, _namePencilFixture(width));
       expect(
         find.byKey(const Key('btn-setup-row-name-$_typeId')),

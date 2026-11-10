@@ -378,8 +378,40 @@ class ServiceRowState extends ChangeNotifier {
     if (text == _nameText) return;
     _nameText = text;
     final String t = text.trim();
-    _customName = t.isEmpty ? null : t;
+    // Phase 472 (D4): the pencil pre-fills the type name, so text that is
+    // canonically the type name is NOT a custom name — the same as blank.
+    _customName = t.isEmpty || _isTypeName(serviceNameCanonical(t)) ? null : t;
     _effectiveNameKey = null; // re-derived on next read
+  }
+
+  /// [serviceNameCanonical] of [nameUk] and of [_prefillName], derived once
+  /// (like [_typeNameKey]) instead of on every name edit.
+  String? _typeCanonical;
+  String? _prefillCanonical;
+
+  /// Whether [canonical] is the type name — as stored, or as the pencil
+  /// pre-fills it ([_prefillName]), so an untouched pre-fill is never a
+  /// custom name.
+  bool _isTypeName(String canonical) =>
+      canonical == (_typeCanonical ??= serviceNameCanonical(nameUk)) ||
+      canonical == (_prefillCanonical ??= serviceNameCanonical(_prefillName));
+
+  String? _prefillNameCache;
+
+  /// [nameUk] through the name well's own input formatters (allow-list +
+  /// max length), so the programmatic pre-fill never shows a character the
+  /// master could not type.
+  String get _prefillName => _prefillNameCache ??= _sanitizeName(nameUk);
+
+  static String _sanitizeName(String text) {
+    TextEditingValue value = TextEditingValue(text: text);
+    for (final TextInputFormatter f
+        in _ServiceTypeRowCardState._nameInputFormatters) {
+      value = f.formatEditUpdate(TextEditingValue.empty, value);
+    }
+    return LengthLimitingTextInputFormatter(
+      _ServiceTypeRowCardState._nameMaxLength,
+    ).formatEditUpdate(TextEditingValue.empty, value).text;
   }
 
   /// [effectiveNameKey] cache, cleared by [_syncName]; [_typeNameKey] is the
@@ -392,18 +424,13 @@ class ServiceRowState extends ChangeNotifier {
   int? get durationMinutes => _durationMinutes;
 
   /// Phase 471 — an extra copy row of [source]'s type, already included: same
-  /// type / name / ownership, an empty price and the nearest free quick-pick
-  /// duration — free of [source]'s duration, of [ServiceRowState.ownedDurations]
-  /// and of [takenDurations] (the type's other session rows). Blank when every
-  /// ladder value is taken (the master types one).
+  /// type / name / ownership, an empty duration and an empty price.
+  /// Phase 472 (D4): no duration seed — the master types the copy's duration
+  /// (the 471 nearest-free quick-pick read as an autofilled value).
   ///
   /// [copyIndex] must be unique among the type's rows (> 0): it keys the
   /// copy's widgets (see [keyId]).
-  factory ServiceRowState.copyOf(
-    ServiceRowState source, {
-    Set<int> takenDurations = const <int>{},
-    int copyIndex = 1,
-  }) {
+  factory ServiceRowState.copyOf(ServiceRowState source, {int copyIndex = 1}) {
     assert(copyIndex > 0, 'a copy row needs copyIndex > 0');
     final copy = ServiceRowState(
       serviceTypeId: source.serviceTypeId,
@@ -413,56 +440,9 @@ class ServiceRowState extends ChangeNotifier {
       ownedCopyKeys: source.ownedCopyKeys,
       copyIndex: copyIndex,
     );
-    final int? sourceDuration = source.durationMinutes;
-    final Set<int> used = <int>{
-      ...source.ownedDurations,
-      ...takenDurations,
-      ?sourceDuration,
-    };
-    final int? seed = nearestFreeQuickPick(used);
-    if (seed != null) copy.duration.text = '$seed';
-    // Set directly: the public setter's owned-duration re-seed is already
-    // covered by `used`, and a fresh copy has no listeners yet.
+    // Set directly: a fresh copy has no listeners yet.
     copy._included = true;
     return copy;
-  }
-
-  /// Quick-pick duration ladder (minutes) used to seed a free duration when an
-  /// already-owned type is selected again (phase 468). Ascending.
-  static const List<int> durationQuickPicks = <int>[
-    30,
-    45,
-    60,
-    90,
-    120,
-    150,
-    180,
-    240,
-  ];
-
-  /// The quick-pick value to seed for a copy of a type whose existing copies
-  /// run [owned] minutes: the nearest free ladder value ABOVE the longest
-  /// owned duration, else the nearest free one below it, else `null` (every
-  /// ladder value is taken — the master types one).
-  static int? nearestFreeQuickPick(Set<int> owned) {
-    if (owned.isEmpty) return null;
-    final int longest = owned.reduce((int a, int b) => a > b ? a : b);
-    int? best;
-    for (final int v in durationQuickPicks) {
-      if (owned.contains(v)) continue;
-      if (best == null) {
-        best = v;
-        continue;
-      }
-      final bool vAbove = v > longest;
-      final bool bestAbove = best > longest;
-      if (vAbove != bestAbove) {
-        if (vAbove) best = v;
-        continue;
-      }
-      if ((v - longest).abs() < (best - longest).abs()) best = v;
-    }
-    return best;
   }
 
   /// The platform service-type id submitted in the bulk payload.
@@ -714,12 +694,33 @@ class ServiceRowState extends ChangeNotifier {
   /// name is sent with the add).
   bool get nameFieldOpen => _nameFieldOpen;
 
-  /// Reveals the custom-name well (the card's header pencil).
+  /// Reveals the custom-name well (the card's header pencil). Phase 472
+  /// (D4): a blank well is pre-filled with the type name as editable text,
+  /// caret at the end (the usual edit appends a qualifier); left unchanged it
+  /// is no custom name ([customName]).
   void openNameField() {
     if (_nameFieldOpen) return;
     _nameFieldOpen = true;
+    if (name.text.isEmpty) {
+      final String prefill = _prefillName;
+      name.value = TextEditingValue(
+        text: prefill,
+        selection: TextSelection.collapsed(offset: prefill.length),
+      );
+    }
     notifyListeners();
   }
+
+  /// D4.3 — the in-place name editor closes (focus lost / Done): the card
+  /// returns to its title + pencil, the title showing [displayName].
+  void closeNameField() {
+    if (!_nameFieldOpen) return;
+    _nameFieldOpen = false;
+    notifyListeners();
+  }
+
+  /// The card title: the custom name when set, else the type name.
+  String get displayName => _customName ?? nameUk;
 
   @override
   void dispose() {
@@ -785,12 +786,12 @@ class ServiceTypeRowCard extends StatefulWidget {
   /// Phase 471 — when non-null a «Прибрати» text action removes this row.
   final VoidCallback? onRemove;
 
-  /// Phase 471 — renders the optional name field («Назва (необов'язково)»)
-  /// above the duration / price wells while the row is included.
+  /// Phase 471 — keeps the in-place name field («Назва (необов'язково)»,
+  /// D4.3: in the title's place) open while the row is included.
   final bool showNameField;
 
-  /// Phase 472 (D3) — while the row is included and its name well is not
-  /// visible, a pencil after the name reveals the custom-name well
+  /// Phase 472 (D3) — while the row is included, a pencil after the title
+  /// swaps the title for the in-place name field
   /// ([ServiceRowState.openNameField]); the typed name is this card's own
   /// and is sent with the add. Shown on every card — owned or not, primary
   /// or copy. False = no pencil, the row renders exactly as before.
@@ -840,6 +841,14 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   /// Last-seen name text, so a caret move never clears the server name error.
   String _lastNameText = '';
 
+  /// The name focus node [_onNameFocusChanged] listens to — attached only
+  /// once the in-place editor opens, so a closed card never creates one.
+  FocusNode? _listenedNameFocus;
+
+  /// True while [_startName] pre-fills the well: that programmatic text is
+  /// no edit, so it skips the screen re-check.
+  bool _prefillingName = false;
+
   void _attach(ServiceRowState row) {
     _lastNameText = row.name.text;
     _lastDurationText = row.duration.text;
@@ -856,12 +865,31 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     row.max.addListener(_onPriceChanged);
     // Phase 471: a rename can flip [ServiceRowState.durationTaken].
     row.name.addListener(_onNameChanged);
+    if (row.nameFieldOpen) _listenNameFocus(row);
+  }
+
+  /// D4.3: losing focus (or Done) closes the in-place name editor. Attached
+  /// when the editor opens (pencil, or an external [ServiceRowState.openNameField]).
+  void _listenNameFocus(ServiceRowState row) {
+    if (_listenedNameFocus != null) return;
+    _listenedNameFocus = row.nameFocus..addListener(_onNameFocusChanged);
+  }
+
+  void _onNameFocusChanged() {
+    final ServiceRowState row = widget.row;
+    if (!row.nameFocus.hasFocus) row.closeNameField();
   }
 
   /// D3 — the header pencil: reveal the custom-name well, then focus it.
   void _startName() {
     final ServiceRowState row = widget.row;
-    row.openNameField();
+    _prefillingName = true;
+    try {
+      row.openNameField();
+    } finally {
+      _prefillingName = false;
+    }
+    _listenNameFocus(row);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) row.nameFocus.requestFocus();
     });
@@ -874,9 +902,12 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     row.min.removeListener(_onPriceChanged);
     row.max.removeListener(_onPriceChanged);
     row.name.removeListener(_onNameChanged);
+    _listenedNameFocus?.removeListener(_onNameFocusChanged);
+    _listenedNameFocus = null;
   }
 
   void _onRowChanged() {
+    if (widget.row.nameFieldOpen) _listenNameFocus(widget.row);
     if (mounted) setState(() {});
   }
 
@@ -910,6 +941,9 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     if (text == _lastNameText) return; // caret / selection only
     _lastNameText = text;
     widget.row.clearServerNameError();
+    // The pencil's pre-fill is the type name (no custom name): nothing to
+    // re-check.
+    if (_prefillingName) return;
     // Phase 471: a rename can flip [ServiceRowState.durationTaken].
     if (_reportFieldEdit() && mounted) setState(() {});
   }
@@ -1005,8 +1039,13 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     // `owned` only drives the «Вже додано» label and the calm camel hairline.
     final bool owned = row.alreadyAdded;
     final bool on = row.included;
-    // Phase 472 (D3): the header pencil can reveal the name well too.
-    final bool showName = widget.showNameField || row.nameFieldOpen;
+    // Phase 472 (D3/D4.3): the header pencil swaps the title for the field.
+    // D4.3: a server name error keeps the in-place editor open, so its
+    // message (under the field) is never hidden behind the title.
+    final bool showName =
+        widget.showNameField ||
+        row.nameFieldOpen ||
+        (on && row.serverNameError != null);
     // Included copy whose duration matches an existing copy (exact duplicate).
     final bool durationTaken = row.durationTaken;
     final RowFlagReason reason = row.flagReason;
@@ -1221,33 +1260,27 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           // Compact one-line layout: the duration field is handed
                           // to PricingField as its leading slot, so duration and
                           // price share a single Row beneath the mode toggle.
-                          child: _withNameField(
-                            l10n,
-                            row,
-                            showName,
-                            PricingField(
-                              // Phase 472: keyed so revealing the name well
-                              // above it keeps its state (and a focused
-                              // price well's focus) instead of rebuilding.
-                              key: const ValueKey<String>('row-pricing'),
-                              mode: row.pricingMode,
-                              onModeChanged: _setMode,
-                              fixedController: row.fixed,
-                              minController: row.min,
-                              maxController: row.max,
-                              rangeError: rangeError,
-                              fixedError: fixedPriceError,
-                              // RANGE-mode server price errors ride the "min" slot
-                              // (the "max" well exposes only a ring, no text slot).
-                              minError: minPriceError,
-                              // compact=true: label-less wells, tight padding so
-                              // duration + price always share one line at ~320 dp.
-                              compact: true,
-                              durationController: row.duration,
-                              durationError: durationError,
-                              // Phase 472: lets the screen focus a new copy.
-                              durationFocusNode: row.durationFocus,
-                            ),
+                          child: PricingField(
+                            // Phase 472: keyed, so the pricing wells keep
+                            // their state across header rebuilds.
+                            key: const ValueKey<String>('row-pricing'),
+                            mode: row.pricingMode,
+                            onModeChanged: _setMode,
+                            fixedController: row.fixed,
+                            minController: row.min,
+                            maxController: row.max,
+                            rangeError: rangeError,
+                            fixedError: fixedPriceError,
+                            // RANGE-mode server price errors ride the "min" slot
+                            // (the "max" well exposes only a ring, no text slot).
+                            minError: minPriceError,
+                            // compact=true: label-less wells, tight padding so
+                            // duration + price always share one line at ~320 dp.
+                            compact: true,
+                            durationController: row.duration,
+                            durationError: durationError,
+                            // Phase 472: lets the screen focus a new copy.
+                            durationFocusNode: row.durationFocus,
                           ),
                         ),
                       )
@@ -1263,65 +1296,57 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     );
   }
 
-  /// Phase 471 — stacks the optional name well above [pricing] when
-  /// [showName] is set ([ServiceTypeRowCard.showNameField] or the D3 header
-  /// pencil). Phase 472: [pricing] always sits last in the same Column (with
-  /// its own key), so the well appearing never rebuilds the pricing wells —
-  /// a focused price field keeps its focus node. Without the well the Column
-  /// is `min`-sized and start-aligned: the pre-471 geometry exactly.
-  Widget _withNameField(
-    AppLocalizations l10n,
-    ServiceRowState row,
-    bool showName,
-    Widget pricing,
-  ) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: showName
-          ? CrossAxisAlignment.stretch
-          : CrossAxisAlignment.start,
-      children: <Widget>[
-        if (showName) ...<Widget>[
-          NeumorphicTextField(
-            key: Key('setup_row_name_${row.keyId}'),
-            label: l10n.serviceSetupCopyNameHint,
-            controller: row.name,
-            // Blank keeps the type name, so the type name IS the placeholder.
-            hintText: row.nameUk,
-            // Backend 464: BulkServiceItemRequest.name maxLength 100.
-            maxLength: _nameMaxLength,
-            // Mirrors the backend name allow-list (phase 464) so a character
-            // the server would reject can never be typed or pasted in.
-            inputFormatters: _nameInputFormatters,
-            errorText: row.included ? row.serverNameError : null,
-            focusNode: row.nameFocus,
-            textInputAction: TextInputAction.done,
-          ),
-          const SizedBox(height: VelvetSpacing.md),
-        ],
-        pricing,
-      ],
-    );
-  }
-
-  /// The header's service name. Phase 472 (D3): while included, any row
-  /// without a visible name well — owned or not, primary or copy — adds a
-  /// pencil that reveals it ([ServiceTypeRowCard.offerCustomName]); otherwise
-  /// the exact pre-472 text.
+  /// The header's service name. Phase 472 (D3): while included, a card
+  /// offering a custom name ([ServiceTypeRowCard.offerCustomName]) adds a
+  /// pencil after its title. D4.3: the pencil swaps the TITLE itself for a
+  /// one-line inset field in the same place and at the title's line height —
+  /// the card never changes size — pre-filled with the current name
+  /// ([ServiceRowState.openNameField]). Losing focus or Done returns to
+  /// title + pencil, the title showing the edited name. Otherwise the exact
+  /// pre-472 text.
   Widget _headerName(
     AppLocalizations l10n,
     ServiceRowState row,
     bool on, {
     required bool showName,
   }) {
+    final TextStyle style = on ? _titleOnStyle : _titleOffStyle;
+    if (on && showName) {
+      final Widget field = NeumorphicTextField(
+        key: Key('setup_row_name_${row.keyId}'),
+        label: l10n.serviceSetupCopyNameHint,
+        controller: row.name,
+        compact: true,
+        // Exactly the title's line (see [_titleFieldStyle]).
+        textStyle: _titleFieldStyle,
+        // Cleared, the card still keeps the type name.
+        hintText: row.nameUk,
+        // Backend 464: BulkServiceItemRequest.name maxLength 100.
+        maxLength: _nameMaxLength,
+        // Mirrors the backend name allow-list (phase 464) so a character
+        // the server would reject can never be typed or pasted in.
+        inputFormatters: _nameInputFormatters,
+        errorText: row.serverNameError,
+        focusNode: row.nameFocus,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => row.nameFocus.unfocus(),
+      );
+      if (!widget.offerCustomName) return field;
+      // The pencil's footprint stays, so the line keeps the title + pencil
+      // height and the field sits exactly where the title was.
+      return Row(
+        children: <Widget>[
+          Expanded(child: field),
+          const SizedBox(width: _RowTextAction._minTouch, height: _pencilGlyph),
+        ],
+      );
+    }
     final Widget name = AnimatedDefaultTextStyle(
       duration: const Duration(milliseconds: 200),
-      style: VelvetText.subheading16.copyWith(
-        color: on ? BrandColors.text : BrandColors.muted,
-      ),
-      child: Text(row.nameUk),
+      style: style,
+      child: Text(row.displayName),
     );
-    final bool offer = widget.offerCustomName && on && !showName;
+    final bool offer = widget.offerCustomName && on;
     if (!offer) return name;
     return Row(
       children: <Widget>[
@@ -1362,7 +1387,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
               heightFactor: 1,
               child: Icon(
                 Icons.edit_outlined,
-                size: 16,
+                size: _pencilGlyph,
                 color: BrandColors.accent,
               ),
             ),
@@ -1373,6 +1398,25 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   }
 
   static const int _nameMaxLength = 100;
+
+  /// The header title, included / excluded — hoisted, no `.copyWith()` per build.
+  static final TextStyle _titleOnStyle = VelvetText.subheading16.copyWith(
+    color: BrandColors.text,
+  );
+  static final TextStyle _titleOffStyle = VelvetText.subheading16.copyWith(
+    color: BrandColors.muted,
+  );
+
+  /// The in-place name field: exactly the title's line (`inherit: false` —
+  /// TextField would merge the theme's titleMedium line height 1.5 into an
+  /// inheriting style). Only ever shown included.
+  static final TextStyle _titleFieldStyle = _titleOnStyle.copyWith(
+    inherit: false,
+    textBaseline: TextBaseline.alphabetic,
+  );
+
+  /// The pencil glyph size — also the height of the title line it sits on.
+  static const double _pencilGlyph = 16;
 
   /// Backend 464 copy-name allow-list: letters (any script), digits, space and
   /// `- – — . , ' ’ ʼ ( ) + / & « » " № : % ! ?`.

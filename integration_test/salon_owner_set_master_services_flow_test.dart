@@ -1745,19 +1745,29 @@ void main() {
         // Phase 472 (D3): the copy card shows its name with a pencil; the
         // name well opens from it.
         expect(copyName, findsNothing);
-        final Finder copyPencil = find.descendant(
-          of: rowOf(copyKeyId),
-          matching: find.byKey(const Key('btn-setup-row-name-$copyKeyId')),
-        );
-        await AppHarness.tapVisible(tester, copyPencil);
-        await AppHarness.pumpUntilFound(tester, copyName);
+        // D4: the copy starts with an EMPTY duration — the master types it.
         expect(
-          find.descendant(
-            of: rowOf(copyKeyId),
-            matching: find.text(l10n.serviceSetupCopyNameHint),
-          ),
-          findsOneWidget,
+          tester
+              .widget<EditableText>(
+                find.descendant(
+                  of: copyDuration,
+                  matching: find.byType(EditableText),
+                  skipOffstage: false,
+                ),
+              )
+              .controller
+              .text,
+          isEmpty,
         );
+        await tester.ensureVisible(
+          fieldIn(copyKeyId, 'service-setup-duration'),
+        );
+        await tester.pump();
+        await tester.enterText(
+          fieldIn(copyKeyId, 'service-setup-duration'),
+          '60',
+        );
+        await tester.pump();
 
         await tester.ensureVisible(fieldIn(copyKeyId, 'pricing-fixed-amount'));
         await tester.pump();
@@ -1766,6 +1776,27 @@ void main() {
           '500',
         );
         await tester.pump();
+        // D4.3: typing the duration / price focuses those wells, which
+        // closes an open in-place name editor — so the name goes last.
+        final Finder copyPencil = find.descendant(
+          of: rowOf(copyKeyId),
+          matching: find.byKey(const Key('btn-setup-row-name-$copyKeyId')),
+        );
+        await AppHarness.tapVisible(tester, copyPencil);
+        await AppHarness.pumpUntilFound(tester, copyName);
+        // D4.3: the name field takes the title's place, label-less, and
+        // the pencil pre-fills the type name as editable text.
+        expect(
+          find.descendant(
+            of: rowOf(copyKeyId),
+            matching: find.text(l10n.serviceSetupCopyNameHint),
+          ),
+          findsNothing,
+        );
+        expect(
+          tester.widget<EditableText>(copyName).controller.text,
+          isNotEmpty,
+        );
         await tester.ensureVisible(copyName);
         await tester.enterText(copyName, '  Гель авторський ');
         await tester.pump();
@@ -1802,7 +1833,7 @@ void main() {
         );
         expect(second['serviceTypeId'], _kFreeTypeId);
         expect(second['price'], 500);
-        // Nearest free quick-pick ABOVE the primary's 45 (phase 471 seed).
+        // D4: typed by the master (no seed).
         expect(second['durationMinutes'], 60);
         expect(second['name'], 'Гель авторський');
       });

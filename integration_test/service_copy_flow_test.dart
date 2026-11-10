@@ -412,6 +412,16 @@ void main() {
       await tester.pump();
       expect(fb.bulkCreateCalls, 0, reason: 'a blocked save sends nothing');
 
+      // D4.3: typing the duration / price closed the in-place name editor
+      // (focus left it); the pencil reopens it, pre-filled with the name.
+      await tester.ensureVisible(copyPencil);
+      await tester.pumpUntilFound(copyPencil.hitTestable());
+      await tester.tap(copyPencil);
+      await tester.pumpUntilFound(copyName);
+      expect(
+        tester.widget<EditableText>(copyName).controller.text,
+        ' авторський   МАНІКЮР ',
+      );
       await tester.ensureVisible(copyName);
       await tester.enterText(copyName, 'Авторський манікюр 2');
       await tester.pump();
