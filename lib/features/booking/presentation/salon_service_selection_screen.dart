@@ -586,14 +586,17 @@ class _EmptyCatalogue extends StatelessWidget {
 
 /// Pure display projection — [SalonCatalogService] → [CatalogueRow] — so the
 /// shared `widgets/service_catalogue_accordion.dart` widgets never depend on
-/// this feature's domain model.
-CatalogueRow _toCatalogueRow(SalonCatalogService s) => CatalogueRow(
-  id: s.id,
-  name: s.name,
-  categoryLabel: s.category ?? '',
-  durationLabel: s.durationLabel,
-  priceLabel: s.priceDisplay,
-);
+/// this feature's domain model. Phase 470: [hint] is this service's copy hint
+/// from [salonCatalogNameHints] over the salon's whole catalogue.
+CatalogueRow _toCatalogueRow(SalonCatalogService s, {String? hint}) =>
+    CatalogueRow(
+      id: s.id,
+      name: s.name,
+      categoryLabel: s.category ?? '',
+      durationLabel: s.durationLabel,
+      priceLabel: s.priceDisplay,
+      hint: hint,
+    );
 
 /// This screen never showed a plain count/selected badge in the header's
 /// trailing slot — that slot used to hold the now-deleted tri-state
@@ -665,11 +668,14 @@ class _CatalogueBodyState extends State<_CatalogueBody> {
     // hoist the matched categor(ies) to the top in the SAME memoized pass.
     // `hoistedKeys` is a stable reference for this screen's lifetime (seeded
     // once), so it needs no separate cache key.
+    // Phase 470 — copy hints over the salon's WHOLE catalogue, in this memo.
+    final Map<String, String> hints = salonCatalogNameHints(categories);
     final List<CatalogueCategoryGroup> matched = <CatalogueCategoryGroup>[];
     final List<CatalogueCategoryGroup> rest = <CatalogueCategoryGroup>[];
     for (final SalonServiceCategoryEntry entry in categories) {
       final List<CatalogueRow> rows = <CatalogueRow>[
-        for (final SalonCatalogService s in entry.services) _toCatalogueRow(s),
+        for (final SalonCatalogService s in entry.services)
+          _toCatalogueRow(s, hint: hints[s.id]),
       ];
       if (rows.isEmpty) continue;
       final CatalogueCategoryGroup group = CatalogueCategoryGroup(

@@ -65,6 +65,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/favorite_heart_button.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 
 // ---------------------------------------------------------------------------
 // Domain-agnostic row + category-group models
@@ -81,6 +82,7 @@ class CatalogueRow {
     required this.categoryLabel,
     required this.durationLabel,
     required this.priceLabel,
+    this.hint,
   });
 
   /// Stable selection id — the master-service assignment id for the
@@ -102,6 +104,11 @@ class CatalogueRow {
 
   /// Pre-formatted display price — single or a range. Always render as-is.
   final String priceLabel;
+
+  /// Phase 470 — copy hint (`serviceNameHints`, computed once per provider
+  /// list by the owning screen's memo) rendered as « · {hint}» after [name].
+  /// `null` (the default) renders the name exactly as before.
+  final String? hint;
 }
 
 /// One accordion category — a stable [key] (used for expansion tracking +
@@ -777,6 +784,12 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
     color: BrandColors.accentDeep,
   );
 
+  // Phase 470 — the copy hint after the name: same weight, muted colour
+  // (the 469 hint styling).
+  static final TextStyle _hintStyle = VelvetText.bodyStrong().copyWith(
+    color: BrandColors.textSecondary,
+  );
+
   // perf/security audit, ROUND 2 (2026-08-10), on the `Text.rich` meta line
   // the round-1 fix (see below, kept for history) landed:
   //   - finding 1 (MEDIUM, mobile-security, empirically reproduced): a
@@ -967,8 +980,8 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Text(
-                      row.name,
+                    NameWithHint(
+                      name: row.name,
                       // Test-support key (same precedent as
                       // `booking_card.dart`'s `ValueKey('service-$id')`) —
                       // lets the overflow-guard regression test measure
@@ -977,10 +990,11 @@ class _CatalogueServiceTileState extends State<CatalogueServiceTile> {
                       // ONLY its own footprint now that price no longer
                       // shares this row (see
                       // `service_catalogue_accordion_overflow_test.dart`).
-                      key: Key('catalogue-service-name-${row.id}'),
-                      style: VelvetText.bodyStrong(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      // Phase 470: still on the name `Text` itself.
+                      nameKey: Key('catalogue-service-name-${row.id}'),
+                      nameStyle: VelvetText.bodyStrong(),
+                      hint: row.hint,
+                      hintStyle: _hintStyle,
                     ),
                     const SizedBox(height: 3),
                     _metaLine(row),

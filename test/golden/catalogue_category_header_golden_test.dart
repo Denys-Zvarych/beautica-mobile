@@ -47,6 +47,7 @@
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/service_catalogue_accordion.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:flutter/material.dart';
 
 import 'helpers/golden_pump.dart';
@@ -92,6 +93,63 @@ Widget _host(double width) => ColoredBox(
 // Top-level so the `const` header constructors above can close over it.
 void _noop() {}
 
+// Phase 470 — the booking picker's [CatalogueServiceTile] with the copy hint:
+// two same-named copies (each hinted with its duration, the 60-min one
+// selected) above a uniquely-named, un-hinted row, so the capture pins the
+// hinted name line next to the unchanged plain one. Hint strings are what
+// `serviceNameHints` yields for a 60 / 90 pair (`DurationMinutes.format`).
+Widget _tilesHost(double width) => ColoredBox(
+  color: BrandColors.base,
+  child: SizedBox(
+    width: width,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          CatalogueServiceTile(
+            row: CatalogueRow(
+              id: 'golden-copy-60',
+              name: 'Класичний масаж',
+              categoryLabel: 'MASSAGE',
+              durationLabel: DurationMinutes.format(60),
+              priceLabel: '500 ₴',
+              hint: DurationMinutes.format(60),
+            ),
+            selected: true,
+            onToggle: _noop,
+          ),
+          const SizedBox(height: 12),
+          CatalogueServiceTile(
+            row: CatalogueRow(
+              id: 'golden-copy-90',
+              name: 'Класичний масаж',
+              categoryLabel: 'MASSAGE',
+              durationLabel: DurationMinutes.format(90),
+              priceLabel: '700 ₴',
+              hint: DurationMinutes.format(90),
+            ),
+            selected: false,
+            onToggle: _noop,
+          ),
+          const SizedBox(height: 12),
+          CatalogueServiceTile(
+            row: CatalogueRow(
+              id: 'golden-unique',
+              name: 'Масаж спини',
+              categoryLabel: 'MASSAGE',
+              durationLabel: DurationMinutes.format(45),
+              priceLabel: '400 ₴',
+            ),
+            selected: false,
+            onToggle: _noop,
+          ),
+        ],
+      ),
+    ),
+  ),
+);
+
 void main() {
   const double width = 360;
 
@@ -103,6 +161,15 @@ void main() {
       textScaleFactor: scale,
       pumpWidget: goldenPumpWidget(width: width),
       builder: () => _host(width),
+    );
+    goldenTest(
+      'catalogue service tile — copy pair hinted + unique row ${width.toInt()}dp x$scale',
+      fileName:
+          'catalogue_service_tile_copy_hints_${widthScaleSuffix(width, scale)}',
+      constraints: BoxConstraints.tight(const Size(width, 320)),
+      textScaleFactor: scale,
+      pumpWidget: goldenPumpWidget(width: width),
+      builder: () => _tilesHost(width),
     );
   }
 }

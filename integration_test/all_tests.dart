@@ -222,6 +222,10 @@ import 'services_catalogue_refresh_flow_test.dart'
     as services_catalogue_refresh;
 import 'service_copy_flow_test.dart' as service_copy;
 import 'service_copy_hint_flow_test.dart' as service_copy_hint;
+import 'client_booking_service_copy_flow_test.dart'
+    as client_booking_service_copy;
+import 'salon_booking_service_copy_flow_test.dart'
+    as salon_booking_service_copy;
 import 'service_copy_row_flow_test.dart' as service_copy_row;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_delete_flow_test.dart' as service_delete;
@@ -791,6 +795,8 @@ void main() {
   // Phase 469 — copy-name hint on the owner list: 60 + 90 pair hinted,
   // a custom rename drops both hints.
   group('service_copy_hint_flow', service_copy_hint.main);
+  group('client_booking_service_copy_flow', client_booking_service_copy.main);
+  group('salon_booking_service_copy_flow', salon_booking_service_copy.main);
   // Phase 471 — «+ ще раз» adds a copy row to the same add-services save:
   // free-duration seed, blank-name collision, «Прибрати» drops the copy.
   group('service_copy_row_flow', service_copy_row.main);

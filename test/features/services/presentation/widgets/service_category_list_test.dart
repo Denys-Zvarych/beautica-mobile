@@ -37,6 +37,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -522,7 +523,10 @@ void main() {
       final Text hint = tester.widget<Text>(
         find.byKey(const Key('service-name-hint')),
       );
-      expect(hint.data, l10n.serviceNameHintSuffix('1 год 30 хв'));
+      expect(
+        hint.data,
+        l10n.serviceNameHintSuffix(NameWithHint.isolate('1 год 30 хв')),
+      );
       expect(hint.style?.color, BrandColors.textSecondary);
       // Same line: the hint sits to the right of the name, vertically aligned.
       // i18n-finder-ok: service fixture data (master-entered name)

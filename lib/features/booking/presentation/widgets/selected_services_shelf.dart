@@ -25,16 +25,19 @@
 // progress row + fixed-height CTA, an expanded shelf can never push a
 // `bottomNavigationBar` bar into unbounded growth.
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_hint.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 
 import '../../../salon/domain/salon_service_catalog.dart';
 
@@ -79,6 +82,11 @@ class SelectedServicesShelf extends StatefulWidget {
   State<SelectedServicesShelf> createState() => _SelectedServicesShelfState();
 }
 
+/// Number of times a shelf's copy-hint rule actually ran (memo misses) —
+/// test-only spy.
+@visibleForTesting
+int selectedServicesShelfHintComputations = 0;
+
 class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
   /// Ephemeral UI-only state — purely a display toggle for the itemized
   /// list, so it does not need a Riverpod provider. Always collapsed on
@@ -91,6 +99,24 @@ class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
 
   void _toggleExpanded() => _expandedNotifier.value = !_expandedNotifier.value;
 
+  // Phase 470 — copy hints over the listed services (both copies picked ⇒
+  // both hinted), memoised on the `services` list's CONTENT (identity first,
+  // then element-wise `==` on the freezed [MasterService]s): hosts such as
+  // `SalonTimeScreen` rebuild an equal list on every outer build, and the
+  // rule must not rerun for it.
+  List<MasterService>? _hintsSource;
+  Map<String, String> _hints = const <String, String>{};
+
+  Map<String, String> _hintsFor(List<MasterService> services) {
+    if (!identical(_hintsSource, services) &&
+        !listEquals(_hintsSource, services)) {
+      selectedServicesShelfHintComputations++;
+      _hintsSource = services;
+      _hints = masterServiceNameHints(services);
+    }
+    return _hints;
+  }
+
   @override
   void dispose() {
     _expandedNotifier.dispose();
@@ -100,6 +126,7 @@ class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final Map<String, String> hints = _hintsFor(widget.services);
     // Hoisted out of the ValueListenableBuilder's `builder` below (mobile-perf
     // nit fixed while extracting this widget out of `BookingSummaryBar`):
     // neither the section label nor the selected-count text depends on
@@ -203,6 +230,7 @@ class _SelectedServicesShelfState extends State<SelectedServicesShelf> {
                             // matching purely by list position.
                             key: ValueKey<String>(service.id),
                             service: service,
+                            hint: hints[service.id],
                             chosenLabel: widget.chosenLabelFor?.call(service),
                             onRemove: widget.onRemove == null
                                 ? null
@@ -230,9 +258,17 @@ class _SelectionEntry extends StatelessWidget {
     required this.service,
     this.onRemove,
     this.chosenLabel,
+    this.hint,
   });
 
   final MasterService service;
+
+  /// Phase 470 — the copy hint after the name; `null` renders as before.
+  final String? hint;
+
+  static final TextStyle _hintStyle = VelvetText.bodyStrong().copyWith(
+    color: BrandColors.textSecondary,
+  );
 
   /// Fires when the per-item "×" is tapped — `null` renders no remove
   /// affordance at all (see [SelectedServicesShelf.onRemove]).
@@ -274,11 +310,11 @@ class _SelectionEntry extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
               Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: VelvetText.bodyStrong(),
+                child: NameWithHint(
+                  name: name,
+                  nameStyle: VelvetText.bodyStrong(),
+                  hint: hint,
+                  hintStyle: _hintStyle,
                 ),
               ),
               const SizedBox(width: VelvetSpacing.md),

@@ -28,6 +28,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -84,11 +85,15 @@ void main() {
 
       expect(
         _hintText(tester, _copySixtyCard),
-        l10n.serviceNameHintSuffix(DurationMinutes.format(60)),
+        l10n.serviceNameHintSuffix(
+          NameWithHint.isolate(DurationMinutes.format(60)),
+        ),
       );
       expect(
         _hintText(tester, _copyNinetyCard),
-        l10n.serviceNameHintSuffix(DurationMinutes.format(90)),
+        l10n.serviceNameHintSuffix(
+          NameWithHint.isolate(DurationMinutes.format(90)),
+        ),
       );
       expect(
         find.byKey(_hintKey),

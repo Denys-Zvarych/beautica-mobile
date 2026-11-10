@@ -14,6 +14,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../services/domain/master_service.dart' show ServicePriceType;
+import '../../services/domain/service_name_hint.dart';
 
 part 'salon_service_catalog.freezed.dart';
 
@@ -99,4 +100,33 @@ abstract class SalonServiceCategoryEntry with _$SalonServiceCategoryEntry {
     required int count,
     required List<SalonCatalogService> services,
   }) = _SalonServiceCategoryEntry;
+}
+
+/// Phase 470 — copy hints for ONE salon's catalogue (all categories), via the
+/// shared 469 rule ([serviceNameHints]). The displayed name is
+/// [SalonCatalogService.name] as-is; the duration mirrors how
+/// [SalonCatalogService.durationLabel] is formatted at map time.
+///
+/// A row whose [SalonCatalogService.durationMinutes] is unknown (legacy cache
+/// entry) still counts towards its name group — so its copy keeps a hint —
+/// but gets NO hint itself: a «0 хв» hint would be false.
+Map<String, String> salonCatalogNameHints(
+  Iterable<SalonServiceCategoryEntry> categories,
+) {
+  final List<SalonCatalogService> services = <SalonCatalogService>[
+    for (final SalonServiceCategoryEntry c in categories) ...c.services,
+  ];
+  final Map<String, String> hints = serviceNameHints(<ServiceHintInput>[
+    for (final SalonCatalogService s in services)
+      ServiceHintInput(
+        id: s.id,
+        displayedName: s.name,
+        customName: s.name,
+        durationMinutes: s.durationMinutes ?? 0,
+      ),
+  ]);
+  for (final SalonCatalogService s in services) {
+    if (s.durationMinutes == null) hints.remove(s.id);
+  }
+  return hints;
 }

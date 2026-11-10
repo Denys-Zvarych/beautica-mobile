@@ -22,6 +22,8 @@
 //      `_CatalogueCategorySectionState`, went completely unexercised).
 
 import 'package:beautica_mobile/features/booking/presentation/widgets/service_catalogue_accordion.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -198,6 +200,81 @@ class _MultiGroupHarnessState extends State<_MultiGroupHarness> {
 }
 
 void main() {
+  // Phase 470 — the copy hint on the shared catalogue tile.
+  group('CatalogueServiceTile copy hint (phase 470)', () {
+    Widget tile(String? hint) => Scaffold(
+      body: CatalogueServiceTile(
+        row: CatalogueRow(
+          id: 'copy-60',
+          name: 'Класичний масаж',
+          categoryLabel: 'MASSAGE',
+          durationLabel: '1 год',
+          priceLabel: '500 ₴',
+          hint: hint,
+        ),
+        selected: false,
+        onToggle: () {},
+      ),
+    );
+
+    testWidgets('a hint renders as a bidi-isolated « · {hint}» suffix', (
+      tester,
+    ) async {
+      await tester.pumpApp(tile('1 год'));
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(CatalogueServiceTile)),
+      );
+      final Text hint = tester.widget<Text>(
+        find.byKey(const Key('service-name-hint')),
+      );
+      expect(hint.data, l10n.serviceNameHintSuffix('\u20681 год\u2069'));
+      expect(
+        hint.data,
+        l10n.serviceNameHintSuffix(NameWithHint.isolate('1 год')),
+      );
+      // The name keeps its own test key on the name Text.
+      expect(
+        find.byKey(const Key('catalogue-service-name-copy-60')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('no hint renders the plain one-line name Text', (tester) async {
+      await tester.pumpApp(tile(null));
+      expect(find.byKey(const Key('service-name-hint')), findsNothing);
+      final Text name = tester.widget<Text>(
+        find.byKey(const Key('catalogue-service-name-copy-60')),
+      );
+      expect(name.maxLines, 1);
+      expect(name.overflow, TextOverflow.ellipsis);
+    });
+
+    testWidgets('a long name + hint survives 320 dp at text scale 2.0', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: CatalogueServiceTile(
+            row: const CatalogueRow(
+              id: 'copy-long',
+              name: 'Класичний розслаблюючий масаж усього тіла з оліями',
+              categoryLabel: 'MASSAGE',
+              durationLabel: '1 год 30 хв',
+              priceLabel: '1 500 ₴',
+              hint: 'Ранковий авторський масаж з гарячим камінням',
+            ),
+            selected: true,
+            onToggle: () {},
+          ),
+        ),
+        width: 320,
+        textScaleFactor: 2.0,
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('service-name-hint')), findsOneWidget);
+    });
+  });
+
   group('CatalogueSelectionController', () {
     test('toggleService adds then removes an id', () {
       final controller = CatalogueSelectionController();

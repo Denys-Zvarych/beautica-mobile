@@ -1750,8 +1750,44 @@ final class FakeBackend {
   /// (public profile included) keeps seeing the seeded catalogue.
   bool masterAaaServicesEmpty = false;
 
+  /// Phase 470 — when true, master-aaa's public catalogue also carries
+  /// [publicMasterServiceCopyId]: a 60-min COPY of `pub-assign-1` («Манікюр з
+  /// покриттям», 90 min) under the same name (phase 468 copies). Off by
+  /// default, so every pre-existing flow keeps seeing the two seeded rows.
+  bool publicMasterServiceCopy = false;
+
+  /// The copy row's assignment id — see [publicMasterServiceCopy].
+  static const String publicMasterServiceCopyId = 'pub-assign-1-copy';
+
+  static const Map<String, dynamic> _publicMasterServiceCopyRow =
+      <String, dynamic>{
+        'id': publicMasterServiceCopyId,
+        'masterId': 'master-aaa',
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 400,
+        'priceMax': null,
+        'priceDisplay': '400 ₴',
+        'effectiveDurationMinutes': 60,
+        'serviceDefinition': <String, dynamic>{
+          'id': 'pub-svc-1-copy',
+          'name': 'Манікюр з покриттям',
+          'description': null,
+          'category': 'NAILS',
+          'serviceTypeSlug': 'CLASSIC_MANICURE',
+          'baseDurationMinutes': 60,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 400,
+          'priceMax': null,
+          'priceDisplay': '400 ₴',
+          'photoUrl': null,
+        },
+      };
+
   /// [_publicMasterServices], filtered per [publicMasterServiceRemoved] /
-  /// [masterAaaServicesEmpty].
+  /// [masterAaaServicesEmpty], plus the [publicMasterServiceCopy] row.
   List<Map<String, dynamic>> get _publicMasterServicesEffective =>
       masterAaaServicesEmpty
       ? const <Map<String, dynamic>>[]
@@ -1759,6 +1795,11 @@ final class FakeBackend {
       ? _publicMasterServices
             .where((Map<String, dynamic> row) => row['id'] != 'pub-assign-1')
             .toList(growable: false)
+      : publicMasterServiceCopy
+      ? <Map<String, dynamic>>[
+          ..._publicMasterServices,
+          _publicMasterServiceCopyRow,
+        ]
       : _publicMasterServices;
 
   /// Phase 264 — the FULL, ordered `serviceId` list the most recent
@@ -4530,23 +4571,58 @@ final class FakeBackend {
         'priceDisplay': '100 ₴',
         'photoUrl': null,
       });
-      _adapter.onRoute(
-        '/api/v1/salons/salon-xyz/services/$id/masters',
-        (server) => server.replyCallback(200, (_) {
-          getBookableMastersCalls++;
-          requestedBookableMastersServiceDefIds.add(id);
-          return _okList(<Map<String, dynamic>>[
-            _bookableMasterEnvelope(
-              masterId: 'master-ccc',
-              serviceDefId: id,
-              firstName: 'Марія',
-              lastName: 'Гриценко',
-            ),
-          ]);
-        }),
-        request: const Request(method: RequestMethods.get),
-      );
+      _routeOverflowServiceToMasterCcc(id);
     }
+  }
+
+  /// Phase 470 — the catalogue id of [seedSalonCatalogCopy]'s row.
+  static const String kSalonSharedCopyCatalogServiceId =
+      'salon-svc-shared-copy';
+
+  /// Phase 470 — appends a 90-min COPY of [kSalonSharedCatalogServiceId]
+  /// («Манікюр класичний», 60 min) under the SAME name (phase 468 copies) to
+  /// the `salon-xyz` NAILS catalogue, bookable by `master-ccc`, so a client
+  /// flow sees the copy pair hinted («· 1 год» / «· 1 год 30 хв»).
+  void seedSalonCatalogCopy() {
+    const String id = kSalonSharedCopyCatalogServiceId;
+    _salonCatalogOverflowServices.add(<String, dynamic>{
+      'id': id,
+      'name': 'Манікюр класичний',
+      'description': null,
+      'category': 'NAILS',
+      'serviceTypeSlug': 'CLASSIC_MANICURE',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'baseDurationMinutes': 90,
+      'bufferMinutesAfter': 0,
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 600,
+      'priceMax': null,
+      'priceDisplay': '600 ₴',
+      'photoUrl': null,
+    });
+    _routeOverflowServiceToMasterCcc(id);
+  }
+
+  /// `GET …/salon-xyz/services/{id}/masters` → `master-ccc`, for a row added
+  /// by [seedSalonCatalogOverflow] / [seedSalonCatalogCopy].
+  void _routeOverflowServiceToMasterCcc(String id) {
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services/$id/masters',
+      (server) => server.replyCallback(200, (_) {
+        getBookableMastersCalls++;
+        requestedBookableMastersServiceDefIds.add(id);
+        return _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: 'master-ccc',
+            serviceDefId: id,
+            firstName: 'Марія',
+            lastName: 'Гриценко',
+          ),
+        ]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
   }
 
   List<Map<String, dynamic>> _salonServiceCategoriesWithOverflow() =>
