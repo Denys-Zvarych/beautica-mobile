@@ -7895,6 +7895,24 @@ final class FakeBackend {
   /// behaviour.
   bool bulkCreatePersists = false;
 
+  /// Phase 469 (mobile-qa) — when true, a 200 `PATCH /api/v1/services/svc-typed`
+  /// also writes the body's `name` / `baseDurationMinutes` onto the seeded
+  /// `assign-typed` row, so the next `GET …/me/services` reflects the rename.
+  /// Off by default: every pre-existing flow keeps its echo-only behaviour.
+  bool typedPatchPersists = false;
+
+  /// Phase 469 (mobile-qa) — sets a SEEDED row's duration (both the effective
+  /// and the definition's base minutes). Lets a flow turn the two 60-min
+  /// `type-nails-classic` copies into a 60 + 90 pair. Call BEFORE `boot`.
+  void setSeededServiceDuration(String assignmentId, int minutes) {
+    final Map<String, dynamic> row = _services.firstWhere(
+      (Map<String, dynamic> s) => s['id'] == assignmentId,
+    );
+    row['effectiveDurationMinutes'] = minutes;
+    (row['serviceDefinition'] as Map<String, dynamic>)['baseDurationMinutes'] =
+        minutes;
+  }
+
   /// `PATCH /api/v1/services/svc-typed` — 200 by default, or the typed 409
   /// DUPLICATE_SERVICE envelope while [typedPatchRejectDuplicate] is armed.
   void _wireTypedServicePatch() {
@@ -7923,6 +7941,17 @@ final class FakeBackend {
               (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
               'svc-typed',
         );
+        if (typedPatchPersists && idx >= 0) {
+          final Map<String, dynamic> row = _services[idx];
+          final def = row['serviceDefinition'] as Map<String, dynamic>;
+          final Object? name = body['name'];
+          if (name is String) def['name'] = name;
+          final Object? minutes = body['baseDurationMinutes'];
+          if (minutes is int) {
+            def['baseDurationMinutes'] = minutes;
+            row['effectiveDurationMinutes'] = minutes;
+          }
+        }
         return _ok(_services[idx >= 0 ? idx : 0]);
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),

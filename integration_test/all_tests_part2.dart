@@ -82,6 +82,9 @@ import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'services_catalogue_refresh_flow_test.dart'
     as services_catalogue_refresh;
+import 'service_copy_flow_test.dart' as service_copy;
+import 'service_copy_hint_flow_test.dart' as service_copy_hint;
+import 'service_copy_row_flow_test.dart' as service_copy_row;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
@@ -365,6 +368,11 @@ void main() {
     'salon_admin_set_master_services_flow',
     salon_admin_set_master_services.main,
   );
+  group('service_copy_flow', service_copy.main);
+  group('service_copy_hint_flow', service_copy_hint.main);
+  // Phase 471 — «+ ще раз» adds a copy row to the same add-services save:
+  // free-duration seed, blank-name collision, «Прибрати» drops the copy.
+  group('service_copy_row_flow', service_copy_row.main);
   group('service_crud_flow', service_crud.main);
   group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays

@@ -1762,6 +1762,15 @@
       "count": { "type": "int" }
     }
   },
+  "serviceNameHintSuffix": " · {hint}",
+  "@serviceNameHintSuffix": {
+    "description": "Phase 469 — suffix appended after a service name when two services of one owner share that name: the duration («90 хв») or the differing custom name. Leading space is intentional.",
+    "placeholders": {
+      "hint": {
+        "type": "String"
+      }
+    }
+  },
   "servicesCardEditSemanticVerb": "Редагувати",
   "@servicesCardEditSemanticVerb": {
     "description": "Action verb appended to a service card's accessibility label when the card is tappable and opens the edit form. Announced by a screen reader only; never rendered as visible text."
