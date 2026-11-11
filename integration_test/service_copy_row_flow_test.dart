@@ -237,6 +237,11 @@ void main() {
 
       // D4: the pencil pre-fills the type name; left unchanged it is not sent.
       // D4.3: the field replaces the title IN PLACE — the card keeps its size.
+      // Baseline = SETTLED, same-focus-state height: the jump leaves the
+      // duration well focused (its ring animates and settles 4px taller), so
+      // drop focus and settle before sampling; the name field then takes focus.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await AppHarness.settle(tester);
       final double rowHeight = tester.getSize(_row(_copyKeyId)).height;
       await _openName(tester, _copyKeyId);
       expect(_text(tester, _nameOf(_copyKeyId)), _nailsTypeName);
