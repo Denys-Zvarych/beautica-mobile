@@ -212,6 +212,7 @@ class NeumorphicInset extends StatelessWidget {
     this.hasError = false,
     this.boundary = true,
     this.animatedRing = true,
+    this.ringOverlay = false,
   }) : assert(
          animatedRing || (!focused && !hasError),
          'NeumorphicInset(animatedRing: false) draws the ring without a '
@@ -259,6 +260,12 @@ class NeumorphicInset extends StatelessWidget {
   /// build method deciding for itself.
   final bool animatedRing;
 
+  /// Paints the focus / error ring OVER the well instead of as a border, so
+  /// the ring never adds layout size (a border pads the box by its width).
+  /// For a well that must keep an exact height, e.g. a field replacing a line
+  /// of text (phase 472 D4.3). False = the ring is a border, unchanged.
+  final bool ringOverlay;
+
   @override
   Widget build(BuildContext context) {
     final Color? ringColor = hasError
@@ -267,14 +274,21 @@ class NeumorphicInset extends StatelessWidget {
         ? BrandColors.accent
         : null;
 
+    final Border ring = Border.all(
+      color: ringColor ?? Colors.transparent,
+      width: ringColor == null ? 0 : 2,
+    );
     final BoxDecoration decoration = BoxDecoration(
       color: BrandColors.base,
       borderRadius: BorderRadius.circular(radius),
-      border: Border.all(
-        color: ringColor ?? Colors.transparent,
-        width: ringColor == null ? 0 : 2,
-      ),
+      border: ringOverlay ? null : ring,
     );
+    final BoxDecoration? overlay = ringOverlay
+        ? BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            border: ring,
+          )
+        : null;
     final Widget painted = CustomPaint(
       // Shared per-radius instance — see [_InsetShadowPainter.forRadius].
       // Identical pixels to the previous per-build construction; only the
@@ -288,9 +302,19 @@ class NeumorphicInset extends StatelessWidget {
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
             decoration: decoration,
+            foregroundDecoration: overlay,
             child: painted,
           )
-        : DecoratedBox(decoration: decoration, child: painted);
+        : DecoratedBox(
+            decoration: decoration,
+            child: overlay == null
+                ? painted
+                : DecoratedBox(
+                    decoration: overlay,
+                    position: DecorationPosition.foreground,
+                    child: painted,
+                  ),
+          );
 
     return boundary ? RepaintBoundary(child: well) : well;
   }
@@ -326,6 +350,8 @@ class NeumorphicTextField extends StatefulWidget {
     this.enableSuggestions,
     this.autocorrect,
     this.enableIMEPersonalizedLearning,
+    this.compact = false,
+    this.textStyle,
   }) {
     // Development-time contract: if the caller passes password-typed autofill
     // hints (AutofillHints.password / .newPassword) without also setting
@@ -377,6 +403,17 @@ class NeumorphicTextField extends StatefulWidget {
   /// to `false` (MASVS-PLATFORM MS-8).
   final bool? enableIMEPersonalizedLearning;
 
+  /// Inline (dense) variant that takes the place of a line of text (phase
+  /// 472 D4.3 — a card title edited in place): no visible [label] (it stays
+  /// the field's semantics label), no fixed [VelvetSizes.field] height and
+  /// zero vertical content padding, so the inset is exactly one [textStyle]
+  /// line tall. False = the labelled 54 dp field, unchanged.
+  final bool compact;
+
+  /// Input text style; null = [VelvetText.input]. The hint uses it too, in
+  /// the placeholder colour. Pair with [compact] to match the line replaced.
+  final TextStyle? textStyle;
+
   @override
   State<NeumorphicTextField> createState() => _NeumorphicTextFieldState();
 }
@@ -397,6 +434,20 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
   );
   static final TextStyle _labelStyle = VelvetText.label();
 
+  /// The placeholder-coloured hint for a caller [NeumorphicTextField.textStyle],
+  /// derived once per style instance instead of a `.copyWith()` per build.
+  TextStyle? _hintSource;
+  TextStyle? _derivedHint;
+
+  TextStyle get _effectiveHintStyle {
+    final TextStyle? source = widget.textStyle;
+    if (source == null) return _hintStyle;
+    final TextStyle? cached = _derivedHint;
+    if (cached != null && identical(source, _hintSource)) return cached;
+    _hintSource = source;
+    return _derivedHint = source.copyWith(color: BrandColors.placeholder);
+  }
+
   late final FocusNode _focusNode;
   // Cached once in initState — widget.prefixIcon is set at construction time
   // and never changes, so evaluating it once avoids a conditional per build.
@@ -409,18 +460,25 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
     super.initState();
     _focusNode = widget.focusNode ?? FocusNode();
     _focusNode.addListener(_onFocusChange);
-    _contentPadding = EdgeInsets.symmetric(
-      horizontal: widget.prefixIcon == null
-          ? VelvetSpacing.md
-          : VelvetSpacing.sm,
-      vertical: VelvetSpacing.md,
-    );
+    _contentPadding = widget.compact
+        ? const EdgeInsets.symmetric(horizontal: VelvetSpacing.sm)
+        : EdgeInsets.symmetric(
+            horizontal: widget.prefixIcon == null
+                ? VelvetSpacing.md
+                : VelvetSpacing.sm,
+            vertical: VelvetSpacing.md,
+          );
   }
 
   void _onFocusChange() {
     if (!mounted) return;
     setState(() => _focused = _focusNode.hasFocus);
   }
+
+  /// The compact variant has no visible label; it stays the field's
+  /// accessible name. The labelled field is returned untouched.
+  Widget _labelled(Widget field) =>
+      widget.compact ? Semantics(label: widget.label, child: field) : field;
 
   @override
   void dispose() {
@@ -437,15 +495,18 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.only(left: 6, bottom: VelvetSpacing.sm),
-          child: Text(widget.label, style: _labelStyle),
-        ),
+        if (!widget.compact)
+          Padding(
+            padding: const EdgeInsets.only(left: 6, bottom: VelvetSpacing.sm),
+            child: Text(widget.label, style: _labelStyle),
+          ),
         NeumorphicInset(
           focused: _focused,
           hasError: hasError,
+          // Compact: the ring must not pad the one-line well.
+          ringOverlay: widget.compact,
           child: SizedBox(
-            height: VelvetSizes.field,
+            height: widget.compact ? null : VelvetSizes.field,
             child: Row(
               children: <Widget>[
                 if (widget.prefixIcon != null) ...<Widget>[
@@ -459,48 +520,50 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
                   ),
                 ],
                 Expanded(
-                  child: TextField(
-                    controller: widget.controller,
-                    focusNode: _focusNode,
-                    enabled: widget.enabled,
-                    keyboardType: widget.keyboardType,
-                    textInputAction: widget.textInputAction,
-                    obscureText: widget.obscureToggle && _obscured,
-                    // MASVS-PLATFORM MS-8: when this is a password field
-                    // (obscureToggle:true), suppress IME learning, suggestions,
-                    // and autocorrect by default to prevent keyboard apps from
-                    // reading the input stream. Callers may override explicitly.
-                    enableSuggestions: widget.obscureToggle
-                        ? (widget.enableSuggestions ?? false)
-                        : (widget.enableSuggestions ?? true),
-                    autocorrect: widget.obscureToggle
-                        ? (widget.autocorrect ?? false)
-                        : (widget.autocorrect ?? true),
-                    enableIMEPersonalizedLearning: widget.obscureToggle
-                        ? (widget.enableIMEPersonalizedLearning ?? false)
-                        : (widget.enableIMEPersonalizedLearning ?? true),
-                    // MASVS-STORAGE MS-2: disable text selection on obscured
-                    // fields so users cannot copy the visible ciphertext dots
-                    // into a clipboard snoop. Callers that need selection (e.g.
-                    // a "show password" toggle already visible) pass
-                    // enableInteractiveSelection explicitly.
-                    enableInteractiveSelection: widget.obscureToggle
-                        ? (widget.obscureToggle && _obscured ? false : true)
-                        : true,
-                    maxLength: widget.maxLength,
-                    inputFormatters: widget.inputFormatters,
-                    autofillHints: widget.autofillHints,
-                    onSubmitted: widget.onSubmitted,
-                    onChanged: widget.onChanged,
-                    style: VelvetText.input(),
-                    cursorColor: BrandColors.accent,
-                    decoration: InputDecoration(
-                      counterText: '',
-                      isCollapsed: true,
-                      border: InputBorder.none,
-                      hintText: widget.hintText,
-                      hintStyle: _hintStyle,
-                      contentPadding: _contentPadding,
+                  child: _labelled(
+                    TextField(
+                      controller: widget.controller,
+                      focusNode: _focusNode,
+                      enabled: widget.enabled,
+                      keyboardType: widget.keyboardType,
+                      textInputAction: widget.textInputAction,
+                      obscureText: widget.obscureToggle && _obscured,
+                      // MASVS-PLATFORM MS-8: when this is a password field
+                      // (obscureToggle:true), suppress IME learning, suggestions,
+                      // and autocorrect by default to prevent keyboard apps from
+                      // reading the input stream. Callers may override explicitly.
+                      enableSuggestions: widget.obscureToggle
+                          ? (widget.enableSuggestions ?? false)
+                          : (widget.enableSuggestions ?? true),
+                      autocorrect: widget.obscureToggle
+                          ? (widget.autocorrect ?? false)
+                          : (widget.autocorrect ?? true),
+                      enableIMEPersonalizedLearning: widget.obscureToggle
+                          ? (widget.enableIMEPersonalizedLearning ?? false)
+                          : (widget.enableIMEPersonalizedLearning ?? true),
+                      // MASVS-STORAGE MS-2: disable text selection on obscured
+                      // fields so users cannot copy the visible ciphertext dots
+                      // into a clipboard snoop. Callers that need selection (e.g.
+                      // a "show password" toggle already visible) pass
+                      // enableInteractiveSelection explicitly.
+                      enableInteractiveSelection: widget.obscureToggle
+                          ? (widget.obscureToggle && _obscured ? false : true)
+                          : true,
+                      maxLength: widget.maxLength,
+                      inputFormatters: widget.inputFormatters,
+                      autofillHints: widget.autofillHints,
+                      onSubmitted: widget.onSubmitted,
+                      onChanged: widget.onChanged,
+                      style: widget.textStyle ?? VelvetText.input(),
+                      cursorColor: BrandColors.accent,
+                      decoration: InputDecoration(
+                        counterText: '',
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        hintText: widget.hintText,
+                        hintStyle: _effectiveHintStyle,
+                        contentPadding: _contentPadding,
+                      ),
                     ),
                   ),
                 ),

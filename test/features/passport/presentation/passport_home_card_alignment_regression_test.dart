@@ -118,11 +118,7 @@ List<Object> _sharedOverrides() => <Object>[
   clientProfileProvider.overrideWith((ref) async => _sharedProfile),
   // Home-only providers (Passport ignores these).
   nextAppointmentProvider.overrideWith((ref) async => null),
-  favoriteMastersProvider.overrideWith(
-    (ref) async => const <FavoriteMasterItem>[],
-  ),
   beautyTimelineProvider.overrideWith((ref) async => const <TimelineEntry>[]),
-  unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
   // Passport-only providers (Home ignores these).
   passportProvider.overrideWith(
     (ref) async => Passport.empty(memberSinceYear: 2024),

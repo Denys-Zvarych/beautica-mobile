@@ -15,6 +15,8 @@ import 'package:beautica_api/src/model/cancel_token_info_response.dart';
 import 'package:beautica_api/src/model/date.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
+import 'package:beautica_api/src/model/guest_cancel_request.dart';
+import 'package:beautica_api/src/model/guest_cancel_token.dart';
 import 'package:beautica_api/src/model/master_working_day_response.dart';
 import 'package:beautica_api/src/model/page_response_review_response.dart';
 import 'package:beautica_api/src/model/page_response_salon_review_response.dart';
@@ -326,11 +328,12 @@ class PublicBookingControllerApi {
     );
   }
 
-  /// cancel
+  /// Cancel a guest booking or some of a visit&#39;s services by the SMS cancel token
   ///
   ///
   /// Parameters:
   /// * [token]
+  /// * [guestCancelRequest]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -338,10 +341,11 @@ class PublicBookingControllerApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future]
+  /// Returns a [Future] containing a [Response] with a [CancelTokenInfoResponse] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<void>> cancel({
-    required String token,
+  Future<Response<CancelTokenInfoResponse>> cancel({
+    required GuestCancelToken token,
+    GuestCancelRequest? guestCancelRequest,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -351,7 +355,8 @@ class PublicBookingControllerApi {
   }) async {
     final _path = r'/api/v1/book/cancel/{token}'.replaceAll(
         '{' r'token' '}',
-        encodeQueryParameter(_serializers, token, const FullType(String))
+        encodeQueryParameter(
+                _serializers, token, const FullType(GuestCancelToken))
             .toString());
     final _options = Options(
       method: r'POST',
@@ -362,18 +367,68 @@ class PublicBookingControllerApi {
         'secure': <Map<String, String>>[],
         ...?extra,
       },
+      contentType: 'application/json',
       validateStatus: validateStatus,
     );
 
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(GuestCancelRequest);
+      _bodyData = guestCancelRequest == null
+          ? null
+          : _serializers.serialize(guestCancelRequest, specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
     final _response = await _dio.request<Object>(
       _path,
+      data: _bodyData,
       options: _options,
       cancelToken: cancelToken,
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
     );
 
-    return _response;
+    CancelTokenInfoResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(CancelTokenInfoResponse),
+            ) as CancelTokenInfoResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<CancelTokenInfoResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
   }
 
   /// cancelInfo
@@ -391,7 +446,7 @@ class PublicBookingControllerApi {
   /// Returns a [Future] containing a [Response] with a [CancelTokenInfoResponse] as data
   /// Throws [DioException] if API call or serialization fails
   Future<Response<CancelTokenInfoResponse>> cancelInfo({
-    required String token,
+    required GuestCancelToken token,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -401,7 +456,8 @@ class PublicBookingControllerApi {
   }) async {
     final _path = r'/api/v1/book/cancel/{token}'.replaceAll(
         '{' r'token' '}',
-        encodeQueryParameter(_serializers, token, const FullType(String))
+        encodeQueryParameter(
+                _serializers, token, const FullType(GuestCancelToken))
             .toString());
     final _options = Options(
       method: r'GET',

@@ -25,6 +25,7 @@ import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../shared/utils/legal_versions.dart';
 import '../domain/auth_tokens.dart';
 import '../domain/invite_details.dart';
 import '../domain/register_result.dart';
@@ -111,6 +112,7 @@ final class HttpAuthRepository implements AuthRepository {
     String? businessName,
     String? address,
     String? phone,
+    bool termsAccepted = false,
   }) async {
     // Backend contract:
     //   INDEPENDENT_MASTER → POST /auth/register/independent-master
@@ -142,7 +144,13 @@ final class HttpAuthRepository implements AuthRepository {
               ..password = password
               ..firstName = firstName
               ..lastName = lastName
-              ..phoneNumber = trimmedPhone,
+              ..phoneNumber = trimmedPhone
+              // Phase 443 — consent triple, all-or-nothing.
+              ..termsAccepted = termsAccepted ? true : null
+              ..termsVersion = termsAccepted ? kTermsVersion : null
+              ..privacyPolicyVersion = termsAccepted
+                  ? kPrivacyPolicyVersion
+                  : null,
           ),
         );
         return _parseRegisterResultFromResponse(
@@ -170,7 +178,13 @@ final class HttpAuthRepository implements AuthRepository {
               ..firstName = firstName
               ..lastName = lastName
               ..phoneNumber = trimmedPhone
-              ..businessName = trimmedBusiness,
+              ..businessName = trimmedBusiness
+              // Phase 443 — consent triple, all-or-nothing.
+              ..termsAccepted = termsAccepted ? true : null
+              ..termsVersion = termsAccepted ? kTermsVersion : null
+              ..privacyPolicyVersion = termsAccepted
+                  ? kPrivacyPolicyVersion
+                  : null,
           ),
         );
         return _parseRegisterResultFromResponse(
@@ -567,6 +581,7 @@ final class HttpAuthRepository implements AuthRepository {
     required String firstName,
     required String lastName,
     String? phoneNumber,
+    bool termsAccepted = false,
   }) async {
     try {
       final trimmedPhone = phoneNumber?.trim() ?? '';
@@ -577,7 +592,13 @@ final class HttpAuthRepository implements AuthRepository {
             ..password = password
             ..firstName = firstName
             ..lastName = lastName
-            ..phoneNumber = trimmedPhone,
+            ..phoneNumber = trimmedPhone
+            // Phase 443 — consent triple, all-or-nothing.
+            ..termsAccepted = termsAccepted ? true : null
+            ..termsVersion = termsAccepted ? kTermsVersion : null
+            ..privacyPolicyVersion = termsAccepted
+                ? kPrivacyPolicyVersion
+                : null,
         ),
       );
       // 2xx received — the invite token is consumed and the user row exists.

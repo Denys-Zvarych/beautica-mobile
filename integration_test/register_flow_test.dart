@@ -22,7 +22,9 @@
 //
 // All taps are key-based — no raw Ukrainian find.text() tap drivers.
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/utils/legal_versions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -30,6 +32,16 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+
+const ValueKey<String> _kStep1Submit = ValueKey<String>('step1_submit');
+const ValueKey<String> _kTermsBox = ValueKey<String>('step1_terms_checkbox');
+
+/// `step1_submit`'s wired callback — `null` means disabled (phase 443 D3).
+VoidCallback? _step1OnPressed(WidgetTester tester) =>
+    tester.widget<NeumorphicButton>(find.byKey(_kStep1Submit)).onPressed;
+
+bool? _termsBoxValue(WidgetTester tester) =>
+    tester.widget<Checkbox>(find.byKey(_kTermsBox)).value;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -85,7 +97,43 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
+    // Phase 443 — with every field valid the submit is still DISABLED until
+    // the consent box is ticked, and tapping it leaves the wizard on Step 1.
+    expect(_termsBoxValue(tester), isFalse);
+    expect(
+      _step1OnPressed(tester),
+      isNull,
+      reason: 'step1_submit must be disabled (onPressed: null) until ticked',
+    );
+    await tester.tap(find.byKey(_kStep1Submit), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    AppHarness.expectLocation(router, RouteNames.register);
+    expect(
+      find.byKey(const ValueKey<String>('step2_first_name')),
+      findsNothing,
+    );
+
+    // Phase 443 — the required terms-consent box gates the submit.
+    await tester.ensureVisible(find.byKey(_kTermsBox));
+    await tester.tap(find.byKey(_kTermsBox));
+    await tester.pump();
+    expect(_step1OnPressed(tester), isNotNull);
+    await tester.tap(find.byKey(_kStep1Submit));
+    await tester.pumpAndSettle();
+    AppHarness.expectLocation(router, RouteNames.registerStep2);
+
+    // Phase 443 D4 — the tick lives in the register draft: going BACK from
+    // Step 2 to Step 1 shows it still ticked and the submit still enabled.
+    await tester.tap(find.byKey(const ValueKey<String>('auth_scaffold_back')));
+    await tester.pumpAndSettle();
+    AppHarness.expectLocation(router, RouteNames.register);
+    expect(
+      _termsBoxValue(tester),
+      isTrue,
+      reason: 'the consent tick must survive Step 2 → back → Step 1',
+    );
+    expect(_step1OnPressed(tester), isNotNull);
+    await tester.tap(find.byKey(_kStep1Submit));
     await tester.pumpAndSettle();
     AppHarness.expectLocation(router, RouteNames.registerStep2);
 
@@ -129,6 +177,13 @@ void main() {
     AppHarness.expectLocation(router, RouteNames.verification);
     expect(fb.registerCalls, greaterThanOrEqualTo(1));
 
+    // Phase 443 D5 — the request carries the FULL consent triple, the
+    // versions being the app's constants (never a partial set).
+    final Map<String, dynamic> sent = fb.lastRegisterBody!;
+    expect(sent['termsAccepted'], isTrue);
+    expect(sent['termsVersion'], kTermsVersion);
+    expect(sent['privacyPolicyVersion'], kPrivacyPolicyVersion);
+
     // ── /verification screen visible ──────────────────────────────────────
     expect(
       find.byKey(const ValueKey<String>('verify_code_input')),
@@ -165,6 +220,14 @@ void main() {
     await tester.enterText(
       find.byKey(const ValueKey<String>('step1_confirm')),
       'Secret1234',
+    );
+    await tester.pump();
+    // Phase 443 — the required terms-consent box gates the submit.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('step1_terms_checkbox')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('step1_terms_checkbox')),
     );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));

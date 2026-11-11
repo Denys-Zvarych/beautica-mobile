@@ -62,6 +62,7 @@ import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_hint.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -626,8 +627,10 @@ class _EmptyCatalogue extends StatelessWidget {
 /// shared `widgets/service_catalogue_accordion.dart` widgets never depend on
 /// this feature's domain model. Preserves the pre-existing name-fallback
 /// (custom name, else the platform service-type's Ukrainian name) and the
-/// server-formatted duration/price strings.
-CatalogueRow _toCatalogueRow(MasterService s) {
+/// server-formatted duration/price strings. Phase 470: [hint] is this
+/// service's copy hint from [masterServiceNameHints] over the master's whole
+/// list (computed once in `_CatalogueBodyState`'s memo).
+CatalogueRow _toCatalogueRow(MasterService s, {String? hint}) {
   final String typeName = (s.serviceTypeNameUk ?? '').trim();
   final String customName = s.name.trim();
   final String name = customName.isNotEmpty ? customName : typeName;
@@ -637,6 +640,7 @@ CatalogueRow _toCatalogueRow(MasterService s) {
     categoryLabel: s.category ?? '',
     durationLabel: DurationMinutes.format(s.durationMinutes),
     priceLabel: ServicePriceDisplay.format(s),
+    hint: hint,
   );
 }
 
@@ -858,6 +862,9 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
     AppLocalizations l10n,
   ) {
+    // Phase 470 — copy hints over the master's WHOLE list (D1), once per memo
+    // pass (this runs only inside `_rebuildIfNeeded`).
+    final Map<String, String> hints = masterServiceNameHints(services);
     final Map<String, List<MasterService>> buckets =
         <String, List<MasterService>>{};
     for (final MasterService s in services) {
@@ -875,7 +882,8 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
             key: entry.key,
             label: label,
             rows: <CatalogueRow>[
-              for (final MasterService s in entry.value) _toCatalogueRow(s),
+              for (final MasterService s in entry.value)
+                _toCatalogueRow(s, hint: hints[s.id]),
             ],
           );
         })

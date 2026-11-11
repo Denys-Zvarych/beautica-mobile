@@ -127,6 +127,9 @@ Class | Method | HTTP request | Description
 [*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**getInvite**](doc/GuestReviewsApi.md#getinvite) | **GET** /api/v1/public/review-invites/{token} | Read a review invite
 [*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**optOut**](doc/GuestReviewsApi.md#optout) | **POST** /api/v1/public/review-invites/{token}/opt-out | Stop review-invite SMS for this phone
 [*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**submit**](doc/GuestReviewsApi.md#submit) | **POST** /api/v1/public/review-invites/{token}/reviews | Submit the guest&#39;s review(s)
+[*GuestTelegramLinkControllerApi*](doc/GuestTelegramLinkControllerApi.md) | [**linkToken**](doc/GuestTelegramLinkControllerApi.md#linktoken) | **POST** /api/v1/book/telegram/link-token | 
+[*GuestTelegramLinkControllerApi*](doc/GuestTelegramLinkControllerApi.md) | [**status**](doc/GuestTelegramLinkControllerApi.md#status) | **POST** /api/v1/book/telegram/status | 
+[*GuestTelegramLinkControllerApi*](doc/GuestTelegramLinkControllerApi.md) | [**unlink**](doc/GuestTelegramLinkControllerApi.md#unlink) | **POST** /api/v1/book/telegram/unlink | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /api/v1/independent-masters/me | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateProfile**](doc/IndependentMasterControllerApi.md#updateprofile) | **PATCH** /api/v1/independent-masters/me/profile | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
@@ -166,7 +169,7 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**availability**](doc/PublicBookingControllerApi.md#availability) | **GET** /api/v1/book/{slug}/availability | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**book**](doc/PublicBookingControllerApi.md#book) | **POST** /api/v1/book/{slug}/booking | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**bookableDays**](doc/PublicBookingControllerApi.md#bookabledays) | **GET** /api/v1/book/{slug}/bookable-days | 
-[*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
+[*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | Cancel a guest booking or some of a visit&#39;s services by the SMS cancel token
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**reviews**](doc/PublicBookingControllerApi.md#reviews) | **GET** /api/v1/book/{slug}/reviews | 
@@ -346,6 +349,7 @@ Class | Method | HTTP request | Description
  - [BulkServiceItemRequest](doc/BulkServiceItemRequest.md)
  - [CancelBookingRequest](doc/CancelBookingRequest.md)
  - [CancelTokenInfoResponse](doc/CancelTokenInfoResponse.md)
+ - [CancelTokenItemResponse](doc/CancelTokenItemResponse.md)
  - [CatalogCategoryResponse](doc/CatalogCategoryResponse.md)
  - [CategoryRef](doc/CategoryRef.md)
  - [CategoryRequestResponse](doc/CategoryRequestResponse.md)
@@ -376,10 +380,15 @@ Class | Method | HTTP request | Description
  - [ForgotPasswordRequest](doc/ForgotPasswordRequest.md)
  - [GuestBookingRequest](doc/GuestBookingRequest.md)
  - [GuestBookingResponse](doc/GuestBookingResponse.md)
+ - [GuestCancelRequest](doc/GuestCancelRequest.md)
+ - [GuestCancelToken](doc/GuestCancelToken.md)
  - [GuestClientDto](doc/GuestClientDto.md)
  - [GuestReviewItemRequest](doc/GuestReviewItemRequest.md)
  - [GuestReviewSubmitRequest](doc/GuestReviewSubmitRequest.md)
  - [GuestReviewSubmitResponse](doc/GuestReviewSubmitResponse.md)
+ - [GuestTelegramLinkResponse](doc/GuestTelegramLinkResponse.md)
+ - [GuestTelegramStatusResponse](doc/GuestTelegramStatusResponse.md)
+ - [GuestTelegramTokenRequest](doc/GuestTelegramTokenRequest.md)
  - [GuestTokenResponse](doc/GuestTokenResponse.md)
  - [IndependentMasterUpdateRequest](doc/IndependentMasterUpdateRequest.md)
  - [InviteAcceptRequest](doc/InviteAcceptRequest.md)
@@ -479,6 +488,7 @@ Class | Method | HTTP request | Description
  - [SortObject](doc/SortObject.md)
  - [StatusUpdateRequest](doc/StatusUpdateRequest.md)
  - [SuggestServiceTypeRequest](doc/SuggestServiceTypeRequest.md)
+ - [TelegramAvailability](doc/TelegramAvailability.md)
  - [TimelineItemResponse](doc/TimelineItemResponse.md)
  - [UnclosedCountResponse](doc/UnclosedCountResponse.md)
  - [UnreadCountResponse](doc/UnreadCountResponse.md)

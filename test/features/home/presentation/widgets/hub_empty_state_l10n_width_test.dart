@@ -9,7 +9,9 @@
 // LOOSE width constraints, so an unpinned `HubFlatCard` shrinks to its widest
 // child — the message `Text`. `homeHubTimelineEmpty` is one short line, so its
 // card rendered ~233dp inside a 312dp row while the long two-line
-// `homeHubFavoriteMastersEmpty` filled the full 312dp.
+// favourite-masters empty string filled the full 312dp. (That favourites
+// section was removed from Головна in phase 477; the two remaining empty
+// states are still covered below.)
 //
 // Asserting only against today's ARB values would therefore leave the real
 // hazard uncovered: a future copy edit (a shorter Ukrainian string, a shorter
@@ -19,23 +21,21 @@
 // width does not move — a one-word message and a 200-character message must
 // both produce exactly the full content width.
 //
-// All three home-hub empty states are covered, not just the two that regressed.
-// Honest scope note on the third one: «Наступний запис» sits directly above the
-// other two, shares the identical `Column(start)` + `HubFlatCard` structure, and
+// Both remaining home-hub empty states are covered. Honest scope note on
+// «Наступний запис»: it sits directly above the timeline, shares the identical `Column(start)` + `HubFlatCard` structure, and
 // so carries the same latent hazard — but it does NOT shrink today even without
 // its `SizedBox`, because `HubEmptyState`'s CTA (`HubFilledButton` → aligned
 // `Container`) already expands to the loose max. Its assertions here therefore
-// pin the CROSS-CARD ALIGNMENT invariant the user actually reported (all three
-// empty cards line up), not the copy-length hazard; they would keep passing if
-// its `SizedBox` were removed while the CTA stayed. The copy-length regression
-// itself is guarded by the favourites and timeline entries, which do go red.
+// pin the CROSS-CARD ALIGNMENT invariant the user actually reported (the empty
+// cards line up), not the copy-length hazard; they would keep passing if its
+// `SizedBox` were removed while the CTA stayed. The copy-length regression
+// itself is guarded by the timeline entry, which does go red.
 //
-// Layer: Widget. None of the three sections reads a provider at build time.
+// Layer: Widget. Neither section reads a provider at build time.
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_empty_state.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
@@ -62,14 +62,13 @@ const String _longMessage =
     'very long line of copy cannot make the card any wider than the content '
     'row it lives in, just as a two-character message cannot make it narrower.';
 
-/// Keys of the three home-hub empty-state cards, in on-screen order.
+/// Keys of the home-hub empty-state cards, in on-screen order.
 const List<String> _cardKeys = <String>[
   'next_appointment_empty_card',
-  'favorite_masters_empty',
   'timeline_empty',
 ];
 
-/// [AppLocalizations] with the three home-hub empty-state messages swapped for
+/// [AppLocalizations] with the home-hub empty-state messages swapped for
 /// a caller-supplied string. Everything else falls through to the real Ukrainian
 /// translations, so the widgets render exactly as they do in production.
 class _StubMessages extends AppLocalizationsUk {
@@ -79,9 +78,6 @@ class _StubMessages extends AppLocalizationsUk {
 
   @override
   String get homeHubTimelineEmpty => message;
-
-  @override
-  String get homeHubFavoriteMastersEmpty => message;
 
   @override
   String get homeHubNoUpcomingAppointments => message;
@@ -106,10 +102,10 @@ class _StubMessagesDelegate extends LocalizationsDelegate<AppLocalizations> {
   bool shouldReload(_StubMessagesDelegate old) => old.message != message;
 }
 
-/// Pumps all three home-hub empty states as siblings of one padded ListView,
+/// Pumps every home-hub empty state as siblings of one padded ListView,
 /// exactly as `home_hub_screen.dart` composes them.
 ///
-/// [message] (when non-null) replaces the three empty-state strings; passing
+/// [message] (when non-null) replaces the empty-state strings; passing
 /// null keeps the real ARB copy for [locale].
 Future<void> _pumpEmptyStates(
   WidgetTester tester, {
@@ -146,8 +142,6 @@ Future<void> _pumpEmptyStates(
           padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
           children: const <Widget>[
             NextAppointmentEmptyState(),
-            SizedBox(height: VelvetSpacing.lg),
-            FavoriteMastersCard(masters: <FavoriteMasterItem>[], totalCount: 0),
             SizedBox(height: VelvetSpacing.lg),
             BeautyTimelineSection(entries: <TimelineEntry>[], onSeeAll: _noop),
           ],

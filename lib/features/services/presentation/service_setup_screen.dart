@@ -30,9 +30,12 @@
 // already offers rolls back the WHOLE batch with 409 DUPLICATE_SERVICE. A
 // screen written for an empty catalogue happily lists those types, so reusing
 // it for APPEND without filtering would make some saves impossible. Rows for
-// already-owned types are therefore seeded `alreadyAdded` (see
-// [ServiceRowState.alreadyAdded]) — rendered in place, visibly inert, and
-// structurally un-includable.
+// already-owned types are therefore seeded `alreadyAdded` + `ownedDurations`
+// (see [ServiceRowState]). Phase 468 (backend 464/465): an owned type may be
+// added again as a COPY whose duration or name differs, so the row stays
+// selectable, starts with an empty duration (phase 472), and blocks the CTA
+// while its duration matches an existing copy (the client mirrors the duration half of the rule;
+// the server 409 backstops name collisions).
 //
 // On a successful bulk save the catalogue providers are invalidated and the
 // screen POPS back to the list. Popping (not `go`) is load-bearing: the list's
@@ -66,6 +69,7 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_key.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_setup_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
@@ -109,7 +113,40 @@ class ServiceSetupScreen extends ConsumerStatefulWidget {
   ConsumerState<ServiceSetupScreen> createState() => _ServiceSetupScreenState();
 }
 
-class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
+/// Test-only probe onto the screen state's row-wrapper [GlobalKey] cache, so
+/// a test can prove «Прибрати» releases the removed row's key.
+@visibleForTesting
+abstract interface class ServiceSetupRowKeysProbe {
+  /// The row key ids currently holding a cached wrapper [GlobalKey].
+  Iterable<String> get debugRowWrapperKeyIds;
+
+  /// How many times the copy pair check has run since the screen mounted.
+  int get debugPairCheckRuns;
+}
+
+/// Test-only handle onto the state's log-safe error summary, so a test can pin
+/// that a server failure logs only its type + status code, never its message.
+@visibleForTesting
+String debugServiceSetupErrorSummary(Object e) =>
+    _ServiceSetupScreenState._errorSummary(e);
+
+/// A row card's callbacks, allocated once per row (not per build).
+final class _RowCallbacks {
+  const _RowCallbacks({
+    required this.changed,
+    required this.fieldEdited,
+    required this.addCopy,
+    required this.remove,
+  });
+
+  final VoidCallback changed;
+  final ValueChanged<bool> fieldEdited;
+  final VoidCallback addCopy;
+  final VoidCallback remove;
+}
+
+class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
+    implements ServiceSetupRowKeysProbe {
   static const _tag = 'feature.services.setup_screen';
 
   /// Matches a backend per-field validation key `items[<zero-based-index>].<field>`
@@ -126,6 +163,40 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   final Map<String, List<ServiceRowState>> _rowsByCategory =
       <String, List<ServiceRowState>>{};
 
+  /// Phase 471 — every row of each service type, in on-screen order (the
+  /// primary row first, then its «+ додати ще» copies). The same objects as in
+  /// [_rowsByCategory], where a type's rows sit adjacent.
+  final Map<String, List<ServiceRowState>> _typeRows =
+      <String, List<ServiceRowState>>{};
+
+  /// Per-row card callbacks, created on the row's first build and dropped
+  /// with the row (weakly held), so a rebuild allocates no closures.
+  final Expando<_RowCallbacks> _rowCallbacks = Expando<_RowCallbacks>();
+
+  _RowCallbacks _callbacksFor(ServiceRowState row) =>
+      _rowCallbacks[row] ??= _RowCallbacks(
+        changed: () => _onRowChanged(row.serviceTypeId),
+        fieldEdited: (bool takenFlipped) =>
+            _onPairFieldEdited(row.serviceTypeId, takenFlipped: takenFlipped),
+        addCopy: () => _addCopy(row),
+        remove: () => _removeRow(row),
+      );
+
+  /// Row-independent range-error resolver; the tear-off is cached so a
+  /// rebuild passes the same object instead of allocating a closure per row.
+  late final RangeErrorResolver _rangeResolver = _resolveRangeError;
+
+  /// Null once unmounted: `context` is no longer valid for a lookup then.
+  String? _resolveRangeError(ServiceRowState r) =>
+      mounted ? _rangeErrorFor(r, AppLocalizations.of(context)) : null;
+
+  /// Test probe only — incremented under [kDebugMode], so release builds
+  /// tree-shake the bookkeeping away.
+  int _pairCheckRuns = 0;
+
+  @override
+  int get debugPairCheckRuns => _pairCheckRuns;
+
   /// Categories whose service-type fetch is currently in flight.
   final Set<String> _loadingCategories = <String>{};
 
@@ -141,7 +212,12 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   GlobalKey _rowWrapperKey(String id) =>
       _rowWrapperKeys.putIfAbsent(id, GlobalKey.new);
 
-  /// Service-type ids the master ALREADY offers, captured ONCE in [initState].
+  @override
+  Iterable<String> get debugRowWrapperKeyIds => _rowWrapperKeys.keys;
+
+  /// Durations of the master's existing copies, keyed by service-type id,
+  /// captured ONCE in [initState] (phase 468 — replaces the old id set; the
+  /// key set is "types the master already offers").
   ///
   /// Source: [servicesListProvider] — the master's own «Мої послуги» catalogue.
   /// Chosen over [masterServiceCatalogProvider] deliberately: the latter is the
@@ -161,11 +237,16 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// 409) rather than to over-blocking, which is the safer failure direction:
   /// the 409 is recoverable and explained, an over-eager exclusion would hide a
   /// service the master genuinely cannot add any other way.
-  late final Set<String> _ownedServiceTypeIds;
+  late final Map<String, Set<int>> _ownedDurationsByType;
+
+  /// Phase 472 — the master's existing services per type: the (duration,
+  /// canonical name) keys [ServiceRowState.durationTaken] compares with. Same
+  /// initState snapshot as [_ownedDurationsByType].
+  late final Map<String, List<MasterService>> _ownedByType;
 
   /// True when the master already had services on entry — the APPEND case.
-  /// Drives the copy variants only; the exclusion itself keys off
-  /// [_ownedServiceTypeIds].
+  /// Drives the copy variants only; ownership itself keys off
+  /// [_ownedDurationsByType].
   late final bool _appending;
 
   /// The [ServiceRowState]s backing the LAST assembled payload, in submitted
@@ -244,15 +325,306 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // set from another account's services on a shared device. `asData?.value`
     // is null in every non-AsyncData state, giving the empty set: "exclude
     // nothing", which is exactly the SETUP behaviour and is the correct
-    // degradation — see [_ownedServiceTypeIds] on why over-blocking would be
+    // degradation — see [_ownedDurationsByType] on why over-blocking would be
     // the worse failure.
     final List<MasterService> existing =
         ref.read(servicesListProvider).asData?.value ?? const <MasterService>[];
     _appending = existing.isNotEmpty;
-    _ownedServiceTypeIds = <String>{
-      for (final MasterService s in existing)
-        if (s.serviceTypeId case final String id when id.isNotEmpty) id,
-    };
+    _ownedDurationsByType = _durationsByType(existing);
+    _ownedByType = _servicesByType(existing);
+  }
+
+  /// `serviceTypeId → [service, …]` in catalogue order. Rows without a type
+  /// id cannot be matched and are skipped.
+  static Map<String, List<MasterService>> _servicesByType(
+    List<MasterService> services,
+  ) {
+    final Map<String, List<MasterService>> out =
+        <String, List<MasterService>>{};
+    for (final MasterService s in services) {
+      if (s.serviceTypeId case final String id when id.isNotEmpty) {
+        (out[id] ??= <MasterService>[]).add(s);
+      }
+    }
+    return out;
+  }
+
+  /// Groups [services] into `serviceTypeId → {durationMinutes}`. Every copy of
+  /// a type contributes its own duration, so two copies never collapse into
+  /// one entry. Rows without a type id cannot be matched and are skipped.
+  static Map<String, Set<int>> _durationsByType(List<MasterService> services) {
+    final Map<String, Set<int>> out = <String, Set<int>>{};
+    for (final MasterService s in services) {
+      if (s.serviceTypeId case final String id when id.isNotEmpty) {
+        (out[id] ??= <int>{}).add(s.durationMinutes);
+      }
+    }
+    return out;
+  }
+
+  /// Groups [services] into `serviceTypeId → {(durationMinutes, name key)}`,
+  /// the name key canonicalised by [serviceNameKey] (blank = the type name) so
+  /// it compares with [ServiceRowState.effectiveNameKey]. The type-name
+  /// fallback is the service's own `serviceTypeNameUk`, else the loaded row's
+  /// catalogue name — the same [ServiceRowState.nameUk] the row side falls
+  /// back to. Rows without a type id cannot be matched and are skipped.
+  Map<String, Set<(int, String)>> _copyKeysByType(
+    List<MasterService> services,
+  ) {
+    final Map<String, Set<(int, String)>> out = <String, Set<(int, String)>>{};
+    for (final MasterService s in services) {
+      if (s.serviceTypeId case final String id when id.isNotEmpty) {
+        String name = s.name;
+        if (name.trim().isEmpty) name = s.serviceTypeNameUk ?? '';
+        if (name.trim().isEmpty) {
+          name = _typeRows[id]?.firstOrNull?.nameUk ?? '';
+        }
+        (out[id] ??= <(int, String)>{}).add((
+          s.durationMinutes,
+          serviceNameKey(name),
+        ));
+      }
+    }
+    return out;
+  }
+
+  /// True when an included row is an exact duplicate — of an existing copy
+  /// ([ServiceRowState.durationTaken]) or of another row of its type in this
+  /// session ([ServiceRowState.copyCollision], phase 471).
+  static bool _isBlocked(ServiceRowState row) =>
+      row.durationTaken || (row.included && row.copyCollision);
+
+  /// The footer's single pass over every loaded row: the count the save would
+  /// create and whether any included row blocks it (phase 471 folded the old
+  /// separate duration-taken scan into this one).
+  ({int total, bool blocked}) _footerScan() {
+    var total = 0;
+    var blocked = false;
+    for (final rows in _rowsByCategory.values) {
+      for (final row in rows) {
+        if (!row.included) continue;
+        total++;
+        if (!blocked && _isBlocked(row)) blocked = true;
+      }
+    }
+    return (total: total, blocked: blocked);
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 471 — copy rows («+ додати ще» / «Прибрати») + pair check
+  // -------------------------------------------------------------------------
+
+  /// Re-runs the pair check for [typeId]: an included row collides when an
+  /// EARLIER included row of the same type has the same duration and the same
+  /// effective name (trimmed, lower-cased, blank = type name) — backend 464's
+  /// rule. Only the later row of a pair is marked. Returns true when any
+  /// row's state flipped.
+  bool _recheckType(String typeId) {
+    if (kDebugMode) _pairCheckRuns++;
+    final rows = _typeRows[typeId];
+    if (rows == null) return false;
+    var changed = false;
+    for (var i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      var collides = false;
+      if (row.included) {
+        final int? d = row.durationMinutes;
+        if (d != null) {
+          final String key = row.effectiveNameKey;
+          for (var j = 0; j < i && !collides; j++) {
+            final other = rows[j];
+            collides =
+                other.included &&
+                other.durationMinutes == d &&
+                other.effectiveNameKey == key;
+          }
+        }
+      }
+      if (row.copyCollision != collides) {
+        row.copyCollision = collides;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /// A row's include / mode / taken state changed: re-check its type, then
+  /// let the footer + chip badges re-derive.
+  void _onRowChanged(String typeId) {
+    _recheckType(typeId);
+    _notifyAggregate();
+  }
+
+  /// A real duration / name edit on a row (the card reports text changes
+  /// only, never caret moves, and reports each edit once). Bumps the footer
+  /// only when the pair check or the row's taken state flipped, so plain
+  /// typing stays local.
+  void _onPairFieldEdited(String typeId, {required bool takenFlipped}) {
+    if (_recheckType(typeId) || takenFlipped) _notifyAggregate();
+  }
+
+  /// The category row list holding [row] (by identity), or null.
+  List<ServiceRowState>? _categoryListOf(ServiceRowState row) {
+    for (final rows in _rowsByCategory.values) {
+      if (rows.any((r) => identical(r, row))) return rows;
+    }
+    return null;
+  }
+
+  /// «+ додати ще»: adds an included copy row of [source]'s type right after the
+  /// type's last row, with an empty duration (phase 472 D4).
+  void _addCopy(ServiceRowState source) {
+    final String typeId = source.serviceTypeId;
+    final group = _typeRows[typeId];
+    final categoryRows = _categoryListOf(source);
+    if (group == null || categoryRows == null) return;
+    var nextIndex = 1;
+    for (final r in group) {
+      if (r.copyIndex >= nextIndex) nextIndex = r.copyIndex + 1;
+    }
+    // Phase 472 (D4): the copy starts with an empty duration.
+    final copy = ServiceRowState.copyOf(source, copyIndex: nextIndex);
+    final ServiceRowState previous = group.last;
+    setState(() {
+      final int at = categoryRows.indexWhere((r) => identical(r, previous));
+      categoryRows.insert(at + 1, copy);
+      group.add(copy);
+    });
+    _onRowChanged(typeId);
+    _revealCopy(
+      copy,
+      previous,
+      focusAtTap: FocusManager.instance.primaryFocus,
+      token: ++_revealToken,
+    );
+  }
+
+  /// Phase 472 audit — the live reveal loop's token. Each «+ додати ще» tap
+  /// takes a fresh one (so only the latest reveal runs) and a user drag of
+  /// the list bumps it (so the loop never fights the master's scroll).
+  int _revealToken = 0;
+
+  /// A reveal started with [token] may continue.
+  bool _revealLive(int token) => mounted && token == _revealToken;
+
+  /// A user drag on the setup list (depth 0 — never a text field's own
+  /// scrollable) cancels a running reveal; programmatic scrolls carry no
+  /// drag details.
+  bool _onScrollStart(ScrollStartNotification n) {
+    if (n.depth == 0 && n.dragDetails != null) _revealToken++;
+    return false;
+  }
+
+  /// Phase 472 — after «+ додати ще»: focuses the new [copy]'s duration well
+  /// and scrolls its card fully into view, both starting in the first frame
+  /// after the tap. When the copy is not laid out yet (inserted past the
+  /// list's cache extent) the [previous] row is scrolled to first, then the
+  /// copy is retried once. Focus moves unless the master put it into another
+  /// field meanwhile (see [_focusUnmovedSinceTap]).
+  void _revealCopy(
+    ServiceRowState copy,
+    ServiceRowState previous, {
+    required FocusNode? focusAtTap,
+    required int token,
+    bool retried = false,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!_revealLive(token)) return;
+      final BuildContext? target = _rowWrapperKeys[copy.keyId]?.currentContext;
+      if (target == null) {
+        final BuildContext? prev =
+            _rowWrapperKeys[previous.keyId]?.currentContext;
+        if (retried || prev == null) return;
+        await Scrollable.ensureVisible(
+          prev,
+          duration: _revealDuration,
+          curve: Curves.easeOutCubic,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+        );
+        if (_revealLive(token)) {
+          _revealCopy(
+            copy,
+            previous,
+            focusAtTap: focusAtTap,
+            token: token,
+            retried: true,
+          );
+        }
+        return;
+      }
+      if (_focusUnmovedSinceTap(focusAtTap, previous)) {
+        copy.durationFocus.requestFocus();
+      }
+      await _settleInView(target, token);
+    });
+  }
+
+  /// True unless focus moved into another field after the «+ додати ще» tap:
+  /// it is still on the node focused at the tap, that node was detached (a
+  /// rebuild of the row above disposed it), nothing is focused, or it sits on
+  /// the row above's duration well (where a rebuild can hand it).
+  bool _focusUnmovedSinceTap(FocusNode? atTap, ServiceRowState previous) {
+    final FocusNode? now = FocusManager.instance.primaryFocus;
+    if (identical(now, atTap)) return true;
+    if (atTap != null && atTap.context == null) return true;
+    if (now == null || now is FocusScopeNode) return true;
+    return identical(now, previous.durationFocus);
+  }
+
+  /// Keeps [target]'s card fully on screen while the layout above it settles
+  /// (the row above grows as its name well animates in; the focused field's
+  /// caret reveal may interrupt a pass). Short passes back to back, ending
+  /// once two in a row leave the scroll offset where it was — or as soon as
+  /// [token] goes stale (a user drag, or a newer «+ додати ще» tap).
+  Future<void> _settleInView(BuildContext target, int token) async {
+    var idle = 0;
+    for (var pass = 0; pass < _revealMaxPasses && idle < 2; pass++) {
+      if (!_revealLive(token) || !target.mounted) return;
+      final ScrollPosition? position = Scrollable.maybeOf(target)?.position;
+      final double? before = position?.pixels;
+      await Scrollable.ensureVisible(
+        target,
+        duration: _revealDuration,
+        curve: Curves.easeOutCubic,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+      if (position == null || position.pixels == before) {
+        idle++;
+        await WidgetsBinding.instance.endOfFrame;
+      } else {
+        idle = 0;
+      }
+    }
+  }
+
+  static const Duration _revealDuration = Duration(milliseconds: 140);
+
+  /// Upper bound on [_settleInView] passes — a layout that never settles
+  /// cannot keep scrolling forever.
+  static const int _revealMaxPasses = 6;
+
+  /// «Прибрати»: removes [row]. Removing the primary row promotes the next
+  /// one (it keeps its values); the row is disposed after the frame that
+  /// unmounts its card.
+  void _removeRow(ServiceRowState row) {
+    final String typeId = row.serviceTypeId;
+    final group = _typeRows[typeId];
+    final categoryRows = _categoryListOf(row);
+    if (group == null || categoryRows == null || group.length < 2) return;
+    setState(() {
+      group.removeWhere((r) => identical(r, row));
+      categoryRows.removeWhere((r) => identical(r, row));
+      // Release the removed row's wrapper key; a promoted row's old copy key
+      // is released too — it rebuilds under the primary id.
+      _rowWrapperKeys.remove(row.keyId);
+      if (row.copyIndex == 0) {
+        final ServiceRowState promoted = group.first;
+        _rowWrapperKeys.remove(promoted.keyId);
+        promoted.copyIndex = 0;
+      }
+    });
+    _disposeAfterFrame(<ServiceRowState>[row]);
+    _onRowChanged(typeId);
   }
 
   @override
@@ -350,32 +722,54 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       // check means it does not even re-attach its listeners. Only types that
       // vanished from the catalogue are dropped, and their controllers are
       // disposed AFTER the frame that unmounts their card, never during it.
-      final Map<String, ServiceRowState> carried = <String, ServiceRowState>{
-        for (final row in _rowsByCategory[slug] ?? const <ServiceRowState>[])
-          row.serviceTypeId: row,
-      };
+      // Phase 471: carried per TYPE, so a type's «+ додати ще» copies survive a
+      // refetch together with its primary row, in order.
+      final Map<String, List<ServiceRowState>> carried =
+          <String, List<ServiceRowState>>{};
+      for (final row in _rowsByCategory[slug] ?? const <ServiceRowState>[]) {
+        (carried[row.serviceTypeId] ??= <ServiceRowState>[]).add(row);
+      }
       setState(() {
-        final rows = <ServiceRowState>[
-          for (final t in types)
-            carried.remove(t.id) ??
+        final rows = <ServiceRowState>[];
+        for (final t in types) {
+          final List<ServiceRowState> typeRows =
+              carried.remove(t.id) ??
+              <ServiceRowState>[
                 ServiceRowState(
                   serviceTypeId: t.id,
                   nameUk: t.nameUk,
-                  // Seeded at row-construction time so the flag is immutable for
-                  // the row's whole life — an already-owned type can never be
-                  // toggled on, so it can never reach the all-or-nothing payload
-                  // and trip a whole-batch 409.
-                  alreadyAdded: _ownedServiceTypeIds.contains(t.id),
+                  // Seeded at row-construction time, immutable for the row's
+                  // life. An owned type is selectable (phase 468) but blocks
+                  // the save while its duration matches an existing copy.
+                  alreadyAdded: _ownedDurationsByType.containsKey(t.id),
+                  ownedDurations: _ownedDurationsByType[t.id] ?? const <int>{},
+                  // Phase 472: the (duration, canonical name) keys
+                  // [ServiceRowState.durationTaken] compares with.
+                  ownedServices: _ownedByType[t.id] ?? const <MasterService>[],
                 ),
-        ];
+              ];
+          _typeRows[t.id] = typeRows;
+          rows.addAll(typeRows);
+        }
         _rowsByCategory[slug] = rows;
         _loadingCategories.remove(slug);
       });
-      _disposeAfterFrame(carried.values.toList(growable: false));
+      final List<ServiceRowState> orphans = <ServiceRowState>[
+        for (final entry in carried.entries) ...entry.value,
+      ];
+      for (final id in carried.keys) {
+        _typeRows.remove(id);
+      }
+      // Release the orphans' wrapper keys too — their cards unmount on this
+      // frame and their type ids are gone from the catalogue.
+      for (final row in orphans) {
+        _rowWrapperKeys.remove(row.keyId);
+      }
+      _disposeAfterFrame(orphans);
     } on Object catch (e, st) {
       if (kDebugMode) {
         log(
-          '_loadCategory($slug) failed: $e',
+          '_loadCategory($slug) failed: ${_errorSummary(e)}',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -419,16 +813,6 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     return rows.where((r) => r.included).length;
   }
 
-  /// Total services the save would create — every included row across all loaded
-  /// categories.
-  int get _totalIncluded {
-    var n = 0;
-    for (final rows in _rowsByCategory.values) {
-      n += rows.where((r) => r.included).length;
-    }
-    return n;
-  }
-
   // -------------------------------------------------------------------------
   // Validation + assembly + save
   // -------------------------------------------------------------------------
@@ -457,7 +841,8 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// when any included row is incomplete or invalid.
   List<MasterServiceBulkItem>? _assemble() {
     final items = <MasterServiceBulkItem>[];
-    final reasons = <String, RowFlagReason>{};
+    // Keyed by row identity: since phase 471 a type can have several rows.
+    final reasons = Map<ServiceRowState, RowFlagReason>.identity();
     // Capture the row↔submitted-item ordering so a 400's items[i].field path
     // resolves back to the originating row. Rebuilt from scratch each call.
     _submittedRows.clear();
@@ -466,7 +851,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       for (final row in rows) {
         if (!row.included) continue;
         final id = row.serviceTypeId;
-        final duration = int.tryParse(row.duration.text.trim());
+        // Phase 471: only a non-blank custom name is sent.
+        final String? name = row.customName;
+        final duration = row.durationMinutes;
         // Client-side mirror of the backend @Max(480) guard, so the common
         // over-8h case is caught before the network round-trip.
         final bool durationTooLong = duration != null && duration > 480;
@@ -476,7 +863,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
           final price = _parsePrice(row.fixed.text);
           final priceOk = price != null;
           if (!durationOk || !priceOk) {
-            reasons[id] = durationTooLong
+            reasons[row] = durationTooLong
                 ? RowFlagReason.durationTooLong
                 : (!durationOk && !priceOk
                       ? RowFlagReason.missingBoth
@@ -491,6 +878,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
               durationMinutes: duration,
               priceType: ServicePriceType.fixed,
               price: price,
+              name: name,
             ),
           );
           _submittedRows.add(row);
@@ -499,7 +887,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
           final max = _parsePrice(row.max.text);
           final priceOk = min != null && max != null && max > min;
           if (!durationOk || !priceOk) {
-            reasons[id] = durationTooLong
+            reasons[row] = durationTooLong
                 ? RowFlagReason.durationTooLong
                 : (!durationOk && !priceOk
                       ? RowFlagReason.missingBoth
@@ -515,6 +903,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
               priceType: ServicePriceType.range,
               priceMin: min,
               priceMax: max,
+              name: name,
             ),
           );
           _submittedRows.add(row);
@@ -525,7 +914,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // Flag each offending row on its own notifier — only those cards rebuild.
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
-        row.flagReason = reasons[row.serviceTypeId] ?? RowFlagReason.none;
+        row.flagReason = reasons[row] ?? RowFlagReason.none;
       }
     }
     if (reasons.isNotEmpty) return null;
@@ -555,8 +944,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
               if (row.included &&
                   (row.flagReason != RowFlagReason.none ||
                       row.serverDurationError != null ||
-                      row.serverPriceError != null))
-                row.serviceTypeId,
+                      row.serverPriceError != null ||
+                      row.serverNameError != null))
+                row.keyId,
         };
     if (flaggedIds.isEmpty) return;
 
@@ -624,6 +1014,18 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     _retryingAfterBusy = false;
 
     final l10n = AppLocalizations.of(context);
+    // Defensive: the CTA is disabled while a row is an exact duplicate (taken
+    // duration or phase-471 copy collision), but a same-frame tap could still
+    // land here — never send a known duplicate.
+    final Set<String> blockedIds = <String>{
+      for (final rows in _rowsByCategory.values)
+        for (final row in rows)
+          if (_isBlocked(row)) row.keyId,
+    };
+    if (blockedIds.isNotEmpty) {
+      _scrollToFirstFlagged(ids: blockedIds);
+      return;
+    }
     final items = _assemble();
     if (items == null || items.isEmpty) {
       // Blocked save: surface the first flagged row so the failure is visible.
@@ -689,7 +1091,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // navigation away — their unsaved configuration would be lost.
     //
     // The invalidation refreshes the LIST screen behind us so it is correct on
-    // return. It still does NOT re-seed `_ownedServiceTypeIds` / `alreadyAdded`:
+    // return. It still does NOT re-seed `_ownedDurationsByType` / `alreadyAdded`:
     // those are an initState snapshot precisely so rows cannot mutate under a
     // master mid-edit. What DOES happen now is narrower and stated out loud —
     // [_flagRowsNowOwned] re-reads the catalogue and switches off only the rows
@@ -727,6 +1129,13 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     _showErrorSnack(message);
   }
 
+  /// Log-safe summary of a caught error: its type and, for a server failure,
+  /// the status code — never the message, which can carry a request URL.
+  static String _errorSummary(Object e) => switch (e) {
+    ServerFailure(:final int? statusCode) => 'ServerFailure($statusCode)',
+    _ => '${e.runtimeType}',
+  };
+
   /// Re-reads the master's catalogue after a 409 and switches OFF every
   /// currently-included row the refreshed list now claims, flagging each
   /// [RowFlagReason.alreadyInMenu] so the change is stated rather than silent.
@@ -743,7 +1152,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     } on Object catch (e, st) {
       if (kDebugMode) {
         log(
-          '_flagRowsNowOwned: catalogue re-read failed: $e',
+          '_flagRowsNowOwned: catalogue re-read failed: ${_errorSummary(e)}',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -753,22 +1162,31 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     }
     if (!mounted) return;
 
-    final owned = <String>{
-      for (final MasterService s in refreshed)
-        if (s.serviceTypeId case final String id when id.isNotEmpty) id,
-    };
+    // Phase 468/471: a type may legitimately be owned more than once, so only
+    // a row whose (type, duration, canonical name) triple the refreshed list
+    // now claims is the duplicate — backend V233's rule. A copy at another
+    // duration, or under another name, stays selected; a renamed row whose
+    // name the 409 was about is caught too.
+    final owned = _copyKeysByType(refreshed);
     if (owned.isEmpty) return;
 
     final flagged = <String>{};
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
-        if (!row.included || !owned.contains(row.serviceTypeId)) continue;
+        if (!row.included) continue;
+        final int? duration = row.durationMinutes;
+        final Set<(int, String)>? ownedKeys = owned[row.serviceTypeId];
+        if (ownedKeys == null ||
+            duration == null ||
+            !ownedKeys.contains((duration, row.effectiveNameKey))) {
+          continue;
+        }
         // Off FIRST: `included` is what makes a row submittable, so clearing it
         // is what actually unblocks the next save. The flag is the explanation
         // that keeps the change from reading as the app losing the selection.
         row.included = false;
         row.flagReason = RowFlagReason.alreadyInMenu;
-        flagged.add(row.serviceTypeId);
+        flagged.add(row.keyId);
       }
     }
     if (flagged.isEmpty) return;
@@ -885,6 +1303,12 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
           l10n.serviceSetupPriceInvalid,
         );
         mappedAny = true;
+      } else if (field == 'name') {
+        // Phase 471: the only name constraints the client cannot already
+        // enforce are the backend's character allow-list (the formatter
+        // mirrors it; this is the backstop), so the copy is always localized.
+        row.serverNameError = l10n.serviceSetupCopyNameInvalid;
+        mappedAny = true;
       }
     }
     return mappedAny;
@@ -966,12 +1390,12 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
             ListenableBuilder(
               listenable: _aggregate,
               builder: (context, _) {
-                final total = _totalIncluded;
+                final (:total, :blocked) = _footerScan();
                 return _Footer(
                   total: total,
                   saving: saving,
                   appending: _appending,
-                  onSave: total == 0 ? null : _save,
+                  onSave: total == 0 || blocked ? null : _save,
                 );
               },
             ),
@@ -990,48 +1414,64 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     List<ServiceCategoryOption> categories,
   ) {
     final List<_SetupSlot> slots = _expandedSlots(l10n, categories);
-    return CustomScrollView(
-      physics: const BouncingScrollPhysics(),
-      slivers: <Widget>[
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.sm,
-            VelvetSpacing.lg,
-            0,
-          ),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                // Sits directly above the chip Wrap — the CATEGORY-selection
-                // surface — because that is the scope it acts on.
-                _MissingCategoryPrompt(onTap: _requestCategory),
-                const SizedBox(height: VelvetSpacing.lg),
-                _categorySection(l10n, categories),
-                const SizedBox(height: VelvetSpacing.lg),
-              ],
+    // Stable key → slot index, so inserting / removing a copy row re-attaches
+    // every row below to its existing element instead of remounting it. Rows
+    // resolve by their cached wrapper [GlobalKey] (only rows already built
+    // have one — an unbuilt row has no element to find).
+    final Map<Key, int> slotIndexByKey = <Key, int>{};
+    for (var i = 0; i < slots.length; i++) {
+      final Key? key = switch (slots[i]) {
+        _FixedSlot(:final Widget child) => child.key,
+        _RowSlot(:final ServiceRowState row) => _rowWrapperKeys[row.keyId],
+      };
+      if (key != null) slotIndexByKey[key] = i;
+    }
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: _onScrollStart,
+      child: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              VelvetSpacing.sm,
+              VelvetSpacing.lg,
+              0,
+            ),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  // Sits directly above the chip Wrap — the CATEGORY-selection
+                  // surface — because that is the scope it acts on.
+                  _MissingCategoryPrompt(onTap: _requestCategory),
+                  const SizedBox(height: VelvetSpacing.lg),
+                  _categorySection(l10n, categories),
+                  const SizedBox(height: VelvetSpacing.lg),
+                ],
+              ),
             ),
           ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            0,
-            VelvetSpacing.lg,
-            VelvetSpacing.xl,
-          ),
-          sliver: SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => switch (slots[index]) {
-                _FixedSlot(:final Widget child) => child,
-                _RowSlot(:final ServiceRowState row) => _rowCard(row, l10n),
-              },
-              childCount: slots.length,
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              0,
+              VelvetSpacing.lg,
+              VelvetSpacing.xl,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => switch (slots[index]) {
+                  _FixedSlot(:final Widget child) => child,
+                  _RowSlot(:final ServiceRowState row) => _rowCard(row),
+                },
+                childCount: slots.length,
+                findChildIndexCallback: (key) => slotIndexByKey[key],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1136,10 +1576,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       }
 
       final rows = _rowsByCategory[slug] ?? const <ServiceRowState>[];
-      // "n з m" counts only the SELECTABLE types. Counting already-owned ones in
-      // `m` would render "0 з 8" for a master who already offers 8 of 8 — which
-      // reads as a broken screen rather than as "you have them all".
-      final int selectable = rows.where((r) => !r.alreadyAdded).length;
+      // "n з m": since phase 468 an owned type is selectable again (as a copy),
+      // so `m` counts every type in the category.
+      final int selectable = rows.length;
+      final bool allOwned =
+          rows.isNotEmpty && rows.every((r) => r.alreadyAdded);
       // The header's live "n з m" count derives from the aggregate so it tracks
       // include toggles without forcing a full-tree rebuild.
       out.add(
@@ -1167,10 +1608,9 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
             ),
           ),
         );
-      } else if (selectable == 0) {
+      } else if (allOwned) {
         // Every type here is already in the master's menu. Say so explicitly —
-        // the rows below are all inert, and without this line the category
-        // looks broken rather than complete.
+        // each row below can still be added again at another duration.
         out.add(
           _FixedSlot(
             Padding(
@@ -1215,8 +1655,16 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// `Scrollable.ensureVisible` this flagged row, inner [RepaintBoundary]
   /// keeping its `rowwrap_$id` [ValueKey] for test finders and capping the
   /// per-row expand/collapse animation's repaint blast radius to this one card.
-  Widget _rowCard(ServiceRowState row, AppLocalizations l10n) {
-    final id = row.serviceTypeId;
+  ///
+  /// Phase 471: keys use [ServiceRowState.keyId] (the bare type id for the
+  /// primary row, so every pre-471 key is unchanged). «+ додати ще» is offered
+  /// on every row (the card shows it only while included); «Прибрати» once the
+  /// type has more than one row. Phase 472 (D3): the name well opens from the
+  /// card's pencil (or while the row carries a custom name).
+  Widget _rowCard(ServiceRowState row) {
+    final id = row.keyId;
+    final bool hasCopies = (_typeRows[row.serviceTypeId]?.length ?? 1) > 1;
+    final _RowCallbacks callbacks = _callbacksFor(row);
     return KeyedSubtree(
       key: _rowWrapperKey(id),
       child: RepaintBoundary(
@@ -1226,8 +1674,16 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
           child: ServiceTypeRowCard(
             key: Key('setup_row_$id'),
             row: row,
-            resolveRangeError: (r) => _rangeErrorFor(r, l10n),
-            onChanged: _notifyAggregate,
+            resolveRangeError: _rangeResolver,
+            onChanged: callbacks.changed,
+            onFieldEdited: callbacks.fieldEdited,
+            onAddCopy: callbacks.addCopy,
+            onRemove: hasCopies ? callbacks.remove : null,
+            // Phase 472 (D3/D4.3): every card — owned or not, primary or
+            // copy — shows its name with a pencil that edits the title in
+            // place; the title shows the custom name, so a sent name is
+            // never hidden.
+            offerCustomName: true,
           ),
         ),
       ),
@@ -1624,6 +2080,7 @@ class _Footer extends StatelessWidget {
   });
 
   final int total;
+
   final bool saving;
 
   /// APPEND mode — the CTA says "add N" rather than "create my menu of N".

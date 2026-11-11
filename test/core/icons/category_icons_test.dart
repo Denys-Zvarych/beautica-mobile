@@ -17,7 +17,7 @@
 //
 // The headline invariant pinned throughout is FALLBACK TOTALITY: for ANY
 // input — known, unknown, null, empty, or adversarial — the function must
-// (a) never throw and (b) always return one of the 20 real, bundled
+// (a) never throw and (b) always return one of the 21 real, bundled
 // `BeauticaAssetIcons.category*` asset paths. See the "totality" group at
 // the bottom, which is the load-bearing assertion for the security finding.
 
@@ -29,8 +29,8 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
 
 // ---------------------------------------------------------------------------
-// The 20 live `platform_categories` slugs (V74__seed_taxonomy_platform_
-// categories.sql) mapped to the asset constant `_fromKey` must resolve them
+// The 21 live `platform_categories` slugs (V74__seed_taxonomy_platform_
+// categories.sql + backend phase 453 `BODY_MASSAGE`) mapped to the asset constant `_fromKey` must resolve them
 // to. Declared once here so the "every known slug" and "totality" groups
 // share one source of truth instead of two hand-typed lists drifting apart.
 // ---------------------------------------------------------------------------
@@ -56,9 +56,10 @@ const Map<String, String> _knownSlugToAsset = <String, String>{
   'LASER_COSMETOLOGY': BeauticaAssetIcons.categoryLaserCosmetology,
   'HAIR_REMOVAL': BeauticaAssetIcons.categoryHairRemoval,
   'PERMANENT_MAKEUP': BeauticaAssetIcons.categoryPermanentMakeup,
+  'BODY_MASSAGE': BeauticaAssetIcons.categoryBodyMassage,
 };
 
-/// All 20 registered category asset constants — the resolver's total
+/// All 21 registered category asset constants — the resolver's total
 /// codomain. Any input, however adversarial, must resolve to a member of
 /// this set (see the "totality" group).
 final Set<String> _registeredCategoryAssets = _knownSlugToAsset.values.toSet();
@@ -77,23 +78,31 @@ void main() {
     });
 
     test(
-      'all 20 known slugs are registered (sanity on the fixture itself)',
+      'all 21 known slugs are registered (sanity on the fixture itself)',
       () {
-        expect(_knownSlugToAsset.length, 20);
+        expect(_knownSlugToAsset.length, 21);
       },
     );
 
-    test('all 20 known slugs resolve to 20 DISTINCT assets — no accidental '
+    test('all 21 known slugs resolve to 21 DISTINCT assets — no accidental '
         'many-to-one collapse in the switch', () {
       final Set<String> resolved = _knownSlugToAsset.keys
           .map((String slug) => categoryIconFor(categoryKey: slug))
           .toSet();
       expect(
         resolved.length,
-        20,
+        21,
         reason:
             'a copy-paste error in _fromKey\'s switch could map two slugs '
             'to the same asset without any single-slug test catching it',
+      );
+    });
+
+    test('display name «Масаж і догляд за тілом» resolves to the body-massage '
+        'asset when no key is present (Stage 2)', () {
+      expect(
+        categoryIconFor(categoryName: 'Масаж і догляд за тілом'),
+        BeauticaAssetIcons.categoryBodyMassage,
       );
     });
 
@@ -276,7 +285,7 @@ void main() {
     });
   });
 
-  // ── Totality: the resolver NEVER returns a path outside the 20 real ──────
+  // ── Totality: the resolver NEVER returns a path outside the 21 real ──────
   //              registered/bundled assets — the security-load-bearing group.
 
   group('categoryIconFor — totality: every returned path is a real, registered '
@@ -306,6 +315,7 @@ void main() {
       (null, 'брови'),
       (null, "ін'єкційна косметологія"),
       (null, 'зовсім невідома категорія'),
+      (null, 'Масаж і догляд за тілом'),
     ];
 
     for (final (String? key, String? name) in battery) {
@@ -323,12 +333,12 @@ void main() {
           isTrue,
           reason:
               'categoryIconFor returned "$result", which is NOT one of '
-              'the 20 registered BeauticaAssetIcons.category* constants',
+              'the 21 registered BeauticaAssetIcons.category* constants',
         );
       });
     }
 
-    test('every one of the 20 registered category assets is a real file '
+    test('every one of the 21 registered category assets is a real file '
         'bundled under assets/icons/ (catches a typo\'d/missing SVG the '
         'Dart type system cannot)', () {
       for (final String assetPath in _registeredCategoryAssets) {

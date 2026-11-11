@@ -376,6 +376,55 @@ abstract final class AppHarness {
     await tester.pump();
   }
 
+  /// Phase 472 — pumps until the add-services «+ додати ще» reveal has
+  /// settled: the new [card] is laid out, its scrollable is no longer
+  /// scrolling, the card sits fully inside that scrollable's viewport, and
+  /// focus is on the [durationField]'s editable text. Condition-based (no
+  /// fixed waits), bounded by [timeout]. Pass `skipOffstage: false` finders,
+  /// so a card still below the fold is measured rather than missed.
+  static Future<void> pumpUntilRevealSettled(
+    WidgetTester tester, {
+    required Finder card,
+    required Finder durationField,
+    Duration timeout = const Duration(seconds: 20),
+  }) {
+    bool settled() {
+      final Finder c = card.first;
+      if (c.evaluate().isEmpty) return false;
+      final ScrollableState? scrollable = Scrollable.maybeOf(
+        c.evaluate().first,
+      );
+      if (scrollable == null) return false;
+      if (scrollable.position.isScrollingNotifier.value) return false;
+      final Rect viewport = tester.getRect(
+        find.byWidget(scrollable.widget, skipOffstage: false),
+      );
+      final Rect rect = tester.getRect(c);
+      if (rect.top < viewport.top || rect.bottom > viewport.bottom) {
+        return false;
+      }
+      final Finder editable = find.descendant(
+        of: durationField,
+        matching: find.byType(EditableText),
+        skipOffstage: false,
+      );
+      if (editable.evaluate().isEmpty) return false;
+      return identical(
+        FocusManager.instance.primaryFocus,
+        tester.widget<EditableText>(editable).focusNode,
+      );
+    }
+
+    return pumpUntilCondition(
+      tester,
+      settled,
+      description:
+          'the «+ додати ще» reveal to settle (card fully on screen, no '
+          'scroll activity, its duration focused)',
+      timeout: timeout,
+    );
+  }
+
   // ── Scroll-into-view + hit-testable tap (existence-vs-readiness guard) ─────
 
   /// Taps [finder] only after it is genuinely interactable — not merely

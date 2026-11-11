@@ -53,7 +53,6 @@ import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_empty_state.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
@@ -225,16 +224,6 @@ final _sampleAppointment = Booking(
   canReview: false,
 );
 
-const _sampleMaster = FavoriteMasterItem(
-  masterId: 'master-1',
-  favoriteId: 'fav-1',
-  name: 'Марія Іванюк',
-  lastServiceName: 'Манікюр',
-  rating: 5.0,
-  reviewCount: 42,
-  initials: 'МІ',
-);
-
 const _sampleTimeline = <TimelineEntry>[
   TimelineEntry(category: 'Манікюр', dateLabel: '18.06'),
   TimelineEntry(category: 'Брови', dateLabel: '12.05'),
@@ -281,9 +270,6 @@ class _CountingFakeTimelineRepository implements TimelineRepository {
 List<Object> _overrides({
   AsyncValue<ClientProfileSummary>? profile,
   AsyncValue<Booking?> nextAppt = const AsyncData(null),
-  AsyncValue<List<FavoriteMasterItem>> favorites = const AsyncData(
-    <FavoriteMasterItem>[],
-  ),
   AsyncValue<List<TimelineEntry>> timeline = const AsyncData(<TimelineEntry>[]),
   // The rating pill sources from the authoritative myRatingProvider (same as
   // MyRatingScreen), not the profile summary's clientRating slice. Overriding
@@ -310,13 +296,6 @@ List<Object> _overrides({
         error: (e, _) => null,
       );
     }),
-    favoriteMastersProvider.overrideWith((ref) async {
-      return favorites.when(
-        data: (v) => v,
-        loading: () => const <FavoriteMasterItem>[],
-        error: (e, _) => const <FavoriteMasterItem>[],
-      );
-    }),
     beautyTimelineProvider.overrideWith((ref) async {
       return timeline.when(
         data: (v) => v,
@@ -324,7 +303,6 @@ List<Object> _overrides({
         error: (e, _) => const <TimelineEntry>[],
       );
     }),
-    unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
   ];
 }
 
@@ -366,6 +344,36 @@ void main() {
         findsOneWidget,
         reason: 'home body must render in isolation even with the bar hoisted',
       );
+    });
+
+    // Phase 477 AC1 — the favourite-masters block is gone from Головна;
+    // favourites live only in Обране and the quick-link tile (AC3).
+    testWidgets('renders no favourite-masters block; quick link stays', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const HomeHubScreen(),
+        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
+        // Tall surface so the ListView builds every section down to the
+        // BEAUTY TIMELINE (the slot the removed block sat above).
+        width: 390,
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('timeline_empty')),
+        findsOneWidget,
+        reason: 'harness sanity: the last section must be built',
+      );
+      for (final String key in <String>[
+        'favorite_masters_empty',
+        'favorite_masters_rail',
+        'favorite_masters_see_all',
+      ]) {
+        expect(find.byKey(Key(key)), findsNothing, reason: key);
+      }
+      expect(find.textContaining('улюблених майстрів'), findsNothing);
+      expect(find.byKey(const Key('quick_link_favorites')), findsOneWidget);
     });
   });
 
@@ -412,14 +420,8 @@ void main() {
               (_) => const _FakeLocationRepository(<City>[_kyivCity]),
             ),
             nextAppointmentProvider.overrideWith((ref) async => null),
-            favoriteMastersProvider.overrideWith(
-              (ref) async => const <FavoriteMasterItem>[],
-            ),
             beautyTimelineProvider.overrideWith(
               (ref) async => const <TimelineEntry>[],
-            ),
-            unlikeFavoriteMasterProvider.overrideWith(
-              () => UnlikeFavoriteMaster(),
             ),
           ],
         );
@@ -465,14 +467,8 @@ void main() {
             ),
           ),
           nextAppointmentProvider.overrideWith((ref) async => null),
-          favoriteMastersProvider.overrideWith(
-            (ref) async => const <FavoriteMasterItem>[],
-          ),
           beautyTimelineProvider.overrideWith(
             (ref) async => const <TimelineEntry>[],
-          ),
-          unlikeFavoriteMasterProvider.overrideWith(
-            () => UnlikeFavoriteMaster(),
           ),
         ],
       );
@@ -546,14 +542,8 @@ void main() {
             nextAppointmentProvider.overrideWith(
               (ref) => Completer<Booking?>().future,
             ),
-            favoriteMastersProvider.overrideWith(
-              (ref) async => const <FavoriteMasterItem>[],
-            ),
             beautyTimelineProvider.overrideWith(
               (ref) async => const <TimelineEntry>[],
-            ),
-            unlikeFavoriteMasterProvider.overrideWith(
-              () => UnlikeFavoriteMaster(),
             ),
           ],
         );
@@ -730,13 +720,9 @@ void main() {
       myRatingProvider.overrideWith((ref) async => const ClientRating()),
       clientProfileProvider.overrideWith((ref) async => _sampleProfile),
       nextAppointmentProvider.overrideWith((ref) async => build()),
-      favoriteMastersProvider.overrideWith(
-        (ref) async => const <FavoriteMasterItem>[],
-      ),
       beautyTimelineProvider.overrideWith(
         (ref) async => const <TimelineEntry>[],
       ),
-      unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
     ];
 
     testWidgets(
@@ -841,47 +827,6 @@ void main() {
         expect(find.text(l10n.homeHubNextApptLoadError), findsNothing);
       },
     );
-  });
-
-  group('FavoriteMastersCard', () {
-    testWidgets('empty state when masters is empty', (tester) async {
-      await tester.pumpApp(
-        const FavoriteMastersCard(masters: [], totalCount: 0),
-        overrides: [
-          unlikeFavoriteMasterProvider.overrideWith(
-            () => UnlikeFavoriteMaster(),
-          ),
-        ],
-      );
-      await tester.pump();
-      expect(find.byKey(const Key('favorite_masters_empty')), findsOneWidget);
-    });
-
-    testWidgets('rail is shown when masters list is non-empty', (tester) async {
-      await tester.pumpApp(
-        const FavoriteMastersCard(masters: [_sampleMaster], totalCount: 1),
-        overrides: [
-          unlikeFavoriteMasterProvider.overrideWith(
-            () => UnlikeFavoriteMaster(),
-          ),
-        ],
-      );
-      await tester.pump();
-      expect(find.byKey(const Key('favorite_masters_rail')), findsOneWidget);
-    });
-
-    testWidgets('unlike button has correct key per master', (tester) async {
-      await tester.pumpApp(
-        const FavoriteMastersCard(masters: [_sampleMaster], totalCount: 1),
-        overrides: [
-          unlikeFavoriteMasterProvider.overrideWith(
-            () => UnlikeFavoriteMaster(),
-          ),
-        ],
-      );
-      await tester.pump();
-      expect(find.byKey(const Key('unlike_master_master-1')), findsOneWidget);
-    });
   });
 
   group('BeautyTimelineSection', () {
@@ -1340,8 +1285,8 @@ void main() {
   //     invalidate + re-fetch chain under test. Only `timelineRepositoryProvider`
   //     is overridden, with `_CountingFakeTimelineRepository` returning a
   //     DIFFERENT fixture per call.
-  //   • `clientProfileProvider` / `nextAppointmentProvider` /
-  //     `favoriteMastersProvider` are stubbed directly (their own re-fetch
+  //   • `clientProfileProvider` / `nextAppointmentProvider` are stubbed
+  //     directly (their own re-fetch
   //     wiring is proven elsewhere — `master_profile_screen_refresh_test.dart`
   //     for the master side; this group is scoped to the timeline card only).
   //
@@ -1379,15 +1324,9 @@ void main() {
             myRatingProvider.overrideWith((ref) async => const ClientRating()),
             clientProfileProvider.overrideWith((ref) async => _sampleProfile),
             nextAppointmentProvider.overrideWith((ref) async => null),
-            favoriteMastersProvider.overrideWith(
-              (ref) async => const <FavoriteMasterItem>[],
-            ),
             // The REAL beautyTimelineProvider stays wired — only its
             // repository dependency is faked. See the group doc above.
             timelineRepositoryProvider.overrideWithValue(fakeRepo),
-            unlikeFavoriteMasterProvider.overrideWith(
-              () => UnlikeFavoriteMaster(),
-            ),
           ],
         );
 

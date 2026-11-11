@@ -1,11 +1,9 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 2 of 2 (2026-07-01 split).
 //
 // See `all_tests_part1.dart` for the full rationale. This file carries the
-// remaining 13 of 23 flows (updated by the Beautica OTP task Phase B6
-// additions, the salon-master booking-bug flow, and the master-home
-// add-services CTA flow) so each `flutter test` process in CI reports a
-// bounded number of tests instead of aggregating all of them into one
-// long-lived run.
+// remaining 85 of 155 flows (part 1 carries 70) so each `flutter test`
+// process reports a bounded number of tests instead of aggregating all of
+// them into one long-lived run.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -82,6 +80,13 @@ import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'services_catalogue_refresh_flow_test.dart'
     as services_catalogue_refresh;
+import 'service_copy_flow_test.dart' as service_copy;
+import 'service_copy_hint_flow_test.dart' as service_copy_hint;
+import 'client_booking_service_copy_flow_test.dart'
+    as client_booking_service_copy;
+import 'salon_booking_service_copy_flow_test.dart'
+    as salon_booking_service_copy;
+import 'service_copy_row_flow_test.dart' as service_copy_row;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
@@ -365,6 +370,13 @@ void main() {
     'salon_admin_set_master_services_flow',
     salon_admin_set_master_services.main,
   );
+  group('service_copy_flow', service_copy.main);
+  group('service_copy_hint_flow', service_copy_hint.main);
+  group('client_booking_service_copy_flow', client_booking_service_copy.main);
+  group('salon_booking_service_copy_flow', salon_booking_service_copy.main);
+  // Phase 471 — «+ додати ще» adds a copy row to the same add-services save:
+  // free-duration seed, blank-name collision, «Прибрати» drops the copy.
+  group('service_copy_row_flow', service_copy_row.main);
   group('service_crud_flow', service_crud.main);
   group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays

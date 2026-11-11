@@ -42,6 +42,7 @@ import 'package:beautica_mobile/core/widgets/size_reveal.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_hint.dart';
 import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
@@ -672,6 +673,11 @@ class _LoadedBody extends ConsumerStatefulWidget {
 @visibleForTesting
 int debugRegroupCount = 0;
 
+/// How many times the list ran the copy-hint rule (cache MISSES in
+/// `_resolveNameHints`). Test-only observability for the hints memo.
+@visibleForTesting
+int debugNameHintsCount = 0;
+
 class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   // PERF A2 (MEDIUM): the memoized grouping. Re-run [_group] only when the
   // services list changes by identity or the categories list changes by value
@@ -685,6 +691,23 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   // P-M2 fix: cache the _flatten() result. Invalidated whenever _cachedGroups
   // is recomputed (identity change of services or categories).
   List<_ListItem>? _cachedItems;
+
+  // Phase 469 — copy hints for this owner's list, memoised per services-list
+  // identity (computed once per list, not per card build).
+  List<MasterService>? _hintsSource;
+  Map<String, String> _nameHints = const <String, String>{};
+
+  Map<String, String> _resolveNameHints() {
+    if (!identical(_hintsSource, widget.services)) {
+      assert(() {
+        debugNameHintsCount++;
+        return true;
+      }());
+      _hintsSource = widget.services;
+      _nameHints = masterServiceNameHints(widget.services);
+    }
+    return _nameHints;
+  }
 
   // Phase 076 rows 1-2 — the open/closed set lives HERE, not in the
   // `CategorySection` State: a section scrolled beyond the cache extent is
@@ -855,6 +878,7 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
     // _resolveGroups on cache miss).
     _cachedItems ??= _flatten(l10n, groups, widget.services.length);
     final List<_ListItem> items = _cachedItems!;
+    final Map<String, String> nameHints = _resolveNameHints();
 
     return ListView.builder(
       // Phase 076 — scroll target for `integration_test/perf/scroll_jank_test.dart`.
@@ -945,6 +969,8 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                   // Already played once (scrolled out and back): mount settled.
                   animateEntrance: animate,
                   onEntranceStarted: animate ? () => _appeared.add(id) : null,
+                  // Phase 469 — null for a uniquely-named service.
+                  nameHint: nameHints[id],
                 ),
               ),
             );

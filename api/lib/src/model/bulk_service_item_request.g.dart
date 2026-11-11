@@ -89,6 +89,8 @@ class _$BulkServiceItemRequest extends BulkServiceItemRequest {
   final num? priceMin;
   @override
   final num? priceMax;
+  @override
+  final String? name;
 
   factory _$BulkServiceItemRequest(
           [void Function(BulkServiceItemRequestBuilder)? updates]) =>
@@ -100,7 +102,8 @@ class _$BulkServiceItemRequest extends BulkServiceItemRequest {
       required this.priceType,
       this.price,
       this.priceMin,
-      this.priceMax})
+      this.priceMax,
+      this.name})
       : super._();
   @override
   BulkServiceItemRequest rebuild(
@@ -120,7 +123,8 @@ class _$BulkServiceItemRequest extends BulkServiceItemRequest {
         priceType == other.priceType &&
         price == other.price &&
         priceMin == other.priceMin &&
-        priceMax == other.priceMax;
+        priceMax == other.priceMax &&
+        name == other.name;
   }
 
   @override
@@ -132,6 +136,7 @@ class _$BulkServiceItemRequest extends BulkServiceItemRequest {
     _$hash = $jc(_$hash, price.hashCode);
     _$hash = $jc(_$hash, priceMin.hashCode);
     _$hash = $jc(_$hash, priceMax.hashCode);
+    _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -144,7 +149,8 @@ class _$BulkServiceItemRequest extends BulkServiceItemRequest {
           ..add('priceType', priceType)
           ..add('price', price)
           ..add('priceMin', priceMin)
-          ..add('priceMax', priceMax))
+          ..add('priceMax', priceMax)
+          ..add('name', name))
         .toString();
   }
 }
@@ -180,6 +186,10 @@ class BulkServiceItemRequestBuilder
   num? get priceMax => _$this._priceMax;
   set priceMax(num? priceMax) => _$this._priceMax = priceMax;
 
+  String? _name;
+  String? get name => _$this._name;
+  set name(String? name) => _$this._name = name;
+
   BulkServiceItemRequestBuilder() {
     BulkServiceItemRequest._defaults(this);
   }
@@ -193,6 +203,7 @@ class BulkServiceItemRequestBuilder
       _price = $v.price;
       _priceMin = $v.priceMin;
       _priceMax = $v.priceMax;
+      _name = $v.name;
       _$v = null;
     }
     return this;
@@ -223,6 +234,7 @@ class BulkServiceItemRequestBuilder
           price: price,
           priceMin: priceMin,
           priceMax: priceMax,
+          name: name,
         );
     replace(_$result);
     return _$result;

@@ -20,6 +20,9 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_services_accordion.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -68,6 +71,149 @@ const _kDistinctLabelCategories = <SalonServiceCategoryEntry>[
 ];
 
 void main() {
+  // Phase 470 — copy hints over the salon's WHOLE catalogue (D1).
+  group('copy hint (phase 470)', () {
+    SalonCatalogService svc(String id, String name, int minutes) =>
+        SalonCatalogService(
+          id: id,
+          name: name,
+          durationLabel: DurationMinutes.format(minutes),
+          durationMinutes: minutes,
+          priceDisplay: '500 ₴',
+        );
+
+    final List<SalonServiceCategoryEntry> copies = <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'MASSAGE',
+        displayName: 'Масаж',
+        count: 2,
+        services: <SalonCatalogService>[
+          svc('m-60', 'Класичний масаж', 60),
+          svc('m-90', 'Класичний масаж', 90),
+        ],
+      ),
+      SalonServiceCategoryEntry(
+        category: 'NAILS',
+        displayName: 'Манікюр',
+        count: 1,
+        services: <SalonCatalogService>[svc('n-1', 'Манікюр', 60)],
+      ),
+    ];
+
+    String? rowHint(WidgetTester tester, String id) {
+      final Finder f = find.descendant(
+        of: find.byKey(Key('salon-service-row-$id')),
+        matching: find.byKey(const Key('service-name-hint')),
+      );
+      return f.evaluate().isEmpty ? null : tester.widget<Text>(f).data;
+    }
+
+    testWidgets('both copies show a bidi-isolated duration hint', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        SingleChildScrollView(
+          child: SalonServicesAccordion(categories: copies),
+        ),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonServicesAccordion)),
+      );
+      String suffix(int m) => l10n.serviceNameHintSuffix(
+        NameWithHint.isolate(DurationMinutes.format(m)),
+      );
+      expect(rowHint(tester, 'm-60'), suffix(60));
+      expect(rowHint(tester, 'm-90'), suffix(90));
+      expect(find.byKey(const Key('service-name-hint')), findsNWidgets(2));
+    });
+
+    testWidgets('the row is announced exactly once — its label already '
+        'carries name, duration (= the hint) and price', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        await tester.pumpApp(
+          SingleChildScrollView(
+            child: SalonServicesAccordion(categories: copies),
+          ),
+        );
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonServicesAccordion)),
+        );
+        final String hintText = l10n.serviceNameHintSuffix(
+          NameWithHint.isolate(DurationMinutes.format(60)),
+        );
+        final String label = tester
+            .getSemantics(find.byKey(const Key('salon-service-row-m-60')))
+            .label;
+        expect(label, contains(DurationMinutes.format(60)));
+        expect(label, isNot(contains(hintText)));
+        expect(label, isNot(contains('\u2068')), reason: 'no isolated hint');
+        // Announced exactly ONCE: the node's label is the row label alone — no
+        // name/duration/price child Text labels merged in after it.
+        final String rowLabel =
+            'Класичний масаж, ${DurationMinutes.format(60)}, 500 ₴';
+        expect(label, rowLabel);
+        expect(find.bySemanticsLabel(rowLabel), findsOneWidget);
+      } finally {
+        handle.dispose();
+      }
+    });
+
+    testWidgets('a catalogue without copies renders no hint', (tester) async {
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: _kCategories),
+      );
+      expect(find.byKey(const Key('service-name-hint')), findsNothing);
+    });
+
+    test('salonCatalogNameHints: a row with unknown duration gets no hint '
+        '(never a false «0 хв»), its copy still does', () {
+      final Map<String, String> hints = salonCatalogNameHints(
+        <SalonServiceCategoryEntry>[
+          SalonServiceCategoryEntry(
+            category: 'A',
+            displayName: 'A',
+            count: 2,
+            services: <SalonCatalogService>[
+              svc('known', 'Стрижка', 45),
+              const SalonCatalogService(
+                id: 'legacy',
+                name: 'Стрижка',
+                durationLabel: '',
+                priceDisplay: '500 ₴',
+              ),
+            ],
+          ),
+        ],
+      );
+      expect(hints, <String, String>{'known': DurationMinutes.format(45)});
+      expect(hints.values, isNot(contains(DurationMinutes.format(0))));
+    });
+
+    test('salonCatalogNameHints groups across categories', () {
+      final Map<String, String> hints = salonCatalogNameHints(
+        <SalonServiceCategoryEntry>[
+          SalonServiceCategoryEntry(
+            category: 'A',
+            displayName: 'A',
+            count: 1,
+            services: <SalonCatalogService>[svc('a', 'Стрижка', 45)],
+          ),
+          SalonServiceCategoryEntry(
+            category: 'B',
+            displayName: 'B',
+            count: 1,
+            services: <SalonCatalogService>[svc('b', ' стрижка ', 60)],
+          ),
+        ],
+      );
+      expect(hints, <String, String>{
+        'a': DurationMinutes.format(45),
+        'b': DurationMinutes.format(60),
+      });
+    });
+  });
+
   testWidgets(
     'price text renders at the compact metadata scale, not bodyStrong()',
     (tester) async {

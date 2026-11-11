@@ -167,10 +167,10 @@ void main() {
       await tester.pumpUntilFound(ownedRow);
       await tester.pumpUntilFound(freeRow);
 
-      // ── 5. The exclusion, asserted WITH its control ──────────────────────
-      // The owned type is RENDERED (not hidden — a master hunting for a service
-      // they already offer must see why it is unselectable) but carries no
-      // include switch at all.
+      // ── 5. Ownership, asserted WITH its control ──────────────────────────
+      // The owned type is RENDERED and labelled «Вже додано». Phase 468: it
+      // keeps its include switch — a copy at a different duration is legal
+      // (backend 464/465); the row blocks only an owned duration.
       expect(
         ownedRow,
         findsOneWidget,
@@ -180,11 +180,10 @@ void main() {
       );
       expect(
         find.byKey(const Key('setup_row_toggle_$ownedTypeId')),
-        findsNothing,
+        findsOneWidget,
         reason:
-            'the already-owned row must expose NO include switch — one such '
-            'item in the all-or-nothing bulk payload rolls the WHOLE batch '
-            'back with 409 DUPLICATE_SERVICE',
+            'phase 468: an owned row is selectable again (as a copy at a free '
+            'duration)',
       );
       expect(
         find.descendant(
@@ -192,7 +191,7 @@ void main() {
           matching: find.text(l10n.serviceSetupRowAlreadyAdded),
         ),
         findsOneWidget,
-        reason: 'the row must say WHY it is inert',
+        reason: 'the row must say the type is already offered',
       );
 
       // CONTROL for the findsNothing above — same key shape, same category,

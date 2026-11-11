@@ -37,6 +37,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -480,5 +481,122 @@ void main() {
         );
       },
     );
+  });
+
+  group('ServiceInfo / ServiceCard — copy hint (phase 469)', () {
+    const String longName =
+        'Комплексний авторський масаж спини та шиї з ароматерапією';
+
+    testWidgets('null hint renders the single name Text, no hint widget', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const ServiceInfo(
+          name: 'Класичний масаж',
+          durationLabel: '1 год',
+          priceLabel: '750 ₴',
+        ),
+      );
+      // i18n-finder-ok: service fixture data (master-entered name)
+      final Text name = tester.widget<Text>(find.text('Класичний масаж'));
+      expect(name.maxLines, 1);
+      expect(name.overflow, TextOverflow.ellipsis);
+      expect(find.byKey(const Key('service-name-hint')), findsNothing);
+    });
+
+    testWidgets('a hint renders « · {hint}» from l10n after the name', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const ServiceInfo(
+          name: 'Класичний масаж',
+          durationLabel: '1 год 30 хв',
+          priceLabel: '750 ₴',
+          hint: '1 год 30 хв',
+        ),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ServiceInfo)),
+      );
+      // i18n-finder-ok: service fixture data (master-entered name)
+      expect(find.text('Класичний масаж'), findsOneWidget);
+      final Text hint = tester.widget<Text>(
+        find.byKey(const Key('service-name-hint')),
+      );
+      expect(
+        hint.data,
+        l10n.serviceNameHintSuffix(NameWithHint.isolate('1 год 30 хв')),
+      );
+      expect(hint.style?.color, BrandColors.textSecondary);
+      // Same line: the hint sits to the right of the name, vertically aligned.
+      // i18n-finder-ok: service fixture data (master-entered name)
+      final Rect nameRect = tester.getRect(find.text('Класичний масаж'));
+      final Rect hintRect = tester.getRect(
+        find.byKey(const Key('service-name-hint')),
+      );
+      expect(hintRect.left, greaterThanOrEqualTo(nameRect.right));
+      expect((hintRect.center.dy - nameRect.center.dy).abs(), lessThan(1));
+    });
+
+    testWidgets('long name + hint ellipsizes at 360 dp and text scale 1.3', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const Scaffold(
+          body: ServiceInfo(
+            name: longName,
+            durationLabel: '1 год 30 хв',
+            priceLabel: '2 500 ₴',
+            hint: 'Ранковий авторський масаж з гарячим камінням',
+          ),
+        ),
+        width: 360,
+        textScaleFactor: 1.3,
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('service-name-hint')), findsOneWidget);
+    });
+
+    testWidgets('ServiceCard.nameHint reaches ServiceInfo and the a11y label', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        ServiceCard(
+          key: const Key('service_card_svc-001'),
+          service: _stubService,
+          onEdit: () {},
+          nameHint: '45 хв',
+        ),
+      );
+      // fixed-wait-ok: draining ServiceCard's own 460ms staggered-entrance
+      // AnimationController — see the sibling tests above.
+      await tester.pump(const Duration(milliseconds: 500));
+      final Finder cardFinder = find.byKey(const Key('service_card_svc-001'));
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(cardFinder),
+      );
+      expect(
+        tester.widget<ServiceInfo>(find.byType(ServiceInfo)).hint,
+        '45 хв',
+      );
+      final SemanticsNode node = tester.getSemantics(
+        find.descendant(of: cardFinder, matching: find.byType(Semantics)).first,
+      );
+      expect(
+        node.label.split('\n').first,
+        startsWith('Стрижка${l10n.serviceNameHintSuffix('45 хв')}. 45 хв'),
+      );
+    });
+
+    testWidgets('ServiceCard without nameHint passes a null hint', (
+      tester,
+    ) async {
+      await tester.pumpApp(ServiceCard(service: _stubService, onEdit: () {}));
+      // fixed-wait-ok: draining ServiceCard's own 460ms staggered-entrance
+      // AnimationController — see the sibling tests above.
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(tester.widget<ServiceInfo>(find.byType(ServiceInfo)).hint, isNull);
+      expect(find.byKey(const Key('service-name-hint')), findsNothing);
+    });
   });
 }

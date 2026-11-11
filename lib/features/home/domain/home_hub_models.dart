@@ -79,30 +79,6 @@ class ClientProfileSummary {
   }
 }
 
-/// A master in the favorites horizontal rail.
-class FavoriteMasterItem {
-  const FavoriteMasterItem({
-    required this.masterId,
-    required this.favoriteId,
-    required this.name,
-    required this.lastServiceName,
-    required this.rating,
-    required this.reviewCount,
-    required this.initials,
-  });
-
-  final String masterId;
-
-  /// The ID used for the DELETE /favorites/masters/:id call.
-  final String favoriteId;
-
-  final String name;
-  final String lastServiceName;
-  final double rating;
-  final int reviewCount;
-  final String initials;
-}
-
 /// One past procedure on the BEAUTY TIMELINE rail.
 ///
 /// Phase 110 (13.9) wired this onto `GET /clients/me/timeline` and added

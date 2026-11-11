@@ -32,6 +32,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/invite_details.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -117,6 +118,9 @@ Future<FakeAuthRepository> _pumpValid(
   WidgetTester tester, {
   InviteDetails? invite,
   Object? acceptResult,
+  // Phase 443 — tick the required terms-consent box after pumping so the
+  // pre-443 tests keep exercising the password/name/phone gate alone.
+  bool tickTerms = true,
 }) async {
   final repo = FakeAuthRepository()..acceptInviteResult = acceptResult;
   final storage = FakeSecureStorage();
@@ -143,7 +147,19 @@ Future<FakeAuthRepository> _pumpValid(
     ),
   );
   await tester.pumpAndSettle();
+  if (tickTerms) await _tickTerms(tester);
   return repo;
+}
+
+const ValueKey<String> _termsBox = ValueKey<String>('invite_terms_checkbox');
+
+/// Phase 443 — ticks the required terms-consent checkbox (no-op if ticked).
+Future<void> _tickTerms(WidgetTester tester) async {
+  if (tester.widget<Checkbox>(find.byKey(_termsBox)).value != true) {
+    await tester.ensureVisible(find.byKey(_termsBox));
+    await tester.tap(find.byKey(_termsBox));
+    await tester.pump();
+  }
 }
 
 /// Pumps the screen with an [AsyncLoading] state (token validation in-flight).
@@ -1456,5 +1472,89 @@ void main() {
         );
       },
     );
+  });
+
+  group('AcceptInviteScreen — terms consent gate (phase 443)', () {
+    NeumorphicButton cta(WidgetTester tester) =>
+        tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+
+    Future<void> fillValidForm(WidgetTester tester) async {
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('invite_password')),
+        'Password1',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('invite_first_name')),
+        'Олена',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('invite_last_name')),
+        'Коваль',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('invite_phone')),
+        '+380501234567',
+      );
+      await tester.pump();
+    }
+
+    testWidgets('T1. valid form but unticked box → CTA disabled; ticking '
+        'enables, unticking disables again', (WidgetTester tester) async {
+      final repo = await _pumpValid(tester, tickTerms: false);
+      await fillValidForm(tester);
+
+      expect(cta(tester).onPressed, isNull);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('invite_accept')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect(repo.acceptInviteCalls, isEmpty);
+
+      await _tickTerms(tester);
+      expect(cta(tester).onPressed, isNotNull);
+
+      await tester.tap(find.byKey(_termsBox));
+      await tester.pump();
+      expect(cta(tester).onPressed, isNull);
+    });
+
+    testWidgets('T2. accepting forwards termsAccepted: true to the '
+        'repository', (WidgetTester tester) async {
+      final repo = await _pumpValid(tester, tickTerms: false);
+      await fillValidForm(tester);
+      await _tickTerms(tester);
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('invite_accept')),
+      );
+      await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+      // Explicit pumps — the success snackbar's timer blocks pumpAndSettle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(repo.acceptInviteCalls, hasLength(1));
+      expect(repo.acceptInviteTermsAcceptedCalls, <bool>[true]);
+    });
+
+    testWidgets('T3. disabled CTA carries the consent-required semantics '
+        'hint until ticked', (WidgetTester tester) async {
+      await _pumpValid(tester, tickTerms: false);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
+      final Finder hint = find.byWidgetPredicate(
+        (Widget w) =>
+            w is Semantics &&
+            w.properties.hint == l10n.termsConsentRequiredHint,
+      );
+
+      expect(hint, findsOneWidget);
+      await _tickTerms(tester);
+      expect(hint, findsNothing);
+    });
   });
 }

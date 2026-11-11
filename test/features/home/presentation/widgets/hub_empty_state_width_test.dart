@@ -1,19 +1,23 @@
 // Regression test — home-hub empty-state cards must be the SAME width.
 //
 // Bug: the BEAUTY TIMELINE empty state rendered visibly narrower than the
-// favourite-masters empty state on the same page. Both sections are siblings of
+// (since-removed, phase 477) favourite-masters empty state on the same page.
+// The sections are siblings of
 // the same ListView (uniform horizontal padding), so the available width was
 // identical — the divergence came from INSIDE the section widgets: their outer
 // `Column(crossAxisAlignment: CrossAxisAlignment.start)` hands children LOOSE
 // width constraints, so an unpinned `HubFlatCard` sized itself to its widest
-// child (the message `Text`). `homeHubFavoriteMastersEmpty` is a long two-line
+// child (the message `Text`). The favourites message was a long two-line
 // string that filled the row; `homeHubTimelineEmpty` is one short line, so its
 // card shrank.
 //
-// Both cards are now wrapped in `SizedBox(width: double.infinity)`, making their
+// The cards are now wrapped in `SizedBox(width: double.infinity)`, making their
 // width a function of the available content width ONLY — never of the message
 // copy. This test pins that: a revert on either side goes red, and so does any
 // future l10n edit that would have re-introduced a text-length dependency.
+//
+// The remaining siblings — «Наступний запис» and BEAUTY TIMELINE — are pinned
+// against each other and the full content width.
 //
 // Layer: Widget. Both sections read no provider at build time, so they pump
 // under the default ProviderScope installed by pumpApp.
@@ -24,7 +28,7 @@ import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_empty_state.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:flutter/material.dart';
@@ -55,18 +59,14 @@ const ClientProfileSummary _emptyStateProfile = ClientProfileSummary(
   memberSinceYear: 2026,
 );
 
-/// All three hub sections in their EMPTY state, on the real screen.
+/// Every hub section in its EMPTY state, on the real screen.
 List<Object> _emptyOverrides() {
   return <Object>[
     screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
     myRatingProvider.overrideWith((ref) async => const ClientRating()),
     clientProfileProvider.overrideWith((ref) async => _emptyStateProfile),
     nextAppointmentProvider.overrideWith((ref) async => null),
-    favoriteMastersProvider.overrideWith(
-      (ref) async => const <FavoriteMasterItem>[],
-    ),
     beautyTimelineProvider.overrideWith((ref) async => const <TimelineEntry>[]),
-    unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
   ];
 }
 
@@ -81,7 +81,7 @@ Future<void> _pumpBothSections(
     ListView(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       children: const <Widget>[
-        FavoriteMastersCard(masters: <FavoriteMasterItem>[], totalCount: 0),
+        NextAppointmentEmptyState(),
         SizedBox(height: VelvetSpacing.lg),
         BeautyTimelineSection(entries: <TimelineEntry>[], onSeeAll: _noop),
       ],
@@ -96,19 +96,22 @@ double _cardWidth(WidgetTester tester, String key) =>
 
 void main() {
   group('Home-hub empty-state cards — width parity', () {
-    testWidgets('timeline and favourites empty cards are the same width', (
+    testWidgets('timeline and next-appointment empty cards are the same width', (
       WidgetTester tester,
     ) async {
       await _pumpBothSections(tester, width: 360);
 
-      expect(find.byKey(const Key('favorite_masters_empty')), findsOneWidget);
+      expect(
+        find.byKey(const Key('next_appointment_empty_card')),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('timeline_empty')), findsOneWidget);
 
       expect(
         _cardWidth(tester, 'timeline_empty'),
-        _cardWidth(tester, 'favorite_masters_empty'),
+        _cardWidth(tester, 'next_appointment_empty_card'),
         reason:
-            'BEAUTY TIMELINE and favourite-masters empty states are siblings of '
+            'BEAUTY TIMELINE and next-appointment empty states are siblings of '
             'the same padded ListView — their cards must render identically '
             'wide.',
       );
@@ -130,7 +133,7 @@ void main() {
               'Card width must derive from the available content width, so a '
               'shorter message string can never shrink it.',
         );
-        expect(_cardWidth(tester, 'favorite_masters_empty'), expected);
+        expect(_cardWidth(tester, 'next_appointment_empty_card'), expected);
       },
     );
 
@@ -143,7 +146,7 @@ void main() {
 
       expect(
         _cardWidth(tester, 'timeline_empty'),
-        _cardWidth(tester, 'favorite_masters_empty'),
+        _cardWidth(tester, 'next_appointment_empty_card'),
       );
       expect(_cardWidth(tester, 'timeline_empty'), 320 - VelvetSpacing.lg * 2);
     });
@@ -156,7 +159,7 @@ void main() {
   // the harness would keep passing while the real page went crooked again.
   // These pump the ACTUAL HomeHubScreen so composition is covered too.
   group('Real HomeHubScreen — empty-state cards line up', () {
-    testWidgets('all three empty cards render at the same width', (
+    testWidgets('all empty cards render at the same width', (
       WidgetTester tester,
     ) async {
       await tester.pumpApp(
@@ -168,12 +171,11 @@ void main() {
 
       const double expected = 360 - VelvetSpacing.lg * 2;
       expect(_cardWidth(tester, 'next_appointment_empty_card'), expected);
-      expect(_cardWidth(tester, 'favorite_masters_empty'), expected);
       expect(
         _cardWidth(tester, 'timeline_empty'),
         expected,
         reason:
-            'On the real screen the three empty-state cards are siblings of '
+            'On the real screen the empty-state cards are siblings of '
             'one padded ListView — a user seeing one narrower than the others '
             'is the exact bug reported.',
       );
@@ -192,7 +194,6 @@ void main() {
 
       const double expected = 320 - VelvetSpacing.lg * 2;
       expect(_cardWidth(tester, 'next_appointment_empty_card'), expected);
-      expect(_cardWidth(tester, 'favorite_masters_empty'), expected);
       expect(_cardWidth(tester, 'timeline_empty'), expected);
     });
   });

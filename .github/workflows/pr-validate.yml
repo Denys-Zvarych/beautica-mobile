@@ -1048,7 +1048,9 @@ jobs:
   # why: docs/ci/README.md#job-coverage
   coverage:
     name: Coverage (merge shards)
-    runs-on: ubuntu-latest
+    # Pinned image (not ubuntu-latest): LCOV_VERSION below is noble's lcov and
+    # ubuntu-latest moved to ubuntu26, whose archive does not carry it.
+    runs-on: ubuntu-24.04
     needs: [plan, unit]
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
@@ -1069,8 +1071,8 @@ jobs:
           pattern: lcov-unit-*
           path: lcov
 
-      # Audit S-L3: lcov is pinned to the version `ubuntu-latest` (24.04, noble)
-      # ships; apt fails the step if that exact version ever disappears, instead
+      # Audit S-L3: lcov is pinned to the version the job's `ubuntu-24.04` (noble)
+      # image ships; apt fails the step if that exact version ever disappears, instead
       # of silently merging with another one. `lcov --version` is logged.
       - name: Merge shard coverage (lcov -a)
         shell: bash

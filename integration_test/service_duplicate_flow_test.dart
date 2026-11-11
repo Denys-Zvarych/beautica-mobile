@@ -67,11 +67,17 @@
 // raw body BEFORE the `e.error is Failure` check — is covered only by the
 // repository unit tests, not by this flow.
 //
-// It also does NOT cover the already-owned exclusion (rows for types the master
-// already offers render inert, with no toggle). That guard is what makes this
-// 409 rare in practice; it is asserted in the widget tests. This flow
-// deliberately picks a NON-owned type (`type-nails-gel`) so the exclusion is
-// out of the picture and the error mapping is the only thing under test.
+// The first arm deliberately picks a NON-owned type (`type-nails-gel`) so the
+// error mapping is the only thing under test.
+//
+// PHASE 468 — THE EXACT DUPLICATE IS STILL BLOCKED
+// ------------------------------------------------
+// Since backend 464/465 an owned type is selectable again (a COPY must differ
+// in duration OR name). The client blocks only the duration half (CTA disabled
+// on an owned duration — `service_copy_flow_test.dart` A2); the add-services
+// row has no name field, so a name collision is caught by the SERVER. The
+// second arm drives that backstop: the owned row at its seeded FREE duration,
+// a 409 from the bulk endpoint → the same duplicate snackbar, selection kept.
 //
 // KEY POLICY
 // ----------
@@ -105,9 +111,9 @@ void main() {
     (tester) async {
       // The service type this flow configures. Deliberately NOT
       // `type-nails-classic`: the fake backend seeds that one into the master's
-      // existing catalogue, so its row renders inert (no toggle at all, sub-
-      // label «Вже додано») — which would make the toggle tap below fail for a
-      // reason that has nothing to do with the 409 mapping under test.
+      // existing catalogue (sub-label «Вже додано», a seeded free duration
+      // since phase 468) — the second arm below covers it; this arm keeps the
+      // 409 mapping the only thing under test.
       //
       // Not a hedge: `servicesListProvider` has ALWAYS resolved by the time the
       // setup screen's initState reads it, because the services list is the
@@ -256,5 +262,128 @@ void main() {
       await pumpPastVelvetSnack(tester);
     },
     timeout: const Timeout(Duration(seconds: 45)),
+  );
+  testWidgets(
+    'phase 468: an OWNED type re-added at a free duration still gets the '
+    'server 409 backstop (name collision) as the duplicate snackbar, with the '
+    'selection kept',
+    (tester) async {
+      // Seeded twice at 60 min. Phase 472: the owned row starts with an EMPTY
+      // duration (no autofill), so the flow types the free duration 90.
+      const String ownedTypeId = 'type-nails-classic';
+
+      final fb = FakeBackend();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      // Through the list so the owned-durations snapshot is warm.
+      router.go(RouteNames.services);
+      final Finder fab = find.byKey(const Key('btn-create-service'));
+      await tester.pumpUntilFound(fab.hitTestable());
+      await tester.tap(fab);
+      await tester.pumpUntilFound(find.byKey(const Key('btn-setup-close')));
+
+      final Finder nailsChip = find.byKey(const ValueKey<String>('cat_NAILS'));
+      await tester.pumpUntilFound(nailsChip.hitTestable());
+      await tester.tap(nailsChip);
+
+      final Finder row = find.byKey(const Key('setup_row_$ownedTypeId'));
+      await tester.pumpUntilFound(row);
+      final l10n = AppLocalizations.of(tester.element(row));
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.text(l10n.serviceSetupRowAlreadyAdded),
+        ),
+        findsOneWidget,
+        reason: 'precondition: the row under test is the OWNED type',
+      );
+
+      final Finder toggle = find.byKey(
+        const Key('setup_row_toggle_$ownedTypeId'),
+      );
+      await tester.ensureVisible(toggle);
+      await tester.pumpUntilFound(toggle.hitTestable());
+      await tester.tap(toggle);
+
+      final Finder priceField = find.descendant(
+        of: row,
+        matching: find.byKey(const Key('pricing-fixed-amount')),
+      );
+      await tester.pumpUntilFound(priceField);
+      await tester.enterText(priceField, '400');
+      await tester.pump();
+
+      final Finder durationField = find.descendant(
+        of: row,
+        matching: find.byKey(const Key('service-setup-duration')),
+      );
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: durationField,
+                matching: find.byType(EditableText),
+              ),
+            )
+            .controller
+            .text,
+        isEmpty,
+        reason: 'phase 472: no duration autofill on an owned row',
+      );
+      await tester.enterText(durationField, '90');
+      await tester.pump();
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.text(l10n.serviceSetupCopyCollision),
+        ),
+        findsNothing,
+        reason: '90 is free (owned {60}) — the client pre-check passes',
+      );
+
+      fb.bulkRejectDuplicate = true;
+
+      final Finder saveBtn = find.byKey(const Key('btn-setup-save'));
+      await tester.pumpUntilFound(saveBtn.hitTestable());
+      await tester.tap(saveBtn);
+
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.bulkCreateCalls >= 1,
+        description:
+            'the bulk POST — the owned row at a FREE duration must pass the '
+            'client pre-check and reach the server backstop',
+      );
+      final Map<String, dynamic> item =
+          fb.lastBulkItems!.single as Map<String, dynamic>;
+      expect(item['serviceTypeId'], ownedTypeId);
+      expect(
+        item['durationMinutes'],
+        90,
+        reason: 'the typed free duration, never the owned 60',
+      );
+
+      await tester.pumpUntilFound(find.text(l10n.serviceErrDuplicate));
+      expectVelvetSnack(
+        l10n.serviceErrDuplicate,
+        variant: VelvetSnackVariant.error,
+      );
+      expect(find.text(l10n.errServer), findsNothing);
+      AppHarness.expectLocation(router, RouteNames.services);
+      expect(
+        find.byKey(const Key('btn-setup-close')),
+        findsOneWidget,
+        reason: 'the 409 must not pop the setup screen',
+      );
+      expect(
+        find.byKey(const Key('setup_row_toggle_$ownedTypeId')),
+        findsOneWidget,
+        reason: 'the configured owned row stays on screen',
+      );
+
+      await pumpPastVelvetSnack(tester);
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 }

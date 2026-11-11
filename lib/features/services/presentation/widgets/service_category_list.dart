@@ -48,9 +48,11 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_hint.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 
 // ---------------------------------------------------------------------------
 // Category grouping — promoted from `services_list_screen.dart`'s
@@ -467,6 +469,7 @@ class ServiceCard extends StatefulWidget {
     this.leadingIndent = 0,
     this.animateEntrance = true,
     this.onEntranceStarted,
+    this.nameHint,
   }) : assert(leadingIndent >= 0, 'leadingIndent cannot be negative.');
 
   final MasterService service;
@@ -556,6 +559,11 @@ class ServiceCard extends StatefulWidget {
   /// entrances have been shown. Defaults to `null`: every other caller is
   /// unchanged.
   final VoidCallback? onEntranceStarted;
+
+  /// Additive (phase 469) — copy hint shown after the name as « · {hint}»
+  /// when another service of the same owner shares this card's name (see
+  /// `serviceNameHints`). Defaults to `null`: the card renders as before.
+  final String? nameHint;
 
   @override
   State<ServiceCard> createState() => _ServiceCardState();
@@ -658,9 +666,13 @@ class _ServiceCardState extends State<ServiceCard>
     // ServiceDefinitionResponse.serviceTypeNameUk fallback — both confirmed
     // present in the generated DTOs. A null here means no type is assigned,
     // NOT a dropped field.
-    final String typeName = (s.serviceTypeNameUk ?? '').trim();
-    final String customName = s.name.trim();
-    final String primaryLabel = customName.isNotEmpty ? customName : typeName;
+    final String primaryLabel = s.displayedName;
+    // Phase 469 — the copy hint joins the announced name so the
+    // accessibility label matches the visual one.
+    final String? nameHint = widget.nameHint;
+    final String spokenName = nameHint == null || nameHint.isEmpty
+        ? primaryLabel
+        : '$primaryLabel${l10n.serviceNameHintSuffix(nameHint)}';
 
     // Phase 320 (D3) — a null onEdit means this card is not tappable.
     final bool tappable = widget.onEdit != null;
@@ -688,6 +700,7 @@ class _ServiceCardState extends State<ServiceCard>
               name: primaryLabel,
               durationLabel: durationLabel,
               priceLabel: priceLabel,
+              hint: nameHint,
             ),
           ),
           // Tightened to `xs` (was `sm`): the trailing glyph slot is the
@@ -775,8 +788,8 @@ class _ServiceCardState extends State<ServiceCard>
             button: tappable,
             selected: widget.selectable ? widget.selected : null,
             label: (widget.selectable || !tappable)
-                ? '$primaryLabel. $durationLabel, $priceLabel.'
-                : '$primaryLabel. $durationLabel, $priceLabel. '
+                ? '$spokenName. $durationLabel, $priceLabel.'
+                : '$spokenName. $durationLabel, $priceLabel. '
                       '${l10n.servicesCardEditSemanticVerb}',
             // priceLabel renders from priceDisplay (server-formatted) so the
             // accessibility label always matches what the user sees in the card.
@@ -862,6 +875,7 @@ class ServiceInfo extends StatelessWidget {
     required this.name,
     required this.durationLabel,
     required this.priceLabel,
+    this.hint,
   });
 
   /// Card label — the master's custom name when present, otherwise the platform
@@ -871,8 +885,15 @@ class ServiceInfo extends StatelessWidget {
   final String durationLabel;
   final String priceLabel;
 
+  /// Additive (phase 469) — rendered after [name] as « · {hint}» in the same
+  /// typeface, secondary colour. `null` (the default) renders exactly as before.
+  final String? hint;
+
   // Hoisted to avoid per-build allocation (MEDIUM-3).
   static final TextStyle _nameStyle = VelvetText.svcCardName;
+  static final TextStyle _hintStyle = _nameStyle.copyWith(
+    color: BrandColors.textSecondary,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -880,13 +901,14 @@ class ServiceInfo extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(
-          name,
-          // Compact row: single line, slightly smaller than the full cardTitle
-          // so the dense list reads as rows rather than tall cards.
-          style: _nameStyle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        // Compact row: single line, slightly smaller than the full cardTitle
+        // so the dense list reads as rows rather than tall cards. With a null
+        // [hint] this is the same single ellipsizing Text as before.
+        NameWithHint(
+          name: name,
+          nameStyle: _nameStyle,
+          hint: hint,
+          hintStyle: _hintStyle,
         ),
         const SizedBox(height: VelvetSpacing.xs),
         // Inline duration · price metadata line. The category is shown as the

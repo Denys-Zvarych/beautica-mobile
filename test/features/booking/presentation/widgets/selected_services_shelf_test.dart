@@ -32,6 +32,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -112,6 +113,88 @@ Finder _inShelf(Finder matching) =>
     find.descendant(of: find.byKey(_expandedListKey), matching: matching);
 
 void main() {
+  // Phase 470 — both copies listed in the shelf carry their duration hint.
+  group('copy hint (phase 470)', () {
+    const MasterService copy60 = MasterService(
+      id: 'copy-60',
+      serviceDefId: 'def-copy-60',
+      name: 'Класичний масаж',
+      durationMinutes: 60,
+      priceMin: 500,
+      priceDisplay: '500 ₴',
+    );
+    const MasterService copy90 = MasterService(
+      id: 'copy-90',
+      serviceDefId: 'def-copy-90',
+      name: 'Класичний масаж',
+      durationMinutes: 90,
+      priceMin: 700,
+      priceDisplay: '700 ₴',
+    );
+
+    String? entryHint(WidgetTester tester, String id) {
+      final Finder f = find.descendant(
+        of: find.byKey(ValueKey<String>(id)),
+        matching: find.byKey(const Key('service-name-hint')),
+      );
+      return f.evaluate().isEmpty ? null : tester.widget<Text>(f).data;
+    }
+
+    testWidgets('both copies are hinted, bidi-isolated', (tester) async {
+      await tester.pumpApp(
+        _shelf(services: const <MasterService>[copy60, copy90]),
+      );
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await tester.pumpAndSettle();
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SelectedServicesShelf)),
+      );
+      expect(
+        entryHint(tester, 'copy-60'),
+        l10n.serviceNameHintSuffix(
+          NameWithHint.isolate(DurationMinutes.format(60)),
+        ),
+      );
+      expect(
+        entryHint(tester, 'copy-90'),
+        l10n.serviceNameHintSuffix(
+          NameWithHint.isolate(DurationMinutes.format(90)),
+        ),
+      );
+    });
+
+    testWidgets('the hint rule runs once across rebuilds with an EQUAL new '
+        'list (SalonTimeScreen rebuilds one per outer build)', (tester) async {
+      selectedServicesShelfHintComputations = 0;
+      // Non-const: a fresh list identity per pump, equal content.
+      List<MasterService> fresh() => <MasterService>[copy60, copy90];
+      await tester.pumpApp(_shelf(services: fresh()));
+      expect(selectedServicesShelfHintComputations, 1);
+      await tester.pumpApp(_shelf(services: fresh()));
+      await tester.pumpApp(_shelf(services: fresh()));
+      expect(
+        selectedServicesShelfHintComputations,
+        1,
+        reason: 'equal content ⇒ memo hit, even with a new list identity',
+      );
+      await tester.pumpApp(_shelf(services: <MasterService>[copy60]));
+      expect(
+        selectedServicesShelfHintComputations,
+        2,
+        reason: 'changed input recomputes',
+      );
+    });
+
+    testWidgets('distinct services are not hinted', (tester) async {
+      await tester.pumpApp(
+        _shelf(services: const <MasterService>[_kManicure, _kPedicure]),
+      );
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('service-name-hint')), findsNothing);
+    });
+  });
+
   // mobile-qa gap-fix (fix/ui-polish): the «Послуги та ціни» section label was
   // deleted from the PUBLIC MASTER PROFILE booking shelf, whose test now pins
   // it with `findsNothing`. The shared ARB key `publicMasterBookingSectionLabel`

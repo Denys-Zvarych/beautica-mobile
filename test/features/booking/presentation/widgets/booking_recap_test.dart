@@ -11,6 +11,8 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +33,173 @@ const _kSelection = BookingSelection(
 );
 
 void main() {
+  // Phase 470 — both copies in one visit: «Класичний масаж · 60 хв» /
+  // «… · 90 хв» in the recap, and the total sums 150 min.
+  group('BookingRecap copy hint (phase 470)', () {
+    BookingSelection sel(String name, int minutes) => BookingSelection(
+      name: name,
+      price: '500 ₴',
+      duration: DurationMinutes.format(minutes),
+      durationMinutes: minutes,
+      priceMin: 500,
+    );
+
+    List<String?> hints(WidgetTester tester) => tester
+        .widgetList<NameWithHint>(find.byType(NameWithHint))
+        .map((NameWithHint w) => w.hint)
+        .toList();
+
+    testWidgets('two same-named selections are hinted by duration', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: BookingRecap(
+            selections: <BookingSelection>[
+              sel('Класичний масаж', 60),
+              sel('Класичний масаж', 90),
+            ],
+          ),
+        ),
+      );
+      expect(hints(tester), <String?>[
+        DurationMinutes.format(60),
+        DurationMinutes.format(90),
+      ]);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingRecap)),
+      );
+      // The hint flows inline after the (wrapping) name, bidi-isolated.
+      final String painted = tester
+          .widgetList<RichText>(
+            find.descendant(
+              of: find.byType(NameWithHint),
+              matching: find.byType(RichText),
+            ),
+          )
+          .first
+          .text
+          .toPlainText();
+      expect(
+        painted,
+        endsWith(
+          l10n.serviceNameHintSuffix(
+            NameWithHint.isolate(DurationMinutes.format(60)),
+          ),
+        ),
+      );
+      expect(
+        find.text(DurationMinutes.format(150)),
+        findsOneWidget,
+        reason: 'the «Разом» total sums both copies',
+      );
+    });
+
+    String paintedRow(WidgetTester tester) => tester
+        .widgetList<RichText>(
+          find.descendant(
+            of: find.byType(NameWithHint),
+            matching: find.byType(RichText),
+          ),
+        )
+        .first
+        .text
+        .toPlainText();
+
+    testWidgets('an RLO in the owner-supplied NAME is bidi-isolated too', (
+      tester,
+    ) async {
+      // U+202E RIGHT-TO-LEFT OVERRIDE, never closed inside the name.
+      const String rloName = 'Масаж \u202Eабв';
+      await tester.pumpApp(
+        Scaffold(
+          body: BookingRecap(
+            selections: <BookingSelection>[sel(rloName, 60), sel(rloName, 90)],
+          ),
+        ),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingRecap)),
+      );
+      expect(
+        paintedRow(tester),
+        NameWithHint.isolate(rloName) +
+            l10n.serviceNameHintSuffix(
+              NameWithHint.isolate(DurationMinutes.format(60)),
+            ),
+        reason: 'the name sits in FSI…PDI, so its open RLO ends at the PDI',
+      );
+    });
+
+    testWidgets('the hint rule runs once across rebuilds with equal input', (
+      tester,
+    ) async {
+      resetBookingRecapHintMemo();
+      addTearDown(resetBookingRecapHintMemo);
+      // A FRESH list per pump — exactly what the call sites do every build.
+      Widget recap() => Scaffold(
+        body: BookingRecap(
+          selections: <BookingSelection>[
+            sel('Класичний масаж', 60),
+            sel('Класичний масаж', 90),
+          ],
+        ),
+      );
+      await tester.pumpApp(recap());
+      expect(bookingRecapHintComputations, 1);
+      await tester.pumpApp(recap());
+      await tester.pumpApp(recap());
+      expect(
+        bookingRecapHintComputations,
+        1,
+        reason: 'equal content ⇒ memo hit, even with a new list identity',
+      );
+      await tester.pumpApp(
+        Scaffold(
+          body: BookingRecap(
+            selections: <BookingSelection>[
+              sel('Класичний масаж', 60),
+              sel('Класичний масаж', 120),
+            ],
+          ),
+        ),
+      );
+      expect(
+        bookingRecapHintComputations,
+        2,
+        reason: 'changed input recomputes',
+      );
+      expect(hints(tester), <String?>[
+        DurationMinutes.format(60),
+        DurationMinutes.format(120),
+      ]);
+    });
+
+    testWidgets('distinct names (and a single selection) get no hint', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: BookingRecap(
+            selections: <BookingSelection>[
+              sel('Класичний масаж', 60),
+              sel('Педикюр', 90),
+            ],
+          ),
+        ),
+      );
+      expect(hints(tester), <String?>[null, null]);
+      await tester.pumpApp(
+        Scaffold(
+          body: BookingRecap(
+            selections: <BookingSelection>[sel('Класичний масаж', 60)],
+          ),
+        ),
+      );
+      expect(hints(tester), <String?>[null]);
+    });
+  });
+
   Future<void> pumpRecap(WidgetTester tester, {required bool compactText}) =>
       tester.pumpApp(
         Scaffold(

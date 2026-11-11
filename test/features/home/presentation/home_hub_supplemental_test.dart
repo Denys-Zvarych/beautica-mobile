@@ -4,7 +4,7 @@
 //   1.  Error state per card — profile error renders retry button; tap retry
 //       triggers provider invalidation (observable as a second build).
 //   2.  Next-appointment error state + retry.
-//   3.  Favorites error state + retry.
+//   3.  (Removed — phase 477 dropped the favourite-masters section.)
 //   4.  Timeline error state + retry.
 //   5.  IntrinsicHeight stat-pills regression — the Row that wraps
 //       PassportPreviewCard + MyRatingStatCard must produce a finite, non-zero
@@ -85,15 +85,12 @@ const _sampleProfile = ClientProfileSummary(
 );
 
 // ---------------------------------------------------------------------------
-// Override helper — wraps all four providers with configurable AsyncValues.
+// Override helper — wraps the card providers with configurable AsyncValues.
 // ---------------------------------------------------------------------------
 
 List<Object> _overrides({
   AsyncValue<ClientProfileSummary> profile = const AsyncData(_sampleProfile),
   AsyncValue<Booking?> nextAppt = const AsyncData(null),
-  AsyncValue<List<FavoriteMasterItem>> favorites = const AsyncData(
-    <FavoriteMasterItem>[],
-  ),
   AsyncValue<List<TimelineEntry>> timeline = const AsyncData(<TimelineEntry>[]),
   ScreenProtectionManager? protection,
   // The rating pill now sources from the authoritative myRatingProvider (same
@@ -121,13 +118,6 @@ List<Object> _overrides({
         error: (e, _) => Future.error(e),
       );
     }),
-    favoriteMastersProvider.overrideWith((ref) async {
-      return favorites.when(
-        data: (v) => v,
-        loading: () => Completer<List<FavoriteMasterItem>>().future,
-        error: (e, _) => Future.error(e),
-      );
-    }),
     beautyTimelineProvider.overrideWith((ref) async {
       return timeline.when(
         data: (v) => v,
@@ -135,7 +125,6 @@ List<Object> _overrides({
         error: (e, _) => Future.error(e),
       );
     }),
-    unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
   ];
 }
 
@@ -231,14 +220,8 @@ void main() {
             ),
           ),
           nextAppointmentProvider.overrideWith((ref) async => null),
-          favoriteMastersProvider.overrideWith(
-            (ref) async => const <FavoriteMasterItem>[],
-          ),
           beautyTimelineProvider.overrideWith(
             (ref) async => const <TimelineEntry>[],
-          ),
-          unlikeFavoriteMasterProvider.overrideWith(
-            () => UnlikeFavoriteMaster(),
           ),
         ],
       );
@@ -267,7 +250,7 @@ void main() {
       tester,
     ) async {
       // Even if the profile card is in an error or loading state, the other
-      // sections (QuickLinksCard, FavoriteMastersCard) must still render.
+      // sections (QuickLinksCard, BEAUTY TIMELINE) must still render.
       await tester.pumpApp(
         const HomeHubScreen(),
         overrides: _overrides(profile: const AsyncData(_sampleProfile)),
