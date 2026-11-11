@@ -196,9 +196,6 @@ Future<_Harness> _open(
         ),
       ),
       nextAppointmentProvider.overrideWith((_) async => null),
-      favoriteMastersProvider.overrideWith(
-        (_) async => const <FavoriteMasterItem>[],
-      ),
       beautyTimelineProvider.overrideWith((_) async => const <TimelineEntry>[]),
       myRatingProvider.overrideWith((_) async => const ClientRating()),
       mySalonsProvider.overrideWith(_Mys.new),

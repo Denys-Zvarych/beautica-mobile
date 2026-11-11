@@ -3321,28 +3321,6 @@
   "@homeHubAddToAppleCalendar": {
     "description": "Accessibility label for the Apple Calendar button in the next appointment card."
   },
-  "homeHubFavoriteMastersTitle": "Favourite masters",
-  "@homeHubFavoriteMastersTitle": {
-    "description": "Section title for the favourite masters rail."
-  },
-  "homeHubFavoriteMastersSeeAll": "All ({count})",
-  "@homeHubFavoriteMastersSeeAll": {
-    "description": "See-all link label for the favourite masters section.",
-    "placeholders": {
-      "count": {
-        "type": "int",
-        "example": "6"
-      }
-    }
-  },
-  "homeHubFavoriteMastersEmpty": "No favourite masters yet.\nTap the heart on a master's profile to save them.",
-  "@homeHubFavoriteMastersEmpty": {
-    "description": "Empty-state message in the favourite masters rail."
-  },
-  "homeHubUnlikeMasterLabel": "Remove from favourites",
-  "@homeHubUnlikeMasterLabel": {
-    "description": "Accessibility label for the unlike (heart) button on a favourite master mini-card."
-  },
   "homeHubTimelineSeeAll": "Full history",
   "@homeHubTimelineSeeAll": {
     "description": "See-all link label for the BEAUTY TIMELINE section."
@@ -3622,10 +3600,6 @@
   "homeHubNextApptLoadError": "Could not load next appointment.",
   "@homeHubNextApptLoadError": {
     "description": "Error message shown in the next appointment section when loading fails."
-  },
-  "homeHubFavoritesLoadError": "Could not load favourite masters.",
-  "@homeHubFavoritesLoadError": {
-    "description": "Error message shown in the favourite masters section when loading fails."
   },
   "homeHubTimelineLoadError": "Could not load timeline.",
   "@homeHubTimelineLoadError": {

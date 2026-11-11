@@ -204,13 +204,9 @@ void main() {
         }),
         // Home-only providers.
         nextAppointmentProvider.overrideWith((ref) async => null),
-        favoriteMastersProvider.overrideWith(
-          (ref) async => const <FavoriteMasterItem>[],
-        ),
         beautyTimelineProvider.overrideWith(
           (ref) async => const <TimelineEntry>[],
         ),
-        unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
         favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
         // Passport-only providers.
         passportProvider.overrideWith(

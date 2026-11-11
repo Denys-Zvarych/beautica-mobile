@@ -3321,28 +3321,6 @@
   "@homeHubAddToAppleCalendar": {
     "description": "Accessibility label for the Apple Calendar button in the next appointment card."
   },
-  "homeHubFavoriteMastersTitle": "Улюблені майстри",
-  "@homeHubFavoriteMastersTitle": {
-    "description": "Section title for the favourite masters rail."
-  },
-  "homeHubFavoriteMastersSeeAll": "Всі ({count})",
-  "@homeHubFavoriteMastersSeeAll": {
-    "description": "See-all link label for the favourite masters section.",
-    "placeholders": {
-      "count": {
-        "type": "int",
-        "example": "6"
-      }
-    }
-  },
-  "homeHubFavoriteMastersEmpty": "Ще немає улюблених майстрів.\nТоркніться серця в профілі майстра, щоб зберегти.",
-  "@homeHubFavoriteMastersEmpty": {
-    "description": "Empty-state message in the favourite masters rail."
-  },
-  "homeHubUnlikeMasterLabel": "Прибрати з улюблених",
-  "@homeHubUnlikeMasterLabel": {
-    "description": "Accessibility label for the unlike (heart) button on a favourite master mini-card."
-  },
   "homeHubTimelineSeeAll": "Вся історія",
   "@homeHubTimelineSeeAll": {
     "description": "See-all link label for the BEAUTY TIMELINE section."
@@ -3622,10 +3600,6 @@
   "homeHubNextApptLoadError": "Не вдалося завантажити найближчий запис.",
   "@homeHubNextApptLoadError": {
     "description": "Error message shown in the next appointment section when loading fails."
-  },
-  "homeHubFavoritesLoadError": "Не вдалося завантажити улюблених майстрів.",
-  "@homeHubFavoritesLoadError": {
-    "description": "Error message shown in the favourite masters section when loading fails."
   },
   "homeHubTimelineLoadError": "Не вдалося завантажити часову шкалу.",
   "@homeHubTimelineLoadError": {

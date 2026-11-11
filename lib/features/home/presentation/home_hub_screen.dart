@@ -23,8 +23,9 @@
 //   3. Stat pills (IntrinsicHeight-wrapped — CRITICAL render bug prevention)
 //   4. Quick-links row (IntrinsicHeight-wrapped)
 //   5. Next appointment (empty state while backend 19.3 ships)
-//   6. Favourite masters rail (empty state while backend 19.1 ships)
-//   7. BEAUTY TIMELINE rail (empty state while backend 19.5 ships)
+//   6. BEAUTY TIMELINE rail (empty state while backend 19.5 ships)
+//   (Phase 477: the favourite-masters rail was removed — favourites live
+//   only in Обране and the «Улюблені майстри» quick link.)
 //
 // Each section is a separate widget built from its own AsyncValue so that
 // one failing card cannot blank the whole screen.
@@ -58,7 +59,6 @@ import '../../rating/domain/client_rating.dart';
 import '../application/home_hub_notifier.dart';
 import '../domain/home_hub_models.dart';
 import 'widgets/beauty_timeline_section.dart';
-import 'widgets/favorite_masters_card.dart';
 import 'widgets/home_profile_card.dart';
 import 'widgets/hub_widgets.dart';
 import 'widgets/next_appointment_empty_state.dart';
@@ -165,15 +165,14 @@ class _HomeHubBody extends ConsumerWidget {
     // likewise NOT watched here (Phase 225 fix pass, mobile-perf MEDIUM) — it
     // is invalidated from 5 call sites (create/cancel/reschedule), and
     // watching it at this level re-ran the WHOLE body — including the
-    // Favourites/Timeline `.when()` branches — on every one of those
-    // invalidations even though neither section changed. `_NextAppointmentSection`
+    // Timeline `.when()` branch — on every one of those
+    // invalidations even though that section did not change. `_NextAppointmentSection`
     // below watches it internally, exactly like `_ProfileSection` already does
     // for `clientProfileProvider`.
-    final favoritesAsync = ref.watch(favoriteMastersProvider);
     final timelineAsync = ref.watch(beautyTimelineProvider);
 
     // Pull-to-refresh: invalidate every Home Hub card provider (profile,
-    // next appointment, favourites, BEAUTY TIMELINE) together, matching
+    // next appointment, BEAUTY TIMELINE) together, matching
     // `master_schedule_screen.dart`'s call site — a pull that refreshed only
     // one card would read as a worse inconsistency than the missing
     // invalidation this fixes (mobile-perf MEDIUM, Phase 110 audit-fix
@@ -187,13 +186,11 @@ class _HomeHubBody extends ConsumerWidget {
       onRefresh: () async {
         ref.invalidate(clientProfileProvider);
         ref.invalidate(nextAppointmentProvider);
-        ref.invalidate(favoriteMastersProvider);
         ref.invalidate(beautyTimelineProvider);
         try {
           await Future.wait(<Future<void>>[
             ref.read(clientProfileProvider.future),
             ref.read(nextAppointmentProvider.future),
-            ref.read(favoriteMastersProvider.future),
             ref.read(beautyTimelineProvider.future),
           ]);
         } on Object {
@@ -256,29 +253,10 @@ class _HomeHubBody extends ConsumerWidget {
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
 
-                // 6. Favourite masters
+                // 6. BEAUTY TIMELINE
                 reveal(
                   start: 0.29,
                   end: 0.70,
-                  child: favoritesAsync.when(
-                    data: (List<FavoriteMasterItem> masters) =>
-                        FavoriteMastersCard(
-                          masters: masters,
-                          totalCount: masters.length,
-                        ),
-                    loading: () => const _SectionSkeleton(),
-                    error: (Object e, _) => _CardErrorState(
-                      message: l10n.homeHubFavoritesLoadError,
-                      onRetry: () => ref.invalidate(favoriteMastersProvider),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: VelvetSpacing.lg),
-
-                // 7. BEAUTY TIMELINE
-                reveal(
-                  start: 0.35,
-                  end: 0.78,
                   child: timelineAsync.when(
                     data: (List<TimelineEntry> entries) => BeautyTimelineSection(
                       entries: entries,
