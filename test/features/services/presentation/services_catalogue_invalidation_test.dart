@@ -323,7 +323,7 @@ void main() {
   // Restored.
   //
   // MUTATION (2026-09-10): dropped `ref.invalidate(servicesListProvider)`
-  // instead → this test stayed GREEN and `service_setup_screen_test.dart`'s
+  // instead → this test stayed GREEN and `service_setup_screen_refetch_test.dart`'s
   // "_flagRowsNowOwned must re-read the catalogue after the invalidate" went
   // RED. That asymmetry is REPORTED, not papered over: even reading through a
   // captured `WidgetRef` with no frame pumped, a `pumpApp` harness settles the

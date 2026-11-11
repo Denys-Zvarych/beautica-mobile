@@ -24,8 +24,15 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 
 import '../../domain/salon_service_catalog.dart';
+
+/// Phase 470 — copy hints per catalogue, memoised on the `categories` list's
+/// identity (the provider's value) so the rule runs once per load, not per
+/// build.
+final Expando<Map<String, String>> _hintsByCatalogue =
+    Expando<Map<String, String>>('salonCatalogNameHints');
 
 /// The categories + services accordion.
 ///
@@ -88,13 +95,14 @@ class SalonServicesAccordion extends StatelessWidget {
 
   /// One group plus the inter-group gap, shared verbatim by both forms so the
   /// sliver and the box render identically.
-  Widget _group(int i) {
+  Widget _group(int i, Map<String, String> hints) {
     return Padding(
       padding: EdgeInsets.only(
         bottom: i < categories.length - 1 ? VelvetSpacing.md : 0,
       ),
       child: _SalonCategoryGroup(
         category: categories[i],
+        hints: hints,
         selectedServiceId: selectedServiceId,
         onServiceTap: onServiceTap,
         // Seeds the first category open on load; the rest start
@@ -109,12 +117,14 @@ class SalonServicesAccordion extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Map<String, String> hints = _hintsByCatalogue[categories] ??=
+        salonCatalogNameHints(categories);
     if (_asSliver) {
       return SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
         sliver: SliverList.builder(
           itemCount: categories.length,
-          itemBuilder: (BuildContext context, int i) => _group(i),
+          itemBuilder: (BuildContext context, int i) => _group(i, hints),
         ),
       );
     }
@@ -123,7 +133,7 @@ class SalonServicesAccordion extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          for (int i = 0; i < categories.length; i++) _group(i),
+          for (int i = 0; i < categories.length; i++) _group(i, hints),
         ],
       ),
     );
@@ -139,9 +149,13 @@ class _SalonCategoryGroup extends StatefulWidget {
     required this.initiallyExpanded,
     required this.selectedServiceId,
     required this.onServiceTap,
+    this.hints = const <String, String>{},
   });
 
   final SalonServiceCategoryEntry category;
+
+  /// Copy hints for the WHOLE catalogue, keyed by service id (Phase 470).
+  final Map<String, String> hints;
   final bool initiallyExpanded;
   final String? selectedServiceId;
   final ValueChanged<SalonCatalogService>? onServiceTap;
@@ -169,6 +183,7 @@ class _SalonCategoryGroupState extends State<_SalonCategoryGroup> {
             padding: const EdgeInsets.only(top: VelvetSpacing.md),
             child: _SalonServiceRow(
               service: s,
+              hint: widget.hints[s.id],
               selected: widget.selectedServiceId == s.id,
               onTap: widget.onServiceTap == null
                   ? null
@@ -368,9 +383,13 @@ class _SalonServiceRow extends StatelessWidget {
     required this.service,
     required this.selected,
     required this.onTap,
+    this.hint,
   });
 
   final SalonCatalogService service;
+
+  /// Phase 470 — the copy hint after the name; `null` renders as before.
+  final String? hint;
   final bool selected;
   final VoidCallback? onTap;
 
@@ -402,6 +421,11 @@ class _SalonServiceRow extends StatelessWidget {
   /// branch.
   static final TextStyle _nameStyleSelected = _nameStyle.copyWith(
     color: BrandColors.accentDeep,
+  );
+
+  /// Phase 470 — the copy hint after the name (469 hint styling).
+  static final TextStyle _hintStyle = _nameStyle.copyWith(
+    color: BrandColors.textSecondary,
   );
 
   /// Duration meta scale matching the reference screen's
@@ -440,11 +464,11 @@ class _SalonServiceRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text(
-                  name,
-                  style: selected ? _nameStyleSelected : _nameStyle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                NameWithHint(
+                  name: name,
+                  nameStyle: selected ? _nameStyleSelected : _nameStyle,
+                  hint: hint,
+                  hintStyle: _hintStyle,
                 ),
                 const SizedBox(height: 3),
                 Row(
@@ -500,6 +524,9 @@ class _SalonServiceRow extends StatelessWidget {
         // service, so `find.byKey` still resolves to one widget.
         key: Key('salon-service-row-${service.id}'),
         label: '$name, $duration, $price',
+        // The label already says everything the tile shows — drop the child
+        // Texts so the row is announced exactly once.
+        excludeSemantics: true,
         child: tile,
       );
     }
@@ -507,6 +534,11 @@ class _SalonServiceRow extends StatelessWidget {
       button: true,
       selected: selected,
       label: '$name, $duration, $price',
+      // Announced exactly once (see the read-only arm). Excluding the
+      // children also drops the GestureDetector's tap action, so the node
+      // carries it itself.
+      excludeSemantics: true,
+      onTap: onTap,
       hint: selected
           ? l10n.salonServiceFilterClearHint
           : l10n.salonServiceFilterSelectHint,

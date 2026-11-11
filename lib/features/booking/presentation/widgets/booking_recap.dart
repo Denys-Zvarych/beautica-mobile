@@ -40,15 +40,18 @@
 // is needed there. Both sources are compatible with the [_parsePrice] /
 // [parseDurationMinutes] round-trip parsing below.
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_hint.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
+import 'package:beautica_mobile/shared/widgets/name_with_hint.dart';
 
 /// One selected service carried into the booking recap. [price] is a
 /// *display* string and may be a single value ("500 ₴") OR a hyphenated
@@ -107,6 +110,55 @@ class BookingSelection {
   /// FIXED-priced service (where [priceMin] alone is the price) or when the
   /// caller only has the display string.
   final double? priceMax;
+}
+
+/// Phase 470 — copy hints for one recap's [BookingRecap.selections] (both
+/// copies picked ⇒ «Класичний масаж · 60 хв» / «… · 90 хв»), via the shared
+/// 469 rule, keyed by row index.
+///
+/// Memoised by CONTENT (each row's name + duration), not list identity: the
+/// call sites (`SalonAppointmentCard` via the confirm screen's pager,
+/// `BookingSummaryCards.fromSchedule`) map a fresh `List<BookingSelection>`
+/// on every build, so an identity memo never hit. Equal input ⇒ the rule runs
+/// once. Bounded so a long session can't grow it without limit.
+final Map<String, Map<String, String>> _recapHints =
+    <String, Map<String, String>>{};
+const int _recapHintsCap = 32;
+
+/// Number of times the hint rule actually ran (memo misses) — test-only spy.
+@visibleForTesting
+int bookingRecapHintComputations = 0;
+
+/// Clears the recap hint memo — test-only.
+@visibleForTesting
+void resetBookingRecapHintMemo() {
+  _recapHints.clear();
+  bookingRecapHintComputations = 0;
+}
+
+int _minutesOf(BookingSelection s) =>
+    s.durationMinutes ?? parseDurationMinutes(s.duration);
+
+Map<String, String> _hintsFor(List<BookingSelection> selections) {
+  final String key = <String>[
+    for (final BookingSelection s in selections)
+      '${s.name}\u0000${_minutesOf(s)}',
+  ].join('\u0001');
+  final Map<String, String>? cached = _recapHints[key];
+  if (cached != null) return cached;
+  if (kDebugMode) bookingRecapHintComputations++;
+  if (_recapHints.length >= _recapHintsCap) {
+    _recapHints.remove(_recapHints.keys.first);
+  }
+  return _recapHints[key] = serviceNameHints(<ServiceHintInput>[
+    for (int i = 0; i < selections.length; i++)
+      ServiceHintInput(
+        id: '$i',
+        displayedName: selections[i].name,
+        customName: selections[i].name,
+        durationMinutes: _minutesOf(selections[i]),
+      ),
+  ]);
 }
 
 /// The "Послуги" multi-service list + "Разом" total, rendered as a flat,
@@ -233,6 +285,10 @@ class BookingRecap extends StatelessWidget {
 
     if (totalOnly) return totalRow;
 
+    final Map<String, String> hints = selections.length < 2
+        ? const <String, String>{}
+        : _hintsFor(selections);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -256,6 +312,7 @@ class BookingRecap extends StatelessWidget {
         for (int i = 0; i < selections.length; i++) ...<Widget>[
           _ServiceRow(
             selection: selections[i],
+            hint: hints['$i'],
             dense: dense,
             compactText: compactText,
             showPrice: showPrice,
@@ -286,10 +343,21 @@ class _ServiceRow extends StatelessWidget {
     this.dense = false,
     this.compactText = false,
     this.showPrice = true,
+    this.hint,
   });
 
   final BookingSelection selection;
   final bool dense;
+
+  /// Phase 470 — the copy hint after the name; `null` renders as before.
+  final String? hint;
+
+  static final TextStyle _hintStyle145 = VelvetText.bodyStrong145.copyWith(
+    color: BrandColors.textSecondary,
+  );
+  static final TextStyle _hintStyle13 = VelvetText.bodyStrong13.copyWith(
+    color: BrandColors.textSecondary,
+  );
 
   /// See [BookingRecap.compactText] — shrinks the name/duration/price text a
   /// further notch (success screen only).
@@ -335,11 +403,14 @@ class _ServiceRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  Text(
-                    selection.name,
-                    style: compactText
+                  NameWithHint(
+                    name: selection.name,
+                    nameStyle: compactText
                         ? VelvetText.bodyStrong13
                         : VelvetText.bodyStrong145,
+                    hint: hint,
+                    hintStyle: compactText ? _hintStyle13 : _hintStyle145,
+                    singleLine: false,
                   ),
                   const SizedBox(height: 1),
                   Text(

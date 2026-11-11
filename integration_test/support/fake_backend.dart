@@ -1750,8 +1750,44 @@ final class FakeBackend {
   /// (public profile included) keeps seeing the seeded catalogue.
   bool masterAaaServicesEmpty = false;
 
+  /// Phase 470 — when true, master-aaa's public catalogue also carries
+  /// [publicMasterServiceCopyId]: a 60-min COPY of `pub-assign-1` («Манікюр з
+  /// покриттям», 90 min) under the same name (phase 468 copies). Off by
+  /// default, so every pre-existing flow keeps seeing the two seeded rows.
+  bool publicMasterServiceCopy = false;
+
+  /// The copy row's assignment id — see [publicMasterServiceCopy].
+  static const String publicMasterServiceCopyId = 'pub-assign-1-copy';
+
+  static const Map<String, dynamic> _publicMasterServiceCopyRow =
+      <String, dynamic>{
+        'id': publicMasterServiceCopyId,
+        'masterId': 'master-aaa',
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 400,
+        'priceMax': null,
+        'priceDisplay': '400 ₴',
+        'effectiveDurationMinutes': 60,
+        'serviceDefinition': <String, dynamic>{
+          'id': 'pub-svc-1-copy',
+          'name': 'Манікюр з покриттям',
+          'description': null,
+          'category': 'NAILS',
+          'serviceTypeSlug': 'CLASSIC_MANICURE',
+          'baseDurationMinutes': 60,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 400,
+          'priceMax': null,
+          'priceDisplay': '400 ₴',
+          'photoUrl': null,
+        },
+      };
+
   /// [_publicMasterServices], filtered per [publicMasterServiceRemoved] /
-  /// [masterAaaServicesEmpty].
+  /// [masterAaaServicesEmpty], plus the [publicMasterServiceCopy] row.
   List<Map<String, dynamic>> get _publicMasterServicesEffective =>
       masterAaaServicesEmpty
       ? const <Map<String, dynamic>>[]
@@ -1759,6 +1795,11 @@ final class FakeBackend {
       ? _publicMasterServices
             .where((Map<String, dynamic> row) => row['id'] != 'pub-assign-1')
             .toList(growable: false)
+      : publicMasterServiceCopy
+      ? <Map<String, dynamic>>[
+          ..._publicMasterServices,
+          _publicMasterServiceCopyRow,
+        ]
       : _publicMasterServices;
 
   /// Phase 264 — the FULL, ordered `serviceId` list the most recent
@@ -3081,6 +3122,28 @@ final class FakeBackend {
 
   bool _createRejectDuplicate = false;
 
+  /// Phase 468 — when true, `PATCH /api/v1/services/svc-typed` (the edit-form
+  /// save) replies HTTP **409** with the backend's typed
+  /// `{ data: { code: "DUPLICATE_SERVICE", serviceName: null,
+  /// existingServiceDefId } }` envelope instead of the default 200: the edit
+  /// would leave two active copies of one type with the same name AND
+  /// duration (backend 464 rule). Drives `_mapServiceWriteException` →
+  /// [ServiceDuplicateFailure] → `serviceErrDuplicateCopy` on name + duration.
+  /// The PATCH still counts in [patchServiceCalls] / [lastTypedPatchBody].
+  ///
+  /// RE-WIRES ON WRITE — same reason as [createRejectDuplicate]: the status is
+  /// captured at registration, so the setter re-registers the route.
+  bool get typedPatchRejectDuplicate => _typedPatchRejectDuplicate;
+  set typedPatchRejectDuplicate(bool value) {
+    _typedPatchRejectDuplicate = value;
+    _wireTypedServicePatch();
+  }
+
+  bool _typedPatchRejectDuplicate = false;
+
+  /// The `existingServiceDefId` the [typedPatchRejectDuplicate] envelope reports.
+  String typedPatchDuplicateExistingServiceDefId = 'svc-mismatch';
+
   /// The `serviceName` the duplicate-409 envelope reports (the clashing service's
   /// display name). Threaded through so a flow can assert the typed field survives
   /// the decode; the form renders the localized copy regardless of its value.
@@ -3092,6 +3155,83 @@ final class FakeBackend {
   /// «Додати послуги» CTA). Call BEFORE `AppHarness.boot` / before the master
   /// profile's services section resolves.
   void clearServices() => _services.clear();
+
+  /// Phase 468 (acceptance 4) — appends a TYPED row to `master-removable`'s
+  /// salon catalogue ([_salonMasterServices]): `type-nails-classic` at
+  /// [durationMinutes], so the salon-target add-services screen shows that
+  /// type as OWNED and the owner can add a second copy at a free duration.
+  /// Additive — the default fixture stays untyped. Call BEFORE `boot`.
+  void seedSalonMasterTypedCopy({int durationMinutes = 60}) {
+    _salonMasterServices.add(<String, dynamic>{
+      'id': 'salon-assign-typed',
+      'masterId': 'master-removable',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 ₴',
+      'effectiveDurationMinutes': durationMinutes,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'salon-def-typed',
+        'name': 'Класичний манікюр',
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': durationMinutes,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 500,
+        'priceMax': null,
+        'priceDisplay': '500 ₴',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    });
+  }
+
+  /// Phase 471 (mobile-qa) — appends a RENAMED copy of `type-nails-classic`
+  /// to the independent master's own catalogue ([_services]): [name] at
+  /// [durationMinutes]. Since phase 472 (B6) the add-services pre-check
+  /// knows every owned copy's canonical name, so seeded BEFORE `boot` it is a
+  /// client-caught clash (`service_copy_flow_test` A4). Seeded AFTER the
+  /// setup screen took its snapshot it is a server-only duplicate: the list
+  /// GET reads [_services] live, so the post-409 reconcile sees it (A5).
+  void seedOwnedNamedCopy({
+    required String name,
+    required int durationMinutes,
+  }) {
+    _services.add(<String, dynamic>{
+      'id': 'assign-named-copy',
+      'masterId': 'user-master-1',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 700,
+      'priceMax': null,
+      'priceDisplay': '700 ₴',
+      'effectiveDurationMinutes': durationMinutes,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'svc-named-copy',
+        'name': name,
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': durationMinutes,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 700,
+        'priceMax': null,
+        'priceDisplay': '700 ₴',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    });
+  }
 
   /// Phase 076 (jank audit) — appends [count] extra services to the master's
   /// own list, spread over [categories] round-robin, so a scroll-perf flow can
@@ -4472,23 +4612,58 @@ final class FakeBackend {
         'priceDisplay': '100 ₴',
         'photoUrl': null,
       });
-      _adapter.onRoute(
-        '/api/v1/salons/salon-xyz/services/$id/masters',
-        (server) => server.replyCallback(200, (_) {
-          getBookableMastersCalls++;
-          requestedBookableMastersServiceDefIds.add(id);
-          return _okList(<Map<String, dynamic>>[
-            _bookableMasterEnvelope(
-              masterId: 'master-ccc',
-              serviceDefId: id,
-              firstName: 'Марія',
-              lastName: 'Гриценко',
-            ),
-          ]);
-        }),
-        request: const Request(method: RequestMethods.get),
-      );
+      _routeOverflowServiceToMasterCcc(id);
     }
+  }
+
+  /// Phase 470 — the catalogue id of [seedSalonCatalogCopy]'s row.
+  static const String kSalonSharedCopyCatalogServiceId =
+      'salon-svc-shared-copy';
+
+  /// Phase 470 — appends a 90-min COPY of [kSalonSharedCatalogServiceId]
+  /// («Манікюр класичний», 60 min) under the SAME name (phase 468 copies) to
+  /// the `salon-xyz` NAILS catalogue, bookable by `master-ccc`, so a client
+  /// flow sees the copy pair hinted («· 1 год» / «· 1 год 30 хв»).
+  void seedSalonCatalogCopy() {
+    const String id = kSalonSharedCopyCatalogServiceId;
+    _salonCatalogOverflowServices.add(<String, dynamic>{
+      'id': id,
+      'name': 'Манікюр класичний',
+      'description': null,
+      'category': 'NAILS',
+      'serviceTypeSlug': 'CLASSIC_MANICURE',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'baseDurationMinutes': 90,
+      'bufferMinutesAfter': 0,
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 600,
+      'priceMax': null,
+      'priceDisplay': '600 ₴',
+      'photoUrl': null,
+    });
+    _routeOverflowServiceToMasterCcc(id);
+  }
+
+  /// `GET …/salon-xyz/services/{id}/masters` → `master-ccc`, for a row added
+  /// by [seedSalonCatalogOverflow] / [seedSalonCatalogCopy].
+  void _routeOverflowServiceToMasterCcc(String id) {
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services/$id/masters',
+      (server) => server.replyCallback(200, (_) {
+        getBookableMastersCalls++;
+        requestedBookableMastersServiceDefIds.add(id);
+        return _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: 'master-ccc',
+            serviceDefId: id,
+            firstName: 'Марія',
+            lastName: 'Гриценко',
+          ),
+        ]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
   }
 
   List<Map<String, dynamic>> _salonServiceCategoriesWithOverflow() =>
@@ -7837,6 +8012,69 @@ final class FakeBackend {
   /// behaviour.
   bool bulkCreatePersists = false;
 
+  /// Phase 469 (mobile-qa) — when true, a 200 `PATCH /api/v1/services/svc-typed`
+  /// also writes the body's `name` / `baseDurationMinutes` onto the seeded
+  /// `assign-typed` row, so the next `GET …/me/services` reflects the rename.
+  /// Off by default: every pre-existing flow keeps its echo-only behaviour.
+  bool typedPatchPersists = false;
+
+  /// Phase 469 (mobile-qa) — sets a SEEDED row's duration (both the effective
+  /// and the definition's base minutes). Lets a flow turn the two 60-min
+  /// `type-nails-classic` copies into a 60 + 90 pair. Call BEFORE `boot`.
+  void setSeededServiceDuration(String assignmentId, int minutes) {
+    final Map<String, dynamic> row = _services.firstWhere(
+      (Map<String, dynamic> s) => s['id'] == assignmentId,
+    );
+    row['effectiveDurationMinutes'] = minutes;
+    (row['serviceDefinition'] as Map<String, dynamic>)['baseDurationMinutes'] =
+        minutes;
+  }
+
+  /// `PATCH /api/v1/services/svc-typed` — 200 by default, or the typed 409
+  /// DUPLICATE_SERVICE envelope while [typedPatchRejectDuplicate] is armed.
+  void _wireTypedServicePatch() {
+    _adapter.onRoute(
+      '/api/v1/services/svc-typed',
+      (server) => server.replyCallback(_typedPatchRejectDuplicate ? 409 : 200, (
+        req,
+      ) {
+        patchServiceCalls++;
+        final body = _decodeBody(req.data);
+        lastPatchedService = body;
+        lastTypedPatchBody = body;
+        if (_typedPatchRejectDuplicate) {
+          return <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{
+              'code': 'DUPLICATE_SERVICE',
+              'serviceName': null,
+              'existingServiceDefId': typedPatchDuplicateExistingServiceDefId,
+            },
+            'message': 'Duplicate service',
+          };
+        }
+        final idx = _services.indexWhere(
+          (s) =>
+              (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              'svc-typed',
+        );
+        if (typedPatchPersists && idx >= 0) {
+          final Map<String, dynamic> row = _services[idx];
+          final def = row['serviceDefinition'] as Map<String, dynamic>;
+          final Object? name = body['name'];
+          if (name is String) def['name'] = name;
+          final Object? minutes = body['baseDurationMinutes'];
+          if (minutes is int) {
+            def['baseDurationMinutes'] = minutes;
+            row['effectiveDurationMinutes'] = minutes;
+          }
+        }
+        return _ok(_services[idx >= 0 ? idx : 0]);
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+  }
+
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
     _adapter.onRoute(
@@ -9488,22 +9726,7 @@ final class FakeBackend {
     // real save actually fires:
     //   • svc-typed    → 200 (positive flow: re-picked type persists)
     //   • svc-mismatch → fieldless 400 mismatch envelope (negative flow)
-    _adapter.onRoute(
-      '/api/v1/services/svc-typed',
-      (server) => server.replyCallback(200, (req) {
-        patchServiceCalls++;
-        final body = _decodeBody(req.data);
-        lastPatchedService = body;
-        lastTypedPatchBody = body;
-        final idx = _services.indexWhere(
-          (s) =>
-              (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
-              'svc-typed',
-        );
-        return _ok(_services[idx >= 0 ? idx : 0]);
-      }),
-      request: const Request(method: RequestMethods.patch, data: Matchers.any),
-    );
+    _wireTypedServicePatch();
     _adapter.onRoute(
       '/api/v1/services/svc-mismatch',
       (server) => server.replyCallback(400, (req) {

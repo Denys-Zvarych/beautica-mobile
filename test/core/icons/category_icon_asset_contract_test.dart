@@ -58,12 +58,12 @@ void main() {
           .toList()
         ..sort((File a, File b) => a.path.compareTo(b.path));
 
-  test('exactly 20 category_*.svg assets are present on disk', () {
+  test('exactly 21 category_*.svg assets are present on disk', () {
     expect(
       categorySvgs.length,
-      20,
+      21,
       reason:
-          'the registry (`beautica_asset_icons.dart`) documents 20 '
+          'the registry (`beautica_asset_icons.dart`) documents 21 '
           'category assets; a file added or removed under assets/icons/ '
           'without updating this count means the registry and the '
           'bundle have drifted',

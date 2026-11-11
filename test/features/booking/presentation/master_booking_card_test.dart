@@ -2162,7 +2162,7 @@ void main() {
     // asserted 266dp — `360 − 94` — was "the narrowest lane the production
     // grid ever renders". It is not: this app treats 320dp as a supported
     // width throughout (`test/golden/helpers/golden_pump.dart`'s
-    // `kGoldenWidths` is {320, 360, 414}; `service_setup_screen_test.dart`
+    // `kGoldenWidths` is {320, 360, 414}; `service_setup_screen_regressions_test.dart`
     // sweeps {320, 360, 412}; `pricing_toggle_overflow_test.dart` exists
     // solely for 320dp), and minSdk 26 keeps 320dp Android 8 hardware in the
     // supported fleet. `320 − 94 = 226`, so 226dp is the real floor and the

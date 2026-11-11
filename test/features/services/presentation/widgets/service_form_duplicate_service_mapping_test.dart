@@ -7,8 +7,9 @@
 // again" snackbar — which re-hit the same 409 forever — because neither the
 // repository nor the form decoded the typed code. The repository now throws a
 // [ServiceDuplicateFailure]; the form special-cases it and surfaces the
-// localized `l10n.serviceErrDuplicate` INLINE on the keyed `error-service-type`
-// row (the field that determines the duplicate), never the generic snackbar.
+// localized duplicate copy INLINE, never the generic snackbar. Phase 468: a
+// type may be held more than once (copies differ in duration OR name), so the
+// message (`serviceErrDuplicateCopy`) sits on the name + duration fields.
 //
 // This widget test drives ServiceForm's real _handleSubmit:
 //   D1. onSubmit throws ServiceDuplicateFailure → localized duplicate copy shown
@@ -35,7 +36,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'select_dropdown_test_helpers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
@@ -134,8 +134,9 @@ void main() {
   }
 
   testWidgets(
-    'D1. ServiceDuplicateFailure → localized duplicate copy inline on the '
-    'service-type row (NOT the generic errServer snackbar)',
+    'D1. ServiceDuplicateFailure → the duplicate-copy copy inline on BOTH the '
+    'name and duration fields (phase 468), not the service-type row, and NOT '
+    'the generic errServer snackbar',
     (tester) async {
       await pumpForm(
         tester,
@@ -151,42 +152,33 @@ void main() {
       await tester.pumpAndSettle();
 
       final l10n = _l10n(tester);
-      final errorRow = find.byKey(const Key('error-service-type'));
       expect(
-        errorRow,
-        findsOneWidget,
-        reason: 'the duplicate 409 must surface on the inline error row',
+        find.text(l10n.serviceErrDuplicateCopy),
+        findsNWidgets(2),
+        reason: 'the 409 flags the two fields that resolve it: name + duration',
       );
       expect(
         find.descendant(
-          of: errorRow,
-          matching: find.text(l10n.serviceErrDuplicate),
+          of: find.byKey(const Key('pricing-field')),
+          matching: find.text(l10n.serviceErrDuplicateCopy),
         ),
         findsOneWidget,
-        reason: 'the LOCALIZED duplicate copy must render inline',
-      );
-      // The whole point of the fix: never the generic errServer snack.
-      expect(
-        find.byType(VelvetSnack),
-        findsNothing,
-        reason: 'a duplicate 409 must NOT fall through to a snack',
+        reason: 'one of the two messages sits on the duration well',
       );
       expect(
-        find.text(l10n.errServer),
+        find.byKey(const Key('error-service-type')),
         findsNothing,
-        reason: 'the generic "server error, try again" copy must never show',
+        reason: 'the service type no longer decides the duplicate',
       );
+      expect(find.byType(VelvetSnack), findsNothing);
+      expect(find.text(l10n.errServer), findsNothing);
     },
   );
 
   testWidgets(
-    'D2. editing the flagged service-type field clears the inline duplicate '
-    'error (mirrors the mismatch-400 edit-clears-error contract)',
+    'D2. editing the duration clears the paired duplicate message on BOTH '
+    'fields (the rule is "differs in duration OR name")',
     (tester) async {
-      // First submit throws the duplicate; a second (re-selection) would NOT be
-      // reached because the guard is on the service-type field. Keep onSubmit
-      // throwing so the ONLY way the inline error disappears is the field edit
-      // clearing the stored server error, not a subsequent successful submit.
       await pumpForm(
         tester,
         onSubmit: (_) async => throw const ServiceDuplicateFailure(
@@ -199,33 +191,57 @@ void main() {
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
-      // Precondition: the inline duplicate error is showing on the row.
       final l10n = _l10n(tester);
-      final errorRow = find.byKey(const Key('error-service-type'));
       expect(
-        find.descendant(
-          of: errorRow,
-          matching: find.text(l10n.serviceErrDuplicate),
-        ),
-        findsOneWidget,
-        reason: 'D2 precondition: the duplicate error must be shown first',
+        find.text(l10n.serviceErrDuplicateCopy),
+        findsNWidgets(2),
+        reason: 'D2 precondition',
       );
 
-      // Edit the flagged field: re-open the service-type picker and choose a
-      // DIFFERENT NAILS type. onServiceTypeSelected → _clearServerError(
-      // 'serviceTypeId') must drop the stale server error.
-      await selectServiceTypeOption(tester, 'type-nails-gel');
+      await tester.enterText(
+        find
+            .descendant(
+              of: find.byKey(const Key('pricing-field')),
+              matching: find.byType(TextField),
+            )
+            .first,
+        '75',
+      );
+      await tester.pumpAndSettle();
 
       expect(
-        find.descendant(
-          of: errorRow,
-          matching: find.text(l10n.serviceErrDuplicate),
-        ),
+        find.text(l10n.serviceErrDuplicateCopy),
         findsNothing,
-        reason:
-            'editing (re-selecting) the service type must clear the stale '
-            'duplicate inline error',
+        reason: 'changing either field resolves the duplicate',
       );
     },
   );
+
+  testWidgets('D3. editing the NAME also clears both messages', (tester) async {
+    await pumpForm(
+      tester,
+      onSubmit: (_) async => throw const ServiceDuplicateFailure(
+        serviceName: 'Класичний манікюр',
+        existingServiceDefId: 'def-existing',
+      ),
+      initial: _editService,
+    );
+
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
+
+    final l10n = _l10n(tester);
+    expect(find.text(l10n.serviceErrDuplicateCopy), findsNWidgets(2));
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Класичний манікюр (довгий)',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.serviceErrDuplicateCopy), findsNothing);
+  });
 }

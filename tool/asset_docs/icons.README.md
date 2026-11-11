@@ -104,6 +104,14 @@ PNGs via `scripts/icons/trace_icon.py` (marching squares + Ramer-Douglas-Peucker
 the method. They carry no Flaticon licence and are exempt from the
 Premium-re-download release gate above.
 
+### `category_body_massage.svg` — user's own drawing (Phase 467)
+
+| File | Provenance | Approved | SHA-256 (committed file) |
+|---|---|---|---|
+| `category_body_massage.svg` | User's own drawing (`medical.svg`), re-traced via `scripts/icons/trace_icon.py`; path data copied as-is from `docs/signup-designs/MassageCategoryIcon/assets/icons/category_body_massage_d.svg` (provenance comment and editor `id`/`data-name` attrs stripped) | 2026-11-09 | `7a222e0baa1c38d7d0833a5ed9ab50a932d501caf4c6665885ebcb498c371b18` |
+
+No licence, no attribution, outside the Flaticon release gate — no credits entry.
+
 ## Notes
 
 - `AppIcon` lives in `lib/core/icons/app_icon.dart`.

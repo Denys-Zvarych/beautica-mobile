@@ -712,4 +712,46 @@ void main() {
       expect(find.text('RenamedCategory'), findsWidgets);
     });
   });
+
+  // ── 7. copy-hints memo (audit LOW, phase 469) ──────────────────────────────
+  //
+  // `_resolveNameHints` runs the hint rule once per services-list IDENTITY;
+  // body rebuilds that keep the same list must reuse the memo.
+  group('copy-hints memo', () {
+    Future<ProviderContainer> mountSettled(WidgetTester tester) async {
+      debugNameHintsCount = 0;
+      final container = await pumpScreen(tester);
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    testWidgets('a category-driven rebuild does not rerun the hint rule', (
+      tester,
+    ) async {
+      final container = await mountSettled(tester);
+      expect(debugNameHintsCount, 1);
+      final regroups = debugRegroupCount;
+
+      categoryLabel = 'RenamedCategory';
+      container.invalidate(approvedCategoriesProvider);
+      await tester.pumpAndSettle();
+
+      // The body really rebuilt (regrouped on the new label) …
+      expect(debugRegroupCount, greaterThan(regroups));
+      // … but the services list is the same instance: no hint recompute.
+      expect(debugNameHintsCount, 1);
+    });
+
+    testWidgets('a services re-fetch yielding the identical list reuses the '
+        'memo', (tester) async {
+      final container = await mountSettled(tester);
+      expect(debugNameHintsCount, 1);
+
+      container.invalidate(servicesListProvider);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('services-list-scroll')), findsOneWidget);
+      expect(debugNameHintsCount, 1);
+    });
+  });
 }

@@ -4,8 +4,8 @@
 // duration exceeds the backend maximum (480 min / 8 h) — surfaced either by the
 // client-side `> 480` guard OR mapped back from a backend
 // `items[i].durationMinutes` per-field 400. The widget regression
-// (`service_setup_screen_test.dart`, group "per-field 400 maps to the offending
-// submitted row") asserts the row renders `l10n.serviceSetupDurationMax`
+// (`service_setup_screen_regressions_test.dart`, group "per-field 400 maps
+// to the offending submitted row") asserts the row renders `l10n.serviceSetupDurationMax`
 // (value-agnostic by design — it guards the WIRING, not the wording), so an
 // accidental re-word would pass there.
 //

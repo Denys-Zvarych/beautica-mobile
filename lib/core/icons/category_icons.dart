@@ -13,7 +13,7 @@
 // `docs/mobile-phases/category-icons-resume.md` for the full history.
 //
 // [categoryIconFor] is the reconciliation point: ONE function, returning a
-// real SVG asset path (not a generic Material glyph) from the 20 category
+// real SVG asset path (not a generic Material glyph) from the 21 category
 // icons registered on [BeauticaAssetIcons]. Its first caller was the BEAUTY
 // TIMELINE rail (`lib/features/home/presentation/widgets/beauty_timeline_section.dart`);
 // a second caller was added when the CLIENT SEARCH category rail migrated
@@ -100,10 +100,10 @@ String? categoryIconOrNullFor({String? categoryKey, String? categoryName}) {
 }
 
 /// Fallback for an unrecognised/absent category — the closest general
-/// "beauty services" glyph among the 20 registered category icons.
+/// "beauty services" glyph among the 21 registered category icons.
 const String _fallback = BeauticaAssetIcons.categoryCosmetology;
 
-/// Stage 1 — exact match against the 20 live `platform_categories` slugs.
+/// Stage 1 — exact match against the 21 live `platform_categories` slugs.
 String? _fromKey(String? categoryKey) {
   if (categoryKey == null || categoryKey.isEmpty) return null;
   return switch (categoryKey.toUpperCase()) {
@@ -127,6 +127,7 @@ String? _fromKey(String? categoryKey) {
     'LASER_COSMETOLOGY' => BeauticaAssetIcons.categoryLaserCosmetology,
     'HAIR_REMOVAL' => BeauticaAssetIcons.categoryHairRemoval,
     'PERMANENT_MAKEUP' => BeauticaAssetIcons.categoryPermanentMakeup,
+    'BODY_MASSAGE' => BeauticaAssetIcons.categoryBodyMassage,
     _ => null,
   };
 }
@@ -167,6 +168,9 @@ String? _fromName(String? categoryName) {
   }
   if (lower.contains('волос') || lower.contains('стриж')) {
     return BeauticaAssetIcons.categoryHairdressing;
+  }
+  if (lower.contains('масаж') || lower.contains('догляд за тілом')) {
+    return BeauticaAssetIcons.categoryBodyMassage;
   }
   if (lower.contains('апаратна')) {
     return BeauticaAssetIcons.categoryHardwareCosmetology;

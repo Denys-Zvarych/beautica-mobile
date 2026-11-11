@@ -62,6 +62,7 @@ class PricingField extends StatelessWidget {
     this.rangeError,
     this.durationController,
     this.durationError,
+    this.durationFocusNode,
     this.durationLabel,
     this.showSectionLabel = true,
     this.compact = false,
@@ -83,6 +84,11 @@ class PricingField extends StatelessWidget {
   /// Inline error for the duration well (only consulted when
   /// [durationController] is supplied).
   final String? durationError;
+
+  /// Phase 472 — optional caller-owned focus node for the duration well, so
+  /// the owner can move focus into it (the add-services «+ додати ще» jump).
+  /// Null = the well owns its node, exactly as before. Never disposed here.
+  final FocusNode? durationFocusNode;
 
   /// Label shown above the duration well in non-compact (create/edit) mode.
   /// Ignored when [durationController] is null or in compact mode.
@@ -366,6 +372,7 @@ class PricingField extends StatelessWidget {
       hint: '60',
       suffixText: l10n.serviceSetupDurationSuffix,
       formatters: _durationFormatters,
+      focusNode: durationFocusNode,
       errorText: durationError,
       // Compact rows hoist the message beneath the wells Row (ring stays here).
       hoistError: compact,
@@ -806,6 +813,7 @@ class _PricingInputField extends StatefulWidget {
     this.compact = false,
     this.hideSuffixWhenActive = false,
     this.hoistError = false,
+    this.focusNode,
   });
 
   final Key fieldKey;
@@ -853,6 +861,9 @@ class _PricingInputField extends StatefulWidget {
   /// the message still grows in with the existing AnimatedSize slot.
   final bool hoistError;
 
+  /// Caller-owned focus node; null = the field creates (and disposes) its own.
+  final FocusNode? focusNode;
+
   @override
   State<_PricingInputField> createState() => _PricingInputFieldState();
 }
@@ -870,7 +881,10 @@ class _PricingInputFieldState extends State<_PricingInputField> {
   static final TextStyle _labelStyle = VelvetText.label();
   static final TextStyle _errorStyle = VelvetText.feedback(BrandColors.error);
 
-  late final FocusNode _focus;
+  late FocusNode _focus;
+
+  /// The node this field created itself (null while a caller-owned one is used).
+  FocusNode? _ownFocus;
   bool _focused = false;
   bool _hasText = false;
 
@@ -891,7 +905,8 @@ class _PricingInputFieldState extends State<_PricingInputField> {
   void initState() {
     super.initState();
     _hasText = widget.controller.text.isNotEmpty;
-    _focus = FocusNode()..addListener(_onFocusChanged);
+    _focus = (widget.focusNode ?? (_ownFocus = FocusNode()))
+      ..addListener(_onFocusChanged);
     // Controller listener for hide-suffix-when-active: only attached when the
     // feature is enabled to avoid an unnecessary listener on the duration well.
     if (widget.hideSuffixWhenActive) {
@@ -900,8 +915,21 @@ class _PricingInputFieldState extends State<_PricingInputField> {
   }
 
   @override
+  void didUpdateWidget(_PricingInputField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final FocusNode? next = widget.focusNode;
+    if (identical(next, oldWidget.focusNode)) return;
+    _focus.removeListener(_onFocusChanged);
+    _ownFocus?.dispose();
+    _ownFocus = null;
+    _focus = (next ?? (_ownFocus = FocusNode()))..addListener(_onFocusChanged);
+    _focused = _focus.hasFocus;
+  }
+
+  @override
   void dispose() {
-    _focus.dispose();
+    _focus.removeListener(_onFocusChanged);
+    _ownFocus?.dispose();
     if (widget.hideSuffixWhenActive) {
       widget.controller.removeListener(_onTextChanged);
     }

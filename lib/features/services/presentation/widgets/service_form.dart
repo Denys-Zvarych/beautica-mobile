@@ -54,6 +54,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/service_t
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
+import 'package:beautica_mobile/shared/formatters/service_name_input_formatters.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
 import 'package:flutter/material.dart';
@@ -516,9 +517,23 @@ class _ServiceFormState extends State<ServiceForm> {
         serverFieldName != null &&
         _serverFieldErrors.containsKey(serverFieldName);
     if (clearedServerError) {
-      _serverFieldErrors = Map<String, String>.unmodifiable(
-        Map<String, String>.from(_serverFieldErrors)..remove(serverFieldName),
-      );
+      final Map<String, String> next = Map<String, String>.from(
+        _serverFieldErrors,
+      )..remove(serverFieldName);
+      // Phase 468: the duplicate-copy 409 sits on BOTH name and duration, and
+      // changing EITHER resolves it (the rule is "differs in duration or
+      // name"), so an edit to one drops the paired message on the other.
+      if (serverFieldName == 'name' ||
+          serverFieldName == 'baseDurationMinutes') {
+        final String other = serverFieldName == 'name'
+            ? 'baseDurationMinutes'
+            : 'name';
+        if (_duplicateCopyMessage != null &&
+            next[other] == _duplicateCopyMessage) {
+          next.remove(other);
+        }
+      }
+      _serverFieldErrors = Map<String, String>.unmodifiable(next);
     }
     // Live re-validation: bump the error tick so ONLY the per-field error
     // sub-trees recompute. Never calls setState, so `_CategoryDropdown` and the
@@ -539,6 +554,11 @@ class _ServiceFormState extends State<ServiceForm> {
   /// frame that otherwise rebuilds) — it only mutates the map. Used by the
   /// service-type handlers, which have no [TextEditingController] to hang an
   /// edit-clears-error listener on.
+  /// The localized duplicate-copy 409 message currently paired on the name
+  /// and duration fields (null until a 409 lands). Lets [_onChanged] clear
+  /// the pair together without re-resolving [AppLocalizations].
+  String? _duplicateCopyMessage;
+
   void _clearServerError(String field) {
     if (!_serverFieldErrors.containsKey(field)) return;
     _serverFieldErrors = Map<String, String>.unmodifiable(
@@ -939,11 +959,13 @@ class _ServiceFormState extends State<ServiceForm> {
       // Swallow — the inline errors now communicate the problem; rethrowing
       // would also pop a redundant generic snackbar.
     } on ServiceDuplicateFailure {
-      // Backend 409 DUPLICATE_SERVICE: the chosen service is already in the
-      // master's menu. Flag the service-type field inline (the offending choice)
-      // with the same localized copy, instead of only a generic snackbar — the
-      // service type is the field that determines the duplicate. Do not log the
-      // typed diagnostic fields (they can echo catalogue/user data).
+      // Backend 409 DUPLICATE_SERVICE. Since backend 464/465 a type may be held
+      // more than once, provided each active copy differs in duration OR name,
+      // so the 409 means "same type, same duration AND same name". Flag the two
+      // fields that resolve it — duration and name — inline (phase 468),
+      // instead of a generic snackbar. Editing either clears both (see
+      // [_onChanged]). Do not log the typed diagnostic fields (they can echo
+      // catalogue/user data).
       if (kDebugMode) {
         log(
           'ServiceForm.onSubmit duplicate service (409 DUPLICATE_SERVICE)',
@@ -952,10 +974,13 @@ class _ServiceFormState extends State<ServiceForm> {
         );
       }
       if (mounted) {
+        _duplicateCopyMessage = l10n.serviceErrDuplicateCopy;
         setState(() {
-          _serverFieldErrors = Map<String, String>.unmodifiable(
-            <String, String>{'serviceTypeId': l10n.serviceErrDuplicate},
-          );
+          _serverFieldErrors =
+              Map<String, String>.unmodifiable(<String, String>{
+                'name': l10n.serviceErrDuplicateCopy,
+                'baseDurationMinutes': l10n.serviceErrDuplicateCopy,
+              });
         });
       }
       // Swallow — the inline error communicates the problem; rethrowing would
@@ -1018,6 +1043,7 @@ class _ServiceFormState extends State<ServiceForm> {
     required String label,
     required TextEditingController controller,
     required String? errorText,
+    Key? errorKey,
     String? hintText,
     String? suffixText,
     TextInputType? keyboardType,
@@ -1029,6 +1055,7 @@ class _ServiceFormState extends State<ServiceForm> {
       label: label,
       controller: controller,
       errorText: errorText,
+      errorKey: errorKey,
       hintText: hintText,
       suffixText: suffixText,
       keyboardType: keyboardType,
@@ -1160,11 +1187,14 @@ class _ServiceFormState extends State<ServiceForm> {
                   label: l10n.serviceNameOptionalLabel,
                   controller: _nameCtrl,
                   errorText: _nameError(l10n),
+                  errorKey: const Key('error-service-name'),
                   hintText: l10n.serviceNameHint,
                   // Cap input at the backend `@Size(max = 100)` name limit so
                   // an over-long value can never reach the wire; mirrors the
                   // duration field's LengthLimitingTextInputFormatter.
+                  // The shared backend-464 allow-list runs first.
                   inputFormatters: <TextInputFormatter>[
+                    ...serviceNameInputFormatters,
                     LengthLimitingTextInputFormatter(kNameMaxLength),
                   ],
                   enabled: !_submitting,
@@ -1675,6 +1705,7 @@ class _VelvetFieldRow extends StatefulWidget {
     required this.errorText,
     required this.labelStyle,
     required this.feedbackErrorStyle,
+    this.errorKey,
     this.hintText,
     this.suffixText,
     this.keyboardType,
@@ -1686,6 +1717,10 @@ class _VelvetFieldRow extends StatefulWidget {
   final String label;
   final TextEditingController controller;
   final String? errorText;
+
+  /// Optional key on the inline error [Text], so a test can find the error
+  /// that belongs to THIS field (it renders as a sibling of [fieldKey]).
+  final Key? errorKey;
   final String? hintText;
   final String? suffixText;
   final TextInputType? keyboardType;
@@ -1818,6 +1853,7 @@ class _VelvetFieldRowState extends State<_VelvetFieldRow> {
                   Expanded(
                     child: Text(
                       widget.errorText!,
+                      key: widget.errorKey,
                       style: widget.feedbackErrorStyle,
                     ),
                   ),

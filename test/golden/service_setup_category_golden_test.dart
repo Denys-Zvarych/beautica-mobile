@@ -81,6 +81,7 @@
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_setup_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -155,6 +156,61 @@ Widget _headers() => const Column(
       total: 3,
     ),
   ],
+);
+
+/// Phase 467 — the 21st category, BODY_MASSAGE, between two neighbours, all
+/// resolved through the SAME `categoryIconOrNullFor` path the setup screen
+/// uses (`service_setup_screen.dart` `cat_<slug>` chips), so the golden pins
+/// the resolver output, not a hand-picked constant.
+const List<({String slug, String label})> _massageRow =
+    <({String slug, String label})>[
+      (slug: 'NAIL_SERVICE', label: 'Манікюр'),
+      (slug: 'BODY_MASSAGE', label: 'Масаж і догляд за тілом'),
+      (slug: 'COSMETOLOGY', label: 'Косметологія'),
+    ];
+
+String? _resolve(({String slug, String label}) c) =>
+    categoryIconOrNullFor(categoryKey: c.slug, categoryName: c.label);
+
+Widget _massageFixture(double width) => ColoredBox(
+  color: BrandColors.base,
+  child: SizedBox(
+    width: width,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final bool selected in <bool>[false, true]) ...<Widget>[
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: <Widget>[
+                for (final c in _massageRow)
+                  CategoryChip(
+                    key: ValueKey<String>('massage-$selected-${c.slug}'),
+                    iconAsset: _resolve(c),
+                    label: c.label,
+                    selected: selected,
+                    includedCount: 0,
+                    onTap: () {},
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+          CategoryGroupHeader(
+            key: const ValueKey<String>('massage-header'),
+            iconAsset: _resolve(_massageRow[1]),
+            label: _massageRow[1].label,
+            includedCount: 0,
+            total: 4,
+          ),
+        ],
+      ),
+    ),
+  ),
 );
 
 /// Hosts the full fixture on the brand base at [width], matching how the
@@ -233,15 +289,57 @@ void main() {
 
   // ── Golden — the fixture above, at {1.0, 1.3} textScale ─────────────────
   group('service setup category chip / header golden', () {
-    for (final double scale in kGoldenTextScales) {
-      goldenTest(
-        'service setup category chips + headers ${width.toInt()}dp x$scale',
-        fileName: 'service_setup_category_${widthScaleSuffix(width, scale)}',
-        constraints: BoxConstraints.tight(const Size(width, 420)),
-        textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(width: width),
-        builder: () => _fixture(width),
+    // Audit LOW — a second width: 414 dp, the widest of `kGoldenWidths`.
+    for (final double width in const <double>[360, 414]) {
+      for (final double scale in kGoldenTextScales) {
+        goldenTest(
+          'service setup category chips + headers ${width.toInt()}dp x$scale',
+          fileName: 'service_setup_category_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 420)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _fixture(width),
+        );
+      }
+    }
+  });
+
+  // ── Phase 467 — BODY_MASSAGE (21st category) ───────────────────────────
+  group('BODY_MASSAGE category icon — measured ground truth (not golden)', () {
+    testWidgets('the BODY_MASSAGE chips + header resolve to '
+        'category_body_massage.svg, laid out at the same 20x20 as neighbours', (
+      tester,
+    ) async {
+      await _pumpMeasured(tester, _massageFixture(width));
+      await tester.pumpAndSettle();
+
+      final Finder massage = find.byWidgetPredicate(
+        (w) =>
+            w is AppIcon && w.asset == BeauticaAssetIcons.categoryBodyMassage,
       );
+      // Unselected chip + selected chip + header.
+      expect(massage, findsNWidgets(3));
+      expect(find.byType(AppIcon), findsNWidgets(7));
+      for (final Element el in find.byType(SvgPicture).evaluate()) {
+        expect(tester.getSize(find.byWidget(el.widget)), const Size(20, 20));
+      }
+    });
+  });
+
+  group('service setup BODY_MASSAGE category golden', () {
+    // Audit LOW — a second width: 414 dp, the widest of `kGoldenWidths`.
+    for (final double width in const <double>[360, 414]) {
+      for (final double scale in kGoldenTextScales) {
+        goldenTest(
+          'service setup BODY_MASSAGE chip row + header ${width.toInt()}dp x$scale',
+          fileName:
+              'service_setup_category_body_massage_${widthScaleSuffix(width, scale)}',
+          constraints: BoxConstraints.tight(Size(width, 380)),
+          textScaleFactor: scale,
+          pumpWidget: goldenPumpWidget(width: width),
+          builder: () => _massageFixture(width),
+        );
+      }
     }
   });
 }

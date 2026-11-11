@@ -14,15 +14,22 @@
 // control while its include toggle is ON, and dims to a single muted line while
 // OFF.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_name_key.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/service_name_input_formatters.dart';
 
 /// Why a save-time validation flag fired on a row, so its card can show a
 /// precise message (and the right inline field hints) instead of one generic
@@ -320,8 +327,9 @@ class CategoryGroupHeader extends StatelessWidget {
 /// Mutable per-row UI state for one service-type while the master configures the
 /// one-pass menu. Holds everything the bottom save serialises into the per-row
 /// bulk payload `{ serviceTypeId, durationMinutes, priceType, price |
-/// priceMin/priceMax }`. The service name + category are derived server-side from
-/// the service-type, so there is deliberately no name field here.
+/// priceMin/priceMax, name? }`. The service category is derived server-side
+/// from the service-type; the name defaults to the type name and is only
+/// overridable on a type that has more than one row (phase 471 copies).
 ///
 /// A [ChangeNotifier] so the row's own card — and the derived footer count /
 /// chip badges — can rebuild *locally* when `included` / `pricingMode` /
@@ -333,7 +341,109 @@ class ServiceRowState extends ChangeNotifier {
     required this.serviceTypeId,
     required this.nameUk,
     this.alreadyAdded = false,
-  });
+    this.ownedDurations = const <int>{},
+    this.copyIndex = 0,
+    String? name,
+    List<MasterService> ownedServices = const <MasterService>[],
+    Set<(int, String)>? ownedCopyKeys,
+  }) : ownedCopyKeys =
+           ownedCopyKeys ??
+           (ownedServices.isEmpty
+               ? null
+               : copyKeysOf(ownedServices, typeName: nameUk)) {
+    // Parsed-value caches (see [durationMinutes] / [customName]) follow the
+    // controllers' TEXT; registered before the seed so it is cached too.
+    duration.addListener(_syncDuration);
+    this.name.addListener(_syncName);
+    if (name != null) this.name.text = name;
+  }
+
+  /// Text [_durationMinutes] was parsed from; a caret / selection-only
+  /// notification leaves it equal and skips the re-parse.
+  String _durationText = '';
+  int? _durationMinutes;
+
+  /// Text [_customName] was derived from.
+  String _nameText = '';
+  String? _customName;
+
+  void _syncDuration() {
+    final String text = duration.text;
+    if (text == _durationText) return;
+    _durationText = text;
+    _durationMinutes = int.tryParse(text.trim());
+  }
+
+  void _syncName() {
+    final String text = name.text;
+    if (text == _nameText) return;
+    _nameText = text;
+    final String t = text.trim();
+    // Phase 472 (D4): the pencil pre-fills the type name, so text that is
+    // canonically the type name is NOT a custom name — the same as blank.
+    _customName = t.isEmpty || _isTypeName(serviceNameCanonical(t)) ? null : t;
+    _effectiveNameKey = null; // re-derived on next read
+  }
+
+  /// [serviceNameCanonical] of [nameUk] and of [_prefillName], derived once
+  /// (like [_typeNameKey]) instead of on every name edit.
+  String? _typeCanonical;
+  String? _prefillCanonical;
+
+  /// Whether [canonical] is the type name — as stored, or as the pencil
+  /// pre-fills it ([_prefillName]), so an untouched pre-fill is never a
+  /// custom name.
+  bool _isTypeName(String canonical) =>
+      canonical == (_typeCanonical ??= serviceNameCanonical(nameUk)) ||
+      canonical == (_prefillCanonical ??= serviceNameCanonical(_prefillName));
+
+  String? _prefillNameCache;
+
+  /// [nameUk] through the name well's own input formatters (allow-list +
+  /// max length), so the programmatic pre-fill never shows a character the
+  /// master could not type.
+  String get _prefillName => _prefillNameCache ??= _sanitizeName(nameUk);
+
+  static String _sanitizeName(String text) {
+    TextEditingValue value = TextEditingValue(text: text);
+    for (final TextInputFormatter f in serviceNameInputFormatters) {
+      value = f.formatEditUpdate(TextEditingValue.empty, value);
+    }
+    return LengthLimitingTextInputFormatter(
+      _ServiceTypeRowCardState._nameMaxLength,
+    ).formatEditUpdate(TextEditingValue.empty, value).text;
+  }
+
+  /// [effectiveNameKey] cache, cleared by [_syncName]; [_typeNameKey] is the
+  /// fixed [serviceNameKey] of [nameUk].
+  String? _effectiveNameKey;
+  String? _typeNameKey;
+
+  /// The duration field parsed as whole minutes, or null when blank / not a
+  /// number. Cached on text change — reads never re-parse.
+  int? get durationMinutes => _durationMinutes;
+
+  /// Phase 471 — an extra copy row of [source]'s type, already included: same
+  /// type / name / ownership, an empty duration and an empty price.
+  /// Phase 472 (D4): no duration seed — the master types the copy's duration
+  /// (the 471 nearest-free quick-pick read as an autofilled value).
+  ///
+  /// [copyIndex] must be unique among the type's rows (> 0): it keys the
+  /// copy's widgets (see [keyId]).
+  factory ServiceRowState.copyOf(ServiceRowState source, {int copyIndex = 1}) {
+    assert(copyIndex > 0, 'a copy row needs copyIndex > 0');
+    final copy = ServiceRowState(
+      serviceTypeId: source.serviceTypeId,
+      nameUk: source.nameUk,
+      alreadyAdded: source.alreadyAdded,
+      ownedDurations: source.ownedDurations,
+      ownedCopyKeys: source.ownedCopyKeys,
+      copyIndex: copyIndex,
+    );
+    // Set directly: a fresh copy has no listeners yet.
+    copy._included = true;
+    return copy;
+  }
 
   /// The platform service-type id submitted in the bulk payload.
   final String serviceTypeId;
@@ -341,20 +451,113 @@ class ServiceRowState extends ChangeNotifier {
   /// Ukrainian display name shown on the row card.
   final String nameUk;
 
-  /// True when the master ALREADY offers this service type, so it must never be
-  /// submitted: the bulk endpoint is all-or-nothing and would reject the whole
-  /// batch with 409 `DUPLICATE_SERVICE` over this one item.
+  /// Phase 471 — position of this row among its type's rows: 0 for the first
+  /// (primary) row, > 0 for an extra copy. Unique per type, stable for the
+  /// row's life except when the primary is removed and this row is promoted to
+  /// 0. Not a notifier field: the screen rebuilds when it changes.
+  int copyIndex;
+
+  /// True for an extra copy row added with «+ додати ще» (phase 471).
+  bool get isExtraCopy => copyIndex > 0;
+
+  /// Widget-key id of this row: the bare [serviceTypeId] for the primary row
+  /// (so every pre-471 key is unchanged), `<id>_copy_<n>` for a copy.
+  String get keyId =>
+      copyIndex == 0 ? serviceTypeId : '${serviceTypeId}_copy_$copyIndex';
+
+  /// Phase 471 — optional custom name of this copy. Only shown while the type
+  /// has more than one row; blank = the type name.
+  final TextEditingController name = TextEditingController();
+
+  /// The trimmed custom name, or null when blank. Cached on text change.
+  String? get customName => _customName;
+
+  /// The name the backend 464 duplicate rule compares ([serviceNameKey]:
+  /// compatibility-folded, space runs collapsed, trimmed, lower-cased),
+  /// blank = the type name.
+  /// Cached with [customName] (phase 472 audit) — the pair check reads it per
+  /// row on every edit.
+  String get effectiveNameKey => _effectiveNameKey ??= switch (customName) {
+    final String n => serviceNameKey(n),
+    null => _typeKey,
+  };
+
+  String get _typeKey => _typeNameKey ??= serviceNameKey(nameUk);
+
+  /// True when this row would be saved under the type name — the name every
+  /// existing copy in [ownedDurations] is compared with.
+  bool get keepsTypeName => effectiveNameKey == _typeKey;
+
+  bool _copyCollision = false;
+
+  /// Phase 471 — set by the screen's pair check: this included row has the
+  /// same duration AND effective name as an earlier row of the same type, so
+  /// the save is blocked until one of them changes.
+  bool get copyCollision => _copyCollision;
+  set copyCollision(bool value) {
+    if (_copyCollision == value) return;
+    _copyCollision = value;
+    notifyListeners();
+  }
+
+  /// True when the master ALREADY offers this service type (at least one
+  /// copy). Drives the «Вже додано» label only.
   ///
-  /// Immutable for the row's lifetime — it is seeded from the master's existing
-  /// catalogue when the category's types load. The row still RENDERS (visibly
-  /// disabled + "вже додано"), because a master hunting for a service they
-  /// already have must see why it is unselectable rather than conclude the
-  /// catalogue is broken.
+  /// Phase 468: an owned type is selectable again — the backend accepts a copy
+  /// whose duration OR name differs from every active copy. The add-services
+  /// row has no name field (its name is the type name), so the client mirrors
+  /// only the duration half of the rule via [ownedDurations]; the server 409
+  /// stays the backstop for name collisions.
   ///
-  /// [included] is hard-gated on this: the setter refuses to turn a
-  /// already-added row on, so no code path — not a stray toggle, not a future
-  /// "select all" — can smuggle one into the payload.
+  /// Immutable for the row's lifetime — seeded from the master's existing
+  /// catalogue when the category's types load.
   final bool alreadyAdded;
+
+  /// Durations (minutes) of the master's existing copies of this type. Empty
+  /// for a type the master does not offer. An included row whose duration is
+  /// one of these is [durationTaken] and blocks the save.
+  final Set<int> ownedDurations;
+
+  /// Phase 472 — `(durationMinutes, serviceNameKey(name))` of every existing
+  /// copy, the backend 464 rule's (duration, canonical name) half (the type
+  /// is the row's). Null when unknown — [durationTaken] then falls back to
+  /// "existing copies carry the type name" (the pre-472 assumption).
+  final Set<(int, String)>? ownedCopyKeys;
+
+  /// The [ownedCopyKeys] of [services]: a blank name counts as the service's
+  /// own type name, else [typeName] (the row's catalogue name).
+  static Set<(int, String)> copyKeysOf(
+    List<MasterService> services, {
+    required String typeName,
+  }) => <(int, String)>{
+    for (final MasterService s in services)
+      (
+        s.durationMinutes,
+        serviceNameKey(
+          s.name.trim().isNotEmpty
+              ? s.name
+              : ((s.serviceTypeNameUk ?? '').trim().isNotEmpty
+                    ? s.serviceTypeNameUk ?? typeName
+                    : typeName),
+        ),
+      ),
+  };
+
+  /// True while the row is included and its (duration, canonical name)
+  /// matches an existing copy of the same type — an exact duplicate the
+  /// backend would reject with 409 `DUPLICATE_SERVICE`. Phase 472 compares
+  /// [effectiveNameKey] with each copy's canonical name ([ownedCopyKeys]), so
+  /// a renamed existing copy no longer blocks a type-name row at its
+  /// duration; without keys, only a row that keeps the type name is taken
+  /// (phase 471).
+  bool get durationTaken {
+    if (!_included) return false;
+    final int? d = _durationMinutes;
+    if (d == null) return false;
+    final Set<(int, String)>? keys = ownedCopyKeys;
+    if (keys != null) return keys.contains((d, effectiveNameKey));
+    return ownedDurations.contains(d) && keepsTypeName;
+  }
 
   /// Field controllers, owned by the row so its card can recompute the
   /// cross-field range error from the min/max text without a screen rebuild.
@@ -372,12 +575,12 @@ class ServiceRowState extends ChangeNotifier {
   /// makes its rows required.
   bool get included => _included;
   set included(bool value) {
-    // Hard gate: an already-owned service type can never be included, so it can
-    // never reach the payload. Enforced here rather than at the call sites so a
-    // single missed guard cannot resurrect the guaranteed-409 bug.
-    if (alreadyAdded && value) return;
     if (_included == value) return;
     _included = value;
+    // Phase 472: no duration seed on toggle. Phase 468 filled an owned type's
+    // row with a free quick-pick here, which read as an autofilled duration on
+    // every reopen; the master now types the copy's duration themselves
+    // ([durationTaken] still blocks a value an existing copy already has).
     notifyListeners();
   }
 
@@ -435,9 +638,24 @@ class ServiceRowState extends ChangeNotifier {
     notifyListeners();
   }
 
+  String? _serverNameError;
+
+  /// Phase 471 — a backend per-field validation message for this row's copy
+  /// name (`items[i].name`), mapped back from a 400. Rendered in the name
+  /// well's inline-error slot. Null when there is none.
+  String? get serverNameError => _serverNameError;
+  set serverNameError(String? value) {
+    if (_serverNameError == value) return;
+    _serverNameError = value;
+    notifyListeners();
+  }
+
   /// Clears the mapped-back server duration error (e.g. when the master edits
   /// the duration field, so the red state disappears as they fix the value).
   void clearServerDurationError() => serverDurationError = null;
+
+  /// Clears the mapped-back server name error (the master edited the name).
+  void clearServerNameError() => serverNameError = null;
 
   /// Clears the mapped-back server price error (e.g. when the master edits a
   /// price field).
@@ -448,10 +666,67 @@ class ServiceRowState extends ChangeNotifier {
   void clearServerErrors() {
     serverDurationError = null;
     serverPriceError = null;
+    serverNameError = null;
   }
+
+  // -------------------------------------------------------------------------
+  // Phase 472 — «+ додати ще» focus jump and the card pencil's custom name
+  // (decision D3)
+  // -------------------------------------------------------------------------
+
+  FocusNode? _durationFocus;
+
+  /// Focus node of this row's duration well, created on first use, so the
+  /// screen can move focus into a freshly added copy.
+  FocusNode get durationFocus =>
+      _durationFocus ??= FocusNode(debugLabel: 'setup_duration_$keyId');
+
+  FocusNode? _nameFocus;
+
+  /// Focus node of this row's custom-name well, created on first use, so the
+  /// header pencil can move focus into the well it reveals.
+  FocusNode get nameFocus =>
+      _nameFocus ??= FocusNode(debugLabel: 'setup_name_$keyId');
+
+  bool _nameFieldOpen = false;
+
+  /// D3 — true once the card's pencil revealed its custom-name well (the
+  /// name is sent with the add).
+  bool get nameFieldOpen => _nameFieldOpen;
+
+  /// Reveals the custom-name well (the card's header pencil). Phase 472
+  /// (D4): a blank well is pre-filled with the type name as editable text,
+  /// caret at the end (the usual edit appends a qualifier); left unchanged it
+  /// is no custom name ([customName]).
+  void openNameField() {
+    if (_nameFieldOpen) return;
+    _nameFieldOpen = true;
+    if (name.text.isEmpty) {
+      final String prefill = _prefillName;
+      name.value = TextEditingValue(
+        text: prefill,
+        selection: TextSelection.collapsed(offset: prefill.length),
+      );
+    }
+    notifyListeners();
+  }
+
+  /// D4.3 — the in-place name editor closes (focus lost / Done): the card
+  /// returns to its title + pencil, the title showing [displayName].
+  void closeNameField() {
+    if (!_nameFieldOpen) return;
+    _nameFieldOpen = false;
+    notifyListeners();
+  }
+
+  /// The card title: the custom name when set, else the type name.
+  String get displayName => _customName ?? nameUk;
 
   @override
   void dispose() {
+    _durationFocus?.dispose();
+    _nameFocus?.dispose();
+    name.dispose();
     duration.dispose();
     fixed.dispose();
     min.dispose();
@@ -478,6 +753,11 @@ class ServiceTypeRowCard extends StatefulWidget {
     required this.row,
     required this.resolveRangeError,
     this.onChanged,
+    this.onFieldEdited,
+    this.onAddCopy,
+    this.onRemove,
+    this.showNameField = false,
+    this.offerCustomName = false,
   });
 
   final ServiceRowState row;
@@ -490,6 +770,32 @@ class ServiceTypeRowCard extends StatefulWidget {
   /// any derived aggregate (footer count, chip badges) can re-derive. The row's
   /// own card already rebuilds itself via its [ServiceRowState] notifier.
   final VoidCallback? onChanged;
+
+  /// Called once per REAL duration / name text change (never on caret or
+  /// selection traffic) with whether [ServiceRowState.durationTaken] flipped.
+  /// When set it REPLACES [onChanged] for field edits, so the owner runs its
+  /// re-derivation (e.g. the copy pair check) exactly once per edit. Null =
+  /// field edits report a taken-flip through [onChanged], as before.
+  final ValueChanged<bool>? onFieldEdited;
+
+  /// Phase 471 — when non-null (and the row is included) a «+ додати ще» text
+  /// action under the row adds another copy of this type. Null = no action,
+  /// the row renders exactly as before.
+  final VoidCallback? onAddCopy;
+
+  /// Phase 471 — when non-null a «Прибрати» text action removes this row.
+  final VoidCallback? onRemove;
+
+  /// Phase 471 — keeps the in-place name field («Назва (необов'язково)»,
+  /// D4.3: in the title's place) open while the row is included.
+  final bool showNameField;
+
+  /// Phase 472 (D3) — while the row is included, a pencil after the title
+  /// swaps the title for the in-place name field
+  /// ([ServiceRowState.openNameField]); the typed name is this card's own
+  /// and is sent with the add. Shown on every card — owned or not, primary
+  /// or copy. False = no pencil, the row renders exactly as before.
+  final bool offerCustomName;
 
   @override
   State<ServiceTypeRowCard> createState() => _ServiceTypeRowCardState();
@@ -528,9 +834,26 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   String _lastDurationText = '';
   String _lastPriceSignature = '';
 
+  /// Last-seen [ServiceRowState.durationTaken], so a duration edit notifies
+  /// the screen only when the CTA-gating state actually flips.
+  bool _lastDurationTaken = false;
+
+  /// Last-seen name text, so a caret move never clears the server name error.
+  String _lastNameText = '';
+
+  /// The name focus node [_onNameFocusChanged] listens to — attached only
+  /// once the in-place editor opens, so a closed card never creates one.
+  FocusNode? _listenedNameFocus;
+
+  /// True while [_startName] pre-fills the well: that programmatic text is
+  /// no edit, so it skips the screen re-check.
+  bool _prefillingName = false;
+
   void _attach(ServiceRowState row) {
+    _lastNameText = row.name.text;
     _lastDurationText = row.duration.text;
     _lastPriceSignature = _priceSignatureOf(row);
+    _lastDurationTaken = row.durationTaken;
     row.addListener(_onRowChanged);
     // Editing the duration clears any mapped-back server duration error so the
     // red state disappears as the master fixes the value.
@@ -540,6 +863,36 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     row.fixed.addListener(_onPriceChanged);
     row.min.addListener(_onPriceChanged);
     row.max.addListener(_onPriceChanged);
+    // Phase 471: a rename can flip [ServiceRowState.durationTaken].
+    row.name.addListener(_onNameChanged);
+    if (row.nameFieldOpen) _listenNameFocus(row);
+  }
+
+  /// D4.3: losing focus (or Done) closes the in-place name editor. Attached
+  /// when the editor opens (pencil, or an external [ServiceRowState.openNameField]).
+  void _listenNameFocus(ServiceRowState row) {
+    if (_listenedNameFocus != null) return;
+    _listenedNameFocus = row.nameFocus..addListener(_onNameFocusChanged);
+  }
+
+  void _onNameFocusChanged() {
+    final ServiceRowState row = widget.row;
+    if (!row.nameFocus.hasFocus) row.closeNameField();
+  }
+
+  /// D3 — the header pencil: reveal the custom-name well, then focus it.
+  void _startName() {
+    final ServiceRowState row = widget.row;
+    _prefillingName = true;
+    try {
+      row.openNameField();
+    } finally {
+      _prefillingName = false;
+    }
+    _listenNameFocus(row);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) row.nameFocus.requestFocus();
+    });
   }
 
   void _detach(ServiceRowState row) {
@@ -548,9 +901,13 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     row.fixed.removeListener(_onPriceChanged);
     row.min.removeListener(_onPriceChanged);
     row.max.removeListener(_onPriceChanged);
+    row.name.removeListener(_onNameChanged);
+    _listenedNameFocus?.removeListener(_onNameFocusChanged);
+    _listenedNameFocus = null;
   }
 
   void _onRowChanged() {
+    if (widget.row.nameFieldOpen) _listenNameFocus(widget.row);
     if (mounted) setState(() {});
   }
 
@@ -566,7 +923,45 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     if (text == _lastDurationText) return; // caret / selection only
     _lastDurationText = text;
     widget.row.clearServerDurationError();
+    // A toggle-on duration re-seed: [_setIncluded] reports the toggle itself
+    // through [onChanged], so reporting here too would run the pair check twice.
+    if (_settingIncluded) {
+      if (mounted) setState(() {});
+      return;
+    }
+    // Phase 468: a duration edit can flip the row into / out of the
+    // taken-duration state, which gates the footer CTA — tell the screen so
+    // its aggregate re-derives. Only on a FLIP, so plain typing stays local.
+    _reportFieldEdit();
     if (mounted) setState(() {});
+  }
+
+  void _onNameChanged() {
+    final String text = widget.row.name.text;
+    if (text == _lastNameText) return; // caret / selection only
+    _lastNameText = text;
+    widget.row.clearServerNameError();
+    // The pencil's pre-fill is the type name (no custom name): nothing to
+    // re-check.
+    if (_prefillingName) return;
+    // Phase 471: a rename can flip [ServiceRowState.durationTaken].
+    if (_reportFieldEdit() && mounted) setState(() {});
+  }
+
+  /// One report per real duration / name edit: through [onFieldEdited] when
+  /// set (every edit, with the flip), else through [onChanged] on a flip only.
+  /// Returns whether [ServiceRowState.durationTaken] flipped.
+  bool _reportFieldEdit() {
+    final bool taken = widget.row.durationTaken;
+    final bool flipped = taken != _lastDurationTaken;
+    _lastDurationTaken = taken;
+    final ValueChanged<bool>? onFieldEdited = widget.onFieldEdited;
+    if (onFieldEdited != null) {
+      onFieldEdited(flipped);
+    } else if (flipped) {
+      widget.onChanged?.call();
+    }
+    return flipped;
   }
 
   void _onPriceChanged() {
@@ -577,8 +972,18 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     if (mounted) setState(() {});
   }
 
+  /// True while [_setIncluded] writes the row, whose setter may re-seed the
+  /// duration (phase 468) — that edit is part of the toggle, not its own.
+  bool _settingIncluded = false;
+
   void _setIncluded(bool v) {
-    widget.row.included = v;
+    _settingIncluded = true;
+    try {
+      widget.row.included = v;
+    } finally {
+      _settingIncluded = false;
+    }
+    _lastDurationTaken = widget.row.durationTaken;
     // Toggling clears any stale flag — an excluded row is never required, and a
     // freshly-included one starts clean (its inline hints fire only on save).
     widget.row.clearFlag();
@@ -629,26 +1034,39 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final ServiceRowState row = widget.row;
-    // A service the master already offers: rendered in place but inert. It can
-    // never be `included` (the setter refuses), so every downstream
-    // include-derived branch below already resolves to the "off" path — `locked`
-    // only changes the PRESENTATION.
-    final bool locked = row.alreadyAdded;
+    // A service the master already offers. Phase 468: no longer inert — it
+    // keeps its include switch and can be added again at a free duration;
+    // `owned` only drives the «Вже додано» label and the calm camel hairline.
+    final bool owned = row.alreadyAdded;
     final bool on = row.included;
+    // Phase 472 (D3/D4.3): the header pencil swaps the title for the field.
+    // D4.3: a server name error keeps the in-place editor open, so its
+    // message (under the field) is never hidden behind the title.
+    final bool showName =
+        widget.showNameField ||
+        row.nameFieldOpen ||
+        (on && row.serverNameError != null);
+    // Included copy whose duration matches an existing copy (exact duplicate).
+    final bool durationTaken = row.durationTaken;
     final RowFlagReason reason = row.flagReason;
     // Backend per-field validation mapped back onto this row (null when none).
     // Only ever set on included rows (only included rows are submitted).
     final String? serverDurationError = on ? row.serverDurationError : null;
     final String? serverPriceError = on ? row.serverPriceError : null;
     final bool hasServerError =
-        serverDurationError != null || serverPriceError != null;
+        serverDurationError != null ||
+        serverPriceError != null ||
+        (on && row.serverNameError != null);
     // Only INCLUDED rows are ever validated, so an excluded row must never paint
     // a flag — gate the build-local flag on inclusion. This suppresses the flag
     // message, the error rim, and the inline field hints for an excluded row, and
     // lets the "виключено" off-state sub-label take over. A mapped-back server
     // error also tints the rim (its message rides the inline field slot).
     final bool clientFlagged = on && row.flagged;
-    final bool flagged = clientFlagged || hasServerError;
+    // Phase 471: a copy that duplicates another row of its type (pair check).
+    final bool copyCollision = on && row.copyCollision;
+    final bool flagged =
+        clientFlagged || hasServerError || durationTaken || copyCollision;
     // "The refreshed catalogue says you already offer this, so it was switched
     // off." Not a validation fault and not the master's mistake, so it borrows
     // the already-added row's calm camel hairline rather than the red error rim
@@ -682,7 +1100,20 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         : (durationMissing ? l10n.serviceSetupDurationRequired : null);
     // Server error wins over the client hint (it is the authoritative,
     // just-returned constraint), then falls back to the client-side hint.
-    final String? durationError = serverDurationError ?? clientDurationError;
+    final String? durationError =
+        serverDurationError ??
+        (durationTaken
+            // A row with a name field can fix the clash by renaming too.
+            // Phase 472 (D3): every switched-on card offering a custom name
+            // (owned or not, primary or copy) has a name pencil — and
+            // [durationTaken] implies switched on — so all of them say
+            // «тривалість або назву».
+            ? (showName || widget.offerCustomName
+                  ? l10n.serviceSetupCopyCollision
+                  : l10n.serviceSetupDurationTaken)
+            : null) ??
+        (copyCollision ? l10n.serviceSetupCopyCollision : null) ??
+        clientDurationError;
     final String? clientFixedPriceError =
         fixedPriceFlagged && row.pricingMode == ServicePriceType.fixed
         ? l10n.serviceSetupPriceRequired
@@ -696,205 +1127,574 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
         : clientFixedPriceError;
     final String? minPriceError = fixedMode ? null : serverPriceError;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.card),
-        // Visual weight encodes availability, heaviest to lightest:
-        //   included (extrudedCard) > selectable-but-off (extrudedSmall) >
-        //   already-added (no shadow, hairline camel rule).
-        // The already-added row sits FLAT on the surface so it reads as part of
-        // the page rather than as an object you could pick up.
-        border: Border.all(
-          color: flagged
-              ? BrandColors.error
-              : (locked || ownedNow
-                    ? BrandColors.accent.withValues(alpha: 0.35)
-                    : Colors.transparent),
-          width: flagged ? 1.4 : (locked || ownedNow ? 1 : 0),
+    // Phase 471: the low «+ додати ще» / «Прибрати» footer owns the card's
+    // bottom inset (see [_RowTextAction]); rows without it keep the pre-471
+    // geometry exactly.
+    final bool hasActions =
+        (on && widget.onAddCopy != null) || widget.onRemove != null;
+
+    return _BelowCardHitSlop(
+      slop: hasActions ? _RowTextAction.belowCardSlop : 0,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: BorderRadius.circular(VelvetRadii.card),
+          // Visual weight encodes availability, heaviest to lightest:
+          //   included (extrudedCard) > selectable-but-off (extrudedSmall).
+          // An already-added (owned) row is selectable since phase 468, so it
+          // keeps the selectable lift; its hairline camel rule marks the fact.
+          border: Border.all(
+            color: flagged
+                ? BrandColors.error
+                : ((owned && !on) || ownedNow
+                      ? BrandColors.accent.withValues(alpha: 0.35)
+                      : Colors.transparent),
+            width: flagged ? 1.4 : ((owned && !on) || ownedNow ? 1 : 0),
+          ),
+          boxShadow: on
+              ? VelvetShadows.extrudedCard
+              : VelvetShadows.extrudedSmall,
         ),
-        boxShadow: locked
-            ? null
-            : (on ? VelvetShadows.extrudedCard : VelvetShadows.extrudedSmall),
-      ),
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.md + 2,
-        VelvetSpacing.md,
-        VelvetSpacing.md,
-        VelvetSpacing.md,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          // Header: name + (flag / excluded sub-label) + include switch.
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    AnimatedDefaultTextStyle(
-                      duration: const Duration(milliseconds: 200),
-                      style: VelvetText.subheading16.copyWith(
-                        color: on ? BrandColors.text : BrandColors.muted,
-                      ),
-                      child: Text(row.nameUk),
-                    ),
-                    // Header flag line only for CLIENT-side reasons — a pure
-                    // server error carries its message on the inline field slot
-                    // (below), so a generic header line here would misreport it.
-                    // `durationTooLong` is also excluded (see showHeaderFlag) so
-                    // its message shows on the duration FIELD only, never twice.
-                    if (showHeaderFlag) ...<Widget>[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: <Widget>[
-                          const Icon(
-                            Icons.error_outline_rounded,
-                            size: 14,
-                            color: BrandColors.error,
-                          ),
-                          const SizedBox(width: VelvetSpacing.xs + 1),
-                          Flexible(
-                            child: Text(
-                              _flagMessage(l10n, reason),
-                              style: VelvetText.feedback(BrandColors.error),
+        padding: EdgeInsets.fromLTRB(
+          VelvetSpacing.md + 2,
+          VelvetSpacing.md,
+          VelvetSpacing.md,
+          hasActions ? 0 : VelvetSpacing.md,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // Header: name + (flag / excluded sub-label) + include switch.
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      _headerName(l10n, row, on, showName: showName),
+                      // Header flag line only for CLIENT-side reasons — a pure
+                      // server error carries its message on the inline field slot
+                      // (below), so a generic header line here would misreport it.
+                      // `durationTooLong` is also excluded (see showHeaderFlag) so
+                      // its message shows on the duration FIELD only, never twice.
+                      if (showHeaderFlag) ...<Widget>[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: <Widget>[
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              size: 14,
+                              color: BrandColors.error,
                             ),
-                          ),
-                        ],
-                      ),
-                    ] else if (!on && (locked || ownedNow)) ...<Widget>[
-                      const SizedBox(height: 2),
-                      Text(
-                        // One slot, two mutually exclusive facts, most
-                        // specific first: an already-added row says "you
-                        // already offer this"; a row the catalogue refresh just
-                        // claimed says "уже у вашому переліку" and is emphasised
-                        // because it CHANGED under the master. A merely-off row
-                        // (neither locked nor ownedNow) renders no sub-label at
-                        // all — nothing to say beyond the switch itself.
-                        locked
-                            ? l10n.serviceSetupRowAlreadyAdded
-                            : l10n.serviceSetupRowAlreadyInMenu,
-                        style: ownedNow
-                            ? VelvetText.svcCaptionNote.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: BrandColors.accentDeep,
-                              )
-                            : VelvetText.svcCaptionNote,
-                      ),
+                            const SizedBox(width: VelvetSpacing.xs + 1),
+                            Flexible(
+                              child: Text(
+                                _flagMessage(l10n, reason),
+                                style: VelvetText.feedback(BrandColors.error),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (owned || ownedNow) ...<Widget>[
+                        const SizedBox(height: 2),
+                        Text(
+                          // One slot, two mutually exclusive facts, most
+                          // specific first: an already-added row says "you
+                          // already offer this" (on or off — it explains the
+                          // seeded free duration); a row the catalogue refresh
+                          // just claimed says "уже у вашому переліку" and is
+                          // emphasised because it CHANGED under the master. A
+                          // merely-off row (neither owned nor ownedNow) renders
+                          // no sub-label at all.
+                          owned
+                              ? l10n.serviceSetupRowAlreadyAdded
+                              : l10n.serviceSetupRowAlreadyInMenu,
+                          style: ownedNow
+                              ? VelvetText.svcCaptionNote.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: BrandColors.accentDeep,
+                                )
+                              : VelvetText.svcCaptionNote,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-              // A disabled switch still invites tapping, so an already-added row
-              // does not render one at all — it gets a static check glyph, which
-              // is a STATUS and cannot be mistaken for a control.
-              if (locked)
-                const _AlreadyAddedMark()
-              else
+                const SizedBox(width: VelvetSpacing.sm),
                 _IncludeSwitch(
-                  key: Key('setup_row_toggle_${row.serviceTypeId}'),
+                  key: Key('setup_row_toggle_${row.keyId}'),
                   value: on,
                   onChanged: _setIncluded,
                   semanticLabel: row.nameUk,
                 ),
-            ],
-          ),
+              ],
+            ),
 
-          // Configured fields — present only while included.
-          AnimatedSize(
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (Widget child, Animation<double> anim) {
-                // dim-decorative: fields row show/hide; 0/1
-                return FadeTransition(
-                  opacity: anim,
-                  child: SizeTransition(
-                    sizeFactor: anim,
-                    axisAlignment: -1,
-                    child: child,
-                  ),
-                );
-              },
-              child: on
-                  ? KeyedSubtree(
-                      key: const ValueKey<String>('row-fields'),
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                        // Compact one-line layout: the duration field is handed
-                        // to PricingField as its leading slot, so duration and
-                        // price share a single Row beneath the mode toggle.
-                        child: PricingField(
-                          mode: row.pricingMode,
-                          onModeChanged: _setMode,
-                          fixedController: row.fixed,
-                          minController: row.min,
-                          maxController: row.max,
-                          rangeError: rangeError,
-                          fixedError: fixedPriceError,
-                          // RANGE-mode server price errors ride the "min" slot
-                          // (the "max" well exposes only a ring, no text slot).
-                          minError: minPriceError,
-                          // compact=true: label-less wells, tight padding so
-                          // duration + price always share one line at ~320 dp.
-                          compact: true,
-                          durationController: row.duration,
-                          durationError: durationError,
-                        ),
-                      ),
-                    )
-                  : const SizedBox.shrink(
-                      key: ValueKey<String>('row-collapsed'),
+            // Configured fields — present only while included.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (Widget child, Animation<double> anim) {
+                  // dim-decorative: fields row show/hide; 0/1
+                  return FadeTransition(
+                    opacity: anim,
+                    child: SizeTransition(
+                      sizeFactor: anim,
+                      axisAlignment: -1,
+                      child: child,
                     ),
+                  );
+                },
+                child: on
+                    ? KeyedSubtree(
+                        key: const ValueKey<String>('row-fields'),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: VelvetSpacing.md),
+                          // Compact one-line layout: the duration field is handed
+                          // to PricingField as its leading slot, so duration and
+                          // price share a single Row beneath the mode toggle.
+                          child: PricingField(
+                            // Phase 472: keyed, so the pricing wells keep
+                            // their state across header rebuilds.
+                            key: const ValueKey<String>('row-pricing'),
+                            mode: row.pricingMode,
+                            onModeChanged: _setMode,
+                            fixedController: row.fixed,
+                            minController: row.min,
+                            maxController: row.max,
+                            rangeError: rangeError,
+                            fixedError: fixedPriceError,
+                            // RANGE-mode server price errors ride the "min" slot
+                            // (the "max" well exposes only a ring, no text slot).
+                            minError: minPriceError,
+                            // compact=true: label-less wells, tight padding so
+                            // duration + price always share one line at ~320 dp.
+                            compact: true,
+                            durationController: row.duration,
+                            durationError: durationError,
+                            // Phase 472: lets the screen focus a new copy.
+                            durationFocusNode: row.durationFocus,
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey<String>('row-collapsed'),
+                      ),
+              ),
+            ),
+            if (hasActions) _copyActions(l10n, row, on),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The header's service name. Phase 472 (D3): while included, a card
+  /// offering a custom name ([ServiceTypeRowCard.offerCustomName]) adds a
+  /// pencil after its title. D4.3: the pencil swaps the TITLE itself for a
+  /// one-line inset field in the same place and at the title's line height —
+  /// the card never changes size — pre-filled with the current name
+  /// ([ServiceRowState.openNameField]). Losing focus or Done returns to
+  /// title + pencil, the title showing the edited name. Otherwise the exact
+  /// pre-472 text.
+  Widget _headerName(
+    AppLocalizations l10n,
+    ServiceRowState row,
+    bool on, {
+    required bool showName,
+  }) {
+    final TextStyle style = on ? _titleOnStyle : _titleOffStyle;
+    if (on && showName) {
+      final Widget field = NeumorphicTextField(
+        key: Key('setup_row_name_${row.keyId}'),
+        label: l10n.serviceSetupCopyNameHint,
+        controller: row.name,
+        compact: true,
+        // Exactly the title's line (see [_titleFieldStyle]).
+        textStyle: _titleFieldStyle,
+        // Cleared, the card still keeps the type name.
+        hintText: row.nameUk,
+        // Backend 464: BulkServiceItemRequest.name maxLength 100.
+        maxLength: _nameMaxLength,
+        // Mirrors the backend name allow-list (phase 464) so a character
+        // the server would reject can never be typed or pasted in.
+        inputFormatters: serviceNameInputFormatters,
+        errorText: row.serverNameError,
+        focusNode: row.nameFocus,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => row.nameFocus.unfocus(),
+      );
+      if (!widget.offerCustomName) return field;
+      // The pencil's footprint stays, so the line keeps the title + pencil
+      // height and the field sits exactly where the title was.
+      return Row(
+        children: <Widget>[
+          Expanded(child: field),
+          const SizedBox(width: _RowTextAction._minTouch, height: _pencilGlyph),
+        ],
+      );
+    }
+    final Widget name = AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 200),
+      style: style,
+      child: Text(row.displayName),
+    );
+    final bool offer = widget.offerCustomName && on;
+    if (!offer) return name;
+    return Row(
+      children: <Widget>[
+        Flexible(child: name),
+        _pencil(
+          key: Key('btn-setup-row-name-${row.keyId}'),
+          label: l10n.serviceSetupNameAction,
+          onTap: _startName,
+        ),
+      ],
+    );
+  }
+
+  /// The small camel pencil after a name: a 48 dp wide box whose 16 dp glyph
+  /// stays within the text line, so the line keeps its height. Its touch
+  /// target and semantics rect are ≥48×48 dp all the same: [_PencilTarget]
+  /// extends both vertically without taking layout height.
+  Widget _pencil({
+    required Key key,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return _PencilTarget(
+      label: label,
+      onTap: onTap,
+      child: GestureDetector(
+        key: key,
+        behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
+        onTap: onTap,
+        child: const SizedBox(
+          width: _RowTextAction._minTouch,
+          child: Padding(
+            padding: EdgeInsets.only(left: VelvetSpacing.sm),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              widthFactor: 1,
+              heightFactor: 1,
+              child: Icon(
+                Icons.edit_outlined,
+                size: _pencilGlyph,
+                color: BrandColors.accent,
+              ),
             ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  static const int _nameMaxLength = 100;
+
+  /// The header title, included / excluded — hoisted, no `.copyWith()` per build.
+  static final TextStyle _titleOnStyle = VelvetText.subheading16.copyWith(
+    color: BrandColors.text,
+  );
+  static final TextStyle _titleOffStyle = VelvetText.subheading16.copyWith(
+    color: BrandColors.muted,
+  );
+
+  /// The in-place name field: exactly the title's line (`inherit: false` —
+  /// TextField would merge the theme's titleMedium line height 1.5 into an
+  /// inheriting style). Only ever shown included.
+  static final TextStyle _titleFieldStyle = _titleOnStyle.copyWith(
+    inherit: false,
+    textBaseline: TextBaseline.alphabetic,
+  );
+
+  /// The pencil glyph size — also the height of the title line it sits on.
+  static const double _pencilGlyph = 16;
+
+  /// Phase 471 — the «+ додати ще» / «Прибрати» text actions under the row.
+  Widget _copyActions(AppLocalizations l10n, ServiceRowState row, bool on) {
+    final VoidCallback? onAdd = on ? widget.onAddCopy : null;
+    final VoidCallback? onRemove = widget.onRemove;
+    return Row(
+      children: <Widget>[
+        if (onAdd != null)
+          _RowTextAction(
+            key: Key('btn-setup-row-add-copy-${row.keyId}'),
+            label: l10n.serviceSetupAddCopy,
+            style: _RowTextAction.accentStyle,
+            onTap: onAdd,
+          ),
+        const Spacer(),
+        if (onRemove != null)
+          _RowTextAction(
+            key: Key('btn-setup-row-remove-${row.keyId}'),
+            label: l10n.serviceSetupRemoveCopy,
+            style: _RowTextAction.mutedStyle,
+            onTap: onRemove,
+          ),
+      ],
+    );
+  }
+}
+
+/// Phase 471 — a quiet caption-style text action in the row card's footer.
+///
+/// Kept VERY low: a single 11 sp caption line with a [_topGap] above it and
+/// the card's own bottom inset ([_bottomGap], replacing the card's 16 dp
+/// bottom padding) below it, so the footer adds only ~17 dp to the card.
+/// The whole footer band is the hit box (≈33 dp), and [_BelowCardHitSlop]
+/// extends it [belowCardSlop] dp into the empty gap under the card — a
+/// ≥48 dp vertical touch target that adds no layout height. Styles are
+/// hoisted (no per-build `copyWith`).
+class _RowTextAction extends StatelessWidget {
+  const _RowTextAction({
+    super.key,
+    required this.label,
+    required this.style,
+    required this.onTap,
+  });
+
+  final String label;
+  final TextStyle style;
+  final VoidCallback onTap;
+
+  static final TextStyle accentStyle = VelvetText.svcCaptionNote.copyWith(
+    fontWeight: FontWeight.w800,
+    color: BrandColors.accentDeep,
+  );
+  static final TextStyle mutedStyle = VelvetText.svcCaptionNote.copyWith(
+    fontWeight: FontWeight.w700,
+    color: BrandColors.muted,
+  );
+
+  static const double _minTouch = 48;
+  static const double _topGap = VelvetSpacing.xs + 2;
+  static const double _bottomGap = VelvetSpacing.sm + VelvetSpacing.xs;
+
+  /// Hit extension below the card — within the 16 dp gap the setup list
+  /// leaves under every row card, so it never overlaps another control.
+  static const double belowCardSlop = VelvetSpacing.md;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: _minTouch),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.xs,
+              _topGap,
+              VelvetSpacing.xs,
+              _bottomGap,
+            ),
+            child: Center(
+              widthFactor: 1,
+              heightFactor: 1,
+              child: Text(label, style: style),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-/// The already-added marker that REPLACES the include switch on a service type
-/// the master already offers.
-///
-/// A recessed circular well with a camel check — the same carved-in language as
-/// every other inset on the page, at the size the switch vacated so the row's
-/// trailing edge stays aligned with its selectable neighbours. Deliberately
-/// inert: no [GestureDetector], no `Semantics(button:)`, no toggled state.
-class _AlreadyAddedMark extends StatelessWidget {
-  const _AlreadyAddedMark();
+/// Phase 471 — lets a tap up to [slop] dp BELOW the row card reach whatever
+/// sits on the card's bottom edge (the [_RowTextAction] footer band). The
+/// tap is clamped [_clampInset] dp inside the card — past the ≤1.4 dp border
+/// inset, inside the footer's [_RowTextAction._bottomGap]. Layout and paint
+/// are untouched; with `slop == 0` it is a pure pass-through, so rows without
+/// copy actions behave exactly as before.
+class _BelowCardHitSlop extends SingleChildRenderObjectWidget {
+  const _BelowCardHitSlop({required this.slop, required super.child});
+
+  final double slop;
 
   @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Semantics(
-      // Announced as a plain label: screen-reader users must hear a fact, not
-      // an actionable control they cannot actuate.
-      label: l10n.serviceSetupRowAlreadyAdded,
-      child: SizedBox(
-        height: 30,
-        width: 30,
-        child: NeumorphicInset(
-          radius: VelvetRadii.pill,
-          child: Center(
-            child: Icon(
-              Icons.check_rounded,
-              size: 16,
-              color: BrandColors.accent.withValues(alpha: 0.9),
-            ),
-          ),
-        ),
-      ),
+  _RenderBelowCardHitSlop createRenderObject(BuildContext context) =>
+      _RenderBelowCardHitSlop(slop);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderBelowCardHitSlop renderObject,
+  ) {
+    renderObject.slop = slop;
+  }
+}
+
+class _RenderBelowCardHitSlop extends RenderProxyBox {
+  _RenderBelowCardHitSlop(this.slop);
+
+  double slop;
+
+  static const double _clampInset = VelvetSpacing.xs;
+
+  /// Phase 472 audit — the card's [_PencilTarget], if any (it registers on
+  /// attach). D3 puts at most one pencil on a card: the header name's.
+  _RenderPencilTarget? _pencil;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    final bool inSlop =
+        slop > 0 &&
+        position.dx >= 0 &&
+        position.dx < size.width &&
+        position.dy >= size.height &&
+        position.dy < size.height + slop;
+    final Offset at = inSlop
+        ? Offset(position.dx, size.height - _clampInset)
+        : position;
+    return super.hitTest(result, position: _towardPencil(at) ?? at);
+  }
+
+  /// A tap inside the pencil's 48×48 touch rect but outside its laid-out box
+  /// is redirected to the pencil's centre — unless it lands directly on
+  /// another gesture target (a text field, an action), which keeps it.
+  /// Null = hit-test [at] as is.
+  Offset? _towardPencil(Offset at) {
+    final _RenderPencilTarget? pencil = _pencil;
+    if (pencil == null || !pencil.attached || !pencil.hasSize) return null;
+    final Matrix4 toCard = pencil.getTransformTo(this);
+    if (!MatrixUtils.transformRect(toCard, pencil.touchRect).contains(at)) {
+      return null;
+    }
+    final Rect box = MatrixUtils.transformRect(
+      toCard,
+      Offset.zero & pencil.size,
     );
+    if (box.contains(at)) return null; // a direct hit needs no help
+    final BoxHitTestResult probe = BoxHitTestResult();
+    super.hitTest(probe, position: at);
+    for (final HitTestEntry entry in probe.path) {
+      if (entry.target is RenderPointerListener) return null;
+    }
+    return box.center;
+  }
+}
+
+/// Phase 472 audit — gives the inline pencil a ≥48×48 dp touch target and
+/// semantics rect without layout height: the rect grows vertically (and
+/// horizontally if ever narrower) around the laid-out box; the enclosing
+/// row card ([_RenderBelowCardHitSlop]) routes taps in it to the pencil.
+/// Owns the pencil's button semantics (label + tap).
+class _PencilTarget extends SingleChildRenderObjectWidget {
+  const _PencilTarget({
+    required this.label,
+    required this.onTap,
+    required super.child,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  _RenderPencilTarget createRenderObject(BuildContext context) =>
+      _RenderPencilTarget(
+        label: label,
+        onTap: onTap,
+        textDirection: Directionality.maybeOf(context),
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderPencilTarget renderObject,
+  ) {
+    renderObject
+      ..label = label
+      ..onTap = onTap
+      ..textDirection = Directionality.maybeOf(context);
+  }
+}
+
+class _RenderPencilTarget extends RenderProxyBox {
+  _RenderPencilTarget({
+    required String label,
+    required VoidCallback onTap,
+    TextDirection? textDirection,
+  }) : _label = label,
+       _onTap = onTap,
+       _textDirection = textDirection;
+
+  static const double minTouch = _RowTextAction._minTouch;
+
+  String _label;
+  set label(String value) {
+    if (_label == value) return;
+    _label = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  VoidCallback _onTap;
+  set onTap(VoidCallback value) {
+    if (_onTap == value) return;
+    _onTap = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  TextDirection? _textDirection;
+  set textDirection(TextDirection? value) {
+    if (_textDirection == value) return;
+    _textDirection = value;
+    markNeedsSemanticsUpdate();
+  }
+
+  _RenderBelowCardHitSlop? _host;
+
+  /// The ≥[minTouch]-square touch rect, centred on the laid-out box, in
+  /// this box's coordinates.
+  Rect get touchRect {
+    final double dx = math.max(0, (minTouch - size.width) / 2);
+    final double dy = math.max(0, (minTouch - size.height) / 2);
+    return Rect.fromLTRB(-dx, -dy, size.width + dx, size.height + dy);
+  }
+
+  @override
+  Rect get semanticBounds => touchRect;
+
+  @override
+  void describeSemanticsConfiguration(SemanticsConfiguration config) {
+    super.describeSemanticsConfiguration(config);
+    config
+      ..isSemanticBoundary = true
+      ..isButton = true
+      ..label = _label
+      ..textDirection = _textDirection
+      ..onTap = _onTap;
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    RenderObject? node = parent;
+    while (node != null && node is! _RenderBelowCardHitSlop) {
+      node = node.parent;
+    }
+    if (node is _RenderBelowCardHitSlop) {
+      _host = node.._pencil = this;
+    }
+  }
+
+  @override
+  void detach() {
+    final _RenderBelowCardHitSlop? host = _host;
+    if (host != null && identical(host._pencil, this)) host._pencil = null;
+    _host = null;
+    super.detach();
   }
 }
 

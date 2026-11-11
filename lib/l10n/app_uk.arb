@@ -1762,6 +1762,15 @@
       "count": { "type": "int" }
     }
   },
+  "serviceNameHintSuffix": " · {hint}",
+  "@serviceNameHintSuffix": {
+    "description": "Phase 469 — suffix appended after a service name when two services of one owner share that name: the duration («90 хв») or the differing custom name. Leading space is intentional.",
+    "placeholders": {
+      "hint": {
+        "type": "String"
+      }
+    }
+  },
   "servicesCardEditSemanticVerb": "Редагувати",
   "@servicesCardEditSemanticVerb": {
     "description": "Action verb appended to a service card's accessibility label when the card is tappable and opens the edit form. Announced by a screen reader only; never rendered as visible text."
@@ -2781,6 +2790,38 @@
   "serviceSetupSuccess": "Послуги створено",
   "@serviceSetupSuccess": {
     "description": "Snackbar shown after a bulk service save succeeds."
+  },
+  "serviceErrDuplicateCopy": "Така послуга з цією тривалістю й назвою вже є. Змініть тривалість або назву.",
+  "@serviceErrDuplicateCopy": {
+    "description": "Phase 468. Inline error on the service edit/create form duration AND name fields when a write returns 409 DUPLICATE_SERVICE: a copy of this service type with the same duration and the same name already exists (copies must differ in duration or name)."
+  },
+  "serviceSetupDurationTaken": "Така тривалість уже є — змініть тривалість",
+  "@serviceSetupDurationTaken": {
+    "description": "Phase 468. Inline duration error on an add-services row for a service type the master already offers, while the chosen duration matches an existing copy. The save CTA stays disabled until it changes."
+  },
+  "serviceSetupAddCopy": "+ додати ще",
+  "@serviceSetupAddCopy": {
+    "description": "Phase 471 (label changed in 472). Text action under a selected add-services row that adds another copy row of the same service type (its own duration, price and optional name)."
+  },
+  "serviceSetupRemoveCopy": "Прибрати",
+  "@serviceSetupRemoveCopy": {
+    "description": "Phase 471. Text action on an add-services row that removes that copy row of a service type (shown while the type has more than one row)."
+  },
+  "serviceSetupCopyNameHint": "Назва (необов'язково)",
+  "@serviceSetupCopyNameHint": {
+    "description": "Phase 471. Label of the optional name field on an add-services copy row. Blank means the service keeps the service type name."
+  },
+  "serviceSetupCopyNameInvalid": "Назва містить недопустимі символи",
+  "@serviceSetupCopyNameInvalid": {
+    "description": "Phase 471. Inline error under an add-services copy row's name field when the server rejects the name (items[i].name) for disallowed characters."
+  },
+  "serviceSetupCopyCollision": "Така копія вже є — змініть тривалість або назву",
+  "@serviceSetupCopyCollision": {
+    "description": "Phase 471. Inline error on an add-services copy row whose duration AND name (trimmed, case-insensitive; blank = type name) match another row or an existing copy of the same service type. The save CTA stays disabled until it changes."
+  },
+  "serviceSetupNameAction": "Назва нової послуги",
+  "@serviceSetupNameAction": {
+    "description": "Phase 472 (D3). Accessibility label of the pencil after a service name on every switched-on add-services card (owned or not, primary or «+ додати ще» copy): it reveals that card's custom-name field for the NEW service being added (it never renames an existing service); the name is sent with the add."
   },
   "serviceErrDuplicate": "Ця послуга вже є у вашому переліку.",
   "@serviceErrDuplicate": {
