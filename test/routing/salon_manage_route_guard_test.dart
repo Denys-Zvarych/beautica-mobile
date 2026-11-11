@@ -471,9 +471,6 @@ void main() {
             ),
           ),
           nextAppointmentProvider.overrideWith((ref) async => null),
-          favoriteMastersProvider.overrideWith(
-            (ref) async => const <FavoriteMasterItem>[],
-          ),
           beautyTimelineProvider.overrideWith(
             (ref) async => const <TimelineEntry>[],
           ),

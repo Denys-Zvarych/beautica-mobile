@@ -19,7 +19,7 @@
 // THE FIX UNDER TEST
 // ------------------
 //   • `_reveal` is a `putIfAbsent` over `Map<(double, double), _RevealAnimations>`
-//     keyed on the interval record — six distinct intervals, so it converges.
+//     keyed on the interval record — five distinct intervals, so it converges.
 //   • `dispose()` disposes every cached `CurvedAnimation`, clears the map, THEN
 //     disposes `_controller` (that order matters: `CurvedAnimation.dispose()`
 //     calls `parent.removeStatusListener(...)` and needs the parent alive).
@@ -96,11 +96,7 @@ List<Object> _overrides() => <Object>[
   myRatingProvider.overrideWith((ref) async => const ClientRating()),
   clientProfileProvider.overrideWith((ref) async => _profile),
   nextAppointmentProvider.overrideWith((ref) async => null),
-  favoriteMastersProvider.overrideWith(
-    (ref) async => const <FavoriteMasterItem>[],
-  ),
   beautyTimelineProvider.overrideWith((ref) async => const <TimelineEntry>[]),
-  unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
 ];
 
 /// Number of `reveal(...)` call sites in `_HomeHubBody`'s ListView. The fix's
@@ -108,13 +104,13 @@ List<Object> _overrides() => <Object>[
 /// how many times the body rebuilds. Pumped on a tall surface (see
 /// [_pumpHub]) so the ListView materialises every section rather than lazily
 /// skipping the ones below the fold.
-const int _revealSectionCount = 6;
+const int _revealSectionCount = 5;
 
 /// Pumps the real screen on a surface tall enough to build every section.
 ///
 /// `pumpApp`'s `width` knob sets a 2400dp-tall view; without it the default
 /// 800x600 surface leaves the last section below the fold and `ListView`'s
-/// lazy sliver never builds it, so only five reveals exist.
+/// lazy sliver never builds it, so not every reveal exists.
 Future<ProviderContainer> _pumpHub(WidgetTester tester) async {
   await tester.pumpApp(
     const HomeHubScreen(),
@@ -148,7 +144,7 @@ List<Animation<Offset>> _positions(WidgetTester tester) => tester
     .toList();
 
 /// Emits a new value on a provider `_HomeHubBody` watches, forcing a rebuild of
-/// the body — and therefore six fresh `reveal(...)` calls.
+/// the body — and therefore five fresh `reveal(...)` calls.
 Future<void> _rebuildViaProvider(
   WidgetTester tester,
   ProviderContainer container, {
@@ -213,7 +209,7 @@ void main() {
       // The defect was UNBOUNDED growth, so the load-bearing measurement is the
       // count of DISTINCT instances the screen has ever exposed — not just
       // equality across one rebuild. Six rebuilds on the old code surface
-      // 6 sections x 7 builds = 42 distinct objects; memoized, it stays at 6.
+      // 5 sections x 7 builds = 35 distinct objects; memoized, it stays at 5.
       final ProviderContainer container = await _pumpHub(tester);
 
       final Set<Animation<double>> seen = Set<Animation<double>>.identity()

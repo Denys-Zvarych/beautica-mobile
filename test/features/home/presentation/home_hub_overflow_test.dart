@@ -2,7 +2,8 @@
 //
 // THE BUG
 // -------
-// The home-hub rails (BEAUTY TIMELINE, Favourite masters) and the next-
+// The home-hub rails (BEAUTY TIMELINE, and the since-removed favourite-masters
+// rail — phase 477) and the next-
 // appointment action column overflowed (yellow/black RenderFlex stripes) on
 // devices with a large accessibility font scale and/or a narrow width. It
 // shipped because EVERY existing home test pumps at the default 800x600 surface
@@ -12,9 +13,9 @@
 // THE FIX UNDER TEST
 // ------------------
 //   • App-root text-scale clamp at maxScaleFactor: 1.3 in main.dart.
-//   • Scale-aware rail heights in beauty_timeline_section.dart and
-//     favorite_masters_card.dart (_scaledTextHeadroom adds the scaled-text
-//     delta on top of the fixed medallion/avatar height).
+//   • Scale-aware rail height in beauty_timeline_section.dart
+//     (_scaledTextHeadroom adds the scaled-text delta on top of the fixed
+//     medallion height).
 //   • next_appointment_card.dart action column → Flexible + ConstrainedBox.
 //   • hub_widgets.dart button labels → FittedBox(scaleDown) + maxLines:1.
 //   • passport_preview_card.dart pill → TextOverflow.ellipsis.
@@ -46,7 +47,6 @@ import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
-import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:flutter/material.dart';
@@ -106,27 +106,6 @@ final _sampleAppointment = Booking(
   canReview: false,
 );
 
-const _sampleMasters = <FavoriteMasterItem>[
-  FavoriteMasterItem(
-    masterId: 'master-1',
-    favoriteId: 'fav-1',
-    name: 'Марія Іванюк-Петренко',
-    lastServiceName: 'Манікюр з покриттям',
-    rating: 5.0,
-    reviewCount: 142,
-    initials: 'МІ',
-  ),
-  FavoriteMasterItem(
-    masterId: 'master-2',
-    favoriteId: 'fav-2',
-    name: 'Богдана Сидоренко',
-    lastServiceName: 'Брови та ламінування',
-    rating: 4.9,
-    reviewCount: 88,
-    initials: 'БС',
-  ),
-];
-
 const _sampleTimeline = <TimelineEntry>[
   TimelineEntry(category: 'Манікюр гель-лак', dateLabel: '18.06.2026'),
   TimelineEntry(category: 'Брови ламінування', dateLabel: '12.05.2026'),
@@ -134,7 +113,7 @@ const _sampleTimeline = <TimelineEntry>[
 ];
 
 // ---------------------------------------------------------------------------
-// Shared FULLY-POPULATED overrides — all four sections render real content.
+// Shared FULLY-POPULATED overrides — every section renders real content.
 // ---------------------------------------------------------------------------
 
 List<Object> _populatedOverrides() {
@@ -145,9 +124,7 @@ List<Object> _populatedOverrides() {
     myRatingProvider.overrideWith((ref) async => const ClientRating()),
     clientProfileProvider.overrideWith((ref) async => _sampleProfile),
     nextAppointmentProvider.overrideWith((ref) async => _sampleAppointment),
-    favoriteMastersProvider.overrideWith((ref) async => _sampleMasters),
     beautyTimelineProvider.overrideWith((ref) async => _sampleTimeline),
-    unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
   ];
 }
 
@@ -348,40 +325,6 @@ void main() {
             'baselines must fail here first.',
       );
     });
-  });
-
-  // ── 3. Favourites mini-card rail in isolation at the worst cell ───────────
-  group('FavoriteMastersCard rail — isolated overflow guard', () {
-    testWidgets(
-      'no overflow at 320px width × textScale 1.3 (unclamped, populated)',
-      (tester) async {
-        await tester.pumpApp(
-          const FavoriteMastersCard(masters: _sampleMasters, totalCount: 2),
-          overrides: [
-            unlikeFavoriteMasterProvider.overrideWith(
-              () => UnlikeFavoriteMaster(),
-            ),
-          ],
-          width: _smallPhoneWidth,
-          textScaleFactor: 1.3,
-        );
-        await tester.pump();
-
-        expect(
-          find.byKey(const Key('favorite_masters_rail')),
-          findsOneWidget,
-          reason: 'populated rail must render its mini-cards (sanity)',
-        );
-        expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              'FavoriteMastersCard mini-card (avatar + 3 text lines) must '
-              'tolerate textScale 1.3 unclamped at 320px — _scaledTextHeadroom '
-              'absorbs the scaled text delta.',
-        );
-      },
-    );
   });
 }
 

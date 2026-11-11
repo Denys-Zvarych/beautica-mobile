@@ -18,9 +18,6 @@
 //     TimelineRepository.getMyTimeline (GET /clients/me/timeline, backend
 //     19.5), see [beautyTimeline]'s doc.
 //
-// Empty-state-placeholder cards (backend 19.x not yet shipped):
-//   • favoriteMastersAsync  — TODO(19.1) wire GET /favorites/masters
-//
 // The client's aggregate rating (two-sided system: masters/salons rate clients)
 // is derivable from GET /clients/me/rating but that endpoint is not yet shipped;
 // the clientRating stat tile shows null (empty state) until then.
@@ -346,26 +343,6 @@ Future<Booking?> nextAppointment(Ref ref) async {
 }
 
 // ---------------------------------------------------------------------------
-// Favorite masters — placeholder (backend 19.1 not ready)
-// ---------------------------------------------------------------------------
-
-/// Returns the CLIENT's favourite masters.
-/// Currently always returns an empty list until the endpoint ships.
-/// TODO(19.1): wire GET /favorites/masters
-@riverpod
-Future<List<FavoriteMasterItem>> favoriteMasters(Ref ref) async {
-  // TODO(19.1): call favorites repository when endpoint ships.
-  if (kDebugMode) {
-    log(
-      'favoriteMasters: placeholder — backend 19.1 not ready',
-      name: 'feature.home',
-      level: 700,
-    );
-  }
-  return const <FavoriteMasterItem>[];
-}
-
-// ---------------------------------------------------------------------------
 // Beauty Timeline — data-wired (Phase 110 / 13.9)
 // ---------------------------------------------------------------------------
 
@@ -382,42 +359,11 @@ TimelineRepository timelineRepository(Ref ref) =>
 /// sort/drop policy.
 ///
 /// No TTL/keepAlive caching — matches the plain-autoDispose shape of the
-/// sibling [favoriteMasters]/[nextAppointment] cards (unlike
+/// sibling [nextAppointment] card (unlike
 /// [passportProvider]'s 5-minute TTL), so `_CardErrorState`'s
 /// `ref.invalidate(beautyTimelineProvider)` retry always re-fetches on the
 /// very next read.
 @riverpod
 Future<List<TimelineEntry>> beautyTimeline(Ref ref) {
   return ref.watch(timelineRepositoryProvider).getMyTimeline();
-}
-
-// ---------------------------------------------------------------------------
-// Unlike a favourite master — action (backend 19.1 not ready)
-// ---------------------------------------------------------------------------
-
-/// Notifier that manages the optimistic unlike action.
-/// The actual DELETE /favorites/masters/:id is wired when 19.1 ships.
-/// TODO(19.1): wire DELETE /favorites/masters/:favoriteId
-@riverpod
-class UnlikeFavoriteMaster extends _$UnlikeFavoriteMaster {
-  @override
-  AsyncValue<void> build() => const AsyncData(null);
-
-  /// Optimistically removes the favorite and calls the delete endpoint.
-  /// On error, reverts by invalidating [favoriteMastersProvider].
-  Future<void> unlike(String favoriteId) async {
-    state = const AsyncLoading();
-    // TODO(19.1): call DELETE /favorites/masters/:favoriteId
-    if (kDebugMode) {
-      log(
-        'unlike master: placeholder — backend 19.1 not ready',
-        name: 'feature.home',
-        level: 700,
-      );
-    }
-    // Invalidate so the list re-fetches (will still be empty until wired).
-    // cycle-safe: favoriteMasters' build() has no ref.watch at all (placeholder).
-    ref.invalidate(favoriteMastersProvider);
-    state = const AsyncData(null);
-  }
 }

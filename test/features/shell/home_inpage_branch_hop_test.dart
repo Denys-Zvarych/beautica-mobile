@@ -97,11 +97,7 @@ List<Object> _overrides() => <Object>[
   screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
   clientProfileProvider.overrideWith((ref) async => _sampleProfile),
   nextAppointmentProvider.overrideWith((ref) async => null),
-  favoriteMastersProvider.overrideWith(
-    (ref) async => const <FavoriteMasterItem>[],
-  ),
   beautyTimelineProvider.overrideWith((ref) async => const <TimelineEntry>[]),
-  unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
   // Branch 1 mounts the REAL FavoritesScreen (Phase 111) — an empty-list fake
   // keeps the branch hermetic and settled, same as the Home providers above.
   favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),

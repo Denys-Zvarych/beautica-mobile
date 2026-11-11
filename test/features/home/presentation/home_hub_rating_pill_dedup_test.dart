@@ -73,11 +73,7 @@ List<Object> _overrides(Object ratingOverride) {
     ratingOverride,
     clientProfileProvider.overrideWith((ref) async => _profileNoRating),
     nextAppointmentProvider.overrideWith((ref) async => null),
-    favoriteMastersProvider.overrideWith(
-      (ref) async => const <FavoriteMasterItem>[],
-    ),
     beautyTimelineProvider.overrideWith((ref) async => const <TimelineEntry>[]),
-    unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
   ];
 }
 

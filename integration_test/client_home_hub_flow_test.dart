@@ -16,9 +16,10 @@
 //   2. Home Hub renders: beautica wordmark, bell button, burger button.
 //   3. The BEAUTY PASSPORT brand literal is present in the stat-pills row.
 //   4. The BEAUTY TIMELINE brand literal is present in the timeline section.
-//   5. The 3 quick-links tiles are rendered (search / favorites / bookings).
-//   6. Favorites and timeline show their empty states (backend 19.x not yet
-//      wired — they are placeholder providers). The next-appointment card is
+//   5. The 3 quick-links tiles are rendered (search / favorites / bookings);
+//      the favourites tile opens Обране (phase 477 AC3).
+//   6. Timeline shows its empty state; the favourite-masters block is absent
+//      (removed from Головна in phase 477). The next-appointment card is
 //      data-wired (Phase 225, `GET /bookings/me`) — it shows its OWN empty
 //      state only when no CONFIRMED booking is seeded; see the dedicated
 //      "live data + cancel" test below for the populated path.
@@ -40,10 +41,8 @@
 //
 // FAKE-BACKEND GAPS
 // -----------------
-// GET /clients/me/passport, GET /favorites/masters — not yet wired in
-// FakeBackend (backend 19.x). Their providers return empty/null placeholders
-// so the Hub shows empty states; the integration test asserts the
-// empty-state keys to confirm this.
+// GET /clients/me/passport — not yet wired in FakeBackend (backend 19.x). Its
+// provider returns an empty/null placeholder so the Hub shows an empty state.
 //
 // GET /bookings/me (Phase 225), GET /users/me/rating, and (since the Phase
 // 110 gap-closure pass below) GET /clients/me/timeline ARE wired — the
@@ -92,15 +91,14 @@ import 'support/app_harness.dart';
 /// `_HomeHubBody` renders `ListView(children: [...])`, which is lazy: it builds
 /// a `SliverList` whose children are instantiated on demand as the viewport
 /// reaches them. On the 800×600 test surface — further reduced by the shell's
-/// `ClientTopBar` and `ClientBottomNav` — everything from the favourites
+/// `ClientTopBar` and `ClientBottomNav` — everything from the timeline
 /// section down is outside the viewport AND outside the default 250 px
 /// `cacheExtent`, so those widgets are not in the element tree at all.
 ///
 /// `findsNothing` for such a widget therefore means "not built yet", NOT "not
 /// rendered by the app" — asserting on it without scrolling tests the viewport
-/// height, not the screen. Measured at HEAD: `next_appointment_empty` is built,
-/// `favorite_masters_empty` and `timeline_empty` are not; after one scroll all
-/// three resolve.
+/// height, not the screen. Measured before phase 477: `next_appointment_empty`
+/// was built, `timeline_empty` was not; after one scroll both resolve.
 Future<void> _scrollHubTo(WidgetTester tester, Finder finder) async {
   await tester.scrollUntilVisible(
     finder,
@@ -259,6 +257,26 @@ void main() {
         );
       }
 
+      // Phase 477 AC3 — the favourites tile is now the only Головна entry
+      // to favourites; it must hop to the Обране branch.
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('quick_link_favorites')),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(const Key('client-branch-favorites')),
+        findsOneWidget,
+        reason: 'the favourites quick link must open Обране',
+      );
+      expect(
+        tester
+            .widget<ClientBottomNav>(find.byType(ClientBottomNav))
+            .activeIndex,
+        kClientFavoritesBranch,
+        reason: 'the bottom nav must show Обране selected after the hop',
+      );
+
       // The reviews quick-link was removed; rating is reached via the stat pill.
       expect(
         find.byKey(const Key('quick_link_reviews')),
@@ -277,13 +295,12 @@ void main() {
   // by default, so the next-appointment card is NOT empty out of the box any
   // more (see the FAKE-BACKEND GAPS note above) — this fixture explicitly
   // flips it away from CONFIRMED so this test still proves the card's own
-  // empty state, isolated from favorites/timeline's still-genuinely-
-  // unwired empty states. The POPULATED path (default fixture) + the cancel
+  // empty state, isolated from the timeline's empty state. The POPULATED path (default fixture) + the cancel
   // interaction are covered by the dedicated test right after this one.
 
   testWidgets(
-    'next-appointment (no CONFIRMED booking seeded), favorites, and timeline '
-    'show empty states',
+    'next-appointment (no CONFIRMED booking seeded) and timeline show empty '
+    'states; no favourite-masters block',
     (tester) async {
       final fb = FakeBackend()
         ..currentRole = UserRole.client
@@ -304,20 +321,6 @@ void main() {
             'Phase 225)',
       );
 
-      // FavoriteMastersCard empty state key. Below the fold on the test surface
-      // and lazily built, so it must be scrolled in first — see `_scrollHubTo`.
-      await _scrollHubTo(
-        tester,
-        find.byKey(const Key('favorite_masters_empty')),
-      );
-      expect(
-        find.byKey(const Key('favorite_masters_empty')),
-        findsOneWidget,
-        reason:
-            'favorites section must show its empty state because the '
-            'favorites endpoint (backend 19.1) is not yet wired',
-      );
-
       // BeautyTimelineSection empty state key — likewise below the fold.
       // The endpoint IS wired (Phase 110) — FakeBackend's `timelineRows`
       // defaults to an empty list, so this is a genuinely empty page from
@@ -330,6 +333,18 @@ void main() {
             'timeline section must show its empty state when FakeBackend '
             'serves a genuinely empty page (default `timelineRows`)',
       );
+
+      // Phase 477 AC1/AC4 — the favourite-masters block is gone. It sat
+      // directly above the timeline, so with the timeline scrolled into view
+      // its slot is inside the built viewport + cacheExtent: findsNothing
+      // here means "not rendered", not "not built yet".
+      for (final String key in <String>[
+        'favorite_masters_empty',
+        'favorite_masters_rail',
+        'favorite_masters_see_all',
+      ]) {
+        expect(find.byKey(Key(key)), findsNothing, reason: key);
+      }
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
