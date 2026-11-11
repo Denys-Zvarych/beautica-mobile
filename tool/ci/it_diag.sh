@@ -78,6 +78,13 @@ case "${1:-}" in
     rc=0
     "$@" || rc=$?
     stop_bg "$sampler_pid"
+    # One final synchronous sample: a command shorter than the sampler's
+    # first `free -m` (or a loaded runner) otherwise leaves host-mem.txt
+    # empty and the verdict aid prints "min available ?".
+    {
+      echo "=== $(date -u +%FT%TZ) (after the run)"
+      timeout --signal=KILL 10 free -m 2>/dev/null || true
+    } >>"$dir/host-mem.txt" 2>&1 </dev/null
     stop_bg "$logcat_pid"
     adb_bounded logcat -d -t 2000 >"$dir/logcat-tail.txt" 2>&1 </dev/null \
       || echo "it_diag: adb logcat -d gave up after ${adb_t}s (device offline/gone)" >>"$dir/logcat-tail.txt"
