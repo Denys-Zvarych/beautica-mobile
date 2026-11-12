@@ -165,3 +165,21 @@ int kyivDaysBetween(DateTime earlier, DateTime later) {
 /// the same arithmetic without importing another feature's `presentation/`.
 DateTime kyivAddDays(DateTime token, int days) =>
     DateTime(token.year, token.month, token.day + days);
+
+/// The MONDAY (a **date token**) of the ISO week containing [day] — Monday
+/// itself when [day] is a Monday, six days back when it is a Sunday.
+///
+/// [day] MUST already be a date token (`kyivToday` / `kyivDayOf` /
+/// `kyivAddDays` / `dateOnly`), never a raw wire instant: `.weekday` on a UTC
+/// instant can name the wrong Kyiv day near midnight.
+///
+/// Built on [kyivAddDays], so the step back is CALENDAR arithmetic, never a
+/// `Duration` subtraction — a DST week (last Sunday of March / October) still
+/// resolves to its own Monday at host-local midnight.
+///
+/// Phase 480 promoted this out of
+/// `features/booking/presentation/widgets/bookings_day_rail.dart`'s
+/// `mondayOf`, which now delegates here, so the week data layer
+/// (`bookings_week_query.dart`) can key on the same Monday without importing
+/// a presentation file.
+DateTime kyivWeekStart(DateTime day) => kyivAddDays(day, 1 - day.weekday);

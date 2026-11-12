@@ -96,7 +96,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart'
-    show kyivAddDays, kyivDaysBetween;
+    show kyivAddDays, kyivDaysBetween, kyivWeekStart;
 import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
     show calendarDayIsDeemphasized, isWeekendWeekday, kCalendarDotColor;
 
@@ -208,7 +208,11 @@ int calendarDayCount(DateTime from, DateTime to) => kyivDaysBetween(from, to);
 /// [day] MUST already be a local date-only value — a Kyiv day token from
 /// `kyivToday`/`railDayAt`/`dateOnly`, never a raw UTC wire instant, whose
 /// `.weekday` can name the wrong day (mobile-backlog `_DateStub`, `0eca0791`).
-DateTime mondayOf(DateTime day) => railDayAt(day, 1 - day.weekday);
+///
+/// Phase 480 — delegates to the shared `kyivWeekStart` (identical arithmetic:
+/// `kyivAddDays(day, 1 - day.weekday)`, which is what [railDayAt] forwards to)
+/// so the week data layer keys on the same Monday.
+DateTime mondayOf(DateTime day) => kyivWeekStart(day);
 
 /// The rail page index for the week containing [day], counted from
 /// [firstWeekStart] (itself a Monday — [mondayOf] its input if in doubt).

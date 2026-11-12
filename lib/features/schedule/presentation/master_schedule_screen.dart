@@ -35,6 +35,8 @@ import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart'
+    show invalidateBookingsWeekCovering;
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -887,6 +889,12 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         if (bookingsQuery != null) {
           // keepalive-safe: AppRefreshIndicator.onRefresh — self-key invalidate followed by the immediate ref.read(...future) in the Future.wait below (the proven remedy), same idiom as the effective-schedule refresh above.
           ref.invalidate(bookingsDayProvider(bookingsQuery));
+          // Phase 480 — the week twin: every LIVE week query covering the
+          // selected day, through the one invalidation seam (enumerated from
+          // the week LRU with its own pin-race read-back — never bare-family).
+          invalidateBookingsWeekCovering(ref, <DateTime>[
+            _dateOnly(_selected.value),
+          ]);
         }
         try {
           await Future.wait([

@@ -51,6 +51,9 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_week_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/keep_alive_lru.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_week_query.dart';
 import 'package:beautica_mobile/features/discovery/data/search_suggestion_cache_provider.dart';
 import 'package:beautica_mobile/core/push/push_session_hooks.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_suggestion.dart';
@@ -152,6 +155,11 @@ class _MockServiceRepository extends Mock implements ServiceRepository {}
 /// eviction bookkeeping (already covered by `bookings_day_notifier_test
 /// .dart`).
 class _SpyDayKeepAliveLru extends Mock implements DayKeepAliveLru {}
+
+/// Phase 480 — same interaction spy for the week view's LRU
+/// (`weekKeepAliveLruProvider`); same reasoning as [_SpyDayKeepAliveLru].
+class _SpyWeekKeepAliveLru extends Mock
+    implements KeepAliveLru<BookingsWeekQuery> {}
 
 /// Spy [SecureStorage] for the M5 logout-wipe group.
 ///
@@ -1503,6 +1511,43 @@ void main() {
       await container.read(authProvider.notifier).logout();
 
       verify(() => lruSpy.clear()).called(1);
+    });
+
+    // Phase 480 (mobile-security LOW) — the week twin of the test above. An
+    // interaction spy for the same reason: the week notifier's identity-only
+    // auth watch (layer a) alone already tears down an unwatched member, so
+    // only a spy pins the `weekKeepAliveLruProvider.clear()` call site.
+    test('logout() calls weekKeepAliveLruProvider.clear() — the week cache is '
+        'swept at the session boundary too (phase 480)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final weekSpy = _SpyWeekKeepAliveLru();
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+      when(() => weekSpy.clear()).thenReturn(null);
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          weekKeepAliveLruProvider.overrideWithValue(weekSpy),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+
+      verifyNever(() => weekSpy.clear());
+
+      await container.read(authProvider.notifier).logout();
+
+      verify(() => weekSpy.clear()).called(1);
     });
 
     // Phase 347 audit (security LOW): the settlement autocomplete's keepAlive

@@ -289,6 +289,36 @@ void main() {
       expect(kyivAddDays(DateTime(2026, 6, 15), 0), DateTime(2026, 6, 15));
     });
   });
+
+  // Phase 480 — the Monday key of the week view's range read.
+  group('kyivWeekStart returns the Monday date token of the ISO week', () {
+    test('a Monday is its own week start', () {
+      expect(kyivWeekStart(DateTime(2026, 7, 20)), DateTime(2026, 7, 20));
+    });
+
+    test('a Sunday steps back six calendar days', () {
+      expect(kyivWeekStart(DateTime(2026, 7, 26)), DateTime(2026, 7, 20));
+    });
+
+    test('the SPRING FORWARD Sunday (2026-03-29) resolves to its Monday at '
+        'midnight', () {
+      final DateTime monday = kyivWeekStart(DateTime(2026, 3, 29));
+      expect(monday, DateTime(2026, 3, 23));
+      expect(monday.hour, 0);
+    });
+
+    test('the FALL BACK Sunday (2026-10-25) resolves to its Monday at '
+        'midnight, and the next day starts the next week', () {
+      final DateTime monday = kyivWeekStart(DateTime(2026, 10, 25));
+      expect(monday, DateTime(2026, 10, 19));
+      expect(monday.hour, 0);
+      expect(kyivWeekStart(DateTime(2026, 10, 26)), DateTime(2026, 10, 26));
+    });
+
+    test('crosses a month / year boundary', () {
+      expect(kyivWeekStart(DateTime(2027, 1, 3)), DateTime(2026, 12, 28));
+    });
+  });
 }
 
 /// `null` (run the test) when the HOST process zone's UTC offset differs

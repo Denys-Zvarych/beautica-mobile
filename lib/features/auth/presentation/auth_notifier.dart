@@ -57,6 +57,7 @@ import '../../../shared/util/mask_email.dart';
 // `authProvider` back, so it cannot reopen the CircularDependencyError the
 // NOTE further down in [logout] warns about.
 import '../../booking/application/bookings_day_notifier.dart';
+import '../../booking/application/bookings_week_notifier.dart';
 // Deliberate, narrow exception to "auth never imports another feature"
 // (phase 347 audit, security LOW) — same shape as the two above:
 // `settlementSearchCacheProvider` is a `keepAlive` cache of typed search terms
@@ -1548,6 +1549,9 @@ class AuthNotifier extends _$AuthNotifier {
       // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
       // the full reasoning, including the Riverpod internals this depends on.
       ref.read(dayKeepAliveLruProvider).clear();
+      // Phase 480 — the week view's LRU (`bookings_week_notifier.dart`) is the
+      // same `KeepAliveLru` class with the same zombie-entry reasoning.
+      ref.read(weekKeepAliveLruProvider).clear();
       // Security (phase 347 audit, LOW) — the settlement autocomplete's
       // keepAlive result cache is keyed by what the user TYPED. Swept here so
       // the next account on this device cannot read the previous one's search
