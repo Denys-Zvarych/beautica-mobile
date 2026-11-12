@@ -2425,7 +2425,13 @@ class _Loaded extends StatelessWidget {
                     declaredTimes: declaredTimes,
                     bookings: items,
                     day: day,
-                    showsAllOccupancy: showsAllOccupancy,
+                    // Phase 483 (mobile-security) — a TRUNCATED day lost its
+                    // late bookings, so «Вільно» is a claim it cannot back
+                    // either. ANDed HERE, at the free-card consumer, not at
+                    // `_Loaded`'s source: [showsAllOccupancy] also drives the
+                    // filter-aware empty gate + its `hasFilters` assert in
+                    // [_body], which a truncation must not reroute.
+                    showsAllOccupancy: showsAllOccupancy && !state.isTruncated,
                     onTapBooking: onBookingTap,
                   )
                 // ONE widget, two scopes. `columns` is null and `density` is

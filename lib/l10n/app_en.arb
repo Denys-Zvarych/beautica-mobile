@@ -7508,5 +7508,8 @@
   "updateRequiredPlayError": "Couldn't open Google Play. Open the Play Store and search for «Beautica» manually.",
   "updateRequiredInstalledVersion": "Installed version {version}",
   "weekGridDayHeader": "{weekday} {day}",
-  "weekGridDayHeaderTodaySemantics": "{weekday} {day}, today"
+  "weekGridDayHeaderTodaySemantics": "{weekday} {day}, today",
+  "masterWeekBreakLabel": "Break",
+  "masterWeekCustomTimes": "Custom times · {count}",
+  "masterWeekHours": "{start}–{end}"
 }

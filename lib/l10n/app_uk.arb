@@ -7588,5 +7588,24 @@
       "weekday": { "type": "String", "example": "Чт" },
       "day": { "type": "int", "example": "12" }
     }
+  },
+  "masterWeekBreakLabel": "Перерва",
+  "@masterWeekBreakLabel": {
+    "description": "Phase 483 — label inside a break band of the master's week time grid."
+  },
+  "masterWeekCustomTimes": "Свій час · {count}",
+  "@masterWeekCustomTimes": {
+    "description": "Phase 483 — week column header hours line for an EXPLICIT_TIMES day: count of declared times.",
+    "placeholders": {
+      "count": { "type": "int", "example": "6" }
+    }
+  },
+  "masterWeekHours": "{start}–{end}",
+  "@masterWeekHours": {
+    "description": "Phase 483 — week column header hours line: first start – last end, hour without leading zero, e.g. «9:00–18:00».",
+    "placeholders": {
+      "start": { "type": "String", "example": "9:00" },
+      "end": { "type": "String", "example": "18:00" }
+    }
   }
 }

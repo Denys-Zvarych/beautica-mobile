@@ -433,6 +433,77 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
   return merged;
 }
 
+/// Phase 483 — the declared times of [day] that render as FREE, by the SAME
+/// merge [DeclaredTimeCards] runs ([_mergeDeclaredAndBookings]: pass 1's
+/// status-blind exact-start pairing, pass 1b's SCH-18 consumption through
+/// [consumesDeclaredTimes] on the half-open `[startAt, endAt)` range, pass
+/// 1c's [showsAllOccupancy] suppression). The week grid's «3 дні» column
+/// reads this instead of re-deriving the rule, so the two views can never
+/// disagree about which time is «Вільно». Ascending, declared order.
+List<TimeOfDay> freeDeclaredTimes(
+  List<TimeOfDay> declaredTimes,
+  List<Booking> bookings,
+  DateTime day, {
+  required bool showsAllOccupancy,
+}) => <TimeOfDay>[
+  for (final _DeclaredEntry e in _mergeDeclaredAndBookings(
+    declaredTimes,
+    bookings,
+    day,
+    showsAllOccupancy: showsAllOccupancy,
+  ))
+    if (e.booking == null) e.time,
+];
+
+/// Phase 483 — [freeDeclaredTimes] memoised on the SAME gate
+/// [_DeclaredTimeCardsState.didUpdateWidget] uses: `bookings` by identity,
+/// `day` and `showsAllOccupancy` by value, `declaredTimes` by [listEquals]
+/// (a schedule refetch hands a fresh but equal list). The week grid holds one
+/// per column, so a rebuild with identical inputs (a now-tick, a page drag,
+/// the entrance) reuses the last merge instead of rerunning it.
+final class FreeDeclaredTimesMemo {
+  List<TimeOfDay>? _declaredTimes;
+  List<Booking>? _bookings;
+  DateTime? _day;
+  bool? _showsAllOccupancy;
+  List<TimeOfDay> _value = const <TimeOfDay>[];
+  int _computeCount = 0;
+
+  /// How many times [of] actually ran the merge — the test seam.
+  @visibleForTesting
+  int get computeCount => _computeCount;
+
+  /// [freeDeclaredTimes] of these inputs; recomputed only when one changed.
+  List<TimeOfDay> of(
+    List<TimeOfDay> declaredTimes,
+    List<Booking> bookings,
+    DateTime day, {
+    required bool showsAllOccupancy,
+  }) {
+    final List<Booking>? lastBookings = _bookings;
+    final bool hit =
+        lastBookings != null &&
+        identical(bookings, lastBookings) &&
+        day == _day &&
+        showsAllOccupancy == _showsAllOccupancy &&
+        listEquals(declaredTimes, _declaredTimes);
+    if (hit) return _value;
+    _computeCount++;
+    _declaredTimes = declaredTimes;
+    _bookings = bookings;
+    _day = day;
+    _showsAllOccupancy = showsAllOccupancy;
+    return _value = List<TimeOfDay>.unmodifiable(
+      freeDeclaredTimes(
+        declaredTimes,
+        bookings,
+        day,
+        showsAllOccupancy: showsAllOccupancy,
+      ),
+    );
+  }
+}
+
 /// THE ONE BOX every entry in this list occupies — booked or free. A hard
 /// product requirement, not a judgement call: every card in the column must
 /// read as the same footprint down the page, never a taller booked card next
@@ -582,8 +653,25 @@ class DeclaredTimeCards extends StatefulWidget {
     required this.day,
     required this.showsAllOccupancy,
     required this.onTapBooking,
+    this.embedded = false,
     super.key,
   });
+
+  /// Phase 483 — `true` lays the list out at its natural height with no
+  /// scrolling of its own (`shrinkWrap`, never-scrollable), for a host that
+  /// already scrolls it — the week grid's «День» column, whose ONE vertical
+  /// scroll must keep owning the drag. ADDITIVE: `false` (the default) is
+  /// the shipped self-scrolling list, unchanged.
+  final bool embedded;
+
+  /// Gap between two entries.
+  static const double entryGap = VelvetSpacing.md;
+
+  /// One entry's floor at the ambient text scale — what a free card
+  /// measures, and the booked card's real box (see [_freeCardMinHeightFor]).
+  /// Lets an [embedded] host size the space the list needs.
+  static double entryExtentOf(BuildContext context) =>
+      _freeCardMinHeightFor(context);
 
   /// The day's declared times, VERBATIM — one card each, in declared order,
   /// unless dropped by [_mergeDeclaredAndBookings]'s pass 1b/1c. Nothing is
@@ -687,9 +775,12 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
     return ListView.separated(
       key: const Key('declared-time-cards'),
       padding: EdgeInsets.zero,
+      shrinkWrap: widget.embedded,
+      primary: widget.embedded ? false : null,
+      physics: widget.embedded ? const NeverScrollableScrollPhysics() : null,
       itemCount: _entries.length,
       separatorBuilder: (BuildContext context, int index) =>
-          const SizedBox(height: VelvetSpacing.md),
+          const SizedBox(height: DeclaredTimeCards.entryGap),
       itemBuilder: (BuildContext context, int index) {
         final _DeclaredEntry entry = _entries[index];
         final Booking? booking = entry.booking;

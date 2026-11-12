@@ -136,6 +136,7 @@ void main() {
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
     List<Booking>? bookingsWhenServiceFiltered,
+    bool truncated = false,
   }) async {
     final repo = _MockBookingRepository();
     when(
@@ -160,7 +161,9 @@ void main() {
         items: rows,
         page: 0,
         totalPages: 1,
-        totalElements: rows.length,
+        // `truncated` models a >page-size day: the server reports more
+        // rows than it returned (`BookingsDayState.isTruncated`).
+        totalElements: rows.length + (truncated ? 1 : 0),
       );
     });
 
@@ -389,6 +392,71 @@ void main() {
   // selection on purpose: with a status filter present, a screen that read
   // only the status half would still pass.
   // ═══════════════════════════════════════════════════════════════════════
+  // Phase 483 (mobile-security) — a TRUNCATED unfiltered day lost its late
+  // bookings, so a declared time they occupy must not read «Вільно».
+  group('an EXPLICIT_TIMES day that is TRUNCATED (no filter)', () {
+    testWidgets('renders NO free cards; the returned booking and the '
+        'truncation notice still show', (tester) async {
+      await pump(
+        tester,
+        bookings: <Booking>[
+          _booking(id: 'early', startAtUtc: _kyivAtUtc(11, 0)),
+        ],
+        scheduleDays: <EffectiveDay>[
+          EffectiveDay(
+            date: _day,
+            source: EffectiveSource.overrideCustom,
+            intervals: const <WorkInterval>[],
+            times: const <TimeOfDay>[
+              TimeOfDay(hour: 11, minute: 0),
+              TimeOfDay(hour: 16, minute: 0),
+            ],
+          ),
+        ],
+        truncated: true,
+      );
+
+      expect(find.byType(DeclaredTimeCards), findsOneWidget);
+      expect(find.byType(MasterBookingsTruncatedNotice), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-booking-card-early')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('declared-time-card-free-1600')),
+        findsNothing,
+        reason:
+            '16:00 may be held by a booking past the truncated page — the '
+            'screen must not claim it is free',
+      );
+    });
+
+    testWidgets('the same day NOT truncated still shows 16:00 as free '
+        '(control)', (tester) async {
+      await pump(
+        tester,
+        bookings: <Booking>[
+          _booking(id: 'early', startAtUtc: _kyivAtUtc(11, 0)),
+        ],
+        scheduleDays: <EffectiveDay>[
+          EffectiveDay(
+            date: _day,
+            source: EffectiveSource.overrideCustom,
+            intervals: const <WorkInterval>[],
+            times: const <TimeOfDay>[
+              TimeOfDay(hour: 11, minute: 0),
+              TimeOfDay(hour: 16, minute: 0),
+            ],
+          ),
+        ],
+      );
+      expect(
+        find.byKey(const Key('declared-time-card-free-1600')),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('an EXPLICIT_TIMES day under a SERVICE filter only', () {
     const List<TimeOfDay> declared = <TimeOfDay>[
       TimeOfDay(hour: 11, minute: 0),

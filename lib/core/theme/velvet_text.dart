@@ -1787,6 +1787,14 @@ abstract final class VelvetText {
   /// Week-grid column header («Чт 12») — the day rail's [railWeekday].
   static final TextStyle weekColumnHeader = railWeekday;
 
+  /// Phase 483 — working hours under the week column header («9:00–18:00» /
+  /// «Вихідний» / «Свій час · 6») and the «Перерва» / «Вихідний» band labels
+  /// — [masterCardTime] at 10 sp (preview `weekColumnHours`).
+  static final TextStyle weekColumnHours = masterCardTime.copyWith(
+    fontSize: 10,
+    height: 1.25,
+  );
+
   /// Now-line time pill on the week grid's hour ruler — [_feedbackBase] at
   /// 10 sp, cream on mocha.
   static final TextStyle nowPill = _feedbackBase.copyWith(

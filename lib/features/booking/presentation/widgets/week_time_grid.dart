@@ -1,9 +1,11 @@
 // Phase 482 — WeekTimeGrid: the master's week as seven Kyiv day columns on
 // ONE horizontal pager. Port of the MasterWeekBookings preview
 // (`docs/signup-designs/MasterWeekBookings/lib/widgets/week_time_grid.dart`),
-// pager / geometry half. Off-hours hatching, band labels, the per-day hours
-// line under each header and the EXPLICIT_TIMES column are phase 483 — see
-// the `// 483:` hooks below.
+// pager / geometry half (phase 482) plus phase 483: off-hours / break /
+// day-off hatching ([WeekColumnPainter]), the «Перерва» / «Вихідний» band
+// labels, the per-day hours line under each header ([WeekDayHeader]) and the
+// EXPLICIT_TIMES column (free declared times as `FreeTimeCard(column: true)`
+// markers in «3 дні», the shipped [DeclaredTimeCards] list in «День»).
 //
 // Touch only: the preview's desktop `AnyPointerScrollBehavior` /
 // `dragDevices` and its mouse / wheel paths are NOT ported.
@@ -24,6 +26,9 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart'
+    show WorkInterval;
+import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart'
     show formatSlotTime;
@@ -31,12 +36,13 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart'
 import '../../domain/booking.dart';
 import '../../domain/week_day_model.dart';
 import 'bookings_day_rail.dart' show weekdayShortLabels;
-import 'bookings_timeline_grid.dart' show BookingsTimelineGrid;
 import 'day_snap_scroll_physics.dart';
+import 'declared_time_cards.dart';
 import 'master_booking_card.dart';
 import 'timeline_density.dart';
 import 'timeline_geometry.dart';
 import 'timeline_hour_ruler.dart';
+import 'week_column_painter.dart';
 
 /// The week time grid: Mon–Sun as seven day columns on ONE horizontal pager,
 /// [visibleColumns] of them on screen (3 for «3 дні», 1 for «День»). The
@@ -53,6 +59,7 @@ class WeekTimeGrid extends StatefulWidget {
     required this.visibleColumns,
     required this.onBookingTap,
     required this.onTapHeader,
+    required this.showsAllOccupancy,
     this.hourHeight,
     this.entrance,
     super.key,
@@ -89,6 +96,19 @@ class WeekTimeGrid extends StatefulWidget {
   /// Tap on a column header — index into [days] (0 = Monday).
   final ValueChanged<int> onTapHeader;
 
+  /// Whether the week's bookings contain EVERY booking that occupies the
+  /// master's clock — i.e. the query carries no status / service filter that
+  /// could hide one (`BookingsDayQuery.showsAllOccupancy`'s predicate) AND
+  /// the week was not truncated. CONTRACT: the caller passes
+  /// `query.showsAllOccupancy && !state.isTruncated` — a truncated week
+  /// (`BookingsWeekState.isTruncated`) has lost its late bookings, so a time
+  /// they occupy would otherwise render as a false «Вільно». When
+  /// `false` an EXPLICIT_TIMES day shows no «Вільно» marker: a free marker is
+  /// a claim the list can no longer back (see `declared_time_cards.dart`'s
+  /// "FREE CARDS ARE A CLAIM"). Required, never defaulted — a default of
+  /// `true` would fail open.
+  final bool showsAllOccupancy;
+
   /// One hour of vertical space; `null` = [hourHeightFor] (72 dp × text scale
   /// in «3 дні», the shipped 120 dp in «День»).
   final double? hourHeight;
@@ -121,6 +141,23 @@ class WeekTimeGrid extends StatefulWidget {
   /// The card of booking [id].
   static Key cardKey(String id) => ValueKey<String>('week-grid-card-$id');
 
+  /// Column [i]'s hours line under its header.
+  static Key hoursKey(int i) => Key('week-grid-hours-$i');
+
+  /// Column [i]'s ONE pinned «Вихідний» label.
+  static Key dayOffLabelKey(int i) => Key('week-grid-day-off-$i');
+
+  /// Column [i]'s «Перерва» label of the break starting at [startMinute].
+  static Key breakLabelKey(int i, int startMinute) =>
+      Key('week-grid-break-$i-$startMinute');
+
+  /// Column [i]'s free declared-time marker at [minute] («3 дні»).
+  static Key freeMarkerKey(int i, int minute) =>
+      Key('week-grid-free-$i-$minute');
+
+  /// Column [i]'s declared-time list on an EXPLICIT_TIMES day («День»).
+  static Key declaredListKey(int i) => Key('week-grid-declared-$i');
+
   /// «3 дні» hour band at text scale 1.0. Grows with the text scale so a
   /// 30-minute block keeps its range + name at ×1.3.
   static const double threeDayHourHeight = 72;
@@ -143,10 +180,13 @@ class WeekTimeGrid extends StatefulWidget {
       ? TimelineDensity.master.hourHeight
       : MediaQuery.textScalerOf(context).scale(threeDayHourHeight);
 
-  /// The pinned header row's height — one «Чт 12» line, grows with the text
-  /// scale. // 483: the per-day hours line adds its own term here.
-  static double headerHeightOf(BuildContext context) =>
-      VelvetSpacing.sm + MediaQuery.textScalerOf(context).scale(11) * 1.4;
+  /// The pinned header row's height — the «Чт 12» line plus the day's hours
+  /// line («9:00–18:00» / «Вихідний» / «Свій час · 6»), grows with the text
+  /// scale.
+  static double headerHeightOf(BuildContext context) {
+    final TextScaler ts = MediaQuery.textScalerOf(context);
+    return VelvetSpacing.sm + ts.scale(11) * 1.4 + ts.scale(10) * 1.25;
+  }
 
   /// A pager controller for [visibleColumns] with [firstVisibleDay] (0 =
   /// Monday) as the left-most column. A mode toggle builds a new one keeping
@@ -168,6 +208,12 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   late PageController _headerController;
   Timer? _settle;
   Drag? _headerDrag;
+
+  /// One [freeDeclaredTimes] memo per column (index = weekday) — a rebuild
+  /// with identical inputs reuses the last merge.
+  final List<FreeDeclaredTimesMemo> _freeTimes = <FreeDeclaredTimesMemo>[
+    for (int i = 0; i < kWeekGridDays; i++) FreeDeclaredTimesMemo(),
+  ];
 
   /// Pointers currently down on the grid. While any is down the user owns
   /// the position (a resting finger HOLDS it without scrolling), so the
@@ -298,6 +344,26 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     super.dispose();
   }
 
+  /// «День» on an EXPLICIT_TIMES day lays the shipped [DeclaredTimeCards]
+  /// list (one fixed-footprint box per entry, NOT hour-mapped) over the
+  /// column — the grid must be at least that tall so the last entry can be
+  /// scrolled to. An upper bound of the list's entry count: every booking
+  /// plus every declared time.
+  double _declaredListFloor(BuildContext context) {
+    int n = 0;
+    for (final WeekDayModel d in widget.days) {
+      final EffectiveDay? s = d.schedule;
+      if (s == null || !s.isExplicitTimes) continue;
+      n = math.max(n, d.bookings.length + s.times.length);
+    }
+    if (n == 0) return 0;
+    return WeekTimeGrid.topPad +
+        VelvetSpacing.sm +
+        n * DeclaredTimeCards.entryExtentOf(context) +
+        (n - 1) * DeclaredTimeCards.entryGap +
+        VelvetSpacing.lg;
+  }
+
   double _hourHeight(BuildContext context) =>
       widget.hourHeight ??
       WeekTimeGrid.hourHeightFor(context, widget.visibleColumns);
@@ -331,12 +397,15 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final double hourH = _hourHeight(context);
     final int todayIndex = _todayIndex;
     final int totalHours = window.lastHour - window.firstHour;
+    final bool exact = widget.visibleColumns > 1;
     final double rulerWidth = TimelineDensity.master.rulerWidth;
-    final double gridH =
-        WeekTimeGrid.topPad +
-        totalHours * hourH +
-        MediaQuery.textScalerOf(context).scale(11) * 1.4 +
-        VelvetSpacing.lg;
+    final double gridH = math.max(
+      WeekTimeGrid.topPad +
+          totalHours * hourH +
+          MediaQuery.textScalerOf(context).scale(11) * 1.4 +
+          VelvetSpacing.lg,
+      exact ? 0 : _declaredListFloor(context),
+    );
     final int nowMinute = todayIndex >= 0
         ? minutesSinceDayStart(widget.now, kyivMidnight(widget.today))
         : -1;
@@ -346,7 +415,6 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
         nowMinute <= window.lastHour * 60;
     final bool animate =
         widget.entrance != null && !MediaQuery.disableAnimationsOf(context);
-    final bool exact = widget.visibleColumns > 1;
 
     return Listener(
       onPointerDown: _onPointerDown,
@@ -380,7 +448,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                         padEnds: false,
                         itemCount: kWeekGridDays,
                         itemBuilder: (BuildContext context, int i) =>
-                            _DayHeader(
+                            WeekDayHeader(
                               key: WeekTimeGrid.headerKey(i),
                               label: l10n.weekGridDayHeader(
                                 weekdays[i],
@@ -392,6 +460,8 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                                       widget.days[i].day.day,
                                     )
                                   : null,
+                              schedule: widget.days[i].schedule,
+                              hoursKey: WeekTimeGrid.hoursKey(i),
                               isToday: i == todayIndex,
                               onTap: () => widget.onTapHeader(i),
                             ),
@@ -465,7 +535,11 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                           itemBuilder: (BuildContext context, int i) {
                             final Widget column = _DayColumn(
                               key: WeekTimeGrid.columnKey(i),
+                              index: i,
                               model: widget.days[i],
+                              vertical: _vertical,
+                              showsAllOccupancy: widget.showsAllOccupancy,
+                              freeTimes: _freeTimes[i],
                               isToday: i == todayIndex,
                               nowMinute: nowVisible && i == todayIndex
                                   ? nowMinute
@@ -502,12 +576,39 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
 
 // ── Day header ────────────────────────────────────────────────────────────
 
-class _DayHeader extends StatelessWidget {
-  const _DayHeader({
+/// «9:00» — hour without a leading zero (column-header hours only).
+String _shortClock(int minute) =>
+    '${minute ~/ 60}:${(minute % 60).toString().padLeft(2, '0')}';
+
+/// The hours line under a week column header: «9:00–18:00» (first start –
+/// last end), «Вихідний», or «Свій час · N» for an EXPLICIT_TIMES day;
+/// `null` when the schedule is not loaded (the line stays empty).
+String? weekDayHoursLabel(AppLocalizations l10n, EffectiveDay? schedule) {
+  if (schedule == null) return null;
+  if (schedule.isExplicitTimes) {
+    return l10n.masterWeekCustomTimes(schedule.times.length);
+  }
+  if (isWeekDayOff(schedule)) return l10n.salonBookingsColumnDayOff;
+  int start = schedule.intervals.first.startMinutes;
+  int end = schedule.intervals.first.endMinutes;
+  for (final WorkInterval w in schedule.intervals) {
+    start = math.min(start, w.startMinutes);
+    end = math.max(end, w.endMinutes);
+  }
+  return l10n.masterWeekHours(_shortClock(start), _shortClock(end));
+}
+
+/// One week column header: «Чт 12» (today: mocha + the shipped rail dot) and
+/// the day's hours line under it ([weekDayHoursLabel]). A day off reads
+/// muted. Tap → the host's day action.
+class WeekDayHeader extends StatelessWidget {
+  const WeekDayHeader({
     required this.label,
     required this.semanticsLabel,
+    required this.schedule,
     required this.isToday,
     required this.onTap,
+    this.hoursKey,
     super.key,
   });
 
@@ -515,16 +616,32 @@ class _DayHeader extends StatelessWidget {
 
   /// Today's spoken label («Чт 12, сьогодні»); `null` reads [label].
   final String? semanticsLabel;
+
+  /// The day's resolved schedule; `null` = not loaded (no hours line text).
+  final EffectiveDay? schedule;
   final bool isToday;
   final VoidCallback onTap;
+
+  /// Key of the hours line `Text`.
+  final Key? hoursKey;
 
   static const double _todayDot = 5;
 
   @override
   Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final EffectiveDay? s = schedule;
+    final bool dayOff = s != null && isWeekDayOff(s);
+    final String? hours = weekDayHoursLabel(l10n, s);
+    final String spoken = semanticsLabel ?? label;
+    final Color labelColor = isToday
+        ? BrandColors.accentDeep
+        : dayOff
+        ? BrandColors.muted
+        : BrandColors.textSecondary;
     return Semantics(
       button: true,
-      label: semanticsLabel ?? label,
+      label: hours == null ? spoken : '$spoken, $hours',
       excludeSemantics: true,
       child: InkWell(
         onTap: onTap,
@@ -545,16 +662,22 @@ class _DayHeader extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: VelvetText.weekColumnHeader.copyWith(
-                      color: isToday
-                          ? BrandColors.accentDeep
-                          : BrandColors.textSecondary,
+                      color: labelColor,
                       fontWeight: isToday ? FontWeight.w800 : FontWeight.w700,
                     ),
                   ),
                 ),
               ],
             ),
-            // 483: the day's working hours line («9:00–19:00» / «Вихідний»).
+            Text(
+              hours ?? '',
+              key: hoursKey,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: VelvetText.weekColumnHours.copyWith(
+                color: dayOff ? BrandColors.muted : BrandColors.textSecondary,
+              ),
+            ),
           ],
         ),
       ),
@@ -693,7 +816,11 @@ class _ColumnEntranceState extends State<_ColumnEntrance> {
 
 class _DayColumn extends StatelessWidget {
   const _DayColumn({
+    required this.index,
     required this.model,
+    required this.vertical,
+    required this.showsAllOccupancy,
+    required this.freeTimes,
     required this.isToday,
     required this.nowMinute,
     required this.now,
@@ -705,7 +832,16 @@ class _DayColumn extends StatelessWidget {
     super.key,
   });
 
+  /// 0 = Monday — keys only.
+  final int index;
   final WeekDayModel model;
+
+  /// The grid's shared vertical scroll — pins the day-off label.
+  final ScrollController vertical;
+  final bool showsAllOccupancy;
+
+  /// This column's [freeDeclaredTimes] memo, owned by the grid's state.
+  final FreeDeclaredTimesMemo freeTimes;
   final bool isToday;
 
   /// Minutes since today's Kyiv midnight; `null` = no now-line here.
@@ -725,36 +861,112 @@ class _DayColumn extends StatelessWidget {
   static const double _nowLineHeight = 2;
   static const double _nowDot = 7;
 
+  /// Breathing room a «Перерва» pill needs inside its band.
+  static const double _labelClearance = 6;
+
   double _y(int minute) =>
       WeekTimeGrid.topPad + (minute - firstHour * 60) / 60 * hourHeight;
+
+  /// Kyiv minute of a declared time.
+  static int _minuteOf(TimeOfDay t) => t.hour * 60 + t.minute;
 
   @override
   Widget build(BuildContext context) {
     final double scale = MediaQuery.textScalerOf(context).scale(1);
+    final double labelH = _BandLabel.heightOf(context);
+    final AppLocalizations l10n = AppLocalizations.of(context);
     final int? nowAt = nowMinute;
+    final EffectiveDay? schedule = model.schedule;
+    final bool explicit = schedule != null && schedule.isExplicitTimes;
+    final bool dayOff = schedule != null && isWeekDayOff(schedule);
+    // «День» on an EXPLICIT_TIMES day: the shipped declared-time list, not
+    // hour-mapped cards (decision D2 — no second layout).
+    final bool declaredList = explicit && !exactHeight;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints c) {
         final double w = math.max(0, c.maxWidth - _sidePad * 2);
         return Stack(
           clipBehavior: Clip.none,
           children: <Widget>[
+            // Its own layer: a card press, the entrance and the now-line
+            // never repaint the hatch.
             Positioned.fill(
-              child: CustomPaint(
-                painter: _ColumnPainter(
-                  firstHour: firstHour,
-                  lastHour: lastHour,
-                  hourHeight: hourHeight,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: WeekColumnPainter(
+                    day: model.day,
+                    schedule: schedule,
+                    firstHour: firstHour,
+                    lastHour: lastHour,
+                    hourHeight: hourHeight,
+                    isToday: isToday,
+                    topPad: WeekTimeGrid.topPad,
+                  ),
                 ),
               ),
             ),
-            // 483: off-hours / break / day-off bands and the EXPLICIT_TIMES
-            // markers paint here, under the cards.
-            //
+            if (dayOff)
+              _PinnedDayOffLabel(
+                key: WeekTimeGrid.dayOffLabelKey(index),
+                vertical: vertical,
+                top: _y(firstHour * 60),
+                bottom: _y(lastHour * 60),
+                labelHeight: labelH,
+                text: l10n.salonBookingsColumnDayOff,
+              ),
+            if (schedule != null)
+              for (final MinuteRange b in weekBreaks(schedule))
+                if (_y(b.end) - _y(b.start) >= labelH + _labelClearance)
+                  Positioned(
+                    key: WeekTimeGrid.breakLabelKey(index, b.start),
+                    top: (_y(b.start) + _y(b.end)) / 2 - labelH / 2,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: Center(
+                        child: _BandLabel(l10n.masterWeekBreakLabel),
+                      ),
+                    ),
+                  ),
+            if (declaredList)
+              Positioned(
+                top: WeekTimeGrid.topPad + VelvetSpacing.sm,
+                left: _sidePad + VelvetSpacing.xs,
+                right: _sidePad + VelvetSpacing.xs,
+                child: DeclaredTimeCards(
+                  key: WeekTimeGrid.declaredListKey(index),
+                  declaredTimes: schedule.times,
+                  bookings: model.bookings,
+                  day: model.day,
+                  showsAllOccupancy: showsAllOccupancy,
+                  onTapBooking: onBookingTap,
+                  embedded: true,
+                ),
+              ),
+            // «3 дні» on an EXPLICIT_TIMES day: every still-free declared
+            // time is a 30-minute marker at its start. Which times are free
+            // is the shipped list's own merge (SCH-18) — never re-derived.
+            if (explicit && exactHeight)
+              for (final TimeOfDay t in freeTimes.of(
+                schedule.times,
+                model.bookings,
+                model.day,
+                showsAllOccupancy: showsAllOccupancy,
+              ))
+                Positioned(
+                  key: WeekTimeGrid.freeMarkerKey(index, _minuteOf(t)),
+                  top: _y(_minuteOf(t)) + _gap / 2,
+                  left: _sidePad,
+                  width: w,
+                  height: math.max(0, hourHeight / 2 - _gap),
+                  child: FreeTimeCard(time: t, column: true),
+                ),
             // Bookings never overlap (BOOK-12: the backend rejects an
             // overlapping slot with 409 SLOT_TAKEN), so every card takes the
             // full column width — no lanes.
-            for (int i = 0; i < model.bookings.length; i++)
-              _placedCard(model.bookings[i], model.startMinutes[i], w, scale),
+            if (!declaredList)
+              for (int i = 0; i < model.bookings.length; i++)
+                _placedCard(model.bookings[i], model.startMinutes[i], w, scale),
             if (nowAt != null)
               Positioned(
                 key: WeekTimeGrid.nowLineKey,
@@ -835,52 +1047,103 @@ class _DayColumn extends StatelessWidget {
   }
 }
 
-/// Column background: hour + half-hour hairlines (the single-day grid's
-/// colours) and the column divider. // 483: non-working bands join here.
-class _ColumnPainter extends CustomPainter {
-  _ColumnPainter({
-    required this.firstHour,
-    required this.lastHour,
-    required this.hourHeight,
+/// ONE «Вихідний» per day-off column (decision D1), pinned to the vertical
+/// centre of the VISIBLE part of the column: it follows the shared vertical
+/// scroll, clamped to the grid so it never leaves the hatch.
+///
+/// Only this subtree listens to the scroll controller, and its own
+/// [RepaintBoundary] + a paint-only [Transform] keep a scroll frame from
+/// relaying out or repainting the column (its painter, its cards).
+class _PinnedDayOffLabel extends StatelessWidget {
+  const _PinnedDayOffLabel({
+    required this.vertical,
+    required this.top,
+    required this.bottom,
+    required this.labelHeight,
+    required this.text,
+    super.key,
   });
 
-  final int firstHour;
-  final int lastHour;
-  final double hourHeight;
+  final ScrollController vertical;
 
-  static final Paint _hour = Paint()
-    ..color = BrandColors.faint
-    ..strokeWidth = 1;
-  static final Paint _half = Paint()
-    ..color = BookingsTimelineGrid.halfHourLineColor
-    ..strokeWidth = 1;
-  static final Paint _divider = Paint()
-    ..color = BrandColors.accent.withValues(alpha: 0.18)
-    ..strokeWidth = 1;
+  /// The grid's top / bottom edge in column coordinates.
+  final double top;
+  final double bottom;
+  final double labelHeight;
+  final String text;
 
-  double _y(int minute) =>
-      WeekTimeGrid.topPad + (minute - firstHour * 60) / 60 * hourHeight;
+  /// Keeps the pill off the band's inset edges.
+  static const double _edge = VelvetSpacing.xs;
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (int h = firstHour; h <= lastHour; h++) {
-      final double y = _y(h * 60);
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), _hour);
-      if (h < lastHour) {
-        final double yh = y + hourHeight / 2;
-        canvas.drawLine(Offset(0, yh), Offset(size.width, yh), _half);
-      }
+  double _offset() {
+    double centre = (top + bottom) / 2;
+    if (vertical.hasClients && vertical.position.hasViewportDimension) {
+      final ScrollPosition v = vertical.position;
+      centre = v.pixels + v.viewportDimension / 2;
     }
-    canvas.drawLine(
-      Offset(0, _y(firstHour * 60)),
-      Offset(0, _y(lastHour * 60)),
-      _divider,
-    );
+    final double lo = top + _edge;
+    final double hi = math.max(lo, bottom - labelHeight - _edge);
+    return (centre - labelHeight / 2).clamp(lo, hi).toDouble();
   }
 
   @override
-  bool shouldRepaint(_ColumnPainter old) =>
-      old.hourHeight != hourHeight ||
-      old.firstHour != firstHour ||
-      old.lastHour != lastHour;
+  Widget build(BuildContext context) => Positioned(
+    top: 0,
+    left: 0,
+    right: 0,
+    child: IgnorePointer(
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: vertical,
+          builder: (BuildContext context, Widget? child) =>
+              Transform.translate(offset: Offset(0, _offset()), child: child),
+          // Its own layer under the per-scroll Transform: a scroll frame
+          // re-composites the pill, never re-records it.
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: RepaintBoundary(child: _BandLabel(text)),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// «Вихідний» / «Перерва» — a small base-tone pill so the word stays legible
+/// over the hatch.
+class _BandLabel extends StatelessWidget {
+  const _BandLabel(this.text);
+
+  final String text;
+
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    horizontal: VelvetSpacing.xs + 2,
+    vertical: 2,
+  );
+
+  /// The pill's height at the ambient text scale.
+  static double heightOf(BuildContext context) =>
+      MediaQuery.textScalerOf(context).scale(10) * 1.25 + _padding.vertical;
+
+  static final BoxDecoration _decoration = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.pill),
+    border: Border.all(color: BrandColors.shadowDarkCard),
+  );
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: _decoration,
+    child: Padding(
+      padding: _padding,
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: VelvetText.weekColumnHours.copyWith(
+          color: BrandColors.textSecondary,
+        ),
+      ),
+    ),
+  );
 }

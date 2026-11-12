@@ -1604,4 +1604,205 @@ void main() {
       expect(find.byKey(columnKey), findsNothing);
     });
   });
+
+  // Phase 483 (mobile-qa) — the week grid's direct seams.
+  group('freeDeclaredTimes — the same merge, free entries only', () {
+    const List<TimeOfDay> declared = <TimeOfDay>[
+      TimeOfDay(hour: 10, minute: 0),
+      TimeOfDay(hour: 11, minute: 0),
+      TimeOfDay(hour: 12, minute: 0),
+    ];
+
+    test('no bookings → every declared time, in declared order', () {
+      expect(
+        freeDeclaredTimes(
+          declared,
+          const <Booking>[],
+          _day,
+          showsAllOccupancy: true,
+        ),
+        declared,
+      );
+    });
+
+    test('a booking on a time takes it; a 60-min one also consumes the next '
+        '(SCH-18, half-open)', () {
+      expect(
+        freeDeclaredTimes(
+          declared,
+          <Booking>[
+            _booking(
+              id: 'a',
+              startAtUtc: _kyivAtUtc(10, 30),
+              durationMinutes: 60,
+            ),
+          ],
+          _day,
+          showsAllOccupancy: true,
+        ),
+        <TimeOfDay>[
+          const TimeOfDay(hour: 10, minute: 0),
+          const TimeOfDay(hour: 12, minute: 0),
+        ],
+      );
+    });
+
+    test('a CANCELLED booking spanning a time leaves it free', () {
+      expect(
+        freeDeclaredTimes(
+          declared,
+          <Booking>[
+            _booking(
+              id: 'x',
+              startAtUtc: _kyivAtUtc(10, 30),
+              durationMinutes: 60,
+            ).copyWith(status: BookingStatus.cancelled),
+          ],
+          _day,
+          showsAllOccupancy: true,
+        ),
+        declared,
+      );
+    });
+
+    test('showsAllOccupancy false → no free time at all', () {
+      expect(
+        freeDeclaredTimes(
+          declared,
+          const <Booking>[],
+          _day,
+          showsAllOccupancy: false,
+        ),
+        isEmpty,
+      );
+    });
+  });
+
+  group('FreeDeclaredTimesMemo — recomputes only on an input change', () {
+    const List<TimeOfDay> declared = <TimeOfDay>[
+      TimeOfDay(hour: 10, minute: 0),
+      TimeOfDay(hour: 11, minute: 0),
+    ];
+
+    test('identical-input rebuilds reuse the merge; each gate input '
+        'recomputes', () {
+      final FreeDeclaredTimesMemo memo = FreeDeclaredTimesMemo();
+      final List<Booking> bookings = <Booking>[
+        _booking(id: 'a', startAtUtc: _kyivAtUtc(10, 0)),
+      ];
+      final List<TimeOfDay> first = memo.of(
+        declared,
+        bookings,
+        _day,
+        showsAllOccupancy: true,
+      );
+      expect(first, const <TimeOfDay>[TimeOfDay(hour: 11, minute: 0)]);
+      expect(memo.computeCount, 1);
+
+      // Same inputs, and a FRESH but equal declared list (a schedule
+      // refetch) — no recompute, same instance.
+      for (int i = 0; i < 3; i++) {
+        expect(
+          memo.of(
+            List<TimeOfDay>.of(declared),
+            bookings,
+            DateTime(_day.year, _day.month, _day.day),
+            showsAllOccupancy: true,
+          ),
+          same(first),
+        );
+      }
+      expect(memo.computeCount, 1);
+
+      // A new bookings list (identity gate, even if equal) recomputes.
+      memo.of(
+        declared,
+        List<Booking>.of(bookings),
+        _day,
+        showsAllOccupancy: true,
+      );
+      expect(memo.computeCount, 2);
+      // The flag recomputes — and changes the answer.
+      final List<Booking> held = <Booking>[];
+      memo.of(declared, held, _day, showsAllOccupancy: true);
+      expect(memo.computeCount, 3);
+      expect(memo.of(declared, held, _day, showsAllOccupancy: false), isEmpty);
+      expect(memo.computeCount, 4);
+      // The day recomputes.
+      memo.of(
+        declared,
+        held,
+        _day.add(const Duration(days: 1)),
+        showsAllOccupancy: false,
+      );
+      expect(memo.computeCount, 5);
+      // Different declared times recompute.
+      expect(
+        memo.of(
+          const <TimeOfDay>[TimeOfDay(hour: 9, minute: 0)],
+          held,
+          _day.add(const Duration(days: 1)),
+          showsAllOccupancy: true,
+        ),
+        const <TimeOfDay>[TimeOfDay(hour: 9, minute: 0)],
+      );
+      expect(memo.computeCount, 6);
+    });
+  });
+
+  group('DeclaredTimeCards.embedded', () {
+    ListView list(WidgetTester tester) =>
+        tester.widget<ListView>(find.byKey(const Key('declared-time-cards')));
+
+    testWidgets('default (false): the shipped self-scrolling list', (
+      tester,
+    ) async {
+      await _pumpCards(
+        tester,
+        declaredTimes: const <TimeOfDay>[TimeOfDay(hour: 11, minute: 0)],
+        bookings: const <Booking>[],
+      );
+      final ListView l = list(tester);
+      expect(l.shrinkWrap, isFalse);
+      expect(l.physics, isNot(isA<NeverScrollableScrollPhysics>()));
+    });
+
+    testWidgets('true: natural height, never scrolls itself, not primary — '
+        'the host scroll owns the drag', (tester) async {
+      const List<TimeOfDay> times = <TimeOfDay>[
+        TimeOfDay(hour: 10, minute: 0),
+        TimeOfDay(hour: 11, minute: 0),
+      ];
+      await tester.pumpApp(
+        SingleChildScrollView(
+          child: DeclaredTimeCards(
+            declaredTimes: times,
+            bookings: const <Booking>[],
+            day: _day,
+            showsAllOccupancy: true,
+            onTapBooking: (Booking _) {},
+            embedded: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final ListView l = list(tester);
+      expect(l.shrinkWrap, isTrue);
+      expect(l.primary, isFalse);
+      expect(l.physics, isA<NeverScrollableScrollPhysics>());
+      // Natural height: two entries + one gap, laid out inside an
+      // unbounded host without error.
+      final double h = tester
+          .getSize(find.byKey(const Key('declared-time-cards')))
+          .height;
+      final double entry = DeclaredTimeCards.entryExtentOf(
+        tester.element(find.byKey(const Key('declared-time-cards'))),
+      );
+      expect(
+        h,
+        moreOrLessEquals(2 * entry + DeclaredTimeCards.entryGap, epsilon: 1),
+      );
+    });
+  });
 }
