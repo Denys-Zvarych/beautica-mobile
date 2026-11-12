@@ -33,7 +33,7 @@
 //   * booked — the shipped [MasterBookingCard], unmodified, at
 //     `minHeight: _kEntryMinHeight` (its FULL body: client name, time range,
 //     service, price/price-band, status badge, client avatar mark).
-//   * free — [_FreeTimeCard]: time / «Вільно», muted. Same fill, radius,
+//   * free — [FreeTimeCard]: time / «Вільно», muted. Same fill, radius,
 //     border and floor as the booked box; the only difference is LIFT — the
 //     booked card keeps its shadow, the free card drops it and stands on its
 //     border alone. NOT a button, no tap target.
@@ -159,6 +159,7 @@ import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart'
     show formatTime;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/widgets/fixed_lines_text.dart';
 
 import '../../domain/booking.dart';
 import '../../domain/booking_status.dart';
@@ -462,32 +463,32 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
 ///     booked card's REAL rendered box is 120, not merely floored at it with
 ///     slack above.
 ///
-/// [_FreeTimeCard] is floored at this SAME constant (a `BoxConstraints
+/// [FreeTimeCard] is floored at this SAME constant (a `BoxConstraints
 /// (minHeight: _kEntryMinHeight)` on its own `Container`, never a fixed
 /// `height:` — same reasoning as [MasterBookingCard.minHeight] being a floor,
 /// not a ceiling: real content past it still grows the box instead of
 /// clipping).
 ///
-/// THE SCALE-1.0 CONSTANT both variants share. Above 1.0, [_FreeTimeCard]
+/// THE SCALE-1.0 CONSTANT both variants share. Above 1.0, [FreeTimeCard]
 /// does not use this bare number as its floor — it calls
 /// [_freeCardMinHeightFor] instead. See that function's doc for the closed
 /// gap this used to describe.
 const double _kEntryMinHeight = 120;
 
-/// [_FreeTimeCard]'s scale-aware floor — the mechanism that keeps it equal
+/// [FreeTimeCard]'s scale-aware floor — the mechanism that keeps it equal
 /// to a booked [MasterBookingCard] ABOVE textScaler 1.0, not just at 1.0.
 ///
 /// THE GAP THIS CLOSES: [MasterBookingCard]'s full body is a fixed stack of
 /// single-line rows, so its REAL rendered box grows past `minHeight: 120` as
 /// the ambient text scale rises — nothing here has to make that happen, it
 /// falls out of the card's own real `Text` widgets scaling like any other
-/// text. [_FreeTimeCard]'s own two-line content, by contrast, never grows
+/// text. [FreeTimeCard]'s own two-line content, by contrast, never grows
 /// enough on its own to reach a taller floor at any realistic scale, so a
 /// bare `120` constraint on it stopped matching the booked card's real box
 /// above 1.0 — measured 120dp @ 1.15 and 126dp @ 1.3 for the booked card as
 /// of the 2026-08-15 font-size pass (was 124dp / 132dp — pinned by
 /// [MasterBookingCard.fullLayoutNaturalHeight]'s own doc). This function
-/// makes [_FreeTimeCard]'s floor track that same growth.
+/// makes [FreeTimeCard]'s floor track that same growth.
 ///
 /// NO SCALE-AWARE API EXISTS ON [MasterBookingCard] TO REUSE HERE.
 /// [MasterBookingCard.fullLayoutNaturalHeight] is a `static const` — it
@@ -561,7 +562,7 @@ double _freeCardMinHeightFor(BuildContext context) {
 
 /// The declared-times day body — a plain scrolling list, one box per
 /// [_mergeDeclaredAndBookings] entry: the shipped [MasterBookingCard] for a
-/// booked entry, [_FreeTimeCard] for a free one — see this file's header.
+/// booked entry, [FreeTimeCard] for a free one — see this file's header.
 /// Sits inside the same `Expanded(child: Padding(...))` slot
 /// `BookingsDiscoveryView._Loaded._body` gives `BookingsTimelineGrid` on an
 /// INTERVAL day, so it owns its own scrolling exactly like that widget does.
@@ -701,7 +702,7 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
         final _DeclaredEntry entry = _entries[index];
         final Booking? booking = entry.booking;
         if (booking == null) {
-          return _FreeTimeCard(time: entry.time);
+          return FreeTimeCard(time: entry.time);
         }
         // The shipped card, VERBATIM — see this file's header. `minHeight:
         // _kEntryMinHeight` is the ONLY non-default constructor argument;
@@ -729,10 +730,35 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
 /// the exact same height as a booked [MasterBookingCard] rather than at some
 /// independently-tuned number, and [_freeCardMinHeightFor]'s doc for how that
 /// floor tracks the booked card's growth above textScaler 1.0.
-class _FreeTimeCard extends StatelessWidget {
-  const _FreeTimeCard({required this.time});
+///
+/// Promoted from the private `_FreeTimeCard` (phase 481) so the week grid can
+/// reuse it; [DeclaredTimeCards] renders it exactly as before.
+class FreeTimeCard extends StatelessWidget {
+  const FreeTimeCard({super.key, required this.time, this.column = false});
 
   final TimeOfDay time;
+
+  /// Phase 481 — the «3 дні» narrow-column density: the 30-minute
+  /// «11:30 / Вільно» marker (preview `DeclaredFreeMarker`). Same border as a
+  /// booking, [VelvetRadii.field] radius, no lift, no stripe; time / «Вільно»
+  /// on two lines when the given height allows, else one line. ADDITIVE:
+  /// `false` (the default) is the shipped list card, unchanged.
+  final bool column;
+
+  /// Column inner padding (preview): 6 dp horizontally, 2 dp vertically.
+  static const EdgeInsets _kColumnPadding = EdgeInsets.symmetric(
+    horizontal: VelvetSpacing.xs + 2,
+    vertical: VelvetSpacing.xs / 2,
+  );
+
+  static final BoxDecoration _columnDecoration = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.field),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: 0.38),
+      width: 1.5,
+    ),
+  );
 
   static const EdgeInsets _kPadding = EdgeInsets.all(VelvetSpacing.lg);
 
@@ -763,6 +789,11 @@ class _FreeTimeCard extends StatelessWidget {
   /// the booked card beside it.
   static final TextStyle _timeStyle = VelvetText.masterFreeCardTime;
 
+  /// Column marker time: `weekBlockName` in mocha, resolved once.
+  static final TextStyle _columnTimeStyle = VelvetText.weekBlockName.copyWith(
+    color: BrandColors.accentDeep,
+  );
+
   /// «Вільно», muted. `VelvetText.masterFreeCardLabel` — the sibling
   /// [MasterBookingCard]'s own FULL-layout secondary tier (Nunito 10/700 as
   /// of the 2026-08-15 font-size pass, was 11/700, muted), verbatim — it
@@ -773,6 +804,7 @@ class _FreeTimeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (column) return _buildColumn(context);
     final AppLocalizations l10n = AppLocalizations.of(context);
     return MergeSemantics(
       child: Semantics(
@@ -796,6 +828,64 @@ class _FreeTimeCard extends StatelessWidget {
               const SizedBox(height: VelvetSpacing.sm),
               Text(l10n.masterBookingsDeclaredTimeFree, style: _freeStyle),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The column marker — see [column]. Time in mocha
+  /// (`VelvetText.weekBlockName`), «Вільно» muted (`weekBlockService`); line
+  /// heights from [fixedLineHeight] so the choice matches what renders.
+  Widget _buildColumn(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final String label = formatTime(time);
+    final String free = l10n.masterBookingsDeclaredTimeFree;
+    final TextStyle timeStyle = _columnTimeStyle;
+    final TextStyle freeStyle = VelvetText.weekBlockService;
+    return MergeSemantics(
+      child: Semantics(
+        key: Key(
+          'declared-time-card-free-column-'
+          '${time.hour.toString().padLeft(2, '0')}'
+          '${time.minute.toString().padLeft(2, '0')}',
+        ),
+        label: '$label — $free',
+        child: DecoratedBox(
+          decoration: _columnDecoration,
+          child: Padding(
+            padding: _kColumnPadding,
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints c) {
+                final double twoLines =
+                    fixedLineHeight(context, timeStyle) +
+                    fixedLineHeight(context, freeStyle);
+                if (!c.hasBoundedHeight || c.maxHeight + 1e-6 >= twoLines) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      FixedLinesText(label, style: timeStyle),
+                      FixedLinesText(free, style: freeStyle),
+                    ],
+                  );
+                }
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text.rich(
+                    TextSpan(
+                      children: <InlineSpan>[
+                        TextSpan(text: '$label ', style: timeStyle),
+                        TextSpan(text: free, style: freeStyle),
+                      ],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),

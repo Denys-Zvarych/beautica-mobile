@@ -1756,6 +1756,31 @@ abstract final class VelvetText {
     height: 1.2,
   );
 
+  // Phase 481 — the «3 дні» narrow-column density of `MasterBookingCard`
+  // (`column: true`) and of `FreeTimeCard`. Transcribed from the
+  // MasterWeekBookings preview's `velvet_tokens.dart`; every one is a
+  // `copyWith` of a shipped card token and none is below 10 sp.
+
+  /// Narrow-column block: start–end range («10:00–11:30») —
+  /// [masterCardTime] at 10 sp in [BrandColors.textSecondary].
+  static final TextStyle weekBlockTime = masterCardTime.copyWith(
+    fontSize: 10,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Narrow-column block: client first name — [masterCardClientName]
+  /// (Comfortaa) stepped 11.5 → 11 sp.
+  static final TextStyle weekBlockName = masterCardClientName.copyWith(
+    fontSize: 11,
+  );
+
+  /// Narrow-column block: services, in every whole line left —
+  /// [masterCardService] at 10 sp, muted.
+  static final TextStyle weekBlockService = masterCardService.copyWith(
+    fontSize: 10,
+    color: BrandColors.muted,
+  );
+
   // Adaptive-layout pass (2026-07-20, later the same day as the compact
   // pass above): `MasterBookingCard` now renders a FULLER layout (client
   // name → divider → service+date → price+status) whenever its box is tall

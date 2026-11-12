@@ -36,7 +36,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/rendering.dart' show RenderParagraph, SemanticsNode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -1488,5 +1488,120 @@ void main() {
         );
       },
     );
+  });
+
+  // Phase 481 — the promoted FreeTimeCard's «3 дні» column marker. The list
+  // card above is unchanged (every earlier case in this file still pins it).
+  group('FreeTimeCard(column: true) — the 30-min «11:30 / Вільно» marker', () {
+    const Key columnKey = Key('declared-time-card-free-column-1130');
+
+    Future<void> pumpMarker(
+      WidgetTester tester, {
+      required double height,
+      double scale = 1.0,
+    }) => tester.pumpApp(
+      Center(
+        child: SizedBox(
+          width: 100,
+          height: height,
+          child: const FreeTimeCard(
+            time: TimeOfDay(hour: 11, minute: 30),
+            column: true,
+          ),
+        ),
+      ),
+      textScaleFactor: scale,
+    );
+
+    // (height, scale) → two lines? Inner = h − 3 border − 4 v-pad; two lines
+    // need ceil(11·s·1.2) + ceil(10·s·1.2): 26 at 1.0, 34 at 1.3.
+    for (final (double h, double scale, bool twoLines)
+        in <(double, double, bool)>[
+          (34, 1.0, true),
+          (45, 1.3, true),
+          (34, 1.3, false),
+        ]) {
+      testWidgets('${h.toInt()} dp @ ${scale}x → '
+          '${twoLines ? 'time / «Вільно»' : 'one line «11:30 Вільно»'}', (
+        tester,
+      ) async {
+        await pumpMarker(tester, height: h, scale: scale);
+        expect(tester.takeException(), isNull);
+        final Finder marker = find.byKey(columnKey);
+        expect(marker, findsOneWidget);
+        final String free = AppLocalizations.of(
+          tester.element(marker),
+        ).masterBookingsDeclaredTimeFree;
+        if (twoLines) {
+          expect(
+            find.descendant(of: marker, matching: find.text('11:30')),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(of: marker, matching: find.text(free)),
+            findsOneWidget,
+          );
+        } else {
+          expect(
+            find.descendant(of: marker, matching: find.text('11:30 $free')),
+            findsOneWidget,
+          );
+        }
+      });
+    }
+
+    testWidgets('booking border at field radius, NO lift, NO stripe', (
+      tester,
+    ) async {
+      await pumpMarker(tester, height: 34);
+      final Finder marker = find.byKey(columnKey);
+      final DecoratedBox box = tester.widget<DecoratedBox>(
+        find.descendant(of: marker, matching: find.byType(DecoratedBox)).first,
+      );
+      final BoxDecoration deco = box.decoration as BoxDecoration;
+      expect(deco.borderRadius, BorderRadius.circular(16));
+      expect(deco.boxShadow, isNull);
+      expect(
+        (deco.border! as Border).top.color,
+        BrandColors.accent.withValues(alpha: 0.38),
+      );
+      expect(
+        find.descendant(of: marker, matching: find.byType(ColoredBox)),
+        findsNothing,
+      );
+    });
+
+    // QA (phase 481): one merged node announcing the time AND «Вільно» —
+    // the marker is never a bare time a screen reader reads as a booking.
+    for (final (double h, double scale) in <(double, double)>[
+      (34, 1.0), // two-line layout
+      (34, 1.3), // one-line fallback
+    ]) {
+      testWidgets('semantics: one node «11:30 — Вільно», not a button '
+          '(${h.toInt()} dp @ ${scale}x)', (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await pumpMarker(tester, height: h, scale: scale);
+        final Finder marker = find.byKey(columnKey);
+        final String free = AppLocalizations.of(
+          tester.element(marker),
+        ).masterBookingsDeclaredTimeFree;
+        expect(free.toLowerCase(), 'вільно');
+        final SemanticsNode node = tester.getSemantics(marker);
+        expect(node.label, startsWith('11:30 — $free'));
+        expect(node.flagsCollection.isButton, isFalse);
+        expect(find.bySemanticsLabel(RegExp('^11:30 — $free')), findsOneWidget);
+        handle.dispose();
+      });
+    }
+
+    testWidgets('default (column: false) is the shipped list card', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const FreeTimeCard(time: TimeOfDay(hour: 11, minute: 30)),
+      );
+      expect(find.byKey(_freeKey(11, 30)), findsOneWidget);
+      expect(find.byKey(columnKey), findsNothing);
+    });
   });
 }
