@@ -20,7 +20,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/gestures.dart' show Drag;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -38,6 +37,7 @@ import '../../domain/week_day_model.dart';
 import 'bookings_day_rail.dart' show weekdayShortLabels;
 import 'day_snap_scroll_physics.dart';
 import 'declared_time_cards.dart';
+import 'forwarded_scroll_drag.dart';
 import 'master_booking_card.dart';
 import 'timeline_density.dart';
 import 'timeline_geometry.dart';
@@ -207,7 +207,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   late final ScrollController _vertical;
   late PageController _headerController;
   Timer? _settle;
-  Drag? _headerDrag;
+  final ForwardedScrollDrag _headerDrag = ForwardedScrollDrag();
 
   /// One [freeDeclaredTimes] memo per column (index = weekday) — a rebuild
   /// with identical inputs reuses the last merge.
@@ -316,8 +316,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       _settle?.cancel();
       // A header drag in flight drives the OLD position — end it here so it
       // is neither re-routed to the new controller nor left dangling.
-      _headerDrag?.cancel();
-      _headerDrag = null;
+      _headerDrag.cancel();
       old.pageController.removeListener(_syncHeader);
       _headerController.dispose();
       _headerController = _newHeaderController();
@@ -336,8 +335,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   @override
   void dispose() {
     _settle?.cancel();
-    _headerDrag?.cancel();
-    _headerDrag = null;
+    _headerDrag.cancel();
     widget.pageController.removeListener(_syncHeader);
     _headerController.dispose();
     _vertical.dispose();
@@ -373,20 +371,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   void _onHeaderDragStart(DragStartDetails d) {
     if (!widget.pageController.hasClients) return;
     _settle?.cancel();
-    _headerDrag = widget.pageController.position.drag(
-      d,
-      () => _headerDrag = null,
-    );
-  }
-
-  void _onHeaderDragEnd(DragEndDetails d) {
-    _headerDrag?.end(d);
-    _headerDrag = null;
-  }
-
-  void _onHeaderDragCancel() {
-    _headerDrag?.cancel();
-    _headerDrag = null;
+    _headerDrag.start(widget.pageController, d);
   }
 
   @override
@@ -433,10 +418,9 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                     key: WeekTimeGrid.headerRowKey,
                     behavior: HitTestBehavior.translucent,
                     onHorizontalDragStart: _onHeaderDragStart,
-                    onHorizontalDragUpdate: (DragUpdateDetails d) =>
-                        _headerDrag?.update(d),
-                    onHorizontalDragEnd: _onHeaderDragEnd,
-                    onHorizontalDragCancel: _onHeaderDragCancel,
+                    onHorizontalDragUpdate: _headerDrag.update,
+                    onHorizontalDragEnd: _headerDrag.end,
+                    onHorizontalDragCancel: _headerDrag.cancel,
                     // The header's `jumpTo` sync emits a Start/Update/End
                     // triple per grid frame — swallowed here so none reach
                     // listeners above the grid.

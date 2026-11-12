@@ -184,6 +184,14 @@ const double kBookingsMonthCalendarPanelCollapsedHeight =
     4 + // _DragHandle's Container height
     VelvetSpacing.xs; // _DragHandle's Padding, bottom
 
+/// The month grid's full height on the [BookingsMonthCalendarPanel
+/// .collapsedHeader] path: the expanded grid plus each page's own month
+/// header (`_MonthHeader`) and its gap — the travel of that path's drag.
+const double _kHeaderTravel =
+    kMonthCalendarExpandedHeight +
+    kMonthCalendarHeaderHeight +
+    VelvetSpacing.sm;
+
 /// Velocity threshold (logical px/s) above which the expand/collapse drag
 /// resolves by direction alone rather than by end position — the approved
 /// design's own figure.
@@ -222,6 +230,9 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
     this.visibleMonth,
     this.onVisibleWeekChanged,
     required this.timeline,
+    this.collapsedHeader,
+    this.monthOpen,
+    this.onMonthOpenChanged,
   });
 
   /// Drives which WEEK the collapsed rail shows. Owned (and paged) by the
@@ -295,6 +306,30 @@ class BookingsMonthCalendarPanel extends StatefulWidget {
   /// through as an `AnimatedBuilder` `child:`, so it is never rebuilt by a
   /// drag frame or the open/close settle; only its paint position moves.
   final Widget timeline;
+
+  /// Phase 484 — an alternative collapsed header (the master's week view:
+  /// `WeekNavBar` + `WeekStrip`). ADDITIVE: `null` — every pre-existing
+  /// caller, including the salon board — renders `_TopRow` + the
+  /// [BookingsDayRail] band + `_DragHandle` exactly as before.
+  ///
+  /// When set, the header REPLACES all three: it carries its own title
+  /// (the month toggle), «Сьогодні» and week stepping. The Variant D month
+  /// grid is kept — it opens UNDER the header and pushes [timeline] down by
+  /// paint-time translation, as on the default path — and, with no `_TopRow`
+  /// label above it, each month page shows its own header with ‹ › (the
+  /// preview's month calendar). A month pick is [onSelectDay], a page turn or
+  /// ‹ › is [onStepMonth] — the existing contract.
+  final Widget? collapsedHeader;
+
+  /// Host-driven open state of the month grid. `null` (the default) leaves
+  /// the panel the sole owner of it, as before. When non-null, a change in
+  /// this value opens / closes the grid; a user drag that settles on the
+  /// other end is reported through [onMonthOpenChanged].
+  final bool? monthOpen;
+
+  /// Fired when a drag or handle tap settles the grid open (`true`) or closed
+  /// (`false`) — only on a real change. `null` = not reported.
+  final ValueChanged<bool>? onMonthOpenChanged;
 
   @override
   State<BookingsMonthCalendarPanel> createState() =>
@@ -395,6 +430,12 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   /// per the class doc.
   bool _railInteractive = true;
 
+  /// The end ([_open] 1 = open) the panel last settled or is settling to —
+  /// what [BookingsMonthCalendarPanel.monthOpen] / [BookingsMonthCalendarPanel
+  /// .onMonthOpenChanged] are compared against, so the host's echo of a
+  /// user-settled change never restarts the settle.
+  bool _settleOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -402,6 +443,13 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
+    if (widget.monthOpen ?? false) {
+      // Before the listener: flags set directly, no setState in initState.
+      _open.value = 1;
+      _settleOpen = true;
+      _gridContentMounted = true;
+      _railInteractive = false;
+    }
     // Flips [_gridContentMounted] (0 boundary) and [_railInteractive]
     // ([_kPanelHandoffT] boundary) — each only on its own crossing, not once
     // per drag frame. The `setState` this issues is confined to THIS
@@ -428,6 +476,12 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   @override
   void didUpdateWidget(covariant BookingsMonthCalendarPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final bool? wantOpen = widget.monthOpen;
+    if (wantOpen != null &&
+        wantOpen != oldWidget.monthOpen &&
+        wantOpen != _settleOpen) {
+      _settleTo(open: wantOpen, curve: Curves.easeOutCubic, notify: false);
+    }
     // Only a selection change that crossed a MONTH boundary can desync the
     // pager — a rail tap inside the visible month must not jolt the grid.
     final DateTime previous = DateTime(
@@ -480,15 +534,29 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   static const int _kMonthPageCount = 2 * _kMonthPageSpan + 1;
 
   void _toggle() {
-    if (_open.value > 0.5) {
-      _open.animateBack(0, curve: Curves.easeOutCubic);
-    } else {
-      _open.animateTo(1, curve: Curves.easeOutCubic);
-    }
+    _settleTo(open: _open.value <= 0.5, curve: Curves.easeOutCubic);
   }
 
-  void _onDragUpdate(DragUpdateDetails d) {
-    _open.value = (_open.value + d.primaryDelta! / _kTravel).clamp(0.0, 1.0);
+  /// Animates [_open] to one end and, when [notify] and that end differs
+  /// from the last one, reports it via [BookingsMonthCalendarPanel
+  /// .onMonthOpenChanged] (a no-op for callers that do not pass it).
+  void _settleTo({
+    required bool open,
+    required Curve curve,
+    bool notify = true,
+  }) {
+    if (open) {
+      _open.animateTo(1, curve: curve);
+    } else {
+      _open.animateBack(0, curve: curve);
+    }
+    if (open == _settleOpen) return;
+    _settleOpen = open;
+    if (notify) widget.onMonthOpenChanged?.call(open);
+  }
+
+  void _onDragUpdate(DragUpdateDetails d, {double travel = _kTravel}) {
+    _open.value = (_open.value + d.primaryDelta! / travel).clamp(0.0, 1.0);
   }
 
   /// Velocity-aware settle: a decisive flick wins over position, a slow
@@ -496,18 +564,10 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   void _onDragEnd(DragEndDetails d) {
     final double v = d.primaryVelocity ?? 0;
     if (v.abs() > _kDragFlingVelocity) {
-      if (v > 0) {
-        _open.animateTo(1, curve: Curves.easeOut);
-      } else {
-        _open.animateBack(0, curve: Curves.easeOut);
-      }
+      _settleTo(open: v > 0, curve: Curves.easeOut);
       return;
     }
-    if (_open.value > 0.5) {
-      _open.animateTo(1, curve: Curves.easeOut);
-    } else {
-      _open.animateBack(0, curve: Curves.easeOut);
-    }
+    _settleTo(open: _open.value > 0.5, curve: Curves.easeOut);
   }
 
   /// The month pager's scroll lifecycle — the ONE place a month step is
@@ -589,6 +649,8 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    final Widget? header = widget.collapsedHeader;
+    if (header != null) return _buildWithHeader(header, l10n);
     // While the rail is the interactive layer, the label tracks where the
     // rail is SCROLLED TO, not [_month] (derived from [selectedDay]) — see
     // [_railInteractive]'s doc and `BookingsDayRail.onVisibleWeekChanged`.
@@ -771,7 +833,7 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   /// where the old code approximated exactly one of those four with a
   /// distance/velocity threshold pair and snapped instantly with no
   /// transition at all.
-  Widget _monthPager(AppLocalizations l10n) {
+  Widget _monthPager(AppLocalizations l10n, {bool withMonthHeader = false}) {
     final int currentPage = _pageForMonth(_month);
     return NotificationListener<ScrollNotification>(
       onNotification: _onMonthPagerScroll,
@@ -837,7 +899,11 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
               // No header, no ‹ › chevrons — the month+year lives in `_TopRow`
               // permanently now and paging is the only navigation. See the file
               // header and [MonthCalendar.showHeader].
-              showHeader: false,
+              showHeader: withMonthHeader,
+              onPrevMonth: withMonthHeader
+                  ? () => widget.onStepMonth(-1)
+                  : null,
+              onNextMonth: withMonthHeader ? () => widget.onStepMonth(1) : null,
               // ⚠ The one behavioural adaptation — every day stays tappable.
               // See [MonthCalendar.allowTapOnUnavailable]'s doc: the rail
               // directly underneath this grid already lets the master open any
@@ -859,6 +925,86 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
           );
         },
       ),
+    );
+  }
+
+  /// Phase 484 — the [BookingsMonthCalendarPanel.collapsedHeader] layout.
+  ///
+  /// The header sits on top at its own (text-scale dependent, `t`-
+  /// independent) height; below it ONE fixed slot holds [timeline] and the
+  /// month grid. As on the default path the timeline's box never changes
+  /// during a drag or settle — it is translated down by `travel * t` at
+  /// paint time — and the grid is revealed by a clip that grows with `t`.
+  Widget _buildWithHeader(Widget header, AppLocalizations l10n) {
+    return Column(
+      children: <Widget>[
+        GestureDetector(
+          behavior: HitTestBehavior.deferToChild,
+          onVerticalDragUpdate: (DragUpdateDetails d) =>
+              _onDragUpdate(d, travel: _kHeaderTravel),
+          onVerticalDragEnd: _onDragEnd,
+          child: header,
+        ),
+        Expanded(
+          child: Stack(
+            children: <Widget>[
+              Positioned.fill(
+                child: ClipRect(
+                  child: AnimatedBuilder(
+                    animation: _open,
+                    builder: (BuildContext context, Widget? child) {
+                      return Transform.translate(
+                        offset: Offset(0, _kHeaderTravel * _open.value),
+                        child: child,
+                      );
+                    },
+                    child: widget.timeline,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.deferToChild,
+                  onVerticalDragUpdate: (DragUpdateDetails d) =>
+                      _onDragUpdate(d, travel: _kHeaderTravel),
+                  onVerticalDragEnd: _onDragEnd,
+                  child: AnimatedBuilder(
+                    animation: _open,
+                    builder: (BuildContext context, Widget? child) {
+                      final double t = _open.value;
+                      return IgnorePointer(
+                        key: const Key('bookings-month-calendar-grid-layer'),
+                        ignoring: t < _kPanelHandoffT,
+                        child: ClipRect(
+                          child: SizedBox(
+                            key: const Key('bookings-month-calendar'),
+                            height: _kHeaderTravel * t,
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
+                    // Laid out at full height and revealed by the clip, so
+                    // it slides out from under the header.
+                    child: OverflowBox(
+                      alignment: Alignment.topCenter,
+                      minHeight: _kHeaderTravel,
+                      maxHeight: _kHeaderTravel,
+                      child: ColoredBox(
+                        color: BrandColors.base,
+                        child: _monthPager(l10n, withMonthHeader: true),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

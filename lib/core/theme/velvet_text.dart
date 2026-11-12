@@ -1795,6 +1795,20 @@ abstract final class VelvetText {
     height: 1.25,
   );
 
+  // Phase 484 — the week header (MasterWeekBookings preview `velvet_tokens`).
+
+  /// Week range over the strip («16–22 листопада», preview `weekTitle`) —
+  /// [subheading] (Comfortaa) at 16 sp, w700. Not a page title: it is the
+  /// tappable month-calendar toggle under the «Записи» page title.
+  static final TextStyle weekRangeLabel = _subheadingStyle.copyWith(
+    fontSize: 16,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// The week strip's per-day booking count — [_pillStyle] (Nunito w800) at
+  /// 10 sp.
+  static final TextStyle weekCount = _pillStyle.copyWith(fontSize: 10);
+
   /// Now-line time pill on the week grid's hour ruler — [_feedbackBase] at
   /// 10 sp, cream on mocha.
   static final TextStyle nowPill = _feedbackBase.copyWith(

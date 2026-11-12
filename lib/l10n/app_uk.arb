@@ -7607,5 +7607,27 @@
       "start": { "type": "String", "example": "9:00" },
       "end": { "type": "String", "example": "18:00" }
     }
-  }
+  },
+  "masterWeekThisWeek": "Цей тиждень",
+  "@masterWeekThisWeek": {"description": "Phase 484 — week header relative line when the shown week is the current Kyiv week."},
+  "masterWeekNextWeek": "Наступний тиждень",
+  "@masterWeekNextWeek": {"description": "Phase 484 — week header relative line, one week ahead."},
+  "masterWeekPrevWeek": "Минулий тиждень",
+  "@masterWeekPrevWeek": {"description": "Phase 484 — week header relative line, one week back."},
+  "masterWeekRelative": "{count, plural, one{Через {count} тиждень} few{Через {count} тижні} many{Через {count} тижнів} other{Через {count} тижня}}",
+  "@masterWeekRelative": {"description": "Phase 484 — week header relative line, two or more weeks ahead.", "placeholders": {"count": {"type": "int", "example": "3"}}},
+  "masterWeekAgo": "{count, plural, one{{count} тиждень тому} few{{count} тижні тому} many{{count} тижнів тому} other{{count} тижня тому}}",
+  "@masterWeekAgo": {"description": "Phase 484 — week header relative line, two or more weeks back. Own key, not relativeDateWeeksAgo: that key's =1 branch owns the CLDR one slot, so 21/31… weeks would lose the number.", "placeholders": {"count": {"type": "int", "example": "3"}}},
+  "masterWeekViewDay": "День",
+  "@masterWeekViewDay": {"description": "Phase 484 — view-mode toggle segment: one day per page."},
+  "masterWeekViewThreeDays": "3 дні",
+  "@masterWeekViewThreeDays": {"description": "Phase 484 — view-mode toggle segment: three day columns."},
+  "masterWeekTitleSemantics": "{range}, календар місяця",
+  "@masterWeekTitleSemantics": {"description": "Phase 484 — a11y label of the week title button that opens/closes the month calendar.", "placeholders": {"range": {"type": "String", "example": "16–22 листопада"}}},
+  "masterWeekStripTodaySemantics": "сьогодні",
+  "@masterWeekStripTodaySemantics": {"description": "Phase 484 — a11y suffix on today's week-strip cell."},
+  "masterWeekStripDayOffSemantics": "вихідний",
+  "@masterWeekStripDayOffSemantics": {"description": "Phase 484 — a11y suffix on a day-off week-strip cell."},
+  "masterWeekStripNoBookingsSemantics": "немає записів",
+  "@masterWeekStripNoBookingsSemantics": {"description": "Phase 484 — a11y suffix on a week-strip cell with no live bookings."}
 }
