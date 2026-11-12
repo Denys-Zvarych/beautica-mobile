@@ -1494,3 +1494,31 @@ final class AccountDeleteRateLimitedFailure extends Failure {
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).accountDeleteErrRateLimited;
 }
+
+/// The typed `data.code` the backend (B488) puts on the 409 a SALON_OWNER
+/// gets from `DELETE /api/v1/users/me` while any of their salons is active.
+const String kOwnerHasActiveSalonsCode = 'OWNER_HAS_ACTIVE_SALONS';
+
+/// Phase 489 — `DELETE /api/v1/users/me` returned HTTP **409** with
+/// `data.code == "OWNER_HAS_ACTIVE_SALONS"`: the owner still has an active
+/// salon (SUP-11). Decoded by `HttpUserRepository._mapDeleteAccountException`;
+/// every other 409 on that endpoint keeps its previous mapping. The account
+/// settings page reacts by reloading the owner's salon list, which hides the
+/// «Видалити акаунт» row again. Deterministic — never retried.
+final class AccountDeleteOwnerHasActiveSalonsFailure extends Failure {
+  const AccountDeleteOwnerHasActiveSalonsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errOwnerHasActiveSalons;
+}
+
+/// `true` when [body] is the `OWNER_HAS_ACTIVE_SALONS` 409 envelope
+/// (`{ "data": { "code": "OWNER_HAS_ACTIVE_SALONS" }, … }`). Hand-decoded
+/// like [decodeBookingUnavailable] — the code is not in the generated client.
+bool isOwnerHasActiveSalonsBody(Object? body) {
+  if (body is! Map<String, dynamic>) return false;
+  final Object? data = body['data'];
+  return data is Map<String, dynamic> &&
+      data['code'] == kOwnerHasActiveSalonsCode;
+}

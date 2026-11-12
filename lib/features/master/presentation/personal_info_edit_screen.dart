@@ -66,13 +66,18 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
+import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import 'master_profile_notifier.dart';
 import 'master_role_routes.dart';
@@ -430,6 +435,27 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     return initials.isEmpty ? '?' : initials;
   }
 
+  /// Back from the error state: no [Master.type] is known, so the no-pop
+  /// fallback is [PersonalInfoEditScreen.backFallbackRoute] or, failing that,
+  /// the session role's home (the `settings_screen.dart` pattern).
+  void _onBackWithoutProfile() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    final String? explicit = widget.backFallbackRoute;
+    if (explicit != null) {
+      context.go(explicit);
+      return;
+    }
+    final AuthSession? session = ref.read(authProvider).value;
+    context.go(
+      session is Authenticated
+          ? roleHomePath(session.user.role)
+          : RouteNames.login,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -444,6 +470,25 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     masterAsync.whenData<void>(_maybeInit);
 
     final cached = masterAsync.value;
+
+    // Phase 489 fix (b): a SETTLED failure with nothing cached (e.g. `GET
+    // /masters/me` 404 for an owner with no salons) renders the shared
+    // [ErrorState] with back + retry instead of an endless spinner. A failure
+    // still being retried (`isLoading`) keeps the spinner (M12).
+    final Object? error = masterAsync.error;
+    if (cached == null && error != null && !masterAsync.isLoading) {
+      return SectionScaffold(
+        title: l10n.personalInfoTitle,
+        backKey: const Key('btn-back-personal'),
+        backSemanticLabel: l10n.masterCancelButton,
+        onBack: _onBackWithoutProfile,
+        body: ErrorState(
+          failure: error is Failure ? error : UnknownFailure(cause: error),
+          onRetry: () => ref.invalidate(masterProfileProvider),
+        ),
+      );
+    }
+
     if (!_initialized || cached == null) {
       return const Scaffold(
         backgroundColor: BrandColors.base,

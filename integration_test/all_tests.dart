@@ -236,6 +236,7 @@ import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
+import 'owner_delete_account_flow_test.dart' as owner_delete_account;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'media_avatar_upload_flow_test.dart' as media_avatar_upload;
 import 'portfolio_data_layer_flow_test.dart' as portfolio_data_layer;
@@ -823,6 +824,7 @@ void main() {
   // owner swipes -> confirms -> a real DELETE /api/v1/salons/{salonId}
   // round trip -> lands back on the hub with the remaining salon.
   group('swipe_to_delete_salon_flow', swipe_to_delete_salon.main);
+  group('owner_delete_account_flow', owner_delete_account.main);
   // VelvetSnack AS A FEATURE (mobile-qa, Step 2.7 Rule 3b) — a real
   // failure-path error snack raised + auto-retired, a success snack
   // surviving the context.pop() that follows it, and single-slot

@@ -367,6 +367,12 @@ GoRouter _router() => GoRouter(
       builder: (context, state) =>
           const Scaffold(body: Text('register-salon-screen')),
     ),
+    // Phase 489 — the empty hub's settings button destination.
+    GoRoute(
+      path: RouteNames.ownerSettings,
+      builder: (context, state) =>
+          const Scaffold(body: SizedBox(key: Key('stub-owner-settings'))),
+    ),
     // Phase 21.8 — the hub is now a SWITCHER: picking a salon lands in its
     // shell, not its (separately routed) management profile.
     GoRoute(
@@ -617,6 +623,49 @@ void main() {
 
       expect(find.text(l10n.mySalonsEmptyTitle), findsOneWidget);
       expect(find.text(l10n.mySalonsEmptyBody), findsOneWidget);
+    });
+
+    testWidgets('phase 489 — the EMPTY hub exposes the settings button, which '
+        'opens the Owner Settings Hub', (tester) async {
+      final GoRouter router = _router();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          mySalonsProvider.overrideWith(
+            () => _StubMySalons(() async => const <Salon>[]),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final Finder settings = find.byKey(
+        const Key('my_salons_settings_button'),
+      );
+      expect(settings, findsOneWidget);
+
+      await tester.tap(settings);
+      await tester.pumpAndSettle();
+
+      // A push keeps `uri` on the hub (imperative match), so the pushed
+      // route is proven by its stub instead.
+      expect(find.byKey(const Key('stub-owner-settings')), findsOneWidget);
+    });
+
+    testWidgets('phase 489 — a hub WITH salons has no settings button (top '
+        'bar unchanged)', (tester) async {
+      await tester.pumpRoutedApp(
+        _router(),
+        overrides: <Object>[
+          mySalonsProvider.overrideWith(
+            () => _StubMySalons(() async => _salons),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_salons_bell_button')), findsOneWidget);
+      expect(find.byKey(const Key('my_salons_settings_button')), findsNothing);
     });
   });
 

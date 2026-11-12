@@ -3092,6 +3092,14 @@
   "@deleteAccountConfirmBodyAdmin": {
     "description": "Body copy of the delete-account confirm dialog for SALON_ADMIN. An admin has no calendar of their own (D3) and performs no bookings, so — unlike deleteAccountConfirmBody (CLIENT) and deleteAccountConfirmBodyMaster (SALON_MASTER / INDEPENDENT_MASTER) — this variant drops the bookings-cancelled sentence entirely rather than stating something untrue; the backend's StaffAccountSelfDeletionService confirms an admin's self-delete never checks or cancels any booking. Keeps only the irreversibility and data-loss sentences."
   },
+  "deleteAccountConfirmBodyOwner": "Ваш акаунт власника буде видалено назавжди: профіль, фото та вхід. Історія записів у видалених салонах залишиться у клієнтів без ваших даних. Цю дію неможливо скасувати.",
+  "@deleteAccountConfirmBodyOwner": {
+    "description": "Phase 489 — body copy of the delete-account confirm dialog for a SALON_OWNER with no active salon. The deleted salons stay as ownerless rows so clients keep their booking history (B488 D2 = detach)."
+  },
+  "errOwnerHasActiveSalons": "Спочатку видаліть усі свої салони",
+  "@errOwnerHasActiveSalons": {
+    "description": "Phase 489 — error snack when DELETE /users/me returns 409 OWNER_HAS_ACTIVE_SALONS (the owner still has an active salon)."
+  },
   "contactSupportTitle": "Напишіть нам",
   "@contactSupportTitle": {
     "description": "App-bar title of the support / contact-us screen."
