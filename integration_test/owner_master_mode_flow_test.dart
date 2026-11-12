@@ -80,7 +80,6 @@ import 'package:beautica_mobile/features/booking/presentation/booking_confirm_sc
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
@@ -114,6 +113,7 @@ import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 import 'support/fake_backend.dart' show kWalkInBookingId;
+import 'support/week_grid_driver.dart';
 
 const String _kOwnerUserId = 'user-owner-1';
 const String _kSalonA = 'salon-owner-1';
@@ -1151,7 +1151,7 @@ void main() {
   });
 
   testWidgets('SALON_OWNER: «Записи» tile → ONLY the own-row booking (never '
-      'another master\'s); day + filter changes keep asMaster=true; detail '
+      'another master\'s); week + filter changes keep asMaster=true; detail '
       'on /salon/bookings/:id and back; «Архів» own-only and back; «‹ Салон» '
       '→ salon shell', (tester) async {
     await mockNetworkImagesFor(() async {
@@ -1335,18 +1335,21 @@ void main() {
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.ownerMasterBookings);
 
-      // ── 4b. Day change + filter keep the own-row scope ───────────────────
-      // The day before Kyiv "today" — kFixedNow is a Sunday, so it is on the
-      // same visible Mon..Sun rail week.
-      await _tapWhenReady(
-        tester,
-        find.byKey(dayChipKey(railDayAt(kyivToday(() => kFixedNow), -1))),
-      );
+      // ── 4b. Week change + filter keep the own-row scope ──────────────────
+      // Phase 485 — the master «Записи» is a week: a day in the SAME week
+      // reads the week already loaded (D3), so the navigation re-fetch is a
+      // move to the PREVIOUS week (the shared week driver: ‹ then the strip
+      // day), which must keep asMaster=true like the old rail day did.
       final int beforeDay = fb.getMyBookingsCalls;
+      await selectWeekDay(
+        tester,
+        kyivAddDays(kyivToday(() => kFixedNow), -7),
+        settle: AppHarness.settle,
+      );
       await AppHarness.pumpUntilCondition(
         tester,
         () => fb.getMyBookingsCalls > beforeDay,
-        description: 'the rail tap to re-fetch the day (after its debounce)',
+        description: 'the week step to re-fetch the previous week',
         timeout: const Duration(seconds: 20),
       );
       await AppHarness.settle(tester);

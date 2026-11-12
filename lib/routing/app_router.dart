@@ -2492,6 +2492,7 @@ GoRouter appRouter(Ref ref) {
               navServicesRoute: RouteNames.salonMasterServices,
               navScheduleRoute: RouteNames.salonMasterSchedule,
               navProfileRoute: RouteNames.salonMasterProfile,
+              navBookingsRoute: RouteNames.salonMasterBookings,
               canAddWorkingHours: false,
             ),
           ),

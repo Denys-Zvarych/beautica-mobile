@@ -192,6 +192,15 @@ const double _kHeaderTravel =
     kMonthCalendarHeaderHeight +
     VelvetSpacing.sm;
 
+/// [_kHeaderTravel] with [MonthCalendar.compactRows] — used only when the
+/// slot under the header is shorter than [_kHeaderTravel] (a short device at
+/// a large text scale, where the header itself grew). Below even this the
+/// grid still clips: such a viewport is outside the supported range.
+const double _kCompactHeaderTravel =
+    _kHeaderTravel -
+    kMonthCalendarSixRows *
+        (kMonthCalendarRowHeight - kMonthCalendarCompactRowHeight);
+
 /// Velocity threshold (logical px/s) above which the expand/collapse drag
 /// resolves by direction alone rather than by end position — the approved
 /// design's own figure.
@@ -833,7 +842,11 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   /// where the old code approximated exactly one of those four with a
   /// distance/velocity threshold pair and snapped instantly with no
   /// transition at all.
-  Widget _monthPager(AppLocalizations l10n, {bool withMonthHeader = false}) {
+  Widget _monthPager(
+    AppLocalizations l10n, {
+    bool withMonthHeader = false,
+    bool compactRows = false,
+  }) {
     final int currentPage = _pageForMonth(_month);
     return NotificationListener<ScrollNotification>(
       onNotification: _onMonthPagerScroll,
@@ -921,6 +934,7 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
                         selected: selected,
                       ),
               onSelectDay: widget.onSelectDay,
+              compactRows: compactRows,
             ),
           );
         },
@@ -935,73 +949,99 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
   /// month grid. As on the default path the timeline's box never changes
   /// during a drag or settle — it is translated down by `travel * t` at
   /// paint time — and the grid is revealed by a clip that grows with `t`.
+  /// The header path's live travel — [_kHeaderTravel], or
+  /// [_kCompactHeaderTravel] when the slot under the header is shorter than
+  /// that. Written by [_buildWithHeader]'s `LayoutBuilder`; read lazily by
+  /// the header's drag callbacks.
+  double _headerTravel = _kHeaderTravel;
+
   Widget _buildWithHeader(Widget header, AppLocalizations l10n) {
     return Column(
       children: <Widget>[
         GestureDetector(
           behavior: HitTestBehavior.deferToChild,
           onVerticalDragUpdate: (DragUpdateDetails d) =>
-              _onDragUpdate(d, travel: _kHeaderTravel),
+              _onDragUpdate(d, travel: _headerTravel),
           onVerticalDragEnd: _onDragEnd,
           child: header,
         ),
         Expanded(
-          child: Stack(
-            children: <Widget>[
-              Positioned.fill(
-                child: ClipRect(
-                  child: AnimatedBuilder(
-                    animation: _open,
-                    builder: (BuildContext context, Widget? child) {
-                      return Transform.translate(
-                        offset: Offset(0, _kHeaderTravel * _open.value),
-                        child: child,
-                      );
-                    },
-                    child: widget.timeline,
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.deferToChild,
-                  onVerticalDragUpdate: (DragUpdateDetails d) =>
-                      _onDragUpdate(d, travel: _kHeaderTravel),
-                  onVerticalDragEnd: _onDragEnd,
-                  child: AnimatedBuilder(
-                    animation: _open,
-                    builder: (BuildContext context, Widget? child) {
-                      final double t = _open.value;
-                      return IgnorePointer(
-                        key: const Key('bookings-month-calendar-grid-layer'),
-                        ignoring: t < _kPanelHandoffT,
-                        child: ClipRect(
-                          child: SizedBox(
-                            key: const Key('bookings-month-calendar'),
-                            height: _kHeaderTravel * t,
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints slot) {
+              // Phase 485 — a header grown by a large text scale on a short
+              // device leaves less than the full grid below it: the rows
+              // drop their padding so the bottom row stays on screen. At
+              // the default scale on every supported height this is the
+              // full grid, unchanged.
+              final bool compact = slot.maxHeight < _kHeaderTravel;
+              final double travel = compact
+                  ? _kCompactHeaderTravel
+                  : _kHeaderTravel;
+              _headerTravel = travel;
+              return Stack(
+                children: <Widget>[
+                  Positioned.fill(
+                    child: ClipRect(
+                      child: AnimatedBuilder(
+                        animation: _open,
+                        builder: (BuildContext context, Widget? child) {
+                          return Transform.translate(
+                            offset: Offset(0, travel * _open.value),
                             child: child,
-                          ),
-                        ),
-                      );
-                    },
-                    // Laid out at full height and revealed by the clip, so
-                    // it slides out from under the header.
-                    child: OverflowBox(
-                      alignment: Alignment.topCenter,
-                      minHeight: _kHeaderTravel,
-                      maxHeight: _kHeaderTravel,
-                      child: ColoredBox(
-                        color: BrandColors.base,
-                        child: _monthPager(l10n, withMonthHeader: true),
+                          );
+                        },
+                        child: widget.timeline,
                       ),
                     ),
                   ),
-                ),
-              ),
-            ],
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.deferToChild,
+                      onVerticalDragUpdate: (DragUpdateDetails d) =>
+                          _onDragUpdate(d, travel: travel),
+                      onVerticalDragEnd: _onDragEnd,
+                      child: AnimatedBuilder(
+                        animation: _open,
+                        builder: (BuildContext context, Widget? child) {
+                          final double t = _open.value;
+                          return IgnorePointer(
+                            key: const Key(
+                              'bookings-month-calendar-grid-layer',
+                            ),
+                            ignoring: t < _kPanelHandoffT,
+                            child: ClipRect(
+                              child: SizedBox(
+                                key: const Key('bookings-month-calendar'),
+                                height: travel * t,
+                                child: child,
+                              ),
+                            ),
+                          );
+                        },
+                        // Laid out at full height and revealed by the clip,
+                        // so it slides out from under the header.
+                        child: OverflowBox(
+                          alignment: Alignment.topCenter,
+                          minHeight: travel,
+                          maxHeight: travel,
+                          child: ColoredBox(
+                            color: BrandColors.base,
+                            child: _monthPager(
+                              l10n,
+                              withMonthHeader: true,
+                              compactRows: compact,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ],

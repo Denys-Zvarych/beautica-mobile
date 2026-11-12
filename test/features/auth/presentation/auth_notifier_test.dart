@@ -52,6 +52,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_week_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/master_bookings_view_mode.dart';
 import 'package:beautica_mobile/features/booking/application/keep_alive_lru.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_week_query.dart';
 import 'package:beautica_mobile/features/discovery/data/search_suggestion_cache_provider.dart';
@@ -1548,6 +1549,49 @@ void main() {
       await container.read(authProvider.notifier).logout();
 
       verify(() => weekSpy.clear()).called(1);
+    });
+
+    // Phase 485 — the «День / 3 дні» choice is session-scoped. An OUTCOME
+    // assertion: the keepAlive notifier watches nothing, so only the
+    // `invalidate` in logout() can put it back to «3 дні».
+    // MUTATION: removed that invalidate → the mode stayed `day` and this
+    // test failed. Restored.
+    test('logout() resets the master «Записи» view mode to «3 дні» '
+        '(phase 485)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      container
+          .read(masterBookingsViewModeProvider.notifier)
+          .set(BookingsWeekViewMode.day);
+      expect(
+        container.read(masterBookingsViewModeProvider),
+        BookingsWeekViewMode.day,
+      );
+
+      await container.read(authProvider.notifier).logout();
+
+      expect(
+        container.read(masterBookingsViewModeProvider),
+        BookingsWeekViewMode.threeDays,
+      );
     });
 
     // Phase 347 audit (security LOW): the settlement autocomplete's keepAlive

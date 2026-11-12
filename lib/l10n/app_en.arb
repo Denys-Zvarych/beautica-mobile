@@ -6049,6 +6049,10 @@
   "@masterBookingsTruncatedNotice": {
     "description": "Persistent notice on the master's «Мої записи» timeline when BookingsDayState.isTruncated — the day reports more bookings than fit in one page (locked decision 2026-07-18: no multi-page loop, surface the overflow instead of silently dropping bookings). Genuinely reachable, not defensive: the backend enforces no minimum service duration, so a day CAN exceed the backend's 100-row page."
   },
+  "masterBookingsWeekTruncatedNotice": "Not all of this week's bookings could be loaded — some may be missing. Refresh, or contact support.",
+  "@masterBookingsWeekTruncatedNotice": {
+    "description": "Phase 485 — persistent notice on the master's week view when BookingsWeekState.isTruncated: fewer rows were read than the server reported, either because the 10-page hard stop was hit (too many bookings) or because the server returned an empty page early. The copy covers both: some bookings may be missing."
+  },
   "bookingsDiscoveryBackSemantics": "Back",
   "@bookingsDiscoveryBackSemantics": {
     "description": "Accessibility label for the shared BookingsDiscoveryView header's back arrow (Phase 7.11), shown only when a host passes a non-null onBack (never on the master's own bottom-nav-tab-root screen, which passes null)."

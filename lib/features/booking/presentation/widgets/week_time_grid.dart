@@ -20,6 +20,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -62,6 +63,9 @@ class WeekTimeGrid extends StatefulWidget {
     required this.showsAllOccupancy,
     this.hourHeight,
     this.entrance,
+    this.onTapEmpty,
+    this.nowListenable,
+    this.topMinute,
     super.key,
   }) : assert(
          visibleColumns == 1 || visibleColumns == 3,
@@ -117,6 +121,27 @@ class WeekTimeGrid extends StatefulWidget {
   /// Ignored under `MediaQuery.disableAnimations` (reduced motion).
   final Animation<double>? entrance;
 
+  /// Phase 485 — a tap on free grid space (not on a card): the column's Kyiv
+  /// day and the tapped minute since its midnight, rounded DOWN to the half
+  /// hour. `null` (the default — every pre-485 caller and a read-only viewer)
+  /// adds no tap layer at all. Never offered on a day-off column.
+  final void Function(DateTime day, int minute)? onTapEmpty;
+
+  /// Phase 485 — a live instant for the now-line and the now pill ONLY: a
+  /// minute tick rebuilds those two, never the columns, cards or painters.
+  /// [now] stays the build-time instant for the opening scroll and the
+  /// cards (which offer no time-gated action here). `null` (the default)
+  /// draws both from [now], exactly as before.
+  final ValueListenable<DateTime>? nowListenable;
+
+  /// Phase 485 — a host-owned holder of the Kyiv minute-of-day at the top of
+  /// the vertical viewport. The grid writes it as the view scrolls; a grid
+  /// mounted while it holds a value opens THERE instead of on its opening
+  /// anchor — so a remount (the «День / 3 дні» toggle) keeps the hour the
+  /// master was looking at. `null` (the default) — opening anchor, nothing
+  /// written.
+  final ValueNotifier<double?>? topMinute;
+
   /// Pager key — tests drag / fling it.
   static const Key pagerKey = Key('week-grid-pager');
 
@@ -154,6 +179,9 @@ class WeekTimeGrid extends StatefulWidget {
   /// Column [i]'s free declared-time marker at [minute] («3 дні»).
   static Key freeMarkerKey(int i, int minute) =>
       Key('week-grid-free-$i-$minute');
+
+  /// Column [i]'s free-space tap layer ([onTapEmpty]).
+  static Key emptyTapKey(int i) => Key('week-grid-empty-tap-$i');
 
   /// Column [i]'s declared-time list on an EXPLICIT_TIMES day («День»).
   static Key declaredListKey(int i) => Key('week-grid-declared-$i');
@@ -277,7 +305,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   @override
   void initState() {
     super.initState();
-    _vertical = ScrollController();
+    _vertical = ScrollController()..addListener(_reportTopMinute);
     _headerController = _newHeaderController();
     widget.pageController.addListener(_syncHeader);
     WidgetsBinding.instance.addPostFrameCallback((_) => _openAtStart());
@@ -286,19 +314,89 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   /// Opens scrolled to an hour before now when today is in the week (so the
   /// now-line and the next bookings are on screen), else to the window's
   /// first content hour (one hour below its margin).
-  void _openAtStart() {
+  ///
+  /// [target] re-applies an earlier anchor minute ([_reanchor]); `null` =
+  /// the carried [WeekTimeGrid.topMinute], else the opening rule.
+  void _openAtStart({double? target}) {
     if (!mounted || !_vertical.hasClients) return;
     final WeekGridWindow window = weekGridWindow(widget.days);
     final double hourH = _hourHeight(context);
     final int origin = window.firstHour * 60;
-    final int target = _todayIndex >= 0
-        ? minutesSinceDayStart(widget.now, kyivMidnight(widget.today)) - 60
-        : origin + 60;
+    final double minute =
+        target ??
+        widget.topMinute?.value ??
+        (_todayIndex >= 0
+                ? minutesSinceDayStart(widget.now, kyivMidnight(widget.today)) -
+                      60
+                : origin + 60)
+            .toDouble();
     final ScrollPosition v = _vertical.position;
-    final double offset = ((target - origin) / 60 * hourH)
+    final double offset = ((minute - origin) / 60 * hourH)
         .clamp(v.minScrollExtent, v.maxScrollExtent)
         .toDouble();
+    _opened = true;
+    _anchorMinute = minute;
     _vertical.jumpTo(offset);
+    _anchorOffset = offset;
+    _reportTopMinute();
+  }
+
+  /// Writes the top-of-viewport minute to [WeekTimeGrid.topMinute] — only
+  /// once the opening anchor ran, so the pre-anchor offset 0 never
+  /// overwrites a carried value.
+  void _reportTopMinute() {
+    final ValueNotifier<double?>? holder = widget.topMinute;
+    if (holder == null || !_opened || !_vertical.hasClients) return;
+    holder.value =
+        weekGridWindow(widget.days).firstHour * 60 +
+        _vertical.position.pixels / _hourHeight(context) * 60;
+  }
+
+  /// The minute [_openAtStart] last anchored on (before clamping).
+  double _anchorMinute = 0;
+
+  /// Whether [_openAtStart] has run.
+  bool _opened = false;
+
+  /// The vertical offset [_openAtStart] last set; `null` once the view was
+  /// re-anchored off it by [_reanchor].
+  double? _anchorOffset;
+
+  /// Keeps the view steady when the hour band changes under it — the
+  /// window grows (a schedule landing after the bookings) or the hour height
+  /// changes (the «День / 3 дні» toggle). Still on the opening anchor → the
+  /// anchor is re-applied against the new band (it may have been clamped by
+  /// the shorter one); scrolled by the user → the same wall-clock minute
+  /// stays at the top. Runs after the frame, once the new extent is laid
+  /// out. Nothing to do before the opening anchor ran — it reads the new
+  /// band itself.
+  void _reanchor(WeekTimeGrid old) {
+    if (!_opened || !_vertical.hasClients) return;
+    final double? anchor = _anchorOffset;
+    final int oldFirst = weekGridWindow(old.days).firstHour;
+    final int newFirst = weekGridWindow(widget.days).firstHour;
+    final double oldHourH =
+        old.hourHeight ??
+        WeekTimeGrid.hourHeightFor(context, old.visibleColumns);
+    final double newHourH = _hourHeight(context);
+    if (oldFirst == newFirst && oldHourH == newHourH) return;
+    final double pixels = _vertical.position.pixels;
+    final bool onAnchor = anchor != null && (pixels - anchor).abs() < 0.5;
+    final double topMinute = oldFirst * 60 + pixels / oldHourH * 60;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_vertical.hasClients) return;
+      if (onAnchor) {
+        _openAtStart(target: _anchorMinute);
+        return;
+      }
+      final ScrollPosition v = _vertical.position;
+      _vertical.jumpTo(
+        ((topMinute - newFirst * 60) / 60 * newHourH)
+            .clamp(v.minScrollExtent, v.maxScrollExtent)
+            .toDouble(),
+      );
+      _anchorOffset = null;
+    });
   }
 
   PageController _newHeaderController() => PageController(
@@ -322,6 +420,11 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
       _headerController = _newHeaderController();
       widget.pageController.addListener(_syncHeader);
       WidgetsBinding.instance.addPostFrameCallback((_) => _syncHeader());
+    }
+    if (!identical(old.days, widget.days) ||
+        old.visibleColumns != widget.visibleColumns ||
+        old.hourHeight != widget.hourHeight) {
+      _reanchor(old);
     }
   }
 
@@ -391,13 +494,24 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
           VelvetSpacing.lg,
       exact ? 0 : _declaredListFloor(context),
     );
-    final int nowMinute = todayIndex >= 0
-        ? minutesSinceDayStart(widget.now, kyivMidnight(widget.today))
-        : -1;
-    final bool nowVisible =
-        todayIndex >= 0 &&
-        nowMinute >= window.firstHour * 60 &&
-        nowMinute <= window.lastHour * 60;
+    // The now-line's minute since today's Kyiv midnight for [now]; `null`
+    // when today is not in this week or [now] is outside the window.
+    int? nowMinuteOf(DateTime now) {
+      if (todayIndex < 0) return null;
+      final int m = minutesSinceDayStart(now, kyivMidnight(widget.today));
+      return m >= window.firstHour * 60 && m <= window.lastHour * 60 ? m : null;
+    }
+
+    Widget? nowPill(DateTime now) => switch (nowMinuteOf(now)) {
+      final int m => _NowPill(
+        top: WeekTimeGrid.topPad + (m - window.firstHour * 60) / 60 * hourH,
+        label: formatSlotTime(now),
+      ),
+      null => null,
+    };
+    final ValueListenable<DateTime>? liveNow = todayIndex >= 0
+        ? widget.nowListenable
+        : null;
     final bool animate =
         widget.entrance != null && !MediaQuery.disableAnimationsOf(context);
 
@@ -483,15 +597,15 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                             lastHour: window.lastHour,
                             hourHeight: hourH,
                           ),
-                          if (nowVisible)
-                            _NowPill(
-                              top:
-                                  WeekTimeGrid.topPad +
-                                  (nowMinute - window.firstHour * 60) /
-                                      60 *
-                                      hourH,
-                              label: formatSlotTime(widget.now),
-                            ),
+                          if (liveNow != null)
+                            ValueListenableBuilder<DateTime>(
+                              valueListenable: liveNow,
+                              builder:
+                                  (BuildContext _, DateTime now, Widget? _) =>
+                                      nowPill(now) ?? const SizedBox.shrink(),
+                            )
+                          else if (nowPill(widget.now) case final Widget pill)
+                            pill,
                         ],
                       ),
                     ),
@@ -525,15 +639,15 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                               showsAllOccupancy: widget.showsAllOccupancy,
                               freeTimes: _freeTimes[i],
                               isToday: i == todayIndex,
-                              nowMinute: nowVisible && i == todayIndex
-                                  ? nowMinute
-                                  : null,
+                              nowMinuteOf: i == todayIndex ? nowMinuteOf : null,
+                              nowListenable: liveNow,
                               now: widget.now,
                               firstHour: window.firstHour,
                               lastHour: window.lastHour,
                               hourHeight: hourH,
                               exactHeight: exact,
                               onBookingTap: widget.onBookingTap,
+                              onTapEmpty: widget.onTapEmpty,
                             );
                             final Animation<double>? a = widget.entrance;
                             if (!animate || a == null) return column;
@@ -806,13 +920,15 @@ class _DayColumn extends StatelessWidget {
     required this.showsAllOccupancy,
     required this.freeTimes,
     required this.isToday,
-    required this.nowMinute,
+    required this.nowMinuteOf,
     required this.now,
     required this.firstHour,
     required this.lastHour,
     required this.hourHeight,
     required this.exactHeight,
     required this.onBookingTap,
+    this.onTapEmpty,
+    this.nowListenable,
     super.key,
   });
 
@@ -828,8 +944,12 @@ class _DayColumn extends StatelessWidget {
   final FreeDeclaredTimesMemo freeTimes;
   final bool isToday;
 
-  /// Minutes since today's Kyiv midnight; `null` = no now-line here.
-  final int? nowMinute;
+  /// The now-line's minute for an instant (`null` = not drawn at that
+  /// instant); `null` on every column but today's.
+  final int? Function(DateTime now)? nowMinuteOf;
+
+  /// See [WeekTimeGrid.nowListenable] — when set, only the now-line listens.
+  final ValueListenable<DateTime>? nowListenable;
   final DateTime now;
   final int firstHour;
   final int lastHour;
@@ -839,6 +959,12 @@ class _DayColumn extends StatelessWidget {
   /// as a FLOOR (shipped `MasterBookingCard.minHeight` contract).
   final bool exactHeight;
   final ValueChanged<Booking> onBookingTap;
+
+  /// See [WeekTimeGrid.onTapEmpty].
+  final void Function(DateTime day, int minute)? onTapEmpty;
+
+  /// Free-space taps round down to this many minutes.
+  static const int _tapStepMinutes = 30;
 
   static const double _gap = WeekTimeGrid.cardGap;
   static const double _sidePad = WeekTimeGrid.cardGap;
@@ -851,6 +977,15 @@ class _DayColumn extends StatelessWidget {
   double _y(int minute) =>
       WeekTimeGrid.topPad + (minute - firstHour * 60) / 60 * hourHeight;
 
+  /// The half-hour (Kyiv minutes since midnight) a tap at column y [dy]
+  /// falls in, clamped to the grid window.
+  int _minuteAt(double dy) {
+    final int raw =
+        firstHour * 60 + ((dy - WeekTimeGrid.topPad) / hourHeight * 60).floor();
+    final int clamped = raw.clamp(firstHour * 60, lastHour * 60 - 1);
+    return clamped - clamped % _tapStepMinutes;
+  }
+
   /// Kyiv minute of a declared time.
   static int _minuteOf(TimeOfDay t) => t.hour * 60 + t.minute;
 
@@ -859,7 +994,10 @@ class _DayColumn extends StatelessWidget {
     final double scale = MediaQuery.textScalerOf(context).scale(1);
     final double labelH = _BandLabel.heightOf(context);
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final int? nowAt = nowMinute;
+    final int? Function(DateTime)? lineAt = nowMinuteOf;
+    final ValueListenable<DateTime>? liveNow = lineAt == null
+        ? null
+        : nowListenable;
     final EffectiveDay? schedule = model.schedule;
     final bool explicit = schedule != null && schedule.isExplicitTimes;
     final bool dayOff = schedule != null && isWeekDayOff(schedule);
@@ -889,6 +1027,18 @@ class _DayColumn extends StatelessWidget {
                 ),
               ),
             ),
+            // Under every card, label and marker: a card tap still opens the
+            // card. Absent without [onTapEmpty] and on a day off.
+            if (onTapEmpty case final void Function(DateTime, int) onEmpty
+                when !dayOff)
+              Positioned.fill(
+                child: GestureDetector(
+                  key: WeekTimeGrid.emptyTapKey(index),
+                  behavior: HitTestBehavior.opaque,
+                  onTapUp: (TapUpDetails d) =>
+                      onEmpty(model.day, _minuteAt(d.localPosition.dy)),
+                ),
+              ),
             if (dayOff)
               _PinnedDayOffLabel(
                 key: WeekTimeGrid.dayOffLabelKey(index),
@@ -951,37 +1101,48 @@ class _DayColumn extends StatelessWidget {
             if (!declaredList)
               for (int i = 0; i < model.bookings.length; i++)
                 _placedCard(model.bookings[i], model.startMinutes[i], w, scale),
-            if (nowAt != null)
-              Positioned(
-                key: WeekTimeGrid.nowLineKey,
-                top: _y(nowAt) - _nowLineHeight / 2,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: Row(
-                    children: <Widget>[
-                      Transform.translate(
-                        offset: const Offset(-_nowDot / 2, 0),
-                        child: const _Dot(
-                          color: BrandColors.accentDeep,
-                          size: _nowDot,
-                        ),
-                      ),
-                      const Expanded(
-                        child: SizedBox(
-                          height: _nowLineHeight,
-                          child: ColoredBox(color: BrandColors.accentDeep),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            if (liveNow != null && lineAt != null)
+              ValueListenableBuilder<DateTime>(
+                valueListenable: liveNow,
+                builder: (BuildContext _, DateTime now, Widget? _) =>
+                    _nowLine(lineAt(now)) ?? const SizedBox.shrink(),
+              )
+            else if (_nowLine(lineAt?.call(now)) case final Widget line)
+              line,
           ],
         );
       },
     );
   }
+
+  /// Today's now-line at minute [nowAt]; `null` draws nothing.
+  Widget? _nowLine(int? nowAt) => nowAt == null
+      ? null
+      : Positioned(
+          key: WeekTimeGrid.nowLineKey,
+          top: _y(nowAt) - _nowLineHeight / 2,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: Row(
+              children: <Widget>[
+                Transform.translate(
+                  offset: const Offset(-_nowDot / 2, 0),
+                  child: const _Dot(
+                    color: BrandColors.accentDeep,
+                    size: _nowDot,
+                  ),
+                ),
+                const Expanded(
+                  child: SizedBox(
+                    height: _nowLineHeight,
+                    child: ColoredBox(color: BrandColors.accentDeep),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
 
   /// One card at its start. «3 дні»: exactly the slot (a tight height, so
   /// the column card's services fill it). «День»: the slot as a floor, never

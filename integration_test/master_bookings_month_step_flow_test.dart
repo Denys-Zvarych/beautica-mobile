@@ -39,13 +39,24 @@
 // both have ≥14 days). Each city has its OWN uniquely-identifiable booking,
 // so "the list shows the right one and not the other" is a real assertion,
 // not a coincidence of both months returning the same fixture.
+//
+// PHASE 485 REWIRE (2026-11-12). The master «Записи» is the WEEK layout: the
+// month grid opens from the week title ([WeekNavBar.titleKey]), a month page
+// lands the same day-of-month and shows ITS week (`_onWeekMonthStep`), the
+// list read is the whole Mon→Sun week, and the timeline is [WeekTimeGrid]
+// (cards keyed [WeekTimeGrid.cardKey]). Both tests keep their intent: the
+// step moves the selection AND the fetched list (June's week → July's), and
+// opening the month grid DISPLACES the timeline rather than painting over it.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/domain/week_day_model.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +66,7 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 import 'support/pager_drag.dart';
+import 'support/week_grid_driver.dart';
 
 /// Kyiv "today" as the app under test computes it — see
 /// `master_bookings_flow_test.dart`'s identically-named constant for the
@@ -62,12 +74,9 @@ import 'support/pager_drag.dart';
 /// clock).
 final DateTime _kyivToday = dateOnly(toBeauticaTime(kFixedNow));
 
-/// One month forward from [_kyivToday], same day-of-month — mirrors
-/// `_BookingsDiscoveryViewState._stepMonth`'s own derivation exactly (not
-/// re-implemented independently: both June and July 2026 have ≥14 days, so
-/// there is no clamping to account for here, which is deliberate — this
-/// file is about the query/list following the step, not about the
-/// day-of-month clamp, which has its own widget-tier coverage).
+/// One month forward from [_kyivToday], same day-of-month — the week
+/// layout's month-step rule (`_onWeekMonthStep`; June and July 2026 both
+/// have ≥14 days, so no clamping is involved, deliberately).
 final DateTime _nextMonthDay = DateTime(
   _kyivToday.year,
   _kyivToday.month + 1,
@@ -84,65 +93,31 @@ void _seedWorkingHours(FakeBackend fb, Iterable<DateTime> days) {
   ]);
 }
 
-/// Scrolls the timeline grid vertically until [card] is built — mirrors
-/// `master_bookings_flow_test.dart`'s identically-named helper (both cards in
-/// this file sit at 09:00 Kyiv, well inside the default culling band, so this
-/// is a defensive no-op in practice but kept for parity with the rest of the
-/// suite's pattern).
-Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
-  await tester.scrollUntilVisible(
-    card,
-    200,
-    scrollable: find
-        .descendant(
-          of: find.byType(BookingsTimelineGrid),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 60,
-  );
+/// Brings [card] into view on the week grid (its vertical scroll and, if
+/// needed, the day pager) and settles.
+Future<void> _scrollGridTo(WidgetTester tester, Finder card) async {
+  await tester.ensureVisible(card);
   await AppHarness.settle(tester);
 }
 
-/// The panel's month+year label.
-///
-/// ⚠ REPOINTED (week-pager / headerless-grid rework). This used to read the
-/// FIRST `Text` inside `bookings-month-calendar-grid`, because `_TopRow`
-/// dropped its own label once the calendar opened and `MonthCalendar`'s
-/// `_MonthHeader` carried the month name instead. Both halves are gone: the
-/// top-row label is now PERMANENT (that was the user-facing complaint — it
-/// "disappears") and the grid is composed with `showHeader: false`. The
-/// grid's first `Text` today is `CalendarWeekdayBar`'s "пн", which never
-/// changes and would have silently defanged the fixture guard this label
-/// feeds.
-String _monthLabel(WidgetTester tester) => tester
-    .widget<Text>(find.byKey(const Key('bookings-month-calendar-label')))
-    .data!;
+/// The Monday of the week the strip (and so the grid) shows.
+DateTime _shownWeek(WidgetTester tester) =>
+    tester.widget<WeekStrip>(find.byType(WeekStrip)).weekStart;
 
-/// Turns the expanded month grid forward by exactly one page, then advances
-/// past the day-select debounce window.
-///
-/// The page turn itself is [dragPagerByOnePage] (`support/pager_drag.dart`)
-/// — see its doc comment for the full "why not `fling`" writeup (this file
-/// was originally landed using `fling(gridKey, Offset(-300, 0), 800)` and was
-/// RED for exactly the reason documented there) and the steps=4 regression
-/// this recipe guards against.
+/// Turns the expanded month grid forward by exactly one page — see
+/// [dragPagerByOnePage] for why not `fling`. The week layout's month step
+/// selects at once (no day-select debounce on this path).
 Future<void> _pageMonthForward(WidgetTester tester) async {
   await dragPagerByOnePage(
     tester,
     const Key('bookings-month-calendar-grid'),
     forward: true,
   );
-  // A resolved month step funnels through `_selectImmediate`, which SINCE
-  // 2026-09-20 debounces its query on the same 220 ms timer the rail tap uses
-  // (audit MEDIUM-2 — it was previously the only undebounced selection path,
-  // and therefore the only one that could reach the backend's shared 60/min
-  // budget at a sustained ~1 tap/s). This wait is what makes the assertions
-  // below observe the post-debounce state rather than the pre-tap one; it was
-  // already here, written as a guard against exactly this change landing, so
-  // the test needed no other edit.
-  // fixed-wait-ok: advancing past the 220 ms day-select debounce.
-  await tester.pump(const Duration(milliseconds: 300));
+  await AppHarness.settle(tester);
+}
+
+Future<void> _toggleMonth(WidgetTester tester) async {
+  await tester.tap(find.byKey(WeekNavBar.titleKey));
   await AppHarness.settle(tester);
 }
 
@@ -153,29 +128,26 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'stepping the Варіант D calendar forward one month moves BOTH the '
-    'selection AND the fetched list to the new day — the original '
+    'stepping the month grid forward one month moves BOTH the shown week AND '
+    'the fetched list to the new day\'s week — the original '
     'relabel-without-reselect bug, pinned against a real GET /bookings/me',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
-      // `AppHarness.boot` FIRST, unconditionally — it is what initialises
-      // the timezone database (`initBeauticaTimeZones()`) that `_kyivToday`
-      // (via `toBeauticaTime`) depends on. `_kyivToday`/`_nextMonthDay` are
-      // top-level `final`s (lazily initialised on first READ, per Dart
-      // semantics) — reading either one before `boot()` throws "must be
-      // called before beauticaZone is read", which is exactly why every
-      // seeding call below comes AFTER this line, mirroring
-      // `master_bookings_flow_test.dart`'s own ordering.
       final GoRouter router = await AppHarness.boot(tester, fb);
 
-      _seedWorkingHours(fb, <DateTime>[_kyivToday, _nextMonthDay]);
+      final DateTime juneWeek = kyivWeekStart(_kyivToday);
+      final DateTime julyWeek = kyivWeekStart(_nextMonthDay);
+      _seedWorkingHours(fb, <DateTime>[
+        for (int i = 0; i < kWeekGridDays; i++) ...<DateTime>[
+          kyivAddDays(juneWeek, i),
+          kyivAddDays(julyWeek, i),
+        ],
+      ]);
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         fb.datasetBookingRow(
           id: 'booking-june',
           status: 'CONFIRMED',
-          // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time) — matches the
-          // published working-hours window's own start.
           startsAt: DateTime.utc(
             _kyivToday.year,
             _kyivToday.month,
@@ -203,127 +175,94 @@ void main() {
         AppHarness.location(router),
         startsWith(RouteNames.masterBookings),
       );
+      await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
 
-      // ── 1. The landing day is June 14th — booking-june renders, and the
-      //      wire query is from == to == June 14th. ────────────────────────
-      await _scrollTimelineTo(
-        tester,
-        find.byKey(const ValueKey<String>('timeline-card-booking-june')),
-      );
+      final Finder juneCard = find.byKey(WeekTimeGrid.cardKey('booking-june'));
+      final Finder julyCard = find.byKey(WeekTimeGrid.cardKey('booking-july'));
+      await _scrollGridTo(tester, juneCard);
       expect(
-        find.byKey(const ValueKey<String>('timeline-card-booking-june')),
+        juneCard,
         findsOneWidget,
-        reason: 'the landing day must render the June booking',
+        reason: 'the landing week must render the June booking',
       );
       expect(
-        find.byKey(const ValueKey<String>('timeline-card-booking-july')),
+        julyCard,
         findsNothing,
         reason: 'the July booking must NOT be visible before any month step',
       );
       final Map<String, dynamic> landingQuery = fb.lastMyBookingsQuery!;
-      expect(landingQuery['from'], toApiDate(_kyivToday));
-      expect(landingQuery['to'], toApiDate(_kyivToday));
-
-      // ── 2. Expand the calendar and step forward one month. ────────────────
-      await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
-      await AppHarness.settle(tester);
-
-      final String labelBefore = _monthLabel(tester);
-
-      // ⚠ A horizontal PAGE TURN, not a chevron tap. The grid's ‹ › buttons
-      // are retired (locked requirement: no month-navigation buttons at all),
-      // so paging is the only mechanism left. The CONTRACT this file pins is
-      // unchanged and deliberately so — a month step still SELECTS.
-      await _pageMonthForward(tester);
-
-      final String labelAfter = _monthLabel(tester);
+      expect(landingQuery['from'], toApiDate(juneWeek));
       expect(
-        labelAfter,
-        isNot(labelBefore),
-        reason:
-            'fixture guard: the month step did not relabel the calendar at '
-            'all, so nothing below is proven',
+        landingQuery['to'],
+        toApiDate(kyivAddDays(juneWeek, kWeekGridDays - 1)),
       );
 
-      // ── 3. THE PIN — the wire query moved to July 14th, on the SAME body
-      //      the master is looking at (not merely "some new request fired
-      //      eventually"). ───────────────────────────────────────────────────
+      await _toggleMonth(tester);
+      await _pageMonthForward(tester);
+
+      expect(
+        _shownWeek(tester),
+        julyWeek,
+        reason:
+            'fixture guard: the month step did not move the week at all, so '
+            'nothing below is proven',
+      );
+
       final Map<String, dynamic> steppedQuery = fb.lastMyBookingsQuery!;
       expect(
         steppedQuery['from'],
-        toApiDate(_nextMonthDay),
+        toApiDate(julyWeek),
         reason:
-            'a month step must move the FETCHED query to the new day — this '
+            'a month step must move the FETCHED query to the new week — this '
             'is the exact field bug: the switcher used to relabel without '
             'moving the query at all',
       );
-      expect(steppedQuery['to'], toApiDate(_nextMonthDay));
+      expect(
+        steppedQuery['to'],
+        toApiDate(kyivAddDays(julyWeek, kWeekGridDays - 1)),
+      );
 
-      // ── 4. THE PIN, rendered — the list itself flipped, not just the wire
-      //      params. A regression that recorded the right query but left the
-      //      OLD list on screen (or vice versa) would fail exactly here. ────
-      await _scrollTimelineTo(
-        tester,
-        find.byKey(const ValueKey<String>('timeline-card-booking-july')),
+      await _toggleMonth(tester);
+      expect(
+        visibleWeekDay(tester),
+        lessThanOrEqualTo(kyivDaysBetween(julyWeek, _nextMonthDay)),
+        reason:
+            'the grid did not open on the stepped-to day — the month grid, '
+            'the strip and the pager have desynced',
       );
       expect(
-        find.byKey(const ValueKey<String>('timeline-card-booking-july')),
+        visibleWeekDay(tester) + 2,
+        greaterThanOrEqualTo(kyivDaysBetween(julyWeek, _nextMonthDay)),
+        reason: 'the stepped-to day is not among the three visible columns',
+      );
+      await _scrollGridTo(tester, julyCard);
+      expect(
+        julyCard,
         findsOneWidget,
         reason:
-            'the timeline must now show the JULY booking — the whole point '
-            'of "month step selects"',
+            'the grid must now show the JULY booking — the whole point of '
+            '"month step selects"',
       );
       expect(
-        find.byKey(const ValueKey<String>('timeline-card-booking-june')),
+        juneCard,
         findsNothing,
         reason:
-            'the June booking must be GONE — a master who tapped ‹ / › must '
-            'never see one month\'s label over another month\'s list, which '
-            'is exactly the bug this port fixes',
+            'the June booking must be GONE — a master who paged the month '
+            'must never see one month\'s title over another month\'s list',
       );
-
-      // ── 5. The RAIL agrees too — its selected chip is now July 14th, not
-      //      still on June 14th. NO scrolling needed any more: a month step
-      //      selects, and `_selectImmediate` pages the rail to the selected
-      //      day's own week, so the chip is already on the resting page. That
-      //      is the rail↔calendar consistency contract (see
-      //      `bookings_discovery_view.dart`'s `_selectDay` doc) observed
-      //      end-to-end. ─────────────────────────────────────────────────────
       expect(
-        find.byKey(dayChipKey(_nextMonthDay)),
+        find.byKey(weekStripDayKey(_nextMonthDay)),
         findsOneWidget,
-        reason:
-            'the rail did not page to the stepped-to day\'s week — the two '
-            'horizontal pagers have desynced',
-      );
-      final BookingsDayRail rail = tester.widget<BookingsDayRail>(
-        find.byType(BookingsDayRail),
-      );
-      expect(
-        rail.selectedDay,
-        _nextMonthDay,
-        reason:
-            'the rail must agree with the grid and the list on the '
-            'selected day — the original bug moved the rail\'s SCROLL '
-            'position without moving its selectedDay',
+        reason: 'the strip did not move to the stepped-to day\'s week',
       );
     },
   );
 
   testWidgets(
-    'expanding the Варіант D calendar DISPLACES the booking timeline down, '
-    'end-to-end against a real screen — it must never paint over the list '
-    '(locked product requirement; mobile-qa gap-4, 2026-08-13)',
+    'opening the month grid DISPLACES the week grid down, end-to-end against '
+    'a real screen — it must never paint over the list (locked product '
+    'requirement; mobile-qa gap-4, 2026-08-13)',
     (tester) async {
-      // Widget-tier coverage
-      // (`bookings_month_calendar_panel_displacement_test.dart`) already
-      // pins this invariant against a synthetic timeline stand-in at every
-      // expand fraction. What that tier cannot prove is that the REAL
-      // production timeline — `MasterBookingsScreen`'s actual rendered
-      // booking cards, reached through the full route/provider/HTTP stack —
-      // ends up in the same displaced position once genuine data is on
-      // screen. This flow checks that once, at the fully-open resting
-      // state; the mid-animation sampling stays the widget tier's job.
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       final GoRouter router = await AppHarness.boot(tester, fb);
 
@@ -349,34 +288,32 @@ void main() {
         AppHarness.location(router),
         startsWith(RouteNames.masterBookings),
       );
+      await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
 
-      await _scrollTimelineTo(
-        tester,
-        find.byKey(
-          const ValueKey<String>('timeline-card-booking-displacement'),
-        ),
+      final Finder card = find.byKey(
+        WeekTimeGrid.cardKey('booking-displacement'),
       );
+      await _scrollGridTo(tester, card);
+      final double cardTopClosed = tester.getRect(card).top;
 
-      await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
-      await AppHarness.settle(tester);
+      await _toggleMonth(tester);
 
       final double panelBottom = tester
-          .getRect(find.byKey(const Key('bookings-month-calendar-handle')))
+          .getRect(find.byKey(const Key('bookings-month-calendar')))
           .bottom;
-      final double cardTop = tester
-          .getRect(
-            find.byKey(
-              const ValueKey<String>('timeline-card-booking-displacement'),
-            ),
-          )
-          .top;
+      final double cardTop = tester.getRect(card).top;
 
+      expect(
+        cardTop,
+        greaterThan(cardTopClosed),
+        reason: 'fixture guard: the open grid did not move the card at all',
+      );
       expect(
         cardTop,
         greaterThanOrEqualTo(panelBottom),
         reason:
             'the real booking card\'s top edge ($cardTop) sits ABOVE the '
-            'expanded calendar\'s painted bottom edge ($panelBottom) on the '
+            'open month grid\'s painted bottom edge ($panelBottom) on the '
             'REAL screen — the calendar is painting over the list, the '
             'exact overlay the user rejected',
       );

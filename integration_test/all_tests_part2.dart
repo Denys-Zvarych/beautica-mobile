@@ -25,6 +25,7 @@ import 'master_bookings_flow_test.dart' as master_bookings;
 import 'guest_phone_tap_to_call_flow_test.dart' as guest_phone_tap_to_call;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
+import 'master_bookings_week_flow_test.dart' as master_bookings_week;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
@@ -173,6 +174,10 @@ void main() {
   // identically in both resting states, follows a month page and survives the
   // collapse; and no ‹ › chevrons exist on this screen.
   group('master_bookings_week_rail_flow', master_bookings_week_rail.main);
+  // Phase 485 — the provider «Записи» week view: «3 дні» opens on the
+  // injected clock's week, a fling rests on a day boundary, the booking
+  // detail round trip and «День» read the same week (one request).
+  group('master_bookings_week_flow', master_bookings_week.main);
   // Phase 244 — the master booking timeline's working-hours window: a day
   // with no published hours shows the gray state (CTA → /schedule?date=,
   // pre-selected); a day with hours + a booking renders the bounded timeline

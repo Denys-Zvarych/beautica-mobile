@@ -5793,6 +5793,17 @@ final class FakeBackend {
   /// the top of the shared route callback, before any dispatch.
   Map<String, dynamic>? lastMyBookingsQuery;
 
+  /// Phase 485 (mobile-qa) — the raw query map of EVERY `GET /bookings/me`
+  /// call, in order. Unlike [lastMyBookingsQuery] this is a request LOG, so a
+  /// flow can count exactly how many reads fetched one week's range.
+  final List<Map<String, dynamic>> myBookingsQueries = <Map<String, dynamic>>[];
+
+  /// Phase 485 (mobile-qa) — the raw query map (`from`/`to`) of EVERY
+  /// `GET /masters/{me|id}/effective-schedule` call, in order — the week
+  /// view's schedule request log (480 AC1: one schedule read per week).
+  final List<Map<String, dynamic>> masterEffectiveScheduleQueries =
+      <Map<String, dynamic>>[];
+
   /// The seeded booking's provider affiliation (phase 232). Defaults to the
   /// INDEPENDENT_MASTER shape every pre-existing flow already asserts against:
   /// no salon name, no salon id.
@@ -10172,15 +10183,17 @@ final class FakeBackend {
     ]) {
       _adapter.onRoute(
         path,
-        (server) => server.replyCallback(
-          200,
-          (req) => _okList(
+        (server) => server.replyCallback(200, (req) {
+          masterEffectiveScheduleQueries.add(
+            Map<String, dynamic>.from(req.queryParameters),
+          );
+          return _okList(
             _effectiveScheduleOverride ??
                 (deriveEffectiveScheduleFromWeekly
                     ? _weeklyEffectiveDays(req.queryParameters)
                     : const <dynamic>[]),
-          ),
-        ),
+          );
+        }),
         request: const Request(method: RequestMethods.get),
       );
     }
@@ -10641,6 +10654,7 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         getMyBookingsCalls++;
         lastMyBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
+        myBookingsQueries.add(Map<String, dynamic>.from(req.queryParameters));
         final bool asMaster = _asMasterFrom(
           Map<String, dynamic>.from(req.queryParameters),
         );

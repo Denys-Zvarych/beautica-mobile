@@ -146,6 +146,7 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -166,6 +167,8 @@ import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../application/booked_days_notifier.dart';
 import '../application/bookings_day_notifier.dart';
+import '../application/bookings_week_notifier.dart';
+import '../application/master_bookings_view_mode.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/schedule/application/own_schedule_scope.dart';
@@ -178,6 +181,9 @@ import '../domain/booking.dart';
 import '../domain/booking_status.dart';
 import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
+import '../domain/bookings_week_query.dart';
+import '../domain/bookings_week_state.dart';
+import '../domain/week_day_model.dart';
 import 'widgets/bookings_day_rail.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/bookings_month_calendar_panel.dart';
@@ -187,6 +193,44 @@ import 'widgets/declared_time_cards.dart';
 import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
 import 'widgets/schedule_timeline_window.dart';
+import 'widgets/week_column_painter.dart' show isWeekDayOff;
+import 'widgets/week_nav_bar.dart';
+import 'widgets/week_strip.dart';
+import 'widgets/week_time_grid.dart';
+
+/// Phase 485 — how [BookingsDiscoveryView] lays out its body.
+enum BookingsLayout {
+  /// The single-day rail + timeline (the salon board, and every pre-485
+  /// caller).
+  day,
+
+  /// The provider's Mon–Sun week: [WeekNavBar] + [WeekStrip] as the panel's
+  /// collapsed header, [WeekTimeGrid] as the body.
+  week,
+}
+
+/// The week view's derived models — built ONCE per (week data, schedule)
+/// pair so the grid, the strip and their identity gates see the same
+/// instances on every rebuild.
+typedef _WeekModel = ({
+  BookingsWeekState week,
+  List<EffectiveDay>? schedule,
+  List<WeekDayModel> days,
+  List<int> counts,
+  List<bool> dayOff,
+});
+
+/// The strip's counts / day-off flags while the week is not loaded yet.
+const List<int> _kNoWeekCounts = <int>[0, 0, 0, 0, 0, 0, 0];
+const List<bool> _kNoWeekDayOff = <bool>[
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+];
 
 /// The sheet's OWN status coverage, not `BookingStatus.filterable`'s default
 /// — computed from `BookingStatusFilterGroup.values` so the two can never
@@ -304,6 +348,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     this.addSemanticsLabelOverride,
     this.showServiceFilter = true,
     this.showBookedDayDots = true,
+    this.layout = BookingsLayout.day,
     super.key,
   }) : assert(
          !useScheduleWindow || !canAddWorkingHours || onAddWorkingHours != null,
@@ -641,6 +686,19 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// sweep) for any future host that wants a rail without dots.
   final bool showBookedDayDots;
 
+  /// Phase 485 — [BookingsLayout.day] (the default: the salon board and
+  /// every pre-485 caller, byte-identical) or [BookingsLayout.week], the
+  /// provider's own «Записи» (`MasterBookingsScreen`, all three mounts).
+  ///
+  /// The week layout reads `bookingsWeekProvider` (never `bookingsDayProvider`
+  /// — decision D3: «День» is the same week data, one fetch path) and the
+  /// week's `effectiveScheduleProvider` range. It keeps the header, the
+  /// filters (they feed the week query), the archive, the no-hours state,
+  /// the truncation notice, pull-to-refresh, [onBookingTap] and the
+  /// read-only behaviour of [canCreateBooking]. Only valid on a
+  /// [MasterOwnDayQuery] seed — the salon board has no week view.
+  final BookingsLayout layout;
+
   @override
   ConsumerState<BookingsDiscoveryView> createState() =>
       _BookingsDiscoveryViewState();
@@ -831,6 +889,41 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   bool? _cachedVisibleIsExplicitTimes;
   List<Booking> _cachedVisibleResult = const <Booking>[];
 
+  // ── Phase 485 — week layout state (unused on the day layout) ───────────
+
+  /// Whether this mount renders the week layout. The salon seed never does.
+  bool get _isWeek =>
+      widget.layout == BookingsLayout.week && widget.query is MasterOwnDayQuery;
+
+  /// The shown week's Monday (Kyiv date token).
+  late DateTime _weekStart;
+
+  /// The day the month grid marks as selected and «День» / a week step keeps
+  /// in view. Moves on every navigation, never on a free scroll of the grid.
+  late DateTime _weekFocusDay;
+
+  /// The live week query — rebuilt by [_rebuildQuery] with the same filters
+  /// as [_liveQuery], so the filter sheet feeds the week fetch.
+  late BookingsWeekQuery _weekQuery;
+
+  /// The grid's pager, shared with the strip's window. Replaced (never
+  /// re-pointed) on a week or mode change; the old one is disposed after
+  /// the frame that stops using it.
+  PageController? _weekPager;
+  int _weekPagerColumns = 0;
+
+  /// Host-driven open state of the month grid under the week header.
+  bool _monthOpen = false;
+
+  /// The Kyiv minute at the top of the week grid's viewport, carried across
+  /// a grid remount (the «День / 3 дні» toggle, a filter refetch) — see
+  /// [WeekTimeGrid.topMinute]. Cleared on a week change, so a new week
+  /// opens on its own anchor.
+  final ValueNotifier<double?> _weekTopMinute = ValueNotifier<double?>(null);
+
+  /// The single-slot memo behind [_weekModelFor].
+  _WeekModel? _weekMemo;
+
   /// See [_cachedVisibleSource]'s doc. Compares [items] by IDENTITY (a list
   /// [BookingsDayState] only ever hands out fresh on a genuine re-fetch —
   /// true only because the notifier stores it via `stableBookingList`) and
@@ -894,6 +987,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     _visibleMonth = DateTime(_today.year, _today.month);
     _statuses = widget.query.statuses.toSet();
     _serviceIds = widget.query.serviceIds.toSet();
+    _weekStart = kyivWeekStart(_today);
+    _weekFocusDay = _today;
     // Through [_rebuildQuery], NOT a second inline `BookingsDayQuery.of` — it
     // is the one place that folds the default status exclusion onto the wire
     // (via [BookingsDayQuery.dayList]), and a landing query built any other way
@@ -916,6 +1011,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     _dayDebounce?.cancel();
     _screenProtection.release();
     _railController.dispose();
+    _weekPager?.dispose();
+    _weekTopMinute.dispose();
     super.dispose();
   }
 
@@ -1126,6 +1223,22 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
         asOwnerMaster,
       ),
     };
+    if (_isWeek) {
+      _weekQuery = BookingsWeekQuery.of(
+        day: _weekStart,
+        // The SAME non-idempotent wire mapping the day query gets, applied
+        // exactly once — the week opens on live work too.
+        statuses: BookingStatus.dayListWireStatuses(
+          _statuses,
+          maximal: _kMaximalFilterStatuses,
+        ),
+        serviceIds: _serviceIds,
+        asOwnerMaster: switch (widget.query) {
+          MasterOwnDayQuery(:final bool asOwnerMaster) => asOwnerMaster,
+          SalonDayQuery() => false,
+        },
+      );
+    }
   }
 
   BookingsDayQuery _masterOwnQuery(bool asOwnerMaster) {
@@ -1211,10 +1324,22 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     BookingsDayQuery query,
     AsyncValue<BookingsDayState> next,
   ) {
-    if (!widget.showBookedDayDots || _hasUserFilters) return;
     if (next is! AsyncData<BookingsDayState> || next.value.isEmpty) return;
-    final DateTime day = dateOnly(query.day);
-    if (_lastDotRefreshDay == day) return;
+    _refreshDotsIfAnyDayMissing(<DateTime>[dateOnly(query.day)]);
+  }
+
+  /// The shared core of [_refreshDotsIfDayMissing], for any set of days the
+  /// settled list shows bookings on — one day on the day layout, the week's
+  /// booked days on the week layout (phase 485). Same guards, same order;
+  /// the first in-window [days] entry absent from the dot set is the one
+  /// healed for. With a single day it is exactly the day-layout check.
+  void _refreshDotsIfAnyDayMissing(List<DateTime> days) {
+    if (!widget.showBookedDayDots || _hasUserFilters) return;
+    final List<DateTime> candidates = <DateTime>[
+      for (final DateTime d in days)
+        if (_lastDotRefreshDay != d) d,
+    ];
+    if (candidates.isEmpty) return;
     // Same window arithmetic as `_bookedDaysWindow` (calendar, not Duration).
     final DateTime today = kyivToday(ref.read(clockProvider));
     final DateTime windowFrom = DateTime(
@@ -1227,7 +1352,10 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       today.month,
       today.day + kBookedDaysSpanDays,
     );
-    if (day.isBefore(windowFrom) || day.isAfter(windowTo)) return;
+    candidates.removeWhere(
+      (DateTime d) => d.isBefore(windowFrom) || d.isAfter(windowTo),
+    );
+    if (candidates.isEmpty) return;
     final AsyncValue<Set<DateTime>> dotsAsync = switch (widget.query) {
       SalonDayQuery(:final String salonId) => ref.read(
         salonBookedDaysProvider(salonId),
@@ -1240,7 +1368,10 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     if (dotsAsync.isLoading) return;
     final Set<DateTime>? dots = dotsAsync.value;
     if (dots == null) return;
-    if (dots.contains(day) || identical(dots, _lastHealedDots)) return;
+    final DateTime? day = candidates
+        .where((DateTime d) => !dots.contains(d))
+        .firstOrNull;
+    if (day == null || identical(dots, _lastHealedDots)) return;
     _lastDotRefreshDay = day;
     _lastHealedDots = dots;
     _dotHealInFlight = true;
@@ -1403,6 +1534,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       // it is still a filter the owner set, so «Скинути фільтри» must clear it
       // too or the board stays narrowed after the user was told it was reset.
       _masterIds = const <String>{};
+      _keepWeekPosition();
       _rebuildQuery();
     });
   }
@@ -1467,6 +1599,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       _statuses = applied.statuses;
       _serviceIds = applied.serviceIds;
       _masterIds = resolvedMasterIds;
+      _keepWeekPosition();
       _rebuildQuery();
     });
   }
@@ -1530,6 +1663,494 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     context.pushOnce(RouteNames.masterBookingNew);
   }
 
+  // ── Phase 485 — week layout ─────────────────────────────────────────────
+
+  /// The left-most visible day for a [focus] day index (0 = Monday): the
+  /// focus sits in the middle of «3 дні», alone in «День».
+  static int _firstVisibleFor(int focus, int columns) => columns == 1
+      ? focus.clamp(0, kWeekGridDays - 1)
+      : (focus - 1).clamp(0, kWeekGridDays - columns);
+
+  /// The pager's left-most visible day right now.
+  static int _leftVisibleDay(PageController c) =>
+      c.hasClients && c.positions.length == 1
+      ? (c.page ?? c.initialPage.toDouble()).round()
+      : c.initialPage;
+
+  PageController _replaceWeekPager(int columns, int firstVisibleDay) {
+    final PageController? old = _weekPager;
+    final PageController next = WeekTimeGrid.controllerFor(
+      visibleColumns: columns,
+      firstVisibleDay: firstVisibleDay,
+    );
+    _weekPager = next;
+    _weekPagerColumns = columns;
+    // The grid / strip still hold the old one until the next frame lands.
+    if (old != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    }
+    return next;
+  }
+
+  /// The pager for the current «День / 3 дні» mode. A mode change (the
+  /// toggle, or the session provider reset elsewhere) keeps the left-most
+  /// visible day (phase 482 D1).
+  PageController _ensureWeekPager(int columns) {
+    final PageController? existing = _weekPager;
+    if (existing != null && _weekPagerColumns == columns) return existing;
+    final int left = existing == null
+        ? _firstVisibleFor(kyivDaysBetween(_weekStart, _weekFocusDay), columns)
+        : _leftVisibleDay(existing).clamp(0, kWeekGridDays - columns);
+    return _replaceWeekPager(columns, left);
+  }
+
+  /// A filter change refetches the SAME week through a new query: the grid
+  /// remounts after its loading frame, so the pager is re-seeded with the
+  /// day the master is looking at instead of falling back to its opening
+  /// page. No-op on the day layout.
+  void _keepWeekPosition() {
+    final PageController? pager = _weekPager;
+    if (!_isWeek || pager == null) return;
+    _replaceWeekPager(_weekPagerColumns, _leftVisibleDay(pager));
+  }
+
+  void _setWeekViewMode(BookingsWeekViewMode mode) =>
+      ref.read(masterBookingsViewModeProvider.notifier).set(mode);
+
+  /// Column header tap in «3 дні» → «День» on that day.
+  void _onWeekHeaderTap(int index) {
+    if (_weekPagerColumns == 1) return;
+    setState(() {
+      _weekFocusDay = kyivAddDays(_weekStart, index);
+      _replaceWeekPager(1, index);
+    });
+    _setWeekViewMode(BookingsWeekViewMode.day);
+  }
+
+  /// Strip tap → scroll the grid so [index] is the focus day.
+  void _onWeekStripTap(int index) {
+    // No setState: only the month grid reads the focus, on its next build.
+    _weekFocusDay = kyivAddDays(_weekStart, index);
+    final PageController? pager = _weekPager;
+    if (pager == null || !pager.hasClients) return;
+    pager.animateToPage(
+      _firstVisibleFor(index, _weekPagerColumns),
+      duration: WeekStrip.settleDuration,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// Shows the week containing [day] with [day] in focus. Same week → the
+  /// grid scrolls there; another week → new query, new pager.
+  void _showWeekOf(DateTime day) {
+    final DateTime target = dateOnly(day);
+    final DateTime week = kyivWeekStart(target);
+    final int focus = kyivDaysBetween(week, target);
+    if (week == _weekStart) {
+      _onWeekStripTap(focus);
+      return;
+    }
+    _weekTopMinute.value = null;
+    setState(() {
+      _weekStart = week;
+      _weekFocusDay = target;
+      _replaceWeekPager(
+        _weekPagerColumns == 0 ? 3 : _weekPagerColumns,
+        _firstVisibleFor(focus, _weekPagerColumns == 0 ? 3 : _weekPagerColumns),
+      );
+      _rebuildQuery();
+    });
+  }
+
+  /// ‹ › / a title swipe — the focus weekday is kept.
+  void _shiftWeek(int delta) {
+    final PageController? pager = _weekPager;
+    final int columns = _weekPagerColumns == 0 ? 3 : _weekPagerColumns;
+    final int left = pager == null ? 0 : _leftVisibleDay(pager);
+    final int focus = columns == 1 ? left : (left + 1).clamp(0, 6);
+    _showWeekOf(kyivAddDays(_weekStart, delta * kWeekGridDays + focus));
+  }
+
+  /// A month-grid day pick: show its week and close the grid.
+  void _onWeekMonthPick(DateTime day) {
+    setState(() => _monthOpen = false);
+    _showWeekOf(day);
+  }
+
+  /// A month-grid page turn: same day-of-month in the target month,
+  /// clamped (the day layout's [_stepMonth] rule). The grid stays open.
+  void _onWeekMonthStep(int delta) {
+    HapticFeedback.selectionClick();
+    final DateTime month = DateTime(
+      _weekFocusDay.year,
+      _weekFocusDay.month + delta,
+    );
+    final int last = DateTime(month.year, month.month + 1, 0).day;
+    final int dayOfMonth = _weekFocusDay.day > last ? last : _weekFocusDay.day;
+    final DateTime target = DateTime(month.year, month.month, dayOfMonth);
+    if (kyivWeekStart(target) == _weekStart) {
+      setState(() => _weekFocusDay = target);
+      return;
+    }
+    _showWeekOf(target);
+  }
+
+  void _onMonthOpenChanged(bool open) {
+    if (_monthOpen != open) setState(() => _monthOpen = open);
+  }
+
+  /// [_WeekModel] for this week's data + schedule, memoised on the IDENTITY
+  /// of both (`buildWeekDays` / `weekStripCounts` / `weekStripDayOff` run once
+  /// per data change, never per build — the grid's and the strip's identity
+  /// gates depend on it).
+  _WeekModel _weekModelFor(
+    BookingsWeekState week,
+    List<EffectiveDay>? schedule,
+  ) {
+    final _WeekModel? cached = _weekMemo;
+    if (cached != null &&
+        identical(cached.week, week) &&
+        identical(cached.schedule, schedule)) {
+      return cached;
+    }
+    final List<WeekDayModel> days = buildWeekDays(
+      week,
+      schedule: <DateTime, EffectiveDay>{
+        for (final EffectiveDay d in schedule ?? const <EffectiveDay>[])
+          dateOnly(d.date): d,
+      },
+    );
+    final _WeekModel model = (
+      week: week,
+      schedule: schedule,
+      days: days,
+      counts: weekStripCounts(days),
+      dayOff: weekStripDayOff(days),
+    );
+    _weekMemo = model;
+    return model;
+  }
+
+  /// The week's resolved schedule, or `null` when [BookingsDiscoveryView
+  /// .useScheduleWindow] is off (nothing is watched).
+  AsyncValue<List<EffectiveDay>>? _watchWeekSchedule(WidgetRef ref) {
+    if (!widget.useScheduleWindow) return null;
+    return ref.watch(
+      effectiveScheduleProvider(
+        widget.scheduleScope ?? ref.watch(ownScheduleScopeProvider),
+        ScheduleRange(from: _weekStart, to: kyivAddDays(_weekStart, 6)),
+      ),
+    );
+  }
+
+  /// The week header ([WeekNavBar] + [WeekStrip]) — the panel's
+  /// `collapsedHeader`. Watches the SAME week / schedule members as the grid,
+  /// so it adds no request.
+  Widget _weekHeader(PageController pager, int columns) {
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, Widget? _) {
+        final BookingsWeekState? week = ref
+            .watch(bookingsWeekProvider(_weekQuery))
+            .value;
+        final List<EffectiveDay>? schedule = _watchWeekSchedule(ref)?.value;
+        final _WeekModel? model = week == null
+            ? null
+            : _weekModelFor(week, schedule);
+        return ColoredBox(
+          color: BrandColors.base,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  VelvetSpacing.sm,
+                  VelvetSpacing.md,
+                  VelvetSpacing.xs,
+                ),
+                child: WeekNavBar(
+                  weekStart: _weekStart,
+                  weekOffset:
+                      kyivDaysBetween(kyivWeekStart(_today), _weekStart) ~/
+                      kWeekGridDays,
+                  threeDays: columns == 3,
+                  monthOpen: _monthOpen,
+                  onToggleView: (bool threeDays) => _setWeekViewMode(
+                    threeDays
+                        ? BookingsWeekViewMode.threeDays
+                        : BookingsWeekViewMode.day,
+                  ),
+                  onToggleMonth: () => _onMonthOpenChanged(!_monthOpen),
+                  onToday: () => _showWeekOf(_today),
+                  onPrevWeek: () => _shiftWeek(-1),
+                  onNextWeek: () => _shiftWeek(1),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: VelvetSpacing.xs / 2,
+                ),
+                child: WeekStrip(
+                  weekStart: _weekStart,
+                  today: _today,
+                  counts: model?.counts ?? _kNoWeekCounts,
+                  dayOff: model?.dayOff ?? _kNoWeekDayOff,
+                  pageController: pager,
+                  visibleColumns: columns,
+                  onTapDay: _onWeekStripTap,
+                  onPrevWeek: () => _shiftWeek(-1),
+                  onNextWeek: () => _shiftWeek(1),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// The last [_weekTimeline] result and the inputs it was built from —
+  /// see [_weekTimeline].
+  Widget? _weekTimelineWidget;
+  Object? _weekTimelineInputs;
+
+  /// The settled week [_weekTimeline] last ran the dot self-heal for.
+  BookingsWeekState? _lastCheckedWeekState;
+
+  /// The week body — the panel's `timeline` slot on the week layout.
+  ///
+  /// Returns the SAME widget instance while every state field its builder
+  /// reads is unchanged, so a `setState` that touches none of them (the
+  /// month-grid open / close) skips the whole grid subtree
+  /// (`Element.updateChild` short-circuits on an identical widget).
+  Widget _weekTimeline(PageController pager, int columns) {
+    final Object inputs = (
+      widget,
+      pager,
+      columns,
+      _weekQuery,
+      _weekStart,
+      _today,
+      _hasUserFilters,
+      _liveQuery,
+    );
+    final Widget? cached = _weekTimelineWidget;
+    if (cached != null && inputs == _weekTimelineInputs) return cached;
+    _weekTimelineInputs = inputs;
+    return _weekTimelineWidget = RepaintBoundary(
+      child: Consumer(
+        builder: (BuildContext context, WidgetRef ref, Widget? _) {
+          final BookingsWeekQuery query = _weekQuery;
+          final AsyncValue<BookingsWeekState> async = ref.watch(
+            bookingsWeekProvider(query),
+          );
+          // Stale-dot self-heal, the day layout's path (phase 485): the
+          // week's booked days, checked once per settled week, after the
+          // frame because it may invalidate a provider.
+          final BookingsWeekState? loaded =
+              async is AsyncData<BookingsWeekState> ? async.value : null;
+          if (loaded != null && !identical(loaded, _lastCheckedWeekState)) {
+            _lastCheckedWeekState = loaded;
+            final List<DateTime> booked = <DateTime>[
+              for (final MapEntry<DateTime, List<Booking>> e
+                  in loaded.byDay.entries)
+                if (e.value.isNotEmpty) e.key,
+            ];
+            if (booked.isNotEmpty) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                _refreshDotsIfAnyDayMissing(booked);
+              });
+            }
+          }
+          // Watched ALONGSIDE the week, so the two fetches race.
+          final AsyncValue<List<EffectiveDay>>? scheduleAsync =
+              _watchWeekSchedule(ref);
+          return async.when(
+            loading: () =>
+                _loadingList(() => ref.invalidate(bookingsWeekProvider(query))),
+            error: (Object e, StackTrace _) => _errorList(
+              e,
+              () => ref.invalidate(bookingsWeekProvider(query)),
+            ),
+            data: (BookingsWeekState week) => _weekBody(
+              context,
+              ref,
+              query: query,
+              model: _weekModelFor(week, scheduleAsync?.value),
+              scheduleResolved: scheduleAsync?.hasValue ?? false,
+              pager: pager,
+              columns: columns,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _weekBody(
+    BuildContext context,
+    WidgetRef ref, {
+    required BookingsWeekQuery query,
+    required _WeekModel model,
+    required bool scheduleResolved,
+    required PageController pager,
+    required int columns,
+  }) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final bool noBookings = model.days.every(
+      (WeekDayModel d) => d.bookings.isEmpty,
+    );
+    // A whole week with no hours and nothing booked — the day layout's
+    // no-hours state, for the week. A day with bookings always shows the
+    // grid.
+    final bool noHours =
+        scheduleResolved &&
+        model.days.every((WeekDayModel d) {
+          final EffectiveDay? s = d.schedule;
+          return s == null || isWeekDayOff(s);
+        });
+    if (noBookings && !_hasUserFilters && noHours) {
+      final ValueChanged<DateTime>? addHours = widget.onAddWorkingHours;
+      return MasterBookingsNoWorkingHoursState(
+        dayOff: false,
+        onAddHours: widget.canAddWorkingHours && addHours != null
+            ? () => addHours(_weekFocusDay)
+            : null,
+      );
+    }
+    if (noBookings && _hasUserFilters) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: <Widget>[
+          SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.6,
+            child: MasterBookingsNoResultsState(
+              onClearFilters: _clearAllFilters,
+            ),
+          ),
+        ],
+      );
+    }
+    return Column(
+      children: <Widget>[
+        // Covers both ways a week can come back short: the page cap was hit,
+        // or the server stopped before its own reported total.
+        if (model.week.isTruncated)
+          MasterBookingsTruncatedNotice(
+            message: l10n.masterBookingsWeekTruncatedNotice,
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            key: const Key('master-bookings-week-refresh'),
+            color: BrandColors.accentDeep,
+            backgroundColor: BrandColors.base,
+            // The LIVE week only — the LRU's other weeks refetch on visit.
+            onRefresh: () async {
+              ref.invalidate(bookingsWeekProvider(query));
+              try {
+                await ref.read(bookingsWeekProvider(query).future);
+              } on Object catch (_) {
+                // The error state renders from the provider itself.
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(
+                top: VelvetSpacing.xs,
+                right: VelvetSpacing.xs,
+              ),
+              child: _MinuteNow(
+                clock: ref.read(clockProvider),
+                // The grid is built ONCE per data change; a minute tick moves
+                // only its now-line and now pill ([WeekTimeGrid.nowListenable]).
+                builder: (ValueListenable<DateTime> now) => WeekTimeGrid(
+                  // Keyed on the column count: a PageView cannot re-attach a
+                  // controller with another viewportFraction in place. The
+                  // hour on screen survives the remount via [_weekTopMinute].
+                  key: ValueKey<String>(
+                    'week-grid-${toApiDate(_weekStart)}-$columns',
+                  ),
+                  topMinute: _weekTopMinute,
+                  weekStart: _weekStart,
+                  days: model.days,
+                  today: _today,
+                  now: now.value,
+                  nowListenable: now,
+                  pageController: pager,
+                  visibleColumns: columns,
+                  onBookingTap: widget.onBookingTap,
+                  onTapHeader: _onWeekHeaderTap,
+                  // Security contract (phase 483): a filtered or truncated
+                  // week cannot back a «Вільно» claim.
+                  showsAllOccupancy:
+                      _liveQuery.showsAllOccupancy && !model.week.isTruncated,
+                  // Read-only staff get no create affordance at all.
+                  onTapEmpty: widget.canCreateBooking
+                      ? (DateTime _, int _) => _openCreateBooking()
+                      : null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The loading body, shared by both layouts.
+  Widget _loadingList(VoidCallback onRetry) => ListView(
+    key: const Key('master-bookings-skeleton'),
+    physics: const AlwaysScrollableScrollPhysics(),
+    // Stays at `VelvetSpacing.lg` (24) even though the timeline body
+    // moved to [_kTimelineLeftInset] (12) — deliberately, and it
+    // NARROWS the load→loaded shift rather than widening it.
+    // `BookingsSkeleton` is a bare `_SkeletonCard` column with no
+    // ruler gutter, so its card edge IS this padding edge (24). The
+    // grid's first card edge is 12 + 42 (`_kRulerWidth`) + 4
+    // (ruler↔grid gap) = 58, so the eye tracks a 34dp card→card
+    // offset, down from 24→70 = 46dp before the inset change.
+    // Matching 12 here would push it back out to 46dp. The
+    // declared-times branch (also 24, no gutter) stays a 0dp swap.
+    padding: const EdgeInsets.fromLTRB(
+      VelvetSpacing.lg,
+      0,
+      VelvetSpacing.lg,
+      VelvetSpacing.xxl,
+    ),
+    children: <Widget>[
+      const BookingsSkeleton(),
+      // The escape hatch for an indefinite `AsyncLoading`, added
+      // after a master reported the skeleton shimmering forever on
+      // the one day a manual walk-in booking had just been created
+      // for. That day is by construction the ONE day not in
+      // `bookings_day_notifier.dart`'s ≤3-day keepAlive LRU, so it
+      // is the only one that must hit the network — and
+      // `AsyncValue.when` routes `AsyncLoading(retrying: true)`
+      // here too, so every automatic re-attempt looked identical to
+      // a first attempt. The `error:` branch below has always had a
+      // retry button; this gives `loading:` a bounded one.
+      //
+      // Renders nothing at all until
+      // [kMyBookingsSlowLoadThreshold] elapses, so a healthy load —
+      // which replaces this whole subtree long before then — never
+      // shows it. See the widget's own doc for why no flash is
+      // possible.
+      MyBookingsSlowLoadNotice(onRetry: onRetry),
+    ],
+  );
+
+  /// The error body, shared by both layouts.
+  Widget _errorList(Object error, VoidCallback onRetry) => ListView(
+    physics: const AlwaysScrollableScrollPhysics(),
+    padding: const EdgeInsets.fromLTRB(
+      VelvetSpacing.lg,
+      0,
+      VelvetSpacing.lg,
+      VelvetSpacing.xxl,
+    ),
+    children: <Widget>[MyBookingsErrorState(error: error, onRetry: onRetry)],
+  );
+
   // ── Build ───────────────────────────────────────────────────────────────
 
   @override
@@ -1549,164 +2170,129 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     // bookedDays change never tears this subtree down, and the panel itself
     // hands it to an `AnimatedBuilder` as a `child:` too, so a drag frame or
     // the 280ms open/close settle never rebuilds it either.
-    final Widget timeline = RepaintBoundary(
-      child: Consumer(
-        builder: (BuildContext context, WidgetRef ref, Widget? _) {
-          final AsyncValue<BookingsDayState> async = ref.watch(
-            bookingsDayProvider(_liveQuery),
-          );
-          // Stale-dot self-heal off the EXISTING watch (no extra listener —
-          // see [_lastCheckedDayState]); deferred past the frame because it
-          // may invalidate a provider.
-          final BookingsDayState? loaded = async is AsyncData<BookingsDayState>
-              ? async.value
-              : null;
-          if (loaded != null && !identical(loaded, _lastCheckedDayState)) {
-            _lastCheckedDayState = loaded;
-            final BookingsDayQuery checkedQuery = _liveQuery;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              _refreshDotsIfDayMissing(checkedQuery, async);
-            });
-          }
+    //
+    // Phase 485 — the week layout swaps in its own header + body; the day
+    // layout below is untouched.
+    final int weekColumns = _isWeek
+        ? ref.watch(masterBookingsViewModeProvider).visibleColumns
+        : 0;
+    final PageController? weekPager = _isWeek
+        ? _ensureWeekPager(weekColumns)
+        : null;
+    final Widget timeline = weekPager != null
+        ? _weekTimeline(weekPager, weekColumns)
+        : RepaintBoundary(
+            child: Consumer(
+              builder: (BuildContext context, WidgetRef ref, Widget? _) {
+                final AsyncValue<BookingsDayState> async = ref.watch(
+                  bookingsDayProvider(_liveQuery),
+                );
+                // Stale-dot self-heal off the EXISTING watch (no extra listener —
+                // see [_lastCheckedDayState]); deferred past the frame because it
+                // may invalidate a provider.
+                final BookingsDayState? loaded =
+                    async is AsyncData<BookingsDayState> ? async.value : null;
+                if (loaded != null &&
+                    !identical(loaded, _lastCheckedDayState)) {
+                  _lastCheckedDayState = loaded;
+                  final BookingsDayQuery checkedQuery = _liveQuery;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    _refreshDotsIfDayMissing(checkedQuery, async);
+                  });
+                }
 
-          // mobile-perf MEDIUM fix (earlier session): watched HERE,
-          // ALONGSIDE `bookingsDayProvider` rather than from inside
-          // `_Loaded` (which only ever mounts once `async` resolves to
-          // `data:`) — so the two fetches fire in PARALLEL on every day
-          // change instead of the schedule round trip waiting on the
-          // bookings one to finish first. `null` when `useScheduleWindow`
-          // is `false`: the provider is still NEVER watched for any other
-          // caller — the doc'd invariant on
-          // `BookingsDiscoveryView.useScheduleWindow` is unchanged, just
-          // enforced one level up.
-          // Phase 312 — `effectiveScheduleProvider` gained a [ScheduleScope]
-          // parameter; this view always reads the master's OWN calendar
-          // (never a viewed-colleague's), so it resolves through
-          // `ownScheduleScopeProvider` exactly like every other pre-Phase-312
-          // caller — unaffected by the new owner/admin viewed-master path.
-          final AsyncValue<List<EffectiveDay>>? scheduleAsync =
-              widget.useScheduleWindow
-              ? ref.watch(
-                  effectiveScheduleProvider(
-                    widget.scheduleScope ?? ref.watch(ownScheduleScopeProvider),
-                    ScheduleRange(from: _day, to: _day),
-                  ),
-                )
-              : null;
+                // mobile-perf MEDIUM fix (earlier session): watched HERE,
+                // ALONGSIDE `bookingsDayProvider` rather than from inside
+                // `_Loaded` (which only ever mounts once `async` resolves to
+                // `data:`) — so the two fetches fire in PARALLEL on every day
+                // change instead of the schedule round trip waiting on the
+                // bookings one to finish first. `null` when `useScheduleWindow`
+                // is `false`: the provider is still NEVER watched for any other
+                // caller — the doc'd invariant on
+                // `BookingsDiscoveryView.useScheduleWindow` is unchanged, just
+                // enforced one level up.
+                // Phase 312 — `effectiveScheduleProvider` gained a [ScheduleScope]
+                // parameter; this view always reads the master's OWN calendar
+                // (never a viewed-colleague's), so it resolves through
+                // `ownScheduleScopeProvider` exactly like every other pre-Phase-312
+                // caller — unaffected by the new owner/admin viewed-master path.
+                final AsyncValue<List<EffectiveDay>>? scheduleAsync =
+                    widget.useScheduleWindow
+                    ? ref.watch(
+                        effectiveScheduleProvider(
+                          widget.scheduleScope ??
+                              ref.watch(ownScheduleScopeProvider),
+                          ScheduleRange(from: _day, to: _day),
+                        ),
+                      )
+                    : null;
 
-          return async.when(
-            // Bare, unscrolled `Column`s inside a scroll view — the shipped
-            // client screen hosts its own loading/error states the same
-            // way, and dropping either straight into an `Expanded`
-            // overflows the remaining height on a short device (Phase
-            // 17.2 overflow guard).
-            loading: () => ListView(
-              key: const Key('master-bookings-skeleton'),
-              physics: const AlwaysScrollableScrollPhysics(),
-              // Stays at `VelvetSpacing.lg` (24) even though the timeline body
-              // moved to [_kTimelineLeftInset] (12) — deliberately, and it
-              // NARROWS the load→loaded shift rather than widening it.
-              // `BookingsSkeleton` is a bare `_SkeletonCard` column with no
-              // ruler gutter, so its card edge IS this padding edge (24). The
-              // grid's first card edge is 12 + 42 (`_kRulerWidth`) + 4
-              // (ruler↔grid gap) = 58, so the eye tracks a 34dp card→card
-              // offset, down from 24→70 = 46dp before the inset change.
-              // Matching 12 here would push it back out to 46dp. The
-              // declared-times branch (also 24, no gutter) stays a 0dp swap.
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                0,
-                VelvetSpacing.lg,
-                VelvetSpacing.xxl,
-              ),
-              children: <Widget>[
-                const BookingsSkeleton(),
-                // The escape hatch for an indefinite `AsyncLoading`, added
-                // after a master reported the skeleton shimmering forever on
-                // the one day a manual walk-in booking had just been created
-                // for. That day is by construction the ONE day not in
-                // `bookings_day_notifier.dart`'s ≤3-day keepAlive LRU, so it
-                // is the only one that must hit the network — and
-                // `AsyncValue.when` routes `AsyncLoading(retrying: true)`
-                // here too, so every automatic re-attempt looked identical to
-                // a first attempt. The `error:` branch below has always had a
-                // retry button; this gives `loading:` a bounded one.
-                //
-                // Renders nothing at all until
-                // [kMyBookingsSlowLoadThreshold] elapses, so a healthy load —
-                // which replaces this whole subtree long before then — never
-                // shows it. See the widget's own doc for why no flash is
-                // possible.
-                MyBookingsSlowLoadNotice(
+                return async.when(
+                  // Bare, unscrolled `Column`s inside a scroll view — the shipped
+                  // client screen hosts its own loading/error states the same
+                  // way, and dropping either straight into an `Expanded`
+                  // overflows the remaining height on a short device (Phase
+                  // 17.2 overflow guard).
                   // `.fetchKey`, not `_liveQuery` (audit M2) — on the SALON
-                  // member a filtered query DERIVES from the unfiltered one
-                  // and issues no request of its own, so invalidating it
-                  // would rebuild a derivation over the same cached (and,
-                  // here, still-pending) base. `fetchKey` is identity on the
-                  // master member, so this line is unchanged for it. See
-                  // `BookingsDayQuery.fetchKey`.
-                  onRetry: () =>
-                      ref.invalidate(bookingsDayProvider(_liveQuery.fetchKey)),
-                ),
-              ],
-            ),
-            error: (Object e, StackTrace _) => ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                0,
-                VelvetSpacing.lg,
-                VelvetSpacing.xxl,
-              ),
-              children: <Widget>[
-                MyBookingsErrorState(
-                  error: e,
-                  // `.fetchKey` — same reason as the `loading:` branch above.
-                  // A derived salon member's error IS the base member's error;
+                  // member a filtered query DERIVES from the unfiltered one and
+                  // issues no request of its own, so invalidating it would rebuild
+                  // a derivation over the same cached (and, here, still-pending)
+                  // base. `fetchKey` is identity on the master member, so this line
+                  // is unchanged for it. See `BookingsDayQuery.fetchKey`.
+                  loading: () => _loadingList(
+                    // keepalive-safe: this Consumer actively watches bookingsDayProvider(_liveQuery) above; fetchKey is that member (master) or the base it derives from (salon), so its listener count is never zero — no queued disposal to race (was scripts/.keepalive_family_invalidation_allow:44)
+                    () => ref.invalidate(
+                      bookingsDayProvider(_liveQuery.fetchKey),
+                    ),
+                  ),
+                  // `.fetchKey` — same reason as the `loading:` branch above. A
+                  // derived salon member's error IS the base member's error;
                   // invalidating the derivation alone would re-read the cached
                   // failure and the retry button would do nothing.
-                  onRetry: () =>
-                      ref.invalidate(bookingsDayProvider(_liveQuery.fetchKey)),
-                ),
-              ],
-            ),
-            data: (BookingsDayState state) => _Loaded(
-              state: state,
-              // [_hasUserFilters], NOT `_liveQuery.hasFilters` — the live
-              // query always carries statuses now (the default exclusion),
-              // so reading it here would render the «Немає записів за цим
-              // фільтром» copy on a screen the master never filtered.
-              hasFilters: _hasUserFilters,
-              // …but THIS one IS a wire-shape question, so it reads
-              // `_liveQuery`, not `_statuses`/`_serviceIds`. See
-              // [BookingsDayQuery.showsAllOccupancy].
-              showsAllOccupancy: _liveQuery.showsAllOccupancy,
-              day: _day,
-              useScheduleWindow: widget.useScheduleWindow,
-              scheduleAsync: scheduleAsync,
-              visibleBookingsFor: _visibleBookingsFor,
-              onClearFilters: _clearAllFilters,
-              onBookingTap: widget.onBookingTap,
-              onAddWorkingHours: widget.onAddWorkingHours,
-              canAddWorkingHours: widget.canAddWorkingHours,
-              // Phase 21.12 — `null` on both master routes, which is what
-              // keeps `_body` selecting the single-master grid verbatim.
-              columnsBuilder: widget.columnsBuilder,
-              // 2026-09-18 — the «Майстер» selection, threaded to the HOST's
-              // partition. `const {}` on both master routes (the section is
-              // never offered there), which is what keeps
-              // `columnsBuilder?.call(...)` a no-narrowing call everywhere it
-              // was one before.
-              masterIds: _masterIds,
-              // Phase 335 — `null` on both master routes, which is what keeps
-              // `_Loaded.build`'s `!useScheduleWindow` arm identical.
-              boardWindowBuilder: widget.boardWindowBuilder,
+                  error: (Object e, StackTrace _) => _errorList(
+                    e,
+                    // keepalive-safe: same Consumer, same actively-watched _liveQuery.fetchKey target as the loading branch above (was scripts/.keepalive_family_invalidation_allow:45)
+                    () => ref.invalidate(
+                      bookingsDayProvider(_liveQuery.fetchKey),
+                    ),
+                  ),
+                  data: (BookingsDayState state) => _Loaded(
+                    state: state,
+                    // [_hasUserFilters], NOT `_liveQuery.hasFilters` — the live
+                    // query always carries statuses now (the default exclusion),
+                    // so reading it here would render the «Немає записів за цим
+                    // фільтром» copy on a screen the master never filtered.
+                    hasFilters: _hasUserFilters,
+                    // …but THIS one IS a wire-shape question, so it reads
+                    // `_liveQuery`, not `_statuses`/`_serviceIds`. See
+                    // [BookingsDayQuery.showsAllOccupancy].
+                    showsAllOccupancy: _liveQuery.showsAllOccupancy,
+                    day: _day,
+                    useScheduleWindow: widget.useScheduleWindow,
+                    scheduleAsync: scheduleAsync,
+                    visibleBookingsFor: _visibleBookingsFor,
+                    onClearFilters: _clearAllFilters,
+                    onBookingTap: widget.onBookingTap,
+                    onAddWorkingHours: widget.onAddWorkingHours,
+                    canAddWorkingHours: widget.canAddWorkingHours,
+                    // Phase 21.12 — `null` on both master routes, which is what
+                    // keeps `_body` selecting the single-master grid verbatim.
+                    columnsBuilder: widget.columnsBuilder,
+                    // 2026-09-18 — the «Майстер» selection, threaded to the HOST's
+                    // partition. `const {}` on both master routes (the section is
+                    // never offered there), which is what keeps
+                    // `columnsBuilder?.call(...)` a no-narrowing call everywhere it
+                    // was one before.
+                    masterIds: _masterIds,
+                    // Phase 335 — `null` on both master routes, which is what keeps
+                    // `_Loaded.build`'s `!useScheduleWindow` arm identical.
+                    boardWindowBuilder: widget.boardWindowBuilder,
+                  ),
+                );
+              },
             ),
           );
-        },
-      ),
-    );
 
     return Scaffold(
       key: const Key('master-bookings-screen'),
@@ -1787,14 +2373,26 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                     railFirstWeekStart: _railFirstWeekStart,
                     weekCount: _railWeekCount,
                     today: _today,
-                    selectedDay: _day,
+                    selectedDay: weekPager != null ? _weekFocusDay : _day,
                     bookedDays: bookedDays,
                     onSelectRailDay: _selectDay,
-                    onSelectDay: _selectImmediate,
-                    onStepMonth: _stepMonth,
+                    onSelectDay: weekPager != null
+                        ? _onWeekMonthPick
+                        : _selectImmediate,
+                    onStepMonth: weekPager != null
+                        ? _onWeekMonthStep
+                        : _stepMonth,
                     visibleMonth: _visibleMonth,
                     onVisibleWeekChanged: _onRailVisibleWeekChanged,
                     timeline: timeline,
+                    // Phase 485 — `null` on the day layout (the defaults).
+                    collapsedHeader: weekPager != null
+                        ? _weekHeader(weekPager, weekColumns)
+                        : null,
+                    monthOpen: weekPager != null ? _monthOpen : null,
+                    onMonthOpenChanged: weekPager != null
+                        ? _onMonthOpenChanged
+                        : null,
                   );
                 },
               ),
@@ -1804,6 +2402,55 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       ),
     );
   }
+}
+
+/// Phase 485 — the clock's instant as a [ValueListenable] that ticks once a
+/// minute, on the minute. [builder] runs only when this widget's parent
+/// rebuilds — a tick notifies the listenable alone, so the week grid stays
+/// built and only its now-line / now pill (the listeners) move.
+class _MinuteNow extends StatefulWidget {
+  const _MinuteNow({required this.clock, required this.builder});
+
+  final DateTime Function() clock;
+  final Widget Function(ValueListenable<DateTime> now) builder;
+
+  @override
+  State<_MinuteNow> createState() => _MinuteNowState();
+}
+
+class _MinuteNowState extends State<_MinuteNow> {
+  late final ValueNotifier<DateTime> _now;
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = ValueNotifier<DateTime>(widget.clock());
+    _schedule();
+  }
+
+  void _schedule() {
+    final DateTime now = _now.value;
+    final int intoMinute = now.second * 1000 + now.millisecond;
+    _tick = Timer(
+      Duration(milliseconds: Duration.millisecondsPerMinute - intoMinute),
+      () {
+        if (!mounted) return;
+        _now.value = widget.clock();
+        _schedule();
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    _now.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_now);
 }
 
 /// A zero-height subscription that keeps the «Послуга» option universe WARM —

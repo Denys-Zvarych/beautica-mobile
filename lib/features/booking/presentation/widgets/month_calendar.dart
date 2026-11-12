@@ -66,6 +66,10 @@ const int kMonthCalendarSixRows = 6;
 /// 3dp of vertical padding on each side ([_MonthGrid.build]).
 const double kMonthCalendarRowHeight = 50;
 
+/// One week row's height under [MonthCalendar.compactRows]: the 44dp cell
+/// band alone, no vertical padding.
+const double kMonthCalendarCompactRowHeight = 44;
+
 /// [MonthCalendar]'s total laid-out height in the exact configuration
 /// `BookingsMonthCalendarPanel` composes it with — [MonthCalendar
 /// .composeWeekdayBar] and [MonthCalendar.sixWeekRows] both `true`,
@@ -125,6 +129,7 @@ class MonthCalendar extends StatelessWidget {
     this.bookingCount,
     this.allowTapOnUnavailable = false,
     this.stateLabelResolver,
+    this.compactRows = false,
   }) : assert(
          showHeader || (onPrevMonth == null && onNextMonth == null),
          'onPrevMonth/onNextMonth are the ‹ › chevrons _MonthHeader renders — '
@@ -226,6 +231,14 @@ class MonthCalendar extends StatelessWidget {
   final String Function({required bool available, required bool selected})?
   stateLabelResolver;
 
+  /// Drops each week row's 3dp top + bottom padding, so a row is
+  /// [kMonthCalendarCompactRowHeight] instead of [kMonthCalendarRowHeight].
+  /// `false` (the default) renders exactly as before. Phase 485 — set only by
+  /// `BookingsMonthCalendarPanel`'s week-header path when the slot below the
+  /// header is shorter than the full grid (a short device at a large text
+  /// scale), so the bottom row stays on screen.
+  final bool compactRows;
+
   @override
   Widget build(BuildContext context) {
     final Widget weekdayBarAndGrid = Column(
@@ -248,6 +261,7 @@ class MonthCalendar extends StatelessWidget {
           bookingCount: bookingCount,
           allowTapOnUnavailable: allowTapOnUnavailable,
           stateLabelResolver: stateLabelResolver,
+          compactRows: compactRows,
         ),
       ],
     );
@@ -398,6 +412,7 @@ class _MonthGrid extends StatelessWidget {
     required this.bookingCount,
     required this.allowTapOnUnavailable,
     required this.stateLabelResolver,
+    required this.compactRows,
   });
 
   final DateTime month;
@@ -410,6 +425,7 @@ class _MonthGrid extends StatelessWidget {
   final bool allowTapOnUnavailable;
   final String Function({required bool available, required bool selected})?
   stateLabelResolver;
+  final bool compactRows;
 
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -440,7 +456,7 @@ class _MonthGrid extends StatelessWidget {
     for (int i = 0; i < cellDays.length; i += 7) {
       rows.add(
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
+          padding: EdgeInsets.symmetric(vertical: compactRows ? 0 : 3),
           child: _weekRow(context, cellDays.sublist(i, i + 7)),
         ),
       );

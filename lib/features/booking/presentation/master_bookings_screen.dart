@@ -134,6 +134,7 @@ class MasterBookingsScreen extends ConsumerWidget {
     this.navServicesRoute,
     this.navScheduleRoute,
     this.navProfileRoute,
+    this.navBookingsRoute,
     this.canAddWorkingHours = true,
     this.asOwnerMaster = false,
     this.bottomNavBar,
@@ -165,6 +166,12 @@ class MasterBookingsScreen extends ConsumerWidget {
   final String? navServicesRoute;
   final String? navScheduleRoute;
   final String? navProfileRoute;
+
+  /// Tile 1's («Мої записи») route — phase 485 (backlog INFO 154): passed
+  /// like the three sibling screens do. Tile 1 is this screen, so the bar
+  /// resolves it to `null` while active; the value only keeps the four-tile
+  /// override set complete for the `/staff/bookings` mount.
+  final String? navBookingsRoute;
 
   /// Whether the "no working hours" empty state offers its
   /// «Додати робочі години» CTA. `true` (the `/master/bookings` mount and
@@ -262,7 +269,8 @@ class MasterBookingsScreen extends ConsumerWidget {
   VelvetBottomNavBar get _navBar =>
       navServicesRoute == null &&
           navScheduleRoute == null &&
-          navProfileRoute == null
+          navProfileRoute == null &&
+          navBookingsRoute == null
       ? const VelvetBottomNavBar(
           activeIndex: 1,
           showSetupHints: true,
@@ -273,6 +281,7 @@ class MasterBookingsScreen extends ConsumerWidget {
           servicesRoute: navServicesRoute,
           scheduleRoute: navScheduleRoute,
           profileRoute: navProfileRoute,
+          bookingsRoute: navBookingsRoute,
         );
 
   @override
@@ -337,6 +346,9 @@ class MasterBookingsScreen extends ConsumerWidget {
           asOwnerMaster: asOwnerMaster,
         ),
         title: l10n.masterBookingsTitle,
+        // Phase 485 — the provider «Записи» is a Mon–Sun week (all three
+        // mounts). The salon board keeps the default day layout.
+        layout: BookingsLayout.week,
         // Bottom-nav tab root — no back affordance, except the owner
         // master-mode mount's plain arrow (phase 383, decision 2026-10-08).
         onBack: onBack,
@@ -400,11 +412,12 @@ class MasterBookingsScreen extends ConsumerWidget {
         canCreateBooking: ref.watch(bookingCreationEnabledProvider),
       ),
       // Tile 1 («Мої записи») — this screen IS that destination, so the bar
-      // short-circuits it to `null` and no `bookingsRoute` override is
-      // needed. The other three tiles are aimed by the host (phase 330): at
-      // `/master/*` by default (the bar's own literals, so this stays `const`
-      // for the INDEPENDENT_MASTER mount) and at `/staff/*` when the
-      // `/staff/bookings` route supplies them.
+      // short-circuits it to `null`; [navBookingsRoute] is still passed so
+      // the override set matches the sibling screens (phase 485). The tiles
+      // are aimed by the host (phase 330): at `/master/*` by default (the
+      // bar's own literals, so this stays `const` for the INDEPENDENT_MASTER
+      // mount) and at `/staff/*` when the `/staff/bookings` route supplies
+      // them.
       bottomNavigationBar: bottomNavBar ?? _navBar,
     );
   }

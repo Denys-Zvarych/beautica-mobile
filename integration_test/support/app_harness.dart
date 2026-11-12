@@ -482,7 +482,7 @@ abstract final class AppHarness {
   /// Місто cascade.
   ///
   /// REUSE-FIRST — six E2E flows drive this control. Hand-copying the sequence
-  /// into each is exactly how the four `_selectRailDay` helpers drifted, so
+  /// into each is exactly how the four hand-copied rail-day helpers drifted, so
   /// this is the single copy.
   ///
   /// [fieldKey] defaults to the field's own key; the discovery filters screen
