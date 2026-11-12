@@ -224,8 +224,9 @@ DateTime mondayOf(DateTime day) => kyivWeekStart(day);
 int railWeekIndex(DateTime firstWeekStart, DateTime day) =>
     calendarDayCount(firstWeekStart, mondayOf(day)) ~/ kRailWeekLength;
 
-/// Memoised weekday abbreviations, keyed by the [AppLocalizations] instance
-/// they came from (perf P4).
+/// Memoised weekday abbreviations («Пн» … «Нд», Monday first), keyed by the
+/// [AppLocalizations] instance they came from (perf P4). Public since phase
+/// 482 — the week grid's column headers read the same list.
 ///
 /// The seven captions are fixed for a locale, but they were rebuilt into a
 /// fresh `List<String>` on every rail `build()`. `AppLocalizations` is a
@@ -236,7 +237,7 @@ int railWeekIndex(DateTime firstWeekStart, DateTime day) =>
 List<String>? _weekdayShortCache;
 AppLocalizations? _weekdayShortCacheKey;
 
-List<String> _weekdayShorts(AppLocalizations l10n) {
+List<String> weekdayShortLabels(AppLocalizations l10n) {
   final List<String>? cached = _weekdayShortCache;
   if (cached != null && identical(_weekdayShortCacheKey, l10n)) return cached;
   final List<String> built = List<String>.unmodifiable(<String>[
@@ -491,7 +492,7 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
   /// | read by `build()`                          | in the gate? |
   /// |--------------------------------------------|--------------|
   /// | `AppLocalizations.of(context)`             | yes — [_cachedL10n] |
-  /// | `_weekdayShorts(l10n)`                     | via `l10n` (its own key) |
+  /// | `weekdayShortLabels(l10n)`                 | via `l10n` (its own key) |
   /// | `widget.controller` (`PageView.controller`)| yes |
   /// | `widget.weekCount` (`itemCount`)           | yes |
   /// | `widget.firstWeekStart` (itemBuilder capture) | yes |
@@ -527,7 +528,7 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
     final Widget? cached = _cached;
     if (cached != null && identical(l10n, _cachedL10n)) return cached;
 
-    final List<String> weekdayShort = _weekdayShorts(l10n);
+    final List<String> weekdayShort = weekdayShortLabels(l10n);
 
     final Widget built = SizedBox(
       // The design's strip is 70dp. It is 78 here because the app's

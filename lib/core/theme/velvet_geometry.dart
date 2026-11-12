@@ -250,6 +250,24 @@ abstract final class VelvetShadows {
     ),
   ];
 
+  /// [borderedCard]'s light sibling for DENSE grids — the week time grid's
+  /// column booking blocks (`MasterBookingCard.column`), where ~56 cards
+  /// scroll at once and each blurred shadow is re-rasterised every frame on
+  /// Impeller (phase 482 perf audit).
+  ///
+  /// Same recipe and tone as [borderedCard] — ONE non-offset
+  /// [BrandColors.shadowDarkCard] halo, so the Impeller-GLES corner-sliver
+  /// rationale above still holds (an offset light/dark pair would bring that
+  /// artifact back) — at 0.4× the blur (4 vs 10): a tight soft lift that
+  /// reads as the same bordered neumorphic block at a fraction of the
+  /// rasterisation cost. The hairline border still carries the shape.
+  static final List<BoxShadow> columnCard = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard.withValues(alpha: 0.45),
+      blurRadius: 4,
+    ),
+  ];
+
   /// Subtle ambient shadow for a bordered *button* — the button-scaled sibling
   /// of [borderedCard], following the same **non-offset** single-shadow recipe.
   ///

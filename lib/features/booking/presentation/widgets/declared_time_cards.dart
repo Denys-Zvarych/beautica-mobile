@@ -135,11 +135,11 @@
 // [TimeOfDay] (a pure wall-clock value, carrying no zone of its own) reads
 // through [toBeauticaTime] — never `.hour`/`.minute` off the raw UTC instant,
 // which would render the wrong card on any non-Kyiv device or CI's UTC
-// runner. Mirrors `bookings_timeline_grid.dart`'s own
-// `_minutesSinceDayStart` (kept private there; re-derived here rather than
-// exported, since the two files' minute conventions — this one never needs
-// values >= 1440, that file's R1 fix explicitly does for a booking crossing
-// midnight — are not quite the same contract).
+// runner. Minutes come from the shared `minutesSinceDayStart`
+// (`shared/time/kyiv_day.dart`) — the same Kyiv wall-clock conversion the
+// timeline grids use (phase 482 audit: a hand-copied private duplicate was
+// rewired onto it). Values >= 1440 never arise here (only starts and ends on
+// the selected day are compared), so the shared contract fits as-is.
 //
 // ## Gating — EXPLICIT_TIMES days only
 //
@@ -158,6 +158,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart'
     show formatTime;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart'
+    show minutesSinceDayStart;
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/fixed_lines_text.dart';
 
@@ -181,16 +183,6 @@ class _DeclaredEntry {
   final int minute;
   final TimeOfDay time;
   final Booking? booking;
-}
-
-/// Kyiv wall-clock minutes-since-midnight for [instant] on the day
-/// [midnight] anchors — mirrors `bookings_timeline_grid.dart`'s
-/// `_minutesSinceDayStart`. Not exported from that file (see this file's
-/// header); re-derived here rather than duplicated via a shared export
-/// because the two live on genuinely separate contracts (see the header).
-int _kyivMinutesSinceMidnight(DateTime instant, tz.TZDateTime midnight) {
-  final tz.TZDateTime local = toBeauticaTime(instant);
-  return local.difference(midnight).inMinutes;
 }
 
 /// Whether a booking in [status] OCCUPIES the clock for the purpose of
@@ -290,7 +282,7 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
       return byStart != 0 ? byStart : a.id.compareTo(b.id);
     });
   final List<int> bookingMinutes = sortedBookings
-      .map((Booking b) => _kyivMinutesSinceMidnight(b.startAt, midnight))
+      .map((Booking b) => minutesSinceDayStart(b.startAt, midnight))
       .toList(growable: false);
   final List<bool> consumed = List<bool>.filled(sortedBookings.length, false);
 
@@ -370,7 +362,7 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
   // memo), never per frame — the saved comparisons are worth far less than
   // that independence.
   final List<int> bookingEndMinutes = sortedBookings
-      .map((Booking b) => _kyivMinutesSinceMidnight(b.endAt, midnight))
+      .map((Booking b) => minutesSinceDayStart(b.endAt, midnight))
       .toList(growable: false);
 
   bool isConsumed(int dm) {
@@ -620,7 +612,7 @@ class DeclaredTimeCards extends StatefulWidget {
   final bool showsAllOccupancy;
 
   /// The selected Kyiv calendar day — the anchor
-  /// [_kyivMinutesSinceMidnight] measures every booking's start against.
+  /// [minutesSinceDayStart] measures every booking's start against.
   final DateTime day;
 
   /// Fires with the tapped booking. No `Navigator`/`context.push` in this

@@ -742,8 +742,10 @@ class MasterBookingCard extends StatefulWidget {
   /// as before.
   ///
   /// Derived from the MICRO layout, not a new card: same base fill,
-  /// `accent @ 0.38` 1.5 dp border, `VelvetShadows.borderedCard` lift and
-  /// press feedback. Changed for the column:
+  /// `accent @ 0.38` 1.5 dp border and press feedback. Changed for the
+  /// column:
+  ///  * the lift is [VelvetShadows.columnCard] (same halo, blur 4 not 10) —
+  ///    dense grids re-rasterise every card's blur per scroll frame;
   ///  * radius [VelvetRadii.field] (16), not `card` (24) — 24 on a 34 dp
   ///    block makes a pill and eats the stripe;
   ///  * the status DOT becomes a 3 dp left STRIPE (same
@@ -1021,16 +1023,21 @@ class MasterBookingCard extends StatefulWidget {
   ///
   /// [dense] selects the salon-board naturals ([denseFullNaturalHeight] /
   /// [denseCompactNaturalHeight]); the layout THRESHOLDS are shared.
-  static double occupiedHeightFor(double minHeight, {bool dense = false}) {
-    final double natural;
+  static double occupiedHeightFor(double minHeight, {bool dense = false}) =>
+      math.max(minHeight, naturalHeightFor(minHeight, dense: dense));
+
+  /// Phase 482 — the natural content height, at textScaler 1.0, of the body
+  /// [minHeight] selects (micro / compact / full, [dense] or not) — the
+  /// `natural` term of [occupiedHeightFor], exposed so the week grid's «День»
+  /// column can scale it by the live text scale before placing the card at a
+  /// tight height. Same thresholds, same numbers.
+  static double naturalHeightFor(double minHeight, {bool dense = false}) {
     if (minHeight >= fullLayoutMinHeight) {
-      natural = dense ? denseFullNaturalHeight : fullLayoutNaturalHeight;
+      return dense ? denseFullNaturalHeight : fullLayoutNaturalHeight;
     } else if (minHeight < microLayoutMaxHeight) {
-      natural = microLayoutNaturalHeight;
-    } else {
-      natural = dense ? denseCompactNaturalHeight : estimatedNaturalHeight;
+      return microLayoutNaturalHeight;
     }
-    return math.max(minHeight, natural);
+    return dense ? denseCompactNaturalHeight : estimatedNaturalHeight;
   }
 
   @override
@@ -1189,8 +1196,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
 
   /// [MasterBookingCard.column] decorations — the preview's
   /// `WeekBookingBlock` recipe: [VelvetRadii.field] (16), the same border and
-  /// `borderedCard` lift; pressed drops the lift; cancelled / declined fade
-  /// the border to 0.18 and never lift.
+  /// a lift; pressed drops the lift; cancelled / declined fade the border to
+  /// 0.18 and never lift. The lift is [VelvetShadows.columnCard], the
+  /// low-blur sibling of `borderedCard` (phase 482 perf audit: ~56 column
+  /// cards re-rasterise their blur every scroll frame on Impeller).
   static final BoxDecoration _columnDecorationUnpressed = BoxDecoration(
     color: BrandColors.base,
     borderRadius: BorderRadius.circular(VelvetRadii.field),
@@ -1198,7 +1207,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       color: BrandColors.accent.withValues(alpha: _kBorderAlpha),
       width: _kBorderWidth,
     ),
-    boxShadow: VelvetShadows.borderedCard,
+    boxShadow: VelvetShadows.columnCard,
   );
   static final BoxDecoration _columnDecorationPressed = BoxDecoration(
     color: BrandColors.base,

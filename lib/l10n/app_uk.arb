@@ -7572,5 +7572,21 @@
         "example": "1.5.0"
       }
     }
+  },
+  "weekGridDayHeader": "{weekday} {day}",
+  "@weekGridDayHeader": {
+    "description": "Phase 482 — week time grid column header: short weekday + day of month, e.g. «Чт 12».",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Чт" },
+      "day": { "type": "int", "example": "12" }
+    }
+  },
+  "weekGridDayHeaderTodaySemantics": "{weekday} {day}, сьогодні",
+  "@weekGridDayHeaderTodaySemantics": {
+    "description": "Phase 482 — screen-reader label of today's week-grid column header.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Чт" },
+      "day": { "type": "int", "example": "12" }
+    }
   }
 }

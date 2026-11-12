@@ -6,6 +6,7 @@
 // block − 3 (1.5 dp border × 2) − 4 (2 dp vertical padding × 2).
 //   scale 1.0: range 12 + name 14 = 26 (two-line), + 1 gap + service 12 = 39
 //   scale 1.3: range 16 + name 18 = 34 (two-line), + 1 gap + service 16 = 51
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -319,6 +320,11 @@ void main() {
         final BoxDecoration deco = box.decoration! as BoxDecoration;
         expect(deco.borderRadius, BorderRadius.circular(16));
         expect(deco.boxShadow == null || deco.boxShadow!.isEmpty, gone);
+        if (!gone) {
+          // Goldens run with `renderShadows: false`, so the light column
+          // lift (phase 482 perf audit) is pinned here.
+          expect(deco.boxShadow, same(VelvetShadows.columnCard));
+        }
       });
     }
   });
@@ -581,6 +587,11 @@ void main() {
         final BoxDecoration deco = box.decoration! as BoxDecoration;
         expect(deco.borderRadius, BorderRadius.circular(24));
         expect(deco.boxShadow, isNotEmpty);
+        expect(
+          deco.boxShadow,
+          same(VelvetShadows.borderedCard),
+          reason: 'default cards keep the shipped lift',
+        );
       });
 
       testWidgets('a compact card at a TIGHT height keeps ONE service line '
@@ -623,5 +634,14 @@ void main() {
       contains(BookingStatusVisual.of(_booking(), l10n).label),
     );
     handle.dispose();
+  });
+
+  test('columnCard is borderedCard\'s halo at no more than half the blur', () {
+    expect(VelvetShadows.columnCard, hasLength(1));
+    final BoxShadow light = VelvetShadows.columnCard.single;
+    final BoxShadow base = VelvetShadows.borderedCard.single;
+    expect(light.offset, Offset.zero, reason: 'Impeller-safe, non-offset');
+    expect(light.color, base.color);
+    expect(light.blurRadius, lessThanOrEqualTo(base.blurRadius / 2));
   });
 }

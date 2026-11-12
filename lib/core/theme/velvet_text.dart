@@ -1781,6 +1781,20 @@ abstract final class VelvetText {
     color: BrandColors.muted,
   );
 
+  // Phase 482 — the week time grid's own chrome (MasterWeekBookings preview
+  // `velvet_tokens.dart`).
+
+  /// Week-grid column header («Чт 12») — the day rail's [railWeekday].
+  static final TextStyle weekColumnHeader = railWeekday;
+
+  /// Now-line time pill on the week grid's hour ruler — [_feedbackBase] at
+  /// 10 sp, cream on mocha.
+  static final TextStyle nowPill = _feedbackBase.copyWith(
+    fontSize: 10,
+    height: 1.2,
+    color: BrandColors.white,
+  );
+
   // Adaptive-layout pass (2026-07-20, later the same day as the compact
   // pass above): `MasterBookingCard` now renders a FULLER layout (client
   // name → divider → service+date → price+status) whenever its box is tall

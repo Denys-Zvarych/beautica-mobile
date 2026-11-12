@@ -7506,5 +7506,7 @@
   "updateRequiredBody": "This version of Beautica is no longer supported. Update it on Google Play to keep using bookings. Your account and bookings will be kept.",
   "updateRequiredButton": "Update",
   "updateRequiredPlayError": "Couldn't open Google Play. Open the Play Store and search for «Beautica» manually.",
-  "updateRequiredInstalledVersion": "Installed version {version}"
+  "updateRequiredInstalledVersion": "Installed version {version}",
+  "weekGridDayHeader": "{weekday} {day}",
+  "weekGridDayHeaderTodaySemantics": "{weekday} {day}, today"
 }

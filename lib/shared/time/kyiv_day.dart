@@ -77,7 +77,8 @@
 
 import 'package:beautica_mobile/shared/formatters/api_date.dart' show dateOnly;
 import 'package:beautica_mobile/shared/time/time_zones.dart'
-    show toBeauticaTime;
+    show beauticaZone, toBeauticaTime;
+import 'package:timezone/timezone.dart' as tz;
 
 /// Converts [instant] — any real instant, however it was obtained — to its
 /// Kyiv calendar day, returned as a **date token** (see file header): a
@@ -183,3 +184,57 @@ DateTime kyivAddDays(DateTime token, int days) =>
 /// (`bookings_week_query.dart`) can key on the same Monday without importing
 /// a presentation file.
 DateTime kyivWeekStart(DateTime day) => kyivAddDays(day, 1 - day.weekday);
+
+/// The Kyiv MIDNIGHT (a real `TZDateTime` instant) that opens the date token
+/// [day] — the anchor [minutesSinceDayStart] measures against. Reads only
+/// `.year`/`.month`/`.day`, so it is legal on a date token. On a DST day the
+/// result is still that day's own Kyiv midnight (the zone table decides the
+/// offset), never "previous midnight + 24 h".
+tz.TZDateTime kyivMidnight(DateTime day) =>
+    tz.TZDateTime(beauticaZone, day.year, day.month, day.day);
+
+/// Kyiv wall-clock minutes from the Kyiv [midnight] (see [kyivMidnight]) to
+/// [instant] — `hour * 60 + minute` of [instant]'s Kyiv-local time, plus
+/// 1440 per Kyiv day past [midnight]. A booking ending after midnight yields a value **greater
+/// than 1440** rather than wrapping to a small number, so monotonicity holds
+/// by construction.
+///
+/// [midnight] is passed IN rather than derived here (mobile-perf MEDIUM): it
+/// is a pure function of the day, and constructing a `TZDateTime` per call
+/// cost ~3N timezone-table lookups per build.
+///
+/// Phase 482 promoted this out of
+/// `features/booking/presentation/widgets/bookings_timeline_grid.dart`
+/// (`_minutesSinceDayStart`, now a call to this function) so the week data
+/// model (`features/booking/domain/week_day_model.dart`) can bucket minutes
+/// without importing a presentation file. Re-exported by
+/// `features/booking/presentation/widgets/timeline_geometry.dart`.
+///
+/// WALL-CLOCK, NOT ELAPSED (phase 482 audit, DST fix). The result is the
+/// distance between the two Kyiv WALL-CLOCK readings, not the elapsed time
+/// between the two instants: both readings are rebuilt as UTC [DateTime]s
+/// from their calendar + clock fields (UTC has no transitions), then
+/// subtracted. On a DST-switch day (last Sunday of March / October) a
+/// 10:00 booking therefore sits at 600 — on its 10:00 ruler line — where the
+/// elapsed form gave 540 (spring forward) or 660 (fall back). On every other
+/// day the two forms are identical to the microsecond, including the
+/// truncation of seconds and the sign of an instant before [midnight]. In the
+/// fall-back repeated hour (03:00–04:00 twice) both passes read the same
+/// wall-clock minutes, as the ruler shows them.
+int minutesSinceDayStart(DateTime instant, tz.TZDateTime midnight) {
+  final tz.TZDateTime local = toBeauticaTime(instant);
+  return _wallClockUtc(local).difference(_wallClockUtc(midnight)).inMinutes;
+}
+
+/// [t]'s calendar + wall-clock fields re-read as a UTC [DateTime] — a
+/// reconstruction (like [kyivDaysBetween]'s), never `.toUtc()`.
+DateTime _wallClockUtc(DateTime t) => DateTime.utc(
+  t.year,
+  t.month,
+  t.day,
+  t.hour,
+  t.minute,
+  t.second,
+  t.millisecond,
+  t.microsecond,
+);
