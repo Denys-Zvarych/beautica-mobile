@@ -28,6 +28,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
@@ -40,6 +41,8 @@ import 'package:beautica_mobile/features/services/data/master_service_catalog_pr
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,6 +117,32 @@ const Key _createMarker = Key('stub-create-booking');
 const Key _detailMarker = Key('stub-booking-detail');
 
 enum _Mount { independent, staff, ownerMaster }
+
+/// Hours only on the CURRENT Kyiv week; every other week = all days off.
+class _OnlyThisWeekFake extends EffectiveScheduleNotifier {
+  @override
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
+    final bool thisWeek = range.from == _weekMonday;
+    return <EffectiveDay>[
+      for (DateTime d = range.from; !d.isAfter(range.to); d = kyivAddDays(d, 1))
+        EffectiveDay(
+          date: d,
+          source: EffectiveSource.template,
+          intervals: thisWeek
+              ? <WorkInterval>[
+                  WorkInterval(
+                    start: const TimeOfDay(hour: 9, minute: 0),
+                    end: const TimeOfDay(hour: 18, minute: 0),
+                  ),
+                ]
+              : const <WorkInterval>[],
+        ),
+    ];
+  }
+}
 
 void main() {
   setUpAll(() {
@@ -508,5 +537,162 @@ void main() {
       ),
       findsOne,
     );
+  });
+
+  group('week view fixes', () {
+    late bool neverLoad;
+
+    setUp(() {
+      neverLoad = false;
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          partition: any(named: 'partition'),
+          asMaster: any(named: 'asMaster'),
+        ),
+      ).thenAnswer((Invocation i) {
+        if (neverLoad) return Completer<PageResponse<Booking>>().future;
+        return Future<PageResponse<Booking>>.value(
+          const PageResponse<Booking>(
+            items: <Booking>[],
+            page: 0,
+            totalPages: 0,
+            totalElements: 0,
+          ),
+        );
+      });
+    });
+
+    Future<void> pumpWeek(
+      WidgetTester tester, {
+      DateTime Function()? clock,
+    }) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/',
+        routes: <RouteBase>[
+          GoRoute(path: '/', builder: (_, _) => const MasterBookingsScreen()),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          masterNavSetupHintsProvider.overrideWithValue(
+            BookingLinkSetupHints.none,
+          ),
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          bookingRepositoryProvider.overrideWithValue(repo),
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+          ownerMasterBookedDaysProvider.overrideWith(
+            (ref) async => <DateTime>{},
+          ),
+          bookingCreationEnabledProvider.overrideWithValue(true),
+          masterServiceCatalogProvider.overrideWith(
+            (ref) async => const <MasterService>[],
+          ),
+          effectiveScheduleProvider.overrideWith2((_) => _OnlyThisWeekFake()),
+          if (clock != null) clockProvider.overrideWithValue(clock),
+        ],
+      );
+    }
+
+    WeekStrip strip(WidgetTester tester) =>
+        tester.widget<WeekStrip>(find.byType(WeekStrip));
+
+    testWidgets('a strip tap on a no-hours week moves the strip window', (
+      WidgetTester tester,
+    ) async {
+      // Pinned to Wednesday 12:00 Kyiv of the fixtures' week (`_weekMonday`,
+      // host clock) so the kept focus weekday — and so the window position —
+      // never depends on the real date: Wednesday focus → «3 дні» window
+      // Tue–Thu, and a Saturday tap must move it right (pattern M15).
+      final DateTime wednesdayNoon = kyivMidnight(
+        kyivAddDays(_weekMonday, 2),
+      ).add(const Duration(hours: 12)).toUtc();
+      await pumpWeek(tester, clock: () => wednesdayNoon);
+      await tester.pumpAndSettle();
+      expect(find.byType(WeekTimeGrid), findsOneWidget);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(WeekStrip),
+          matching: find.byKey(WeekStepButton.nextKey),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('master-bookings-no-schedule')),
+        findsOneWidget,
+        reason: 'next week has no hours -> the no-hours state, no grid',
+      );
+      expect(find.byType(WeekTimeGrid), findsNothing);
+
+      final DateTime monday = strip(tester).weekStart;
+      final double before = tester
+          .getTopLeft(find.byKey(WeekStrip.windowKey))
+          .dx;
+      await tester.tap(find.byKey(weekStripDayKey(kyivAddDays(monday, 5))));
+      await tester.pumpAndSettle();
+      final double after = tester
+          .getTopLeft(find.byKey(WeekStrip.windowKey))
+          .dx;
+
+      expect(
+        after,
+        greaterThan(before),
+        reason: 'the window follows the tapped Saturday off Tue–Thu',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    for (final Size size in const <Size>[
+      Size(360, 800),
+      Size(393, 851),
+      Size(412, 915),
+    ]) {
+      testWidgets('the slow-load notice sits above the skeleton '
+          '(${size.width.toInt()}x${size.height.toInt()})', (
+        WidgetTester tester,
+      ) async {
+        tester.view.physicalSize = size * 2;
+        tester.view.devicePixelRatio = 2;
+        addTearDown(tester.view.reset);
+        neverLoad = true;
+        await pumpWeek(tester);
+        expect(find.byKey(const Key('my_bookings_slow_load')), findsNothing);
+
+        // fixed-wait-ok: pumpAndSettle fires no Timer — advancing past the
+        // 8 s MyBookingsSlowLoadNotice threshold needs a real clock step.
+        await tester.pump(const Duration(seconds: 9));
+        // fixed-wait-ok: lets the notice's 300 ms fade-in finish before layout
+        // is measured.
+        await tester.pump(const Duration(milliseconds: 300));
+
+        final Finder notice = find.byKey(const Key('my_bookings_slow_load'));
+        expect(notice, findsOneWidget);
+        final Rect retry = tester.getRect(
+          find.byKey(const Key('my_bookings_slow_load_retry')),
+        );
+        expect(
+          tester.getRect(notice).top,
+          lessThan(
+            tester
+                .getRect(
+                  find.byKey(
+                    const ValueKey<String>('my_bookings_loading_skeleton'),
+                  ),
+                )
+                .top,
+          ),
+        );
+        expect(retry.bottom, lessThanOrEqualTo(size.height));
+      });
+    }
   });
 }

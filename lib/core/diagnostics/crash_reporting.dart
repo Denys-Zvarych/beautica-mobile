@@ -11,9 +11,12 @@
 //     isolate-root errors), each CHAINING the previous handler;
 //     [_ensureGlobalHandlers] installs a chained fallback for either one the
 //     SDK did not.
-//     Gate [shouldEnableCrashReporting]: release/profile only, DSN non-empty,
-//     `BEAUTICA_ENV ∈ {staging, prod}` (raw dart-define — the AppConfig
-//     default does NOT count), https and not loopback/RFC 1918. Otherwise the
+//     Gate [shouldEnableCrashReporting]: DSN non-empty, https and not
+//     loopback/RFC 1918, and `BEAUTICA_ENV` (raw dart-define — the AppConfig
+//     default does NOT count) is: release/profile → `staging` or `prod`;
+//     debug → `staging` ONLY (user decision 2026-11-13; debug + prod, and
+//     local/unset env, stay off). The release-only `ErrorWidget.builder` is
+//     unchanged (debug keeps the red screen). Otherwise the
 //     SDK is never initialised (mirrors backend 371 `rule sentry-local`).
 // D4  Privacy-first options (see [_configure]); `scripts/forbid_sentry_pii_
 //     options.sh` keeps the PII switches off in `lib/`. `tracesSampleRate` is
@@ -26,8 +29,10 @@
 //     it with a fresh install ID.
 //
 // DSN and release come ONLY from `--dart-define=BEAUTICA_SENTRY_DSN=…` /
-// `--dart-define=BEAUTICA_RELEASE=…` passed by CI (phase 411) — never from
-// `config/env/*.json` (secret-free files), never from `scripts/deploy_apk*.sh`.
+// `--dart-define=BEAUTICA_RELEASE=…` passed by CI (phase 411), or — for
+// `--staging` builds only — baked by `scripts/deploy_apk*.sh` from the
+// out-of-repo `staging.env` via a temp dart-define file. Never from
+// `config/env/*.json` (secret-free files).
 
 import 'dart:async';
 import 'dart:developer';
@@ -61,9 +66,10 @@ bool shouldEnableCrashReporting({
   required String env,
   required String baseUrl,
 }) {
-  if (isDebug) return false;
   if (dsn.trim().isEmpty) return false;
   if (!kCrashReportingEnvs.contains(env)) return false;
+  // User decision 2026-11-13: debug reports only for staging.
+  if (isDebug && env != 'staging') return false;
   if (!baseUrl.startsWith('https://')) return false;
   if (AppConfig.isPrivateOrLoopbackUrl(baseUrl)) return false;
   return true;
@@ -111,8 +117,9 @@ abstract final class CrashReporting {
   static DiagnosticsStore? _store;
   static void Function(SentryFlutterOptions)? _debugConfigure;
 
-  /// `true` when this build passed the gate (release/profile + DSN + env +
-  /// public https URL), regardless of the user's opt-out.
+  /// `true` when this build passed the gate (DSN + env + public https URL;
+  /// release/profile `staging`/`prod`, or debug `staging` only), regardless
+  /// of the user's opt-out.
   static bool get isConfigured => _configured;
 
   /// `true` while the SDK is initialised and the user has not opted out.

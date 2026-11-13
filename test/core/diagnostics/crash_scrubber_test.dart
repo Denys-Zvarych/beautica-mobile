@@ -382,4 +382,84 @@ void main() {
       _expectClean('${out.data} ${out.message}');
     });
   });
+
+  group('absolute paths', () {
+    test('usernames with spaces are fully redacted', () {
+      for (final String p in <String>[
+        '/Users/John Smith/dev/app/lib/main.dart',
+        '/home/Mary Ann Lee/x/y.dart',
+        r'C:\Users\John Smith\dev\app\main.dart',
+      ]) {
+        final String out = redactText('failed at $p:12');
+        expect(out, contains('[path]'), reason: p);
+        expect(out, isNot(contains('Smith')), reason: p);
+        expect(out, isNot(contains('Ann')), reason: p);
+        expect(out, isNot(contains('main.dart')), reason: p);
+      }
+    });
+
+    test('redactText replaces local filesystem paths', () {
+      for (final String p in <String>[
+        '/home/zvarych/Projects/Beautifier/lib/main.dart',
+        '/Users/olena/dev/app/lib/main.dart',
+        r'C:\Users\olena\dev\app\lib\main.dart',
+        'file:///home/zvarych/Projects/x/main.dart',
+      ]) {
+        final String out = redactText('failed at $p:12');
+        expect(out, contains('[path]'), reason: p);
+        expect(out, isNot(contains('zvarych')), reason: p);
+        expect(out, isNot(contains('olena')), reason: p);
+      }
+    });
+
+    test('POSIX path roots are case-sensitive: API paths survive', () {
+      expect(redactText('GET /users/me 500'), 'GET /users/me 500');
+      expect(redactText('/home-feed/x'), '/home-feed/x');
+    });
+
+    test('real POSIX and any-case Windows paths are still redacted', () {
+      expect(redactText('/Users/John Smith/app/x.dart'), '[path]');
+      expect(redactText('/home/dev/x'), '[path]');
+      expect(redactText(r'c:\users\bob\x'), '[path]');
+    });
+
+    test('package URIs and API paths are untouched', () {
+      expect(
+        redactText('package:beautica_mobile/main.dart GET /api/v1/users/home'),
+        'package:beautica_mobile/main.dart GET /api/v1/users/home',
+      );
+    });
+
+    test('stack frame absPath dropped, fileName kept / redacted', () {
+      final SentryEvent out = scrubEvent(
+        SentryEvent(
+          exceptions: <SentryException>[
+            SentryException(
+              type: 'StateError',
+              value: 'boom at /home/zvarych/Projects/x/lib/a.dart',
+              stackTrace: SentryStackTrace(
+                frames: <SentryStackFrame>[
+                  SentryStackFrame(
+                    absPath: 'file:///home/zvarych/Projects/x/lib/a.dart',
+                    fileName: 'package:beautica_mobile/a.dart',
+                  ),
+                  SentryStackFrame(
+                    absPath: '/Users/olena/x/b.dart',
+                    fileName: '/Users/olena/x/b.dart',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+      final SentryException ex = out.exceptions!.single;
+      expect(ex.value, 'boom at [path]');
+      final List<SentryStackFrame> frames = ex.stackTrace!.frames;
+      expect(frames[0].absPath, isNull);
+      expect(frames[0].fileName, 'package:beautica_mobile/a.dart');
+      expect(frames[1].absPath, isNull);
+      expect(frames[1].fileName, '[path]');
+    });
+  });
 }
