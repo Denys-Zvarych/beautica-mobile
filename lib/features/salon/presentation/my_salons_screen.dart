@@ -383,6 +383,13 @@ class _HubContent extends StatelessWidget {
                 onBack: () {
                   if (context.canPop()) context.pop();
                 },
+                // Phase 489 — the empty hub (every salon deleted) has no
+                // salon shell left to reach settings from, so it offers the
+                // Owner Settings Hub here («Акаунт» → «Видалити акаунт»,
+                // logout). A hub with salons passes nothing: unchanged.
+                onSettings: salons.isEmpty
+                    ? () => context.pushOnce(RouteNames.ownerSettings)
+                    : null,
               ),
             ),
           );
@@ -603,9 +610,14 @@ class _DeleteInFlightOverlay extends StatelessWidget {
 /// [VelvetText.wordmark], which is reserved for the literal "beautica" brand
 /// mark, not a screen's own title.
 class _HubTopBar extends StatelessWidget {
-  const _HubTopBar({required this.onBack});
+  const _HubTopBar({required this.onBack, this.onSettings});
 
   final VoidCallback onBack;
+
+  /// Phase 489 — when non-null, a trailing settings button (same tune icon
+  /// and label as the owner's own-profile settings action) follows the bell.
+  /// `null` (default) renders the bar exactly as before.
+  final VoidCallback? onSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -632,6 +644,17 @@ class _HubTopBar extends StatelessWidget {
           const ConnectedNotificationBell(
             buttonKey: Key('my_salons_bell_button'),
           ),
+          if (onSettings case final VoidCallback openSettings) ...<Widget>[
+            const SizedBox(width: VelvetSpacing.sm),
+            NeumorphicIconButton(
+              key: const Key('my_salons_settings_button'),
+              icon: Icons.tune_rounded,
+              semanticLabel: AppLocalizations.of(
+                context,
+              ).ownerOwnProfileSettingsSemanticLabel,
+              onTap: openSettings,
+            ),
+          ],
         ],
       ),
     );

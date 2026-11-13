@@ -537,9 +537,10 @@ void main() {
           find.byKey(const Key('row-delete-account')),
           findsNothing,
           reason:
-              'canSelfDeleteAccountProvider must fail closed for '
-              'SALON_OWNER — DELETE /api/v1/users/me 403s this role '
-              'server-side',
+              'canSelfDeleteAccountProvider must fail closed for a '
+              'SALON_OWNER with an active salon — DELETE /api/v1/users/me '
+              'answers 409 OWNER_HAS_ACTIVE_SALONS (phase 489; the '
+              'no-active-salon case is owner_delete_account_flow_test)',
         );
       });
     },

@@ -11,7 +11,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/state/settled_value.dart';
 import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 
 import '../domain/auth_session.dart';
 import '../domain/user.dart';
@@ -114,9 +117,15 @@ bool isClient(Ref ref) {
 /// Returns `true` only when the settled session is [Authenticated] with a
 /// role the backend allows to self-delete via `DELETE /api/v1/users/me`:
 /// [UserRole.client], [UserRole.salonAdmin], [UserRole.salonMaster], or
-/// [UserRole.independentMaster]. `false` for [UserRole.salonOwner] — an
-/// owner owns a salon with staff beneath them and is deliberately excluded
-/// server-side (403).
+/// [UserRole.independentMaster]. [UserRole.salonOwner] only when the
+/// owner's salon list ([mySalonsProvider], the same list «Мої салони»
+/// renders) has SETTLED to an empty list — phase 489 / SUP-11: the backend
+/// accepts an owner with no active salon and answers 409
+/// `OWNER_HAS_ACTIVE_SALONS` otherwise. First load, errored or non-empty →
+/// `false`; a reload keeps the previous settled answer (no flicker — see
+/// [_ownerHasNoActiveSalons]). The salon
+/// list is watched ONLY in the owner arm, so no other role ever triggers a
+/// `GET /salons/mine` (which would 403 for them).
 ///
 /// One capability selector rather than four separate `isX` watches at the
 /// call site: [SettingsScreen._showDeleteAccountRow] needs a single yes/no
@@ -140,8 +149,26 @@ bool canSelfDeleteAccount(Ref ref) {
     UserRole.salonAdmin ||
     UserRole.salonMaster ||
     UserRole.independentMaster => true,
-    UserRole.salonOwner => false,
+    UserRole.salonOwner => _ownerHasNoActiveSalons(ref),
   };
+}
+
+/// Phase 489 — `true` only when [mySalonsProvider]'s last SETTLED value is an
+/// empty list. `GET /salons/mine` lists active salons only, so an empty
+/// settled list means "every salon deleted". The backend 409 stays the
+/// authority (D2); this only decides whether the row is offered.
+///
+/// While the list RELOADS (`isLoading` carrying a previous value) the
+/// previous settled value decides, so a reload of an empty list keeps the
+/// row instead of flickering it away; a reload that resolves non-empty hides
+/// it once it settles. First load (no value yet) and any error → `false`.
+bool _ownerHasNoActiveSalons(Ref ref) {
+  final AsyncValue<List<Salon>> async = ref.watch(mySalonsProvider);
+  if (async.hasError) return false;
+  final List<Salon>? salons = async.isLoading
+      ? async.value
+      : settledValueOrNull(async);
+  return salons != null && salons.isEmpty;
 }
 
 /// Phase 426 D1 — `true` only when the settled session is [Authenticated] as

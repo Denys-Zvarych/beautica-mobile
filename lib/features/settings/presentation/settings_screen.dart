@@ -25,8 +25,8 @@
 // hub's own title is «Налаштування»; THIS page (`accountTitle` = «Акаунт») is
 // the «Акаунт» screen the row belongs on. `DELETE /api/v1/users/me` is
 // allowed server-side for CLIENT, SALON_ADMIN, SALON_MASTER, and
-// INDEPENDENT_MASTER (403 for SALON_OWNER, deliberately — an owner owns a
-// salon with staff beneath them), and this screen is shared across roles
+// INDEPENDENT_MASTER (and, since B488, a SALON_OWNER with no active salon —
+// see the phase 489 note below), and this screen is shared across roles
 // (reached by CLIENT via the hub's row-account, by both master roles via the
 // master/salon-master settings hub, and by SALON_ADMIN via their own-profile
 // tune button), so the row is gated behind [_showDeleteAccountRow] — the
@@ -44,6 +44,10 @@
 // dialog copy — see [_deleteAccountConfirmBody]: a master's upcoming
 // bookings belong to their CLIENTS, not to them, so the CLIENT-authored
 // default text would misstate whose bookings are cancelled.
+//
+// Phase 489 — a SALON_OWNER whose salon list has settled to empty also sees
+// the row (owner-specific body); a 409 `OWNER_HAS_ACTIVE_SALONS` reloads the
+// salon list via the flow's additive `onFailure` hook.
 //
 // Legal group (2026-10-27, Google Play User Data policy) — «Правова
 // інформація» section with «Політика конфіденційності» and «Умови
@@ -84,6 +88,7 @@ import '../../../features/auth/presentation/auth_notifier.dart';
 import '../../../features/auth/presentation/auth_selectors.dart';
 import '../../../features/master/presentation/widgets/section_scaffold.dart';
 import '../../../features/master/presentation/widgets/settings_row.dart';
+import '../../../features/salon/application/my_salons_notifier.dart';
 import '../../../features/salon/presentation/delete_salon_flow.dart';
 import '../../../features/settings/presentation/delete_account_flow.dart';
 import '../../../features/settings/presentation/notification_permission_notifier.dart';
@@ -324,7 +329,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   /// but via [canSelfDeleteAccountProvider] (`auth_selectors.dart`), not
   /// [isClientProvider]: widened 2026-09-08 so SALON_ADMIN, SALON_MASTER,
   /// and INDEPENDENT_MASTER also reach the row, matching the backend's own
-  /// `@PreAuthorize` role list. Fails closed on SALON_OWNER and every
+  /// `@PreAuthorize` role list. Phase 489: a SALON_OWNER reaches it only
+  /// while their salon list has settled to empty. Fails closed on every
   /// unauthenticated / unsettled / errored session.
   bool get _showDeleteAccountRow => ref.watch(canSelfDeleteAccountProvider);
 
@@ -338,22 +344,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   /// entirely: an admin has no calendar of their own (D3) and the backend's
   /// `StaffAccountSelfDeletionService` never checks or cancels a booking for
   /// that role, so neither the client nor the master sentence is true for
-  /// them. `ref.read`, not `ref.watch` — this is a one-shot lookup at tap
-  /// time inside an action, not a value the build method needs to react to
-  /// (the row itself is already gated on [_showDeleteAccountRow], so a
-  /// SALON_OWNER — who has no self-delete copy of their own — can never
-  /// reach this getter; the exhaustive `switch` falls back to the CLIENT
-  /// string for that unreachable case rather than throwing).
+  /// them. Phase 489: a SALON_OWNER with no active salon gets
+  /// `deleteAccountConfirmBodyOwner` (their deleted salons' history stays
+  /// with clients, without the owner's data). `ref.read`, not `ref.watch` —
+  /// this is a one-shot lookup at tap time inside an action, not a value the
+  /// build method needs to react to.
   String _deleteAccountConfirmBody(AppLocalizations l10n) {
     final role = ref.read(currentUserProvider)?.role;
     return switch (role) {
       UserRole.salonMaster ||
       UserRole.independentMaster => l10n.deleteAccountConfirmBodyMaster,
       UserRole.salonAdmin => l10n.deleteAccountConfirmBodyAdmin,
-      UserRole.client ||
-      UserRole.salonOwner ||
-      null => l10n.deleteAccountConfirmBody,
+      UserRole.salonOwner => l10n.deleteAccountConfirmBodyOwner,
+      UserRole.client || null => l10n.deleteAccountConfirmBody,
     };
+  }
+
+  /// Phase 489 — the server says the owner still has an active salon (the
+  /// row was offered from a stale empty list). Reload the salon list: the
+  /// row hides while it loads and stays hidden once it holds a salon. The
+  /// session is kept; the flow already showed the snack.
+  void _onDeleteAccountFailure(Failure failure) {
+    if (failure is AccountDeleteOwnerHasActiveSalonsFailure) {
+      ref.invalidate(mySalonsProvider);
+    }
   }
 
   @override
@@ -511,13 +525,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ],
           // Relocated (2026-09-08) — «Видалити акаунт», last row on the
           // page. Reachable by CLIENT, SALON_ADMIN, SALON_MASTER, and
-          // INDEPENDENT_MASTER; fails closed on SALON_OWNER and every
-          // unauthenticated / unsettled / errored session — see
-          // [_showDeleteAccountRow]. A SALON_OWNER (who also owns a salon,
-          // hence [_showDeleteSalonRow]) sees delete-salon first,
-          // delete-account never — the two rows are not mutually exclusive
-          // in general, just in practice, since no role today satisfies
-          // both gates at once.
+          // INDEPENDENT_MASTER; since phase 489 also by a SALON_OWNER whose
+          // salon list has settled EMPTY (every salon deleted). Fails closed
+          // on an owner with an active salon, on a salon-list first load or
+          // error, and on every unauthenticated / unsettled / errored
+          // session — see [_showDeleteAccountRow] /
+          // `canSelfDeleteAccountProvider`. A SALON_OWNER who still owns a
+          // salon (hence [_showDeleteSalonRow]) sees delete-salon, not
+          // delete-account; the account row appears only once the last
+          // salon is gone (backend 409 `OWNER_HAS_ACTIVE_SALONS` otherwise).
           //
           // Divider styling matches the delete-salon divider above verbatim
           // (thickness 0.6, accent @ ~22%, VelvetSpacing.lg vertical pad) —
@@ -558,6 +574,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                     inFlight: _deletingAccount,
                     loading: _deletingAccountLoading,
                     confirmBody: _deleteAccountConfirmBody(l10n),
+                    onFailure: _onDeleteAccountFailure,
                   ),
                 ),
               ),

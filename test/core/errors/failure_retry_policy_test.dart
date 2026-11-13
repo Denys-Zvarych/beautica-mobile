@@ -121,6 +121,9 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // retry meets the identical booking count, so it 422s again; recovery is
   // a deliberate user action (cancel some bookings first).
   'AccountDeleteBookingLimitFailure': false,
+  // DELETE /users/me, 409 OWNER_HAS_ACTIVE_SALONS (phase 489) — the owner
+  // must delete the salon first; an identical retry 409s again.
+  'AccountDeleteOwnerHasActiveSalonsFailure': false,
   'DuplicateServiceFailure': false,
   'ServiceDuplicateFailure': false,
   // 409 on salon-target unassign (phase 316 D2/D4) — backend refuses before
@@ -214,6 +217,8 @@ Map<String, Failure> _instances() {
     'AccountDeleteBookingLimitFailure': const AccountDeleteBookingLimitFailure(
       serverMessage: 'Скасуйте деякі записи перед видаленням акаунта.',
     ),
+    'AccountDeleteOwnerHasActiveSalonsFailure':
+        const AccountDeleteOwnerHasActiveSalonsFailure(),
     'DuplicateServiceFailure': const DuplicateServiceFailure(),
     'ServiceDuplicateFailure': const ServiceDuplicateFailure(),
     'ServiceUnassignBlockedFailure': const ServiceUnassignBlockedFailure(),

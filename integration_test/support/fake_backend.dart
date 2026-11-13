@@ -2222,6 +2222,40 @@ final class FakeBackend {
   /// endpoint (mobile-qa, 2026-09-08).
   int deleteMyAccountCalls = 0;
 
+  /// Phase 489 QA — opt-in model of a SALON_OWNER's account lifecycle:
+  /// delete → re-register with the SAME email → a brand-new account that sees
+  /// none of the old data (user decision 2026-11-12). Off (default) = every
+  /// handler below is byte-identical to before.
+  ///
+  /// When on:
+  ///   • a SUCCESSFUL `DELETE /users/me` wipes the old account's server state
+  ///     ([mySalons], [mediaAvatarUrl], [masterProfessionalTitle]) and sets
+  ///     [ownerAccountDeleted];
+  ///   • `POST /auth/register` echoes the SENT email (not `new@beautica.ua`);
+  ///   • `POST /auth/verify-email` after such a register as SALON_OWNER issues
+  ///     a NEW owner identity ([reRegisteredOwnerJson], id `user-owner-2`,
+  ///     names from the register body) instead of `_masterUserJson`, and the
+  ///     owner `GET /users/me` + `POST /salons` (`ownerId`) use it.
+  ///
+  /// Body-level only (no status code changes), so it is safe to set after
+  /// construction.
+  bool modelOwnerAccountLifecycle = false;
+
+  /// Phase 489 QA — set by a successful `DELETE /users/me` while
+  /// [modelOwnerAccountLifecycle] is on.
+  bool ownerAccountDeleted = false;
+
+  /// Phase 489 QA — the re-registered owner's identity (see
+  /// [modelOwnerAccountLifecycle]); `null` until then.
+  Map<String, dynamic>? reRegisteredOwnerJson;
+
+  void _wipeDeletedOwnerAccount() {
+    ownerAccountDeleted = true;
+    mySalons.clear();
+    mediaAvatarUrl = null;
+    masterProfessionalTitle = null;
+  }
+
   /// When set (constructor-time — see [masterMeNotFound]'s identical note:
   /// `DioAdapter.onRoute` fixes a route's STATUS CODE at registration, only
   /// the BODY is resolved per request, and route wiring runs from THIS
@@ -8166,7 +8200,9 @@ final class FakeBackend {
         lastRegisterBody = _decodeBody(req.data);
         return _ok(<String, dynamic>{
           'verificationRequired': true,
-          'email': 'new@beautica.ua',
+          'email': modelOwnerAccountLifecycle
+              ? lastRegisterBody!['email']
+              : 'new@beautica.ua',
         });
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -8192,6 +8228,24 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         verifyEmailCalls++;
         lastVerifyEmailEmail = _decodeBody(req.data)['email'] as String?;
+        final Map<String, dynamic>? reg = lastRegisterBody;
+        if (modelOwnerAccountLifecycle &&
+            ownerAccountDeleted &&
+            reg != null &&
+            reg['role'] == 'SALON_OWNER') {
+          ownerFirstName = reg['firstName'] as String? ?? '';
+          ownerLastName = reg['lastName'] as String? ?? '';
+          final Map<String, dynamic> fresh = <String, dynamic>{
+            'id': 'user-owner-2',
+            'email': lastVerifyEmailEmail ?? reg['email'],
+            'role': 'SALON_OWNER',
+            'firstName': ownerFirstName,
+            'lastName': ownerLastName,
+            'phoneNumber': reg['phoneNumber'],
+          };
+          reRegisteredOwnerJson = fresh;
+          return _authResponse(fresh);
+        }
         return _authResponse(_masterUserJson);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -8389,6 +8443,7 @@ final class FakeBackend {
           // Phase 137 — owner identity is mutable (see [ownerFirstName]).
           UserRole.salonOwner => _ok(<String, dynamic>{
             ...userJsonForRole(currentRole),
+            ...?reRegisteredOwnerJson,
             'firstName': ownerFirstName,
             'lastName': ownerLastName,
             // Phase 399 — the label lives on the shared `users` row, so the
@@ -8451,7 +8506,7 @@ final class FakeBackend {
             mySalons.add(
               withSeededSalonLocality(<String, dynamic>{
                 'id': newId,
-                'ownerId': 'user-owner-1',
+                'ownerId': reRegisteredOwnerJson?['id'] ?? 'user-owner-1',
                 'name': body['name'] as String? ?? '',
                 // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/
                 // `.oblastId` are non-null on the wire. `register_salon_
@@ -8671,6 +8726,7 @@ final class FakeBackend {
             if (deleteMyAccountFailureStatusCode != null) {
               return <String, dynamic>{'success': false, 'data': null};
             }
+            if (modelOwnerAccountLifecycle) _wipeDeletedOwnerAccount();
             return null;
           }),
       request: const Request(method: RequestMethods.delete),
