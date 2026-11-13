@@ -17,7 +17,7 @@
 //
 // The headline invariant pinned throughout is FALLBACK TOTALITY: for ANY
 // input — known, unknown, null, empty, or adversarial — the function must
-// (a) never throw and (b) always return one of the 21 real, bundled
+// (a) never throw and (b) always return one of the 22 real, bundled
 // `BeauticaAssetIcons.category*` asset paths. See the "totality" group at
 // the bottom, which is the load-bearing assertion for the security finding.
 
@@ -29,7 +29,7 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
 
 // ---------------------------------------------------------------------------
-// The 21 live `platform_categories` slugs (V74__seed_taxonomy_platform_
+// The 22 live `platform_categories` slugs (V74__seed_taxonomy_platform_
 // categories.sql + backend phase 453 `BODY_MASSAGE`) mapped to the asset constant `_fromKey` must resolve them
 // to. Declared once here so the "every known slug" and "totality" groups
 // share one source of truth instead of two hand-typed lists drifting apart.
@@ -57,9 +57,10 @@ const Map<String, String> _knownSlugToAsset = <String, String>{
   'HAIR_REMOVAL': BeauticaAssetIcons.categoryHairRemoval,
   'PERMANENT_MAKEUP': BeauticaAssetIcons.categoryPermanentMakeup,
   'BODY_MASSAGE': BeauticaAssetIcons.categoryBodyMassage,
+  'NAVCHANNIA': BeauticaAssetIcons.categoryNavchannia,
 };
 
-/// All 21 registered category asset constants — the resolver's total
+/// All 22 registered category asset constants — the resolver's total
 /// codomain. Any input, however adversarial, must resolve to a member of
 /// this set (see the "totality" group).
 final Set<String> _registeredCategoryAssets = _knownSlugToAsset.values.toSet();
@@ -78,20 +79,20 @@ void main() {
     });
 
     test(
-      'all 21 known slugs are registered (sanity on the fixture itself)',
+      'all 22 known slugs are registered (sanity on the fixture itself)',
       () {
-        expect(_knownSlugToAsset.length, 21);
+        expect(_knownSlugToAsset.length, 22);
       },
     );
 
-    test('all 21 known slugs resolve to 21 DISTINCT assets — no accidental '
+    test('all 22 known slugs resolve to 22 DISTINCT assets — no accidental '
         'many-to-one collapse in the switch', () {
       final Set<String> resolved = _knownSlugToAsset.keys
           .map((String slug) => categoryIconFor(categoryKey: slug))
           .toSet();
       expect(
         resolved.length,
-        21,
+        22,
         reason:
             'a copy-paste error in _fromKey\'s switch could map two slugs '
             'to the same asset without any single-slug test catching it',
@@ -103,6 +104,113 @@ void main() {
       expect(
         categoryIconFor(categoryName: 'Масаж і догляд за тілом'),
         BeauticaAssetIcons.categoryBodyMassage,
+      );
+    });
+
+    test('slug NAVCHANNIA resolves to the navchannia asset', () {
+      expect(
+        categoryIconFor(categoryKey: 'NAVCHANNIA'),
+        BeauticaAssetIcons.categoryNavchannia,
+      );
+    });
+
+    for (final String name in <String>[
+      'Навчання',
+      'Курси для майстрів',
+      'Підвищення кваліфікації',
+    ]) {
+      test('display name «$name» resolves to the navchannia asset when no key '
+          'is present (Stage 2)', () {
+        expect(
+          categoryIconFor(categoryName: name),
+          BeauticaAssetIcons.categoryNavchannia,
+        );
+      });
+    }
+
+    test('lowercase slug "navchannia" resolves to the navchannia asset', () {
+      expect(
+        categoryIconFor(categoryKey: 'navchannia'),
+        BeauticaAssetIcons.categoryNavchannia,
+      );
+    });
+
+    test('upper-case display name «НАВЧАННЯ» still matches (keyword match is '
+        'case-insensitive)', () {
+      expect(
+        categoryIconFor(categoryName: 'НАВЧАННЯ'),
+        BeauticaAssetIcons.categoryNavchannia,
+      );
+    });
+
+    // Intended priority (SVC-04 name fallback): the training keywords are
+    // checked FIRST, so a course ABOUT a service is a training item, not the
+    // service itself. «Курс манікюру» is a course, not a manicure booking.
+    for (final (String name, String wouldOtherwiseBe) in <(String, String)>[
+      ('Курс манікюру', BeauticaAssetIcons.categoryNailService),
+      ('Курс педикюру', BeauticaAssetIcons.categoryPodology),
+      ('Навчання з архітектури брів', BeauticaAssetIcons.categoryBrows),
+      (
+        'Підвищення кваліфікації косметолога',
+        BeauticaAssetIcons.categoryCosmetology,
+      ),
+    ]) {
+      test('training keyword wins over a service keyword: «$name» → '
+          'navchannia, not the service asset', () {
+        final String result = categoryIconFor(categoryName: name);
+        expect(result, BeauticaAssetIcons.categoryNavchannia);
+        expect(result, isNot(wouldOtherwiseBe));
+      });
+    }
+
+    // Training keywords match only at a word start: «курс» inside «Конкурс» /
+    // «Екскурсія» is not a course and must fall through to the normal result.
+    for (final String name in <String>['Конкурс', 'Екскурсія', 'ЕКСКУРСІЯ']) {
+      test('«$name» contains «курс» mid-word → cosmetology fallback, not '
+          'navchannia', () {
+        expect(
+          categoryIconFor(categoryName: name),
+          BeauticaAssetIcons.categoryCosmetology,
+        );
+      });
+    }
+
+    test('«Конкурсний манікюр» resolves to its service asset, not '
+        'navchannia', () {
+      expect(
+        categoryIconFor(categoryName: 'Конкурсний манікюр'),
+        BeauticaAssetIcons.categoryNailService,
+      );
+    });
+
+    test('«Перекваліфікація» — «кваліфікац» mid-word still matches '
+        'navchannia', () {
+      expect(
+        categoryIconFor(categoryName: 'Перекваліфікація'),
+        BeauticaAssetIcons.categoryNavchannia,
+      );
+    });
+
+    for (final String name in <String>['Міні-курс', '(Курс) манікюру']) {
+      test('«$name» — keyword after punctuation still matches navchannia', () {
+        expect(
+          categoryIconFor(categoryName: name),
+          BeauticaAssetIcons.categoryNavchannia,
+        );
+      });
+    }
+
+    test('categoryKey NAVCHANNIA wins over a conflicting service name', () {
+      expect(
+        categoryIconFor(categoryKey: 'NAVCHANNIA', categoryName: 'Манікюр'),
+        BeauticaAssetIcons.categoryNavchannia,
+      );
+    });
+
+    test('a real service key wins over a training-keyword name', () {
+      expect(
+        categoryIconFor(categoryKey: 'NAIL_SERVICE', categoryName: 'Курс'),
+        BeauticaAssetIcons.categoryNailService,
       );
     });
 
@@ -285,7 +393,7 @@ void main() {
     });
   });
 
-  // ── Totality: the resolver NEVER returns a path outside the 21 real ──────
+  // ── Totality: the resolver NEVER returns a path outside the 22 real ──────
   //              registered/bundled assets — the security-load-bearing group.
 
   group('categoryIconFor — totality: every returned path is a real, registered '
@@ -333,12 +441,12 @@ void main() {
           isTrue,
           reason:
               'categoryIconFor returned "$result", which is NOT one of '
-              'the 21 registered BeauticaAssetIcons.category* constants',
+              'the 22 registered BeauticaAssetIcons.category* constants',
         );
       });
     }
 
-    test('every one of the 21 registered category assets is a real file '
+    test('every one of the 22 registered category assets is a real file '
         'bundled under assets/icons/ (catches a typo\'d/missing SVG the '
         'Dart type system cannot)', () {
       for (final String assetPath in _registeredCategoryAssets) {
@@ -435,6 +543,18 @@ void main() {
       expect(
         categoryIconOrNullFor(categoryKey: '', categoryName: 'Манікюр'),
         BeauticaAssetIcons.categoryNailService,
+      );
+    });
+
+    test('NAVCHANNIA key or a training name is NOT gated — resolves to the '
+        'navchannia asset', () {
+      expect(
+        categoryIconOrNullFor(categoryKey: 'NAVCHANNIA'),
+        BeauticaAssetIcons.categoryNavchannia,
+      );
+      expect(
+        categoryIconOrNullFor(categoryKey: ' ', categoryName: 'Навчання'),
+        BeauticaAssetIcons.categoryNavchannia,
       );
     });
 

@@ -13,7 +13,7 @@
 // `docs/mobile-phases/category-icons-resume.md` for the full history.
 //
 // [categoryIconFor] is the reconciliation point: ONE function, returning a
-// real SVG asset path (not a generic Material glyph) from the 21 category
+// real SVG asset path (not a generic Material glyph) from the 22 category
 // icons registered on [BeauticaAssetIcons]. Its first caller was the BEAUTY
 // TIMELINE rail (`lib/features/home/presentation/widgets/beauty_timeline_section.dart`);
 // a second caller was added when the CLIENT SEARCH category rail migrated
@@ -100,10 +100,10 @@ String? categoryIconOrNullFor({String? categoryKey, String? categoryName}) {
 }
 
 /// Fallback for an unrecognised/absent category — the closest general
-/// "beauty services" glyph among the 21 registered category icons.
+/// "beauty services" glyph among the 22 registered category icons.
 const String _fallback = BeauticaAssetIcons.categoryCosmetology;
 
-/// Stage 1 — exact match against the 21 live `platform_categories` slugs.
+/// Stage 1 — exact match against the 22 live `platform_categories` slugs.
 String? _fromKey(String? categoryKey) {
   if (categoryKey == null || categoryKey.isEmpty) return null;
   return switch (categoryKey.toUpperCase()) {
@@ -128,6 +128,7 @@ String? _fromKey(String? categoryKey) {
     'HAIR_REMOVAL' => BeauticaAssetIcons.categoryHairRemoval,
     'PERMANENT_MAKEUP' => BeauticaAssetIcons.categoryPermanentMakeup,
     'BODY_MASSAGE' => BeauticaAssetIcons.categoryBodyMassage,
+    'NAVCHANNIA' => BeauticaAssetIcons.categoryNavchannia,
     _ => null,
   };
 }
@@ -139,6 +140,14 @@ String? _fromName(String? categoryName) {
   if (categoryName == null || categoryName.isEmpty) return null;
   final String lower = categoryName.toLowerCase();
 
+  // «навчан» / «курс» match at a word start only: a bare substring would
+  // catch «Конкурс» / «Екскурсія» (both contain «курс») as training items.
+  // «кваліфікац» stays a plain substring so «Перекваліфікація» still matches.
+  if (_hasWordStarting(lower, 'навчан') ||
+      _hasWordStarting(lower, 'курс') ||
+      lower.contains('кваліфікац')) {
+    return BeauticaAssetIcons.categoryNavchannia;
+  }
   if (lower.contains('манікюр')) return BeauticaAssetIcons.categoryNailService;
   if (lower.contains('педикюр')) return BeauticaAssetIcons.categoryPodology;
   if (lower.contains('бров')) return BeauticaAssetIcons.categoryBrows;
@@ -190,3 +199,23 @@ String? _fromName(String? categoryName) {
   }
   return null;
 }
+
+/// True when [prefix] occurs in [text] at the start of a word: at index 0,
+/// or right after a character that is not a letter or an apostrophe (space,
+/// punctuation, digit). Linear scan, no RegExp.
+bool _hasWordStarting(String text, String prefix) {
+  int index = text.indexOf(prefix);
+  while (index >= 0) {
+    if (index == 0 || !_isWordChar(text[index - 1])) return true;
+    index = text.indexOf(prefix, index + 1);
+  }
+  return false;
+}
+
+/// A letter (any script with case — Cyrillic, Latin) or an in-word
+/// apostrophe (`'`, `’`, `ʼ`), so «пʼ» never splits a word.
+bool _isWordChar(String char) =>
+    char.toLowerCase() != char.toUpperCase() ||
+    char == '\'' ||
+    char == '’' ||
+    char == 'ʼ';
