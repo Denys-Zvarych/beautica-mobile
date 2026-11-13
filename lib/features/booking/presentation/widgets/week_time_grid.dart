@@ -241,6 +241,11 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   Timer? _settle;
   final ForwardedScrollDrag _headerDrag = ForwardedScrollDrag();
 
+  /// Bumped on every metrics change of the vertical scroll (first attach,
+  /// viewport resize, rotation) — a scroll offset that did not move sends no
+  /// controller notification, so the pinned «Вихідний» listens to this too.
+  final ValueNotifier<int> _metricsTick = ValueNotifier<int>(0);
+
   /// One [freeDeclaredTimes] memo per column (index = weekday) — a rebuild
   /// with identical inputs reuses the last merge.
   final List<FreeDeclaredTimesMemo> _freeTimes = <FreeDeclaredTimesMemo>[
@@ -329,8 +334,10 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   }
 
   /// Opens scrolled to an hour before now when today is in the week (so the
-  /// now-line and the next bookings are on screen), else to the window's
-  /// first content hour (one hour below its margin).
+  /// now-line and the next bookings are on screen), else to the window's top
+  /// — since phase 492 (no margin) that IS the week's first working hour.
+  /// Both targets clamp to the scroll extent, so an early «now» simply opens
+  /// at the top.
   ///
   /// [target] re-applies an earlier anchor minute ([_reanchor]); `null` =
   /// the carried [WeekTimeGrid.topMinute], else the opening rule.
@@ -345,7 +352,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
         (_todayIndex >= 0
                 ? minutesSinceDayStart(widget.now, kyivMidnight(widget.today)) -
                       60
-                : origin + 60)
+                : origin)
             .toDouble();
     final ScrollPosition v = _vertical.position;
     final double offset = ((minute - origin) / 60 * hourH)
@@ -459,6 +466,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     widget.pageController.removeListener(_syncHeader);
     _headerController.dispose();
     _vertical.dispose();
+    _metricsTick.dispose();
     super.dispose();
   }
 
@@ -595,95 +603,106 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
           ),
           // ── One vertical scroll for the ruler and all seven columns ────────
           Expanded(
-            child: SingleChildScrollView(
-              key: WeekTimeGrid.verticalScrollKey,
-              controller: _vertical,
-              child: SizedBox(
-                height: gridH,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    SizedBox(
-                      width: rulerWidth,
-                      height: gridH,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: <Widget>[
-                          TimelineHourRuler(
-                            firstHour: window.firstHour,
-                            lastHour: window.lastHour,
-                            hourHeight: hourH,
-                          ),
-                          if (liveNow != null)
-                            ValueListenableBuilder<DateTime>(
-                              valueListenable: liveNow,
-                              builder:
-                                  (BuildContext _, DateTime now, Widget? _) =>
-                                      nowPill(now) ?? const SizedBox.shrink(),
-                            )
-                          else if (nowPill(widget.now) case final Widget pill)
-                            pill,
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: NotificationListener<ScrollNotification>(
-                        onNotification: _onPagerScroll,
-                        child: PageView.builder(
-                          key: WeekTimeGrid.pagerKey,
-                          controller: widget.pageController,
-                          padEnds: false,
-                          // «3 дні»: free momentum across the whole week — a
-                          // fling can run Mon→Sun in one gesture — settling on
-                          // the nearest day boundary at rest. `pageSnapping`
-                          // MUST be false or PageView wraps these physics in
-                          // its own page physics (one day per swipe). «День»
-                          // keeps one-day paging.
-                          pageSnapping: !exact,
-                          physics: exact
-                              ? DaySnapScrollPhysics(
-                                  visibleColumns: widget.visibleColumns,
-                                  parent: const ClampingScrollPhysics(),
-                                )
-                              : null,
-                          itemCount: kWeekGridDays,
-                          // Phase 486 perf: the builder delegate's default
-                          // `addRepaintBoundaries` gives every column its own
-                          // layer, and with no implicit-scrolling cache only
-                          // the columns in the viewport (plus the one
-                          // sliding in) are built — never all seven.
-                          itemBuilder: (BuildContext context, int i) {
-                            final Widget column = _DayColumn(
-                              key: WeekTimeGrid.columnKey(i),
-                              index: i,
-                              model: widget.days[i],
-                              vertical: _vertical,
-                              showsAllOccupancy: widget.showsAllOccupancy,
-                              freeTimes: _freeTimes[i],
-                              isToday: i == todayIndex,
-                              nowMinuteOf: i == todayIndex ? nowMinuteOf : null,
-                              nowListenable: liveNow,
-                              now: widget.now,
+            child: NotificationListener<ScrollMetricsNotification>(
+              onNotification: (ScrollMetricsNotification n) {
+                // Only the vertical scroll itself — the pager below is
+                // nested deeper and reports its own metrics.
+                if (n.depth == 0) _metricsTick.value++;
+                return false;
+              },
+              child: SingleChildScrollView(
+                key: WeekTimeGrid.verticalScrollKey,
+                controller: _vertical,
+                child: SizedBox(
+                  height: gridH,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      SizedBox(
+                        width: rulerWidth,
+                        height: gridH,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: <Widget>[
+                            TimelineHourRuler(
                               firstHour: window.firstHour,
                               lastHour: window.lastHour,
                               hourHeight: hourH,
-                              exactHeight: exact,
-                              onBookingTap: widget.onBookingTap,
-                              onTapEmpty: widget.onTapEmpty,
-                            );
-                            final Animation<double>? a = widget.entrance;
-                            if (!animate || a == null) return column;
-                            return _ColumnEntrance(
-                              animation: a,
-                              slot: (i - widget.pageController.initialPage)
-                                  .clamp(0, 3),
-                              child: column,
-                            );
-                          },
+                            ),
+                            if (liveNow != null)
+                              ValueListenableBuilder<DateTime>(
+                                valueListenable: liveNow,
+                                builder:
+                                    (BuildContext _, DateTime now, Widget? _) =>
+                                        nowPill(now) ?? const SizedBox.shrink(),
+                              )
+                            else if (nowPill(widget.now) case final Widget pill)
+                              pill,
+                          ],
                         ),
                       ),
-                    ),
-                  ],
+                      Expanded(
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: _onPagerScroll,
+                          child: PageView.builder(
+                            key: WeekTimeGrid.pagerKey,
+                            controller: widget.pageController,
+                            padEnds: false,
+                            // «3 дні»: free momentum across the whole week — a
+                            // fling can run Mon→Sun in one gesture — settling on
+                            // the nearest day boundary at rest. `pageSnapping`
+                            // MUST be false or PageView wraps these physics in
+                            // its own page physics (one day per swipe). «День»
+                            // keeps one-day paging.
+                            pageSnapping: !exact,
+                            physics: exact
+                                ? DaySnapScrollPhysics(
+                                    visibleColumns: widget.visibleColumns,
+                                    parent: const ClampingScrollPhysics(),
+                                  )
+                                : null,
+                            itemCount: kWeekGridDays,
+                            // Phase 486 perf: the builder delegate's default
+                            // `addRepaintBoundaries` gives every column its own
+                            // layer, and with no implicit-scrolling cache only
+                            // the columns in the viewport (plus the one
+                            // sliding in) are built — never all seven.
+                            itemBuilder: (BuildContext context, int i) {
+                              final Widget column = _DayColumn(
+                                key: WeekTimeGrid.columnKey(i),
+                                index: i,
+                                model: widget.days[i],
+                                vertical: _vertical,
+                                verticalMetrics: _metricsTick,
+                                showsAllOccupancy: widget.showsAllOccupancy,
+                                freeTimes: _freeTimes[i],
+                                isToday: i == todayIndex,
+                                nowMinuteOf: i == todayIndex
+                                    ? nowMinuteOf
+                                    : null,
+                                nowListenable: liveNow,
+                                now: widget.now,
+                                firstHour: window.firstHour,
+                                lastHour: window.lastHour,
+                                hourHeight: hourH,
+                                exactHeight: exact,
+                                onBookingTap: widget.onBookingTap,
+                                onTapEmpty: widget.onTapEmpty,
+                              );
+                              final Animation<double>? a = widget.entrance;
+                              if (!animate || a == null) return column;
+                              return _ColumnEntrance(
+                                animation: a,
+                                slot: (i - widget.pageController.initialPage)
+                                    .clamp(0, 3),
+                                child: column,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -977,6 +996,7 @@ class _DayColumn extends StatelessWidget {
     required this.onBookingTap,
     this.onTapEmpty,
     this.nowListenable,
+    this.verticalMetrics,
     super.key,
   });
 
@@ -986,6 +1006,10 @@ class _DayColumn extends StatelessWidget {
 
   /// The grid's shared vertical scroll — pins the day-off label.
   final ScrollController vertical;
+
+  /// Ticks on every metrics change of [vertical] — see
+  /// [_PinnedDayOffLabel.metrics].
+  final Listenable? verticalMetrics;
   final bool showsAllOccupancy;
 
   /// This column's [freeDeclaredTimes] memo, owned by the grid's state.
@@ -1091,6 +1115,7 @@ class _DayColumn extends StatelessWidget {
               _PinnedDayOffLabel(
                 key: WeekTimeGrid.dayOffLabelKey(index),
                 vertical: vertical,
+                metrics: verticalMetrics,
                 top: _y(firstHour * 60),
                 bottom: _y(lastHour * 60),
                 labelHeight: labelH,
@@ -1254,10 +1279,16 @@ class _PinnedDayOffLabel extends StatelessWidget {
     required this.bottom,
     required this.labelHeight,
     required this.text,
+    this.metrics,
     super.key,
   });
 
   final ScrollController vertical;
+
+  /// Re-pins the label when the scroll's metrics change without an offset
+  /// change (first attach at offset 0, viewport resize, rotation) — the
+  /// controller alone never notifies for those.
+  final Listenable? metrics;
 
   /// The grid's top / bottom edge in column coordinates.
   final double top;
@@ -1287,7 +1318,10 @@ class _PinnedDayOffLabel extends StatelessWidget {
     child: IgnorePointer(
       child: RepaintBoundary(
         child: AnimatedBuilder(
-          animation: vertical,
+          animation: Listenable.merge(<Listenable>[
+            vertical,
+            if (metrics case final Listenable m) m,
+          ]),
           builder: (BuildContext context, Widget? child) =>
               Transform.translate(offset: Offset(0, _offset()), child: child),
           // Its own layer under the per-scroll Transform: a scroll frame

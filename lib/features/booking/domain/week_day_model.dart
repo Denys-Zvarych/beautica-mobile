@@ -91,10 +91,15 @@ WeekDayModel _dayModel(
   );
 }
 
-/// The UNION of the week's working hours, declared times and bookings,
-/// floored / ceiled to whole hours with one hour of margin on each side —
-/// so every column shares one axis and the edges read as «not working», not
-/// as a cropped grid. A declared (EXPLICIT_TIMES) time counts as 30 minutes.
+/// The UNION of the week's working hours, declared times and bookings, the
+/// start floored and the end ceiled to whole hours, with NO margin (phase
+/// 492, SCH-39): the edges are the real working edges, since a booking
+/// cannot sit outside working hours. A declared (EXPLICIT_TIMES) time counts
+/// as 30 minutes. One axis for the whole loaded week (all seven days, not
+/// only the columns on screen), so the ruler never jumps while swiping and
+/// «День» / «3 дні» share it. A booking outside the hours still widens the
+/// window to its own floor / ceil, so it is never cropped. Nothing covered
+/// → [kEmptyWeekGridWindow].
 ///
 /// Bounded to `[0, 48]` hours: the bottom may run into the next day for a
 /// booking past midnight (the ruler labels such hours `00:00`, `01:00`, …),
@@ -124,7 +129,7 @@ WeekGridWindow weekGridWindow(List<WeekDayModel> days) {
     }
   }
   if (lo == none || hi == none) return kEmptyWeekGridWindow;
-  final int firstHour = math.max(0, lo.clamp(0, 48 * 60) ~/ 60 - 1);
-  final int lastHour = math.min(48, (hi / 60).ceil() + 1);
+  final int firstHour = lo.clamp(0, 48 * 60) ~/ 60;
+  final int lastHour = math.min(48, (hi / 60).ceil());
   return (firstHour: firstHour, lastHour: math.max(lastHour, firstHour + 1));
 }

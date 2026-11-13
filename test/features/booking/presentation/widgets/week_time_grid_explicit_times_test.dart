@@ -192,12 +192,12 @@ void main() {
       final Rect marker = tester.getRect(
         find.byKey(WeekTimeGrid.freeMarkerKey(0, 11 * 60)),
       );
-      // Window opens at 08:00 — one hour above the 09:00 starts.
+      // Window opens at 09:00 — exactly the earliest start (phase 492).
       const double hourH = WeekTimeGrid.threeDayHourHeight;
       final double expectedTop =
           col.top +
           WeekTimeGrid.topPad +
-          (11 - 8) * hourH +
+          (11 - 9) * hourH +
           WeekTimeGrid.cardGap / 2;
       expect(marker.top, moreOrLessEquals(expectedTop, epsilon: 0.5));
       expect(

@@ -5,7 +5,12 @@
 //   day_off     — preview «Вихідний посеред тижня» (Чт today = day off,
 //                 ONE pinned «Вихідний»);
 //   custom_times — the same week opened on Пн–Ср (Вт EXPLICIT_TIMES: booked,
-//                 cancelled-on-a-time, free markers).
+//                 cancelled-on-a-time, free markers);
+//   exact_hours — phase 492: a week WITHOUT today (next week is «now»), so
+//                 the grid opens at the window top — Пн 10–19, Вт 09–18,
+//                 Ср day off: 09:00 is the first ruler row (no padding hour
+//                 above), and Ср's «Вихідний» sits at the viewport centre
+//                 with no scroll (the first-attach re-pin).
 // Reviewed against `docs/signup-designs/MasterWeekBookings/` (AC1).
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -189,7 +194,28 @@ List<WeekDayModel> _dayOffWeek() => _week(
   ],
 );
 
-Widget _scene(List<WeekDayModel> days, int firstVisibleDay) => SizedBox(
+/// Phase 492 — Пн 10–19, Вт 09–18, Ср day off; window 09:00–19:00.
+List<WeekDayModel> _exactHoursWeek() => _week(
+  <EffectiveDay>[
+    _hours(0, <(int, int, int, int)>[(10, 0, 19, 0)]),
+    _hours(1, <(int, int, int, int)>[(9, 0, 18, 0)]),
+    _off(2),
+    _hours(3, <(int, int, int, int)>[(10, 0, 19, 0)]),
+    _hours(4, <(int, int, int, int)>[(10, 0, 19, 0)]),
+    _hours(5, <(int, int, int, int)>[(10, 0, 15, 0)]),
+    _off(6),
+  ],
+  <Booking>[
+    _b(0, 10, 0, 60, 'Олена', 'Манікюр', status: BookingStatus.confirmed),
+    _b(1, 9, 0, 90, 'Софія', 'Педикюр', status: BookingStatus.confirmed),
+  ],
+);
+
+Widget _scene(
+  List<WeekDayModel> days,
+  int firstVisibleDay, {
+  int todayDay = _kToday,
+}) => SizedBox(
   width: _kWidth,
   height: _kHeight,
   child: ColoredBox(
@@ -197,8 +223,8 @@ Widget _scene(List<WeekDayModel> days, int firstVisibleDay) => SizedBox(
     child: WeekTimeGrid(
       weekStart: _monday,
       days: days,
-      today: kyivAddDays(_monday, _kToday),
-      now: _kyiv(_kToday, 13, 40),
+      today: kyivAddDays(_monday, todayDay),
+      now: _kyiv(todayDay, 13, 40),
       pageController: WeekTimeGrid.controllerFor(
         visibleColumns: 3,
         firstVisibleDay: firstVisibleDay,
@@ -216,6 +242,8 @@ void main() {
     'busy': () => _scene(_busy(), 2),
     'day_off': () => _scene(_dayOffWeek(), 2),
     'custom_times': () => _scene(_dayOffWeek(), 0),
+    // Today = next Monday → this week has no today → opens at the top.
+    'exact_hours': () => _scene(_exactHoursWeek(), 0, todayDay: 7),
   };
   for (final double scale in kGoldenTextScales) {
     final String suffix = widthScaleSuffix(_kWidth, scale);

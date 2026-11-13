@@ -73,7 +73,9 @@
 //     day layout's "no chevrons" rule is not asserted here);
 //   * the stale-dot self-heal → the strip's per-day COUNT comes from the
 //     week list itself, so an off-device booking the cached booked-days set
-//     lacks is counted on landing with no re-sweep.
+//     lacks is counted on landing; the only extra booked-days read is the
+//     week layout's one month-dot self-heal sweep (phase 485), and it never
+//     loops.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/domain/week_day_model.dart';
@@ -480,8 +482,10 @@ void main() {
 
       expect(
         fb.bookedDaysCalls,
-        1,
-        reason: 'precondition: one (stale) booked-days sweep on landing',
+        2,
+        reason:
+            'one stale sweep on landing + exactly one week-layout dot '
+            'self-heal (phase 485, behaviour test (d))',
       );
       expect(
         fb.lastMyBookingsQuery!['from'],
@@ -503,8 +507,8 @@ void main() {
       );
       expect(
         fb.bookedDaysCalls,
-        1,
-        reason: 'no re-sweep is needed for the strip — and none loops',
+        2,
+        reason: 'the strip needs no further sweep — and the heal does not loop',
       );
     },
   );

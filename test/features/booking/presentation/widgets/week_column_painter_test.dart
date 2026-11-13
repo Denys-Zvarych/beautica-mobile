@@ -314,15 +314,56 @@ void main() {
       }
       expect(label, findsOneWidget);
     });
+
+    // Phase 492 fix — the opening jumpTo(0) on a non-today week is a no-op
+    // (no scroll notification), and a viewport resize never moves the offset
+    // either: the pill must re-pin from the scroll METRICS, not only from
+    // the controller.
+    testWidgets('day off, non-today week: «Вихідний» is viewport-centred on '
+        'open with no scroll, and again after a viewport resize', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester, _day(const <WorkInterval>[]));
+      final Finder label = find.byKey(WeekTimeGrid.dayOffLabelKey(0));
+      final AppLocalizations l10n = AppLocalizations.of(tester.element(label));
+      final Finder pill = find.descendant(
+        of: label,
+        matching: find.text(l10n.salonBookingsColumnDayOff),
+      );
+      final Finder scroll = find.byKey(WeekTimeGrid.verticalScrollKey);
+
+      final Rect before = tester.getRect(scroll);
+      expect(
+        tester.getCenter(pill).dy,
+        moreOrLessEquals(before.center.dy, epsilon: 1),
+        reason: 'open, no scroll',
+      );
+
+      tester.view.physicalSize = Size(
+        tester.view.physicalSize.width,
+        700 * tester.view.devicePixelRatio,
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final Rect after = tester.getRect(scroll);
+      // The resize must really change the viewport, or this pins nothing.
+      expect(after.height, greaterThan(before.height + 50));
+      expect(
+        tester.getCenter(pill).dy,
+        moreOrLessEquals(after.center.dy, epsilon: 1),
+        reason: 'after 600 → 700 resize',
+      );
+    });
   });
 
   group('window (mobile-qa)', () {
-    // mobile-qa — the column painter receives 1 h before the earliest start
-    // .. 1 h after the latest end, floored / ceiled to whole hours.
-    testWidgets('window = 1 h before earliest start .. 1 h after latest end', (
+    // mobile-qa — the column painter receives the earliest start .. the
+    // latest end, floored / ceiled to whole hours, with no margin (phase 492).
+    testWidgets('window = earliest start .. latest end, no margin', (
       WidgetTester tester,
     ) async {
-      // Monday 07:30–22:15 widens the 09–20 rest of the week → 06..24.
+      // Monday 07:30–22:15 widens the 09–20 rest of the week → 07..23.
       await _pump(tester, _day(<WorkInterval>[_w(7, 30, 22, 15)]));
       final WeekColumnPainter p =
           tester
@@ -337,7 +378,7 @@ void main() {
                   )
                   .painter!
               as WeekColumnPainter;
-      expect((p.firstHour, p.lastHour), (6, 24));
+      expect((p.firstHour, p.lastHour), (7, 23));
     });
   });
 

@@ -7,12 +7,15 @@
 // a scroll pumps [WeekTimeGrid.settleDelay] explicitly before asserting the
 // rest position — and a pre-snap assertion uses a single-frame `pump()`,
 // because any timed pump (pumpAndSettle's 100 ms steps too) can run it.
+import 'dart:math' as math;
+
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart'
     show stableBookingList;
 import 'package:beautica_mobile/features/booking/domain/bookings_week_state.dart';
 import 'package:beautica_mobile/features/booking/domain/week_day_model.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
@@ -23,9 +26,9 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../helpers/pump_app.dart';
 
 // Mon 9 – Sun 15 November 2026 (Kyiv UTC+2). Every day works 09:00–18:00,
-// so the shared window is 08:00–19:00.
+// so the shared window is exactly 09:00–18:00 (phase 492, no margin).
 final DateTime _monday = DateTime(2026, 11, 9);
-const int _kFirstHour = 8;
+const int _kFirstHour = 9;
 
 /// A Kyiv wall-clock instant on day [dayIndex] (0 = Monday) of the week.
 DateTime _kyiv(int dayIndex, int h, [int m = 0]) =>
@@ -335,8 +338,11 @@ void main() {
   testWidgets('vertical scroll of one column moves the ruler + every column', (
     WidgetTester tester,
   ) async {
+    // 120 dp/h: the exact 09–18 window (phase 492) fits the 800 dp viewport
+    // at 72 dp/h, so a taller band is needed for there to be a scroll.
     await _pump(
       tester,
+      hourHeight: 120,
       bookings: <int, List<Booking>>{
         0: <Booking>[_booking('a', _kyiv(0, 15))],
         1: <Booking>[_booking('b', _kyiv(1, 15))],
@@ -358,8 +364,9 @@ void main() {
       tester.getRect(find.byKey(WeekTimeGrid.columnKey(1))).contains(onColumn1),
       isTrue,
     );
-    // The grid opens an hour into the window, so dragging DOWN (toward
-    // the earlier hours) always has room to scroll.
+    // The grid opens an hour before now (12:40, clamped to the bottom), well
+    // below the 09:00 top, so dragging DOWN (toward the earlier hours) has
+    // room to scroll.
     await tester.dragFrom(onColumn1, const Offset(0, 100));
     await _settle(tester);
 
@@ -386,7 +393,7 @@ void main() {
         final Rect card = tester.getRect(
           find.byKey(WeekTimeGrid.cardKey('nine')),
         );
-        // top = nudge 7 + (09:00 − 08:00) × band + half the 2 dp gap.
+        // top = nudge 7 + (09:00 − 09:00) × band + half the 2 dp gap.
         expect(
           card.top - col.top,
           closeTo(WeekTimeGrid.topPad + (9 - _kFirstHour) * hour + 1, 0.01),
@@ -702,6 +709,86 @@ void main() {
       await tester.pump();
       expect(tapped, <int>[2]);
     });
+  });
+
+  group('opening scroll (phase 492)', () {
+    ScrollPosition vertical(WidgetTester tester) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(WeekTimeGrid.verticalScrollKey),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    // MUTATION: `: origin)` → `: origin + 60)` in `_openAtStart` → pixels
+    // 120 → RED.
+    testWidgets('a week without today opens with its first working hour '
+        '(09:00) at the top', (WidgetTester tester) async {
+      // 120 dp/h × 9 h overflows the 800 dp viewport, so a non-zero opening
+      // offset would be visible.
+      await _pump(tester, todayIndex: 9, hourHeight: 120);
+      final ScrollPosition v = vertical(tester);
+      expect(
+        v.maxScrollExtent,
+        greaterThan(120),
+        reason: 'fixture guard: the grid must be scrollable',
+      );
+      expect(v.pixels, 0, reason: 'the 09:00 working start is hidden');
+    });
+
+    testWidgets('control: the current week still opens an hour before now', (
+      WidgetTester tester,
+    ) async {
+      // now 13:40 → anchor 12:40 = 3 h 40 min below the 09:00 top.
+      await _pump(tester, hourHeight: 120);
+      final ScrollPosition v = vertical(tester);
+      expect(
+        v.pixels,
+        closeTo(
+          math.min(
+            (12 * 60 + 40 - _kFirstHour * 60) / 60 * 120,
+            v.maxScrollExtent,
+          ),
+          0.5,
+        ),
+      );
+      expect(v.pixels, greaterThan(0));
+    });
+  });
+
+  // Phase 492 D2 / D4 (mobile-qa) — «День» and «3 дні» read ONE window over
+  // the whole loaded week, and a booking outside the hours widens it with no
+  // padding: 09–18 everywhere + Нд 19:30–20:15 (a column NOT on screen) →
+  // 09:00–21:00 in both modes.
+  group('window per mode (phase 492)', () {
+    TimelineHourRuler ruler(WidgetTester tester) =>
+        tester.widget<TimelineHourRuler>(find.byType(TimelineHourRuler));
+
+    for (final int columns in <int>[3, 1]) {
+      testWidgets('$columns column(s): ruler 09:00–21:00, widened by an '
+          'off-screen late booking, no padding hour', (
+        WidgetTester tester,
+      ) async {
+        await _pump(
+          tester,
+          visibleColumns: columns,
+          todayIndex: 9,
+          bookings: <int, List<Booking>>{
+            6: <Booking>[_booking('late', _kyiv(6, 19, 30), minutes: 45)],
+          },
+        );
+        expect(
+          find.byKey(WeekTimeGrid.columnKey(6)),
+          findsNothing,
+          reason: 'fixture guard: Sunday is not on screen',
+        );
+        expect(ruler(tester).firstHour, 9);
+        expect(ruler(tester).lastHour, 21);
+      });
+    }
   });
 
   group('now-line position (mobile-qa)', () {

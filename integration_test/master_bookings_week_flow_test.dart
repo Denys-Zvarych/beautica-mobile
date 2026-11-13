@@ -12,6 +12,10 @@
 // The fixture booking is moved INTO the injected clock's week (kFixedNow,
 // Sun 2026-06-14) — fixture windows anchor to the injected clock, never the
 // host (pattern M).
+//
+// Phase 492 (SCH-39) — next week (no today) opens with the first working
+// hour as the top ruler row (no padding hour above), the same window in
+// «День», and a day off's «Вихідний» viewport-centred without a scroll.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/application/master_bookings_view_mode.dart';
@@ -19,6 +23,7 @@ import 'package:beautica_mobile/features/booking/domain/week_day_model.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
@@ -106,6 +111,56 @@ Future<void> _logoutMaster(WidgetTester tester) async {
     tester,
     find.byKey(const ValueKey<String>('login_email')),
   );
+}
+
+/// The vertical scroll's viewport rect and position.
+Rect _viewport(WidgetTester tester) =>
+    tester.getRect(find.byKey(WeekTimeGrid.verticalScrollKey));
+
+ScrollPosition _vertical(WidgetTester tester) => tester
+    .state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byKey(WeekTimeGrid.verticalScrollKey),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    )
+    .position;
+
+/// Phase 492 — the ruler labels, top to bottom.
+List<String> _rulerLabels(WidgetTester tester) {
+  final Finder texts = find.descendant(
+    of: find.byType(TimelineHourRuler),
+    matching: find.byType(Text),
+  );
+  final List<(double, String)> rows = <(double, String)>[
+    for (int i = 0; i < texts.evaluate().length; i++)
+      (
+        tester.getCenter(texts.at(i)).dy,
+        tester.widget<Text>(texts.at(i)).data!,
+      ),
+  ]..sort(((double, String) a, (double, String) b) => a.$1.compareTo(b.$1));
+  return <String>[for (final (double _, String t) in rows) t];
+}
+
+/// Phase 492 — the topmost ruler label whose centre is inside the viewport.
+String _firstVisibleRulerLabel(WidgetTester tester) {
+  final Rect viewport = _viewport(tester);
+  final Finder texts = find.descendant(
+    of: find.byType(TimelineHourRuler),
+    matching: find.byType(Text),
+  );
+  String? best;
+  double bestY = double.infinity;
+  for (int i = 0; i < texts.evaluate().length; i++) {
+    final Offset c = tester.getCenter(texts.at(i));
+    if (viewport.contains(c) && c.dy < bestY) {
+      bestY = c.dy;
+      best = tester.widget<Text>(texts.at(i)).data;
+    }
+  }
+  return best!;
 }
 
 void main() {
@@ -417,6 +472,91 @@ void main() {
       3,
       reason: 'a new session opens on «3 дні» again',
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  // Phase 492 (SCH-39, D1–D2) — a week WITHOUT today opens at its window top,
+  // and the top is the week's first working hour, with no padding hour. The
+  // next week: Пн 10–19, Вт 09–18, Сб day off, the rest 10–19 → 09:00–19:00.
+  // A ‹ › step keeps the in-week offset, so from Sunday it opens on Пт–Нд:
+  // the 09:00 top comes from Вт, a column NOT on screen (D2, one axis/week).
+  testWidgets('next week opens at its first working hour (09:00, no padding '
+      'hour), «День» keeps the window, a day off shows «Вихідний» centred '
+      'with no scroll', (WidgetTester tester) async {
+    final FakeBackend fb = FakeBackend()
+      ..currentRole = UserRole.independentMaster;
+    await AppHarness.boot(tester, fb);
+    _seedBookingThisWeek(fb);
+    final DateTime next = kyivAddDays(_weekMonday, kWeekGridDays);
+    fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+      for (int i = 0; i < kWeekGridDays; i++)
+        FakeBackend.seedEffectiveScheduleDay(kyivAddDays(_weekMonday, i)),
+      FakeBackend.seedEffectiveScheduleDay(
+        next,
+        intervals: const <(String, String)>[('10:00:00', '19:00:00')],
+      ),
+      FakeBackend.seedEffectiveScheduleDay(
+        kyivAddDays(next, 1),
+        intervals: const <(String, String)>[('09:00:00', '18:00:00')],
+      ),
+      for (int i = 2; i < kWeekGridDays; i++)
+        FakeBackend.seedEffectiveScheduleDay(
+          kyivAddDays(next, i),
+          dayOff: i == 5,
+          intervals: const <(String, String)>[('10:00:00', '19:00:00')],
+        ),
+    ]);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+    await AppHarness.settle(tester);
+    await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
+
+    await tester.tap(find.byKey(WeekStepButton.nextKey));
+    await AppHarness.settle(tester);
+    expect(_grid(tester).weekStart, next);
+    expect(_grid(tester).visibleColumns, 3);
+    expect(
+      visibleWeekDay(tester),
+      inInclusiveRange(3, 5),
+      reason: 'fixture guard: Сб (day off) is one of the 3 visible columns',
+    );
+
+    // The window: 09:00 … 19:00 exactly — no 08:00 above, no 20:00 below.
+    final List<String> labels = _rulerLabels(tester);
+    expect(labels.first, '09:00', reason: 'top = first working hour');
+    expect(labels.last, '19:00', reason: 'bottom = last working end');
+    expect(labels, isNot(contains('08:00')), reason: 'no padding hour above');
+    expect(labels, isNot(contains('20:00')), reason: 'no padding hour below');
+    // Opens at the top, so the first VISIBLE row is that hour.
+    expect(_vertical(tester).pixels, 0, reason: 'opens at the window top');
+    expect(_firstVisibleRulerLabel(tester), '09:00');
+
+    // Сб day off: one «Вихідний», at the viewport centre with no vertical
+    // scroll by the user. (The first-attach re-pin mechanism itself is pinned
+    // by the `exact_hours` golden and week_column_painter_test: in the live
+    // app later rebuilds re-pin the pill too, so a flow cannot isolate it.)
+    final Finder dayOff = find.byKey(WeekTimeGrid.dayOffLabelKey(5));
+    expect(dayOff, findsOneWidget);
+    final Finder pill = find.descendant(
+      of: dayOff,
+      matching: find.byType(Text),
+    );
+    expect(
+      tester.getCenter(pill).dy,
+      moreOrLessEquals(_viewport(tester).center.dy, epsilon: 1),
+    );
+    expect(_vertical(tester).pixels, 0, reason: 'no scroll was needed');
+
+    // «День» shares the window (D2): still 09:00 … 19:00.
+    await switchViewMode(
+      tester,
+      BookingsWeekViewMode.day,
+      settle: AppHarness.settle,
+    );
+    expect(_grid(tester).visibleColumns, 1);
+    final List<String> dayLabels = _rulerLabels(tester);
+    expect(dayLabels.first, '09:00');
+    expect(dayLabels.last, '19:00');
     expect(tester.takeException(), isNull);
   });
 }

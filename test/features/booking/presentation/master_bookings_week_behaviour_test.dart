@@ -463,8 +463,9 @@ void main() {
   ) async {
     final Completer<void> gate = Completer<void>();
     await pump(tester, schedule: () => _ScheduleFake(gate: gate));
-    // Fixture guard: the bookings-only window (12:00 booking) starts later
-    // than the 09:00–18:00 one, so the window genuinely grows below.
+    // Fixture guard: the bookings-only window (12:00 booking → 12–13 since
+    // phase 492's exact-hours window) starts later than the 09:00–18:00 one
+    // (9–18), so the window genuinely grows, and 11:00 lies inside 9–18.
     final int bookingsOnlyFirstHour = weekGridWindow(
       grid(tester).days,
     ).firstHour;

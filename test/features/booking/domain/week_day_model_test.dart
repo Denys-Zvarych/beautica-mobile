@@ -128,15 +128,41 @@ void main() {
     });
   });
 
-  group('weekGridWindow — union of hours and bookings, ±1 h', () {
+  group('weekGridWindow — union of hours and bookings, exact hours', () {
+    EffectiveDay times(DateTime day, List<TimeOfDay> t) => EffectiveDay(
+      date: day,
+      source: EffectiveSource.template,
+      intervals: const <WorkInterval>[],
+      times: t,
+    );
+    EffectiveDay dayOff(DateTime day) => EffectiveDay(
+      date: day,
+      source: EffectiveSource.overrideDayOff,
+      intervals: const <WorkInterval>[],
+    );
+
     test('empty week → the 8–20 default', () {
       expect(
         weekGridWindow(buildWeekDays(_week(monday, const {}))),
         kEmptyWeekGridWindow,
       );
+      expect(kEmptyWeekGridWindow, (firstHour: 8, lastHour: 20));
     });
 
-    test('earliest start − 1 h … latest end + 1 h across all days', () {
+    test('equal hours Mon–Fri 10–19 → exactly 10–19, no margin', () {
+      final WeekGridWindow w = weekGridWindow(
+        buildWeekDays(
+          _week(monday, const {}),
+          schedule: <DateTime, EffectiveDay>{
+            for (int i = 0; i < 5; i++)
+              kyivAddDays(monday, i): _hours(kyivAddDays(monday, i), 10, 19),
+          },
+        ),
+      );
+      expect(w, (firstHour: 10, lastHour: 19));
+    });
+
+    test('earliest start … latest end across all days, booking widens', () {
       final DateTime mon = monday;
       final DateTime tue = DateTime(2026, 11, 10);
       // Wed 20:00–21:15 Kyiv = 18:00 UTC, past every working end.
@@ -156,8 +182,30 @@ void main() {
           },
         ),
       );
-      // first: 09:00 → 8. last: 21:15 → ceil 22 → 23.
-      expect(w, (firstHour: 8, lastHour: 23));
+      // first: 09:00 → 9. last: 21:15 → ceil 22.
+      expect(w, (firstHour: 9, lastHour: 22));
+    });
+
+    test('half hours round out: 09:30–18:30 → 9–19', () {
+      final DateTime tue = DateTime(2026, 11, 10);
+      final WeekGridWindow w = weekGridWindow(
+        buildWeekDays(
+          _week(monday, const {}),
+          schedule: <DateTime, EffectiveDay>{
+            tue: EffectiveDay(
+              date: tue,
+              source: EffectiveSource.template,
+              intervals: <WorkInterval>[
+                WorkInterval(
+                  start: const TimeOfDay(hour: 9, minute: 30),
+                  end: const TimeOfDay(hour: 18, minute: 30),
+                ),
+              ],
+            ),
+          },
+        ),
+      );
+      expect(w, (firstHour: 9, lastHour: 19));
     });
 
     test('declared EXPLICIT_TIMES count as 30-minute slots', () {
@@ -166,24 +214,46 @@ void main() {
         buildWeekDays(
           _week(monday, const {}),
           schedule: <DateTime, EffectiveDay>{
-            fri: EffectiveDay(
-              date: fri,
-              source: EffectiveSource.template,
-              intervals: const <WorkInterval>[],
-              times: const <TimeOfDay>[
-                TimeOfDay(hour: 7, minute: 30),
-                TimeOfDay(hour: 17, minute: 45),
-              ],
-            ),
+            fri: times(fri, const <TimeOfDay>[
+              TimeOfDay(hour: 7, minute: 30),
+              TimeOfDay(hour: 17, minute: 45),
+            ]),
           },
         ),
       );
-      // 07:30 → floor 7 → 6; 18:15 → ceil 19 → 20.
-      expect(w, (firstHour: 6, lastHour: 20));
+      // 07:30 → floor 7; 17:45 + 30 = 18:15 → ceil 19.
+      expect(w, (firstHour: 7, lastHour: 19));
     });
 
-    test('a 00:xx start clamps the top at hour 0', () {
-      final Booking midnight = _booking('z', _utc(2026, 11, 9, 22, 30));
+    test('a day off adds nothing to the window', () {
+      final WeekGridWindow w = weekGridWindow(
+        buildWeekDays(
+          _week(monday, const {}),
+          schedule: <DateTime, EffectiveDay>{
+            monday: dayOff(monday),
+            kyivAddDays(monday, 1): _hours(kyivAddDays(monday, 1), 11, 17),
+          },
+        ),
+      );
+      expect(w, (firstHour: 11, lastHour: 17));
+    });
+
+    test('all days off → the 8–20 fallback', () {
+      final WeekGridWindow w = weekGridWindow(
+        buildWeekDays(
+          _week(monday, const {}),
+          schedule: <DateTime, EffectiveDay>{
+            for (int i = 0; i < 7; i++)
+              kyivAddDays(monday, i): dayOff(kyivAddDays(monday, i)),
+          },
+        ),
+      );
+      expect(w, kEmptyWeekGridWindow);
+    });
+
+    test('a 00:xx start sets the top at hour 0', () {
+      // Tue 00:15 Kyiv = Mon 22:15 UTC.
+      final Booking midnight = _booking('z', _utc(2026, 11, 9, 22, 15));
       final WeekGridWindow w = weekGridWindow(
         buildWeekDays(
           _week(monday, <int, List<Booking>>{
@@ -192,6 +262,37 @@ void main() {
         ),
       );
       expect(w.firstHour, 0);
+    });
+
+    test('a booking past midnight runs the bottom into the next day', () {
+      // Tue 23:40 Kyiv (21:40 UTC) + 90 min = 01:10 next day → minute 1510.
+      final Booking late = _booking(
+        'n',
+        _utc(2026, 11, 10, 21, 40),
+        minutes: 90,
+      );
+      final WeekGridWindow w = weekGridWindow(
+        buildWeekDays(
+          _week(monday, <int, List<Booking>>{
+            1: <Booking>[late],
+          }),
+        ),
+      );
+      expect(w, (firstHour: 23, lastHour: 26));
+      expect(w.lastHour, lessThanOrEqualTo(48));
+    });
+
+    test('minimum height: one declared time 10:00 → 10–11', () {
+      final DateTime wed = DateTime(2026, 11, 11);
+      final WeekGridWindow w = weekGridWindow(
+        buildWeekDays(
+          _week(monday, const {}),
+          schedule: <DateTime, EffectiveDay>{
+            wed: times(wed, const <TimeOfDay>[TimeOfDay(hour: 10, minute: 0)]),
+          },
+        ),
+      );
+      expect(w, (firstHour: 10, lastHour: 11));
     });
   });
 }
