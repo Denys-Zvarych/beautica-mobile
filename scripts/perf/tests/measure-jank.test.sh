@@ -27,15 +27,21 @@ EXTRA=(HOME="$ROOT/home")
 run() { OUT="$(env -u JANK_BUDGET_MS -u ANDROID_SERIAL "${EXTRA[@]}" bash "$TARGET" "$@" 2>&1)"; RC=$?; }
 fn() { OUT="$(env "${EXTRA[@]}" bash -c 'source "$1"; set +eu; shift; "$@"' _ "$TARGET" "$@" 2>&1)"; RC=$?; }
 
-# mkjson <file> <my_p90> <my_worst> <search_p90> <search_worst> ... : four surfaces,
-# (p90 worst) pairs in my-bookings, search-results, services-list, salon-board order.
+# mkjson <file> <my_p90> <my_worst> <search_p90> <search_worst> ... : (p90 worst) pairs
+# in my-bookings, search-results, services-list, salon-board order; the phase 486
+# master-week surface gets a fixed in-budget pair (5 10) unless a fifth pair is given;
+# the master-week_entrance row (table: master-week-entrance) is a fixed in-budget
+# 45-frame summary (a 750 ms window at 60 Hz: below JANK_MIN_FRAMES, above the
+# entrance floor).
 # frame_build_times (us) are 5 samples whose lower-middle (3rd of 5 sorted: 1 2 3 8 9 ms) is 3000 us = 3.00 ms.
 mkjson() {
   local f="$1"; shift
   python3 - "$f" "$@" <<'PY'
 import json, sys
 f, vals = sys.argv[1], [float(v) for v in sys.argv[2:]]
-names = ["my-bookings", "search-results", "services-list", "salon-board"]
+names = ["my-bookings", "search-results", "services-list", "salon-board", "master-week"]
+if len(vals) == 8:
+    vals += [5.0, 10.0]
 d = {}
 for i, n in enumerate(names):
     d[n + "_scroll"] = {
@@ -47,6 +53,9 @@ for i, n in enumerate(names):
         "worst_frame_rasterizer_time_millis": 4.0,
         "frame_build_times": [9000, 1000, 2000, 3000, 8000],
     }
+d["master-week_entrance"] = dict(d["master-week_scroll"], frame_count=45,
+                                 **{"90th_percentile_frame_build_time_millis": 6.0,
+                                    "worst_frame_build_time_millis": 12.0})
 json.dump(d, open(f, "w"))
 PY
 }
@@ -55,7 +64,7 @@ echo "[1] within budget -> 0, table + PASS"
 mkjson "$ROOT/ok.json" 5 10 6 11 7 12 8 15.99
 run --summarize "$ROOT/ok.json"
 check "exit 0" '[ $RC -eq 0 ]'
-check "PASS line" 'grep -q "^PASS: all 4 surfaces within the 16 ms" <<<"$OUT"'
+check "PASS line" 'grep -q "^PASS: all 6 surfaces within the 16 ms" <<<"$OUT"'
 check "header row" 'grep -Eq "^surface +frames +p50 ms +p90 ms +worst ms +r90 ms +rworst ms +verdict" <<<"$OUT"'
 check "my-bookings row: frames 120, p50 3.00, p90 5.00, worst 10.00" 'grep -Eq "^my-bookings +120 +3\.00 +5\.00 +10\.00 +2\.00 +4\.00 +PASS" <<<"$OUT"'
 check "salon-board row: worst 15.99 passes" 'grep -Eq "^salon-board +120 +3\.00 +8\.00 +15\.99 +2\.00 +4\.00 +PASS" <<<"$OUT"'
@@ -85,10 +94,11 @@ EXTRA=(HOME="$ROOT/home")
 echo "[3] p50 from frame_build_times, with average fallback"
 python3 - "$ROOT/even.json" <<'PY'
 import json, sys
-names = ["my-bookings", "search-results", "services-list", "salon-board"]
+names = ["my-bookings", "search-results", "services-list", "salon-board", "master-week"]
 base = lambda t: {"90th_percentile_frame_build_time_millis": 5, "worst_frame_build_time_millis": 9,
                   "average_frame_build_time_millis": 7.25, "frame_count": 100, "90th_percentile_frame_rasterizer_time_millis": 1, "worst_frame_rasterizer_time_millis": 2, **({"frame_build_times": t} if t else {})}
 d = {n + "_scroll": base([4000, 1000, 3000, 2000]) for n in names}   # sorted 1 2 3 4 ms -> lower-middle 2.00
+d["master-week_entrance"] = base([4000, 1000, 3000, 2000])
 d["services-list_scroll"] = base(None)                                # no list -> average 7.25, marked ~
 json.dump(d, open(sys.argv[1], "w"))
 PY
@@ -122,11 +132,31 @@ run --summarize "$ROOT/jnan.json"; check "NaN literal rejected -> 1" '[ $RC -eq 
 printf '{not json' >"$ROOT/bad.json"; run --summarize "$ROOT/bad.json"
 check "malformed JSON -> 1 with a message" '[ $RC -eq 1 ] && grep -q "cannot parse" <<<"$OUT"'
 printf '[1,2]' >"$ROOT/arr.json"; run --summarize "$ROOT/arr.json"; check "array top level -> 1" '[ $RC -eq 1 ] && grep -q "not an object" <<<"$OUT"'
-printf '{}' >"$ROOT/empty.json"; run --summarize "$ROOT/empty.json"; check "empty object -> 1 (all four missing)" '[ $RC -eq 1 ] && [ "$(grep -c "surface missing" <<<"$OUT")" -eq 4 ]'
+printf '{}' >"$ROOT/empty.json"; run --summarize "$ROOT/empty.json"; check "empty object -> 1 (all six missing)" '[ $RC -eq 1 ] && [ "$(grep -c "surface missing" <<<"$OUT")" -eq 6 ]'
 : >"$ROOT/zero.json"; run --summarize "$ROOT/zero.json"; check "zero-byte file -> 1" '[ $RC -eq 1 ] && grep -q "empty or larger" <<<"$OUT"'
 run --summarize "$ROOT/absent.json"; check "absent file -> 1" '[ $RC -eq 1 ] && grep -q "not a regular file" <<<"$OUT"'
 ln -s "$ROOT/ok.json" "$ROOT/link.json"; run --summarize "$ROOT/link.json"; check "symlinked input refused -> 1" '[ $RC -eq 1 ] && grep -q "not a regular file" <<<"$OUT"'
 run --summarize "$ROOT"; check "a directory -> 1" '[ $RC -eq 1 ]'
+
+echo "[4b] phase 486: the master-week entrance row"
+run --summarize "$ROOT/ok.json"
+check "entrance row shown under its own name, 45 frames pass the entrance floor" 'grep -Eq "^master-week-entrance +45 +3\.00 +6\.00 +12\.00 +2\.00 +4\.00 +PASS" <<<"$OUT"'
+python3 - "$ROOT/ok.json" "$ROOT/noent.json" "$ROOT/entslow.json" "$ROOT/entthin.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+n = dict(d); n.pop("master-week_entrance"); json.dump(n, open(sys.argv[2], "w"))
+e = json.loads(json.dumps(d)); e["master-week_entrance"]["worst_frame_build_time_millis"] = 20; json.dump(e, open(sys.argv[3], "w"))
+t = json.loads(json.dumps(d)); t["master-week_entrance"]["frame_count"] = 29; json.dump(t, open(sys.argv[4], "w"))
+PY
+run --summarize "$ROOT/noent.json"
+check "entrance missing -> 1 and named" '[ $RC -eq 1 ] && grep -q "FAIL: master-week-entrance: surface missing" <<<"$OUT"'
+run --summarize "$ROOT/entslow.json"
+check "entrance worst over budget -> 1" '[ $RC -eq 1 ] && grep -Eq "^master-week-entrance .*FAIL \(worst 20\.00 >= 16\)" <<<"$OUT"'
+run --summarize "$ROOT/entthin.json"
+check "entrance under its 30-frame floor -> 1" '[ $RC -eq 1 ] && grep -Eq "^master-week-entrance .*too few frames \(29 < 30\)" <<<"$OUT"'
+EXTRA=(HOME="$ROOT/home" JANK_MIN_ENTRANCE_FRAMES=29); run --summarize "$ROOT/entthin.json"; check "JANK_MIN_ENTRANCE_FRAMES=29 admits 29" '[ $RC -eq 0 ]'
+EXTRA=(HOME="$ROOT/home" JANK_MIN_ENTRANCE_FRAMES=0); run --summarize "$ROOT/entthin.json"; check "bad JANK_MIN_ENTRANCE_FRAMES -> 64" '[ $RC -eq 64 ]'
+EXTRA=(HOME="$ROOT/home")
 
 echo "[5] untrusted names are sanitised in output"
 ESC=$(printf '\033')
@@ -211,6 +241,10 @@ cat >"$ROOT/bin/flutter" <<'F'
 #!/usr/bin/env bash
 # Fake flutter: logs argv + cwd; writes the canned response like the driver would.
 echo "flutter $* [cwd=$PWD]" >>"$FAKE_LOG"
+if [ -n "${FAKE_PROBE_PORT:-}" ]; then # is the vm-service relay listening while the drive runs?
+  python3 -I -c 'import socket, sys; s = socket.socket(); s.settimeout(1); sys.exit(s.connect_ex(("127.0.0.1", int(sys.argv[1]))) != 0)' "$FAKE_PROBE_PORT" \
+    && echo "relay=up" >>"$FAKE_LOG" || echo "relay=down" >>"$FAKE_LOG"
+fi
 case "${FAKE_FLUTTER:-ok}" in
   hang) sleep 120 ;;
   fail) exit 7 ;;
@@ -413,6 +447,59 @@ check "default: DRIVE_EXTRA empty" '[ "$OUT" = "[]" ]'
 OUT="$(JANK_NO_DDS=1 bash -c 'source "$1"; set +eu; echo "[${DRIVE_EXTRA[*]}]"' _ "$TARGET" 2>&1)"; RC=$?
 check "JANK_NO_DDS=1: --no-dds" '[ "$OUT" = "[--no-dds]" ]'
 check "flutter drive invocation consumes DRIVE_EXTRA" 'grep -q "\"\${DRIVE_EXTRA\[@\]}\"" "$TARGET"'
+
+echo "[23] JANK_VMSERVICE_PORT / JANK_RELAY_HOST: validation, passthrough, relay lifetime"
+for bad in abc 80 1023 65536 70000 01024 "47000 " -1; do
+  EXTRA=(HOME="$ROOT/home" JANK_VMSERVICE_PORT="$bad"); run --summarize "$ROOT/ok.json"
+  check "JANK_VMSERVICE_PORT='$bad' rejected (64)" '[ $RC -eq 64 ] && grep -q "JANK_VMSERVICE_PORT must be" <<<"$OUT"'
+done
+for bad in 10.0.2.256 1.2.3 -evil "a b" "h;rm" 'a$(x)' a..b host- "" ; do
+  [ -z "$bad" ] && continue
+  EXTRA=(HOME="$ROOT/home" JANK_VMSERVICE_PORT=47000 JANK_RELAY_HOST="$bad"); run --summarize "$ROOT/ok.json"
+  check "JANK_RELAY_HOST='$bad' rejected (64)" '[ $RC -eq 64 ] && grep -q "JANK_RELAY_HOST must be" <<<"$OUT"'
+done
+EXTRA=(HOME="$ROOT/home" JANK_RELAY_HOST=10.0.2.2); run --summarize "$ROOT/ok.json"
+check "JANK_RELAY_HOST without JANK_VMSERVICE_PORT rejected (64)" '[ $RC -eq 64 ] && grep -q "needs JANK_VMSERVICE_PORT" <<<"$OUT"'
+for good in 10.0.2.2 win-host.local localhost; do
+  EXTRA=(HOME="$ROOT/home" JANK_VMSERVICE_PORT=47000 JANK_RELAY_HOST="$good"); run --summarize "$ROOT/ok.json"
+  check "JANK_RELAY_HOST='$good' accepted" '[ $RC -eq 0 ]'
+done
+rm -rf "$ROOT/devhist"; : >"$FAKE_LOG"; base_env; run --device emulator-5554
+check "default: no --host-vmservice-port, no relay" '[ $RC -eq 0 ] && ! grep -q -- "--host-vmservice-port" "$FAKE_LOG" && ! grep -q "vm-service relay" <<<"$OUT"'
+rm -rf "$ROOT/devhist"; : >"$FAKE_LOG"; base_env JANK_VMSERVICE_PORT=47123; run --device emulator-5554
+check "JANK_VMSERVICE_PORT passed to flutter drive" '[ $RC -eq 0 ] && grep -q -- "--dart-define=JANK_ENFORCE=false --host-vmservice-port 47123 -d emulator-5554" "$FAKE_LOG"'
+RPORT="$(python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+listening() { python3 -I -c 'import socket, sys; s = socket.socket(); s.settimeout(1); sys.exit(s.connect_ex(("127.0.0.1", int(sys.argv[1]))) != 0)' "$1"; }
+# 127.0.0.2: loopback, but the relay binds 127.0.0.1 only, so a probe never loops back into it.
+rm -rf "$ROOT/devhist"; : >"$FAKE_LOG"; base_env JANK_VMSERVICE_PORT="$RPORT" JANK_RELAY_HOST=127.0.0.2 FAKE_PROBE_PORT="$RPORT" JANK_REPEATS=2
+run --device emulator-5554
+check "relay up during each drive (2 repeats)" '[ $RC -eq 0 ] && [ "$(grep -c "^relay=up" "$FAKE_LOG")" -eq 2 ] && grep -q "vm-service relay 127.0.0.1:$RPORT -> 127.0.0.2:$RPORT" <<<"$OUT"'
+check "relay gone after the run" '! listening "$RPORT"'
+rm -rf "$ROOT/devhist"; : >"$FAKE_LOG"; base_env JANK_VMSERVICE_PORT="$RPORT" JANK_RELAY_HOST=127.0.0.2 FAKE_PROBE_PORT="$RPORT" FAKE_FLUTTER=fail
+run --device emulator-5554
+check "relay killed when the drive fails" '[ $RC -eq 1 ] && grep -q "^relay=up" "$FAKE_LOG" && ! listening "$RPORT"'
+# A foreign listener already on the port: refused before the relay or the drive starts.
+python3 -I -c 'import socket, sys, time
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(1); time.sleep(60)' "$RPORT" &
+FOREIGN=$!
+for ((w = 0; w < 50; w++)); do listening "$RPORT" && break; sleep 0.1; done
+rm -rf "$ROOT/devhist"; : >"$FAKE_LOG"; base_env JANK_VMSERVICE_PORT="$RPORT" JANK_RELAY_HOST=127.0.0.2 FAKE_PROBE_PORT="$RPORT"
+run --device emulator-5554
+check "port pre-occupied -> refused (1), no drive" '[ $RC -eq 1 ] && grep -q "already in use by another process" <<<"$OUT" && ! grep -q "^relay=" "$FAKE_LOG" && ! grep -q "vm-service relay 127.0.0.1" <<<"$OUT"'
+EXTRA=(HOME="$ROOT/home")
+fn port_owned_by "$RPORT" "$FOREIGN"; check "port_owned_by: the listener's own pid -> 0" '[ $RC -eq 0 ]'
+sleep 60 & OTHER=$! # a sibling, not an ancestor, of the listener
+fn port_owned_by "$RPORT" "$OTHER"; check "port_owned_by: a pid that does not hold the listener -> 1" '[ $RC -eq 1 ]'
+kill "$OTHER" 2>/dev/null; wait "$OTHER" 2>/dev/null
+kill "$FOREIGN" 2>/dev/null; wait "$FOREIGN" 2>/dev/null
+for ((w = 0; w < 50; w++)); do listening "$RPORT" || break; sleep 0.1; done
+fn port_owned_by "$RPORT" "$FOREIGN"; check "port_owned_by: nobody listening -> 1" '[ $RC -eq 1 ]'
+# Normal path still OK after the foreign listener is gone.
+rm -rf "$ROOT/devhist"; : >"$FAKE_LOG"; base_env JANK_VMSERVICE_PORT="$RPORT" JANK_RELAY_HOST=127.0.0.2 FAKE_PROBE_PORT="$RPORT"
+run --device emulator-5554
+check "free port -> relay owned by its pid, drive runs" '[ $RC -eq 0 ] && grep -q "^relay=up" "$FAKE_LOG" && grep -q "vm-service relay 127.0.0.1:$RPORT" <<<"$OUT" && ! listening "$RPORT"'
+EXTRA=(HOME="$ROOT/home")
 
 echo
 echo "RESULT: pass=$PASS fail=$FAIL"

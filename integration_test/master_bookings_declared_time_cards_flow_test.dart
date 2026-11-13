@@ -9,9 +9,9 @@
 // --------------------------------------------------------------
 // The widget/unit tier proves the mechanism in isolation:
 // `declared_time_cards_test.dart` (the merge + card rendering, against a bare
-// pumped widget) and `bookings_discovery_view_declared_times_test.dart` (the
-// composition wiring, against a mocked `BookingRepository` and a STATIC
-// `EffectiveScheduleNotifier` fake). Neither proves the journey wired
+// pumped widget) and `week_time_grid_explicit_times_test.dart` (the week
+// grid's EXPLICIT_TIMES column; the day view's composition test went with
+// that arm in phase 486). Neither proves the journey wired
 // together against a real HTTP boundary: a master opens «Мої записи» on a day
 // whose `GET .../effective-schedule` genuinely returns discrete `times`
 // (not `intervals`) — mirroring `master_bookings_working_hours_window_flow_

@@ -154,19 +154,22 @@ class WeekColumnPainter extends CustomPainter {
   static Float32List hatchSegments(Rect r) {
     final double kFrom = ((r.left - r.bottom) / hatchStep).floorToDouble();
     final double kTo = ((r.right - r.top) / hatchStep).ceilToDouble();
-    final List<double> points = <double>[];
+    // Sized once for the upper bound (every k visible) and filled in place —
+    // no growable list, no copy; the result is a view of the used prefix.
+    final int lines = kTo < kFrom ? 0 : (kTo - kFrom).toInt() + 1;
+    final Float32List points = Float32List(lines * 4);
+    int n = 0;
     for (double k = kFrom; k <= kTo; k++) {
       final double c = k * hatchStep;
       final double y0 = math.max(r.top, r.left - c);
       final double y1 = math.min(r.bottom, r.right - c);
       if (y1 <= y0) continue;
-      points
-        ..add(c + y0)
-        ..add(y0)
-        ..add(c + y1)
-        ..add(y1);
+      points[n++] = c + y0;
+      points[n++] = y0;
+      points[n++] = c + y1;
+      points[n++] = y1;
     }
-    return Float32List.fromList(points);
+    return Float32List.sublistView(points, 0, n);
   }
 
   void _offBand(Canvas canvas, Rect r) {

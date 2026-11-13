@@ -135,6 +135,9 @@ void main() {
 
   late _MockBookingRepository repo;
 
+  /// The latest week request the stub answered.
+  Invocation? lastCall;
+
   /// Answers the week read with [items]; page 0 reports [totalElements]
   /// (> items.length = a truncated week), later pages are empty.
   void stubWeek(List<Booking> items, {int? totalElements}) {
@@ -152,6 +155,7 @@ void main() {
         asMaster: any(named: 'asMaster'),
       ),
     ).thenAnswer((Invocation i) async {
+      lastCall = i;
       final int page = i.namedArguments[#page] as int? ?? 0;
       return PageResponse<Booking>(
         items: page == 0 ? items : const <Booking>[],
@@ -164,6 +168,7 @@ void main() {
 
   setUp(() {
     repo = _MockBookingRepository();
+    lastCall = null;
     stubWeek(<Booking>[_booking('b1', _today)]);
   });
 
@@ -171,6 +176,7 @@ void main() {
     WidgetTester tester, {
     _ScheduleFake Function()? schedule,
     Future<Set<DateTime>> Function()? bookedDays,
+    List<MasterService> services = const <MasterService>[],
   }) async {
     final GoRouter router = GoRouter(
       routes: <RouteBase>[
@@ -194,9 +200,7 @@ void main() {
         ),
         ownerMasterBookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
         bookingCreationEnabledProvider.overrideWithValue(true),
-        masterServiceCatalogProvider.overrideWith(
-          (ref) async => const <MasterService>[],
-        ),
+        masterServiceCatalogProvider.overrideWith((ref) async => services),
         effectiveScheduleProvider.overrideWith2(
           (_) => schedule?.call() ?? _ScheduleFake(),
         ),
@@ -236,7 +240,7 @@ void main() {
   /// 11:00 Kyiv — one hour before the pinned now.
   const double hourBeforeNow = 11 * 60;
 
-  group('truncated week', () {
+  group('occupancy-incomplete week (truncated / filtered)', () {
     // Thursday — visible on the opening «3 дні» page (Tue–Thu around the
     // Wednesday "today") and in the FUTURE, so its free times are not past.
     final List<TimeOfDay> declared = <TimeOfDay>[
@@ -286,6 +290,124 @@ void main() {
         reason: 'the bookings that WERE read still render',
       );
     });
+
+    // ── Filtered week (phase 486 mobile-qa, security LOW) ────────────────
+    // The screen-level half of the false-«Вільно» contract the deleted
+    // `bookings_discovery_view_declared_times_test.dart` pinned for the day
+    // layout: only a rendered week proves `_weekBody` threads
+    // `_liveQuery.showsAllOccupancy` down (the grid's own param is pinned by
+    // `week_time_grid_explicit_times_test.dart`).
+
+    /// Opens the filter sheet, toggles [row], applies.
+    Future<void> applyFilter(WidgetTester tester, Key row) async {
+      await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(row));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+      await tester.pumpAndSettle();
+    }
+
+    /// The named argument [name] of the LAST week request.
+    Object? lastRequestArg(Symbol name) {
+      expect(lastCall, isNotNull, reason: 'no week request was made');
+      return lastCall?.namedArguments[name];
+    }
+
+    void expectNoFreeMarker() {
+      for (int i = 0; i < kWeekGridDays; i++) {
+        for (final int m in <int>[600, 960]) {
+          expect(
+            find.byKey(WeekTimeGrid.freeMarkerKey(i, m)),
+            findsNothing,
+            reason: 'a filtered week cannot back a «Вільно» claim (day $i)',
+          );
+        }
+      }
+    }
+
+    // MUTATION (mobile-qa 2026-11-12): `_weekBody`'s `showsAllOccupancy:
+    // _liveQuery.showsAllOccupancy && …` → `true && …` → RED. Restored by cp.
+    testWidgets('a STATUS-filtered week («Завершені» only) shows NO «Вільно» '
+        'marker; the booking the filter returned still renders', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, schedule: () => _ScheduleFake(times: declared));
+      expect(
+        find.byKey(WeekTimeGrid.freeMarkerKey(thursday(), 960)),
+        findsOne,
+        reason: 'fixture guard: the unfiltered week does claim 16:00',
+      );
+
+      await applyFilter(
+        tester,
+        const Key('master-bookings-filter-status-completed'),
+      );
+
+      expect(
+        (lastRequestArg(#statuses)! as List<BookingStatus>).toSet(),
+        <BookingStatus>{BookingStatus.completed},
+        reason: 'fixture guard: the filter reached the wire',
+      );
+      expectNoFreeMarker();
+      expect(find.byKey(WeekTimeGrid.cardKey('b1')), findsOne);
+    });
+
+    // MUTATION (mobile-qa 2026-11-12): dropped `serviceIds.isEmpty &&` from
+    // `BookingsDayQuery.showsAllOccupancy` → RED. Restored by cp.
+    testWidgets('a SERVICE-filtered week (default statuses) shows NO '
+        '«Вільно» marker', (WidgetTester tester) async {
+      await pump(
+        tester,
+        schedule: () => _ScheduleFake(times: declared),
+        services: const <MasterService>[
+          MasterService(
+            id: 'svc-1',
+            serviceDefId: 'def-1',
+            name: 'Манікюр',
+            durationMinutes: 60,
+          ),
+        ],
+      );
+
+      await applyFilter(
+        tester,
+        const Key('master-bookings-filter-service-svc-1'),
+      );
+
+      expect(
+        lastRequestArg(#serviceIds),
+        contains('svc-1'),
+        reason: 'fixture guard: the service filter reached the wire',
+      );
+      expectNoFreeMarker();
+      expect(find.byKey(WeekTimeGrid.cardKey('b1')), findsOne);
+    });
+  });
+
+  // Moved from the deleted `bookings_discovery_view_declared_times_test.dart`
+  // (its day-layout «filtered, nothing matched» case): a filtered week with
+  // NO matching booking shows the filter-aware empty state, never a blank
+  // grid. MUTATION (mobile-qa 2026-11-12): `noBookings && _hasUserFilters`
+  // → `false` in `_weekBody` → RED. Restored by cp.
+  testWidgets('a filtered week with no matching booking shows the '
+      'filter-aware empty state, not an empty grid', (
+    WidgetTester tester,
+  ) async {
+    await pump(tester);
+    stubWeek(const <Booking>[]);
+
+    await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('master-bookings-filter-status-completed')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('master-bookings-no-results')), findsOne);
+    expect(find.byType(WeekTimeGrid), findsNothing);
   });
 
   testWidgets('control: with the schedule resolved, the week opens with the '

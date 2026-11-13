@@ -3,7 +3,7 @@
 # scripts/perf/measure_jank.sh
 #
 # Phase 076 (10.2) / mobile-perf MP1-MP3, MP12: measure scroll jank on the four
-# heaviest lists on a real device and fail if a frame budget is blown. Modelled
+# heaviest lists (+ the phase 486 week grid) on a real device and fail if a frame budget is blown. Modelled
 # on measure_startup.sh (same hardening: validated serial, timeouts on adb,
 # sanitised device output, symlink-safe history outside the repo).
 #
@@ -18,10 +18,12 @@
 #        flutter drive --profile --driver=test_driver/integration_test.dart \
 #          --target=integration_test/perf/scroll_jank_test.dart -d <serial>
 #      (profile = AOT, asserts stripped, release-like). The test flings each of
-#      the four surfaces (my-bookings, search-results, services-list,
-#      salon-board) under binding.watchPerformance; the driver writes the
-#      per-surface FrameTimingSummarizer summaries to
-#      build/integration_response_data.json.
+#      the five surfaces (my-bookings, search-results, services-list,
+#      salon-board; phase 486: master-week, the week grid flung Mon→Sun)
+#      under binding.watchPerformance, and watches the week view's 750 ms
+#      load moment (report key `master-week_entrance`, table row
+#      `master-week-entrance`); the driver writes the per-surface
+#      FrameTimingSummarizer summaries to build/integration_response_data.json.
 #   2. copies that JSON to ~/.cache/beautica-history/jank/<date>-<sha>.json
 #      (dir 700, file 600; refused if the dir or any ancestor under $HOME is a symlink; an existing
 #      name gets a -2, -3, ... suffix so a second run never overwrites the
@@ -33,7 +35,9 @@
 # without that list it falls back to the average and the row is marked `~`.
 #
 # Budget: p90 AND worst of BOTH build and rasterizer time must be < the frame
-# budget, and frame_count >= JANK_MIN_FRAMES, on every one of the four surfaces;
+# budget, and frame_count >= JANK_MIN_FRAMES (JANK_MIN_ENTRANCE_FRAMES for an
+# `_entrance` row: a 750 ms window is ~45 frames at 60 Hz), on every one of the
+# six rows (five scroll surfaces + master-week-entrance);
 # a missing surface, an unreadable summary or a non-numeric figure is a FAILURE
 # (never silently skipped). The budget is 1000/Hz of the device display
 # (`dumpsys display`; 60 Hz + a warning when unreadable) unless JANK_BUDGET_MS is
@@ -52,6 +56,7 @@
 # Env vars (optional):
 #   JANK_BUDGET_MS        default: 1000/refresh-rate (16 for --summarize); strictly-less-than, ms
 #   JANK_MIN_FRAMES       default 60     (fewer frames in a surface run = FAIL)
+#   JANK_MIN_ENTRANCE_FRAMES default 30  (same, for an `_entrance` row)
 #   JANK_REPEATS          default 3      (drive runs per invocation, 1..20)
 #   JANK_DRIVE_TIMEOUT_S  default 1500   (whole `flutter drive` run)
 #   JANK_ADB_TIMEOUT_S    default 60     (per adb call)
@@ -59,6 +64,20 @@
 #   JANK_HISTORY_MAX_TRIES default 1000  (cap on attempts to create a uniquely named history file; positive integer; tests lower it)
 #   JANK_MOBILE_DIR       default <this repo root> (override is for tests)
 #   ANDROID_SERIAL        default device (set up by connect_adb.sh)
+#   JANK_NO_DDS           1 adds `--no-dds` to flutter drive (remote adb server; default off)
+#   JANK_VMSERVICE_PORT   unset by default; an integer 1024..65535 adds
+#                         `--host-vmservice-port <port>` to flutter drive
+#   JANK_RELAY_HOST       unset by default; needs JANK_VMSERVICE_PORT. An IPv4 address or
+#                         host name (A-Za-z0-9.- only). For each drive the script runs a TCP
+#                         relay 127.0.0.1:<port> -> <host>:<port> (socat if present, else an
+#                         inline `python3 -I` relay) and kills it when the drive ends or the
+#                         script exits.
+#
+# Remote Windows adb (ADB_SERVER_SOCKET / ANDROID_ADB_SERVER_ADDRESS pointing off this
+# host): `adb forward` binds the VM-service port on the ADB SERVER's host, so flutter on
+# this host cannot reach it. Pin the port and relay it, e.g.
+#   JANK_NO_DDS=1 JANK_VMSERVICE_PORT=47000 JANK_RELAY_HOST=10.0.2.2 \
+#     scripts/perf/measure_jank.sh --device <serial>
 # Budgets are calibrated for a mid-tier physical device in profile mode;
 # emulators get a warning.
 # ================================================
@@ -71,17 +90,174 @@ BUDGET="${JANK_BUDGET_MS:-16}"
 DRIVE_TIMEOUT="${JANK_DRIVE_TIMEOUT_S:-1500}"
 ADB_TIMEOUT="${JANK_ADB_TIMEOUT_S:-60}"
 MIN_FRAMES="${JANK_MIN_FRAMES:-60}"
+MIN_ENTRANCE_FRAMES="${JANK_MIN_ENTRANCE_FRAMES:-30}"
 REPEATS="${JANK_REPEATS:-3}"
 # JANK_NO_DDS=1 adds `--no-dds` to flutter drive: needed when adb is a REMOTE server
 # (ADB_SERVER_SOCKET=tcp:host:port) so the on-device test can reach its own VM service
 # (the host-side DDS port is unreachable from the phone). Default off.
 DRIVE_EXTRA=()
 [[ "${JANK_NO_DDS:-0}" == 1 ]] && DRIVE_EXTRA=(--no-dds)
+VMSERVICE_PORT="${JANK_VMSERVICE_PORT:-}"
+RELAY_HOST="${JANK_RELAY_HOST:-}"
+RELAY_PID=""
 MAX_JSON_BYTES=$((8 * 1024 * 1024))
-SURFACES=(my-bookings search-results services-list salon-board)
+SURFACES=(my-bookings search-results services-list salon-board master-week master-week-entrance)
 
 usage() { awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; }
 die64() { echo "$*" >&2; exit 64; }
+
+# valid_port <p> -> 0 if an unprivileged TCP port (1024..65535, no leading zero).
+valid_port() { [[ "$1" =~ ^[1-9][0-9]{3,4}$ ]] && (( $1 >= 1024 && $1 <= 65535 )); }
+
+# valid_host <h> -> 0 if a dotted-quad IPv4 (octets <= 255) or a host name of
+# A-Za-z0-9 labels joined by '.', '-' inside a label only.
+valid_host() {
+  local h="$1" o
+  (( ${#h} <= 253 )) || return 1
+  if [[ "$h" =~ ^[0-9.]+$ ]]; then
+    [[ "$h" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+    for o in "${BASH_REMATCH[@]:1}"; do (( 10#$o <= 255 )) || return 1; done
+    return 0
+  fi
+  [[ "$h" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$ ]]
+}
+
+# Inline TCP relay for start_relay when socat is missing: argv = listen port, host, port.
+RELAY_PY='
+import socket, sys, threading
+lp, rh, rp = int(sys.argv[1]), sys.argv[2], int(sys.argv[3])
+def pipe(a, b):
+    try:
+        while True:
+            d = a.recv(65536)
+            if not d:
+                break
+            b.sendall(d)
+    except OSError:
+        pass
+    finally:
+        for s in (a, b):
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+def handle(c):
+    try:
+        r = socket.create_connection((rh, rp))
+    except OSError:
+        c.close()
+        return
+    threading.Thread(target=pipe, args=(c, r), daemon=True).start()
+    threading.Thread(target=pipe, args=(r, c), daemon=True).start()
+srv = socket.socket()
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("127.0.0.1", lp))
+srv.listen(16)
+while True:
+    c, _ = srv.accept()
+    threading.Thread(target=handle, args=(c,), daemon=True).start()
+'
+
+# port_listening <port> -> 0 once something accepts on 127.0.0.1:<port>.
+port_listening() {
+  python3 -I -c 'import socket, sys
+s = socket.socket()
+s.settimeout(0.5)
+sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0 else 1)' "$1"
+}
+
+# port_owned_by <port> <pid> -> 0 only if every TCP listener on <port> (IPv4 + IPv6,
+# from /proc/net) is a socket held by <pid> or one of its descendants, and there is at
+# least one. Fails closed (1) when /proc is unreadable: the relay must be provably ours.
+port_owned_by() {
+  python3 -I -c 'import os, sys
+port, root = int(sys.argv[1]), sys.argv[2]
+try:
+    kids = {}
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                with open("/proc/%s/stat" % p) as f:
+                    ppid = f.read().rsplit(")", 1)[1].split()[1]
+            except OSError:
+                continue
+            kids.setdefault(ppid, []).append(p)
+    pids, todo = set(), [root]
+    while todo:
+        p = todo.pop()
+        if p not in pids:
+            pids.add(p)
+            todo.extend(kids.get(p, []))
+    owned = set()
+    for p in pids:
+        try:
+            for fd in os.listdir("/proc/%s/fd" % p):
+                try:
+                    t = os.readlink("/proc/%s/fd/%s" % (p, fd))
+                except OSError:
+                    continue
+                if t.startswith("socket:["):
+                    owned.add(t[8:-1])
+        except OSError:
+            pass
+    listeners = []
+    for name in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(name) as f:
+                rows = f.readlines()[1:]
+        except OSError:
+            continue
+        for r in rows:
+            c = r.split()
+            if c[3] == "0A" and int(c[1].rsplit(":", 1)[1], 16) == port:
+                listeners.append(c[9])
+except Exception:
+    sys.exit(1)
+sys.exit(0 if listeners and all(i in owned for i in listeners) else 1)' "$1" "$2"
+}
+
+# start_relay: relays 127.0.0.1:$VMSERVICE_PORT -> $RELAY_HOST:$VMSERVICE_PORT in the
+# background (RELAY_PID); exits 1 if the port is already taken before it starts, if it
+# is not listening within ~5 s, or if the listener is not the relay's own (a foreign
+# process on the port would otherwise receive flutter drive's VM-service traffic).
+start_relay() {
+  if port_listening "$VMSERVICE_PORT"; then
+    echo "ERROR: 127.0.0.1:$VMSERVICE_PORT is already in use by another process; refusing to relay (pick a free JANK_VMSERVICE_PORT)" >&2
+    exit 1
+  fi
+  if command -v socat >/dev/null 2>&1; then
+    socat "TCP-LISTEN:$VMSERVICE_PORT,bind=127.0.0.1,reuseaddr,fork" "TCP:$RELAY_HOST:$VMSERVICE_PORT" </dev/null >/dev/null 2>&1 &
+  else
+    python3 -I -c "$RELAY_PY" "$VMSERVICE_PORT" "$RELAY_HOST" "$VMSERVICE_PORT" </dev/null >/dev/null 2>&1 &
+  fi
+  RELAY_PID=$!
+  local t
+  for ((t = 0; t < 50; t++)); do
+    kill -0 "$RELAY_PID" 2>/dev/null || { RELAY_PID=""; echo "ERROR: vm-service relay on 127.0.0.1:$VMSERVICE_PORT exited (port in use?)" >&2; exit 1; }
+    if port_listening "$VMSERVICE_PORT"; then
+      if ! port_owned_by "$VMSERVICE_PORT" "$RELAY_PID"; then
+        stop_relay
+        echo "ERROR: the listener on 127.0.0.1:$VMSERVICE_PORT is not the vm-service relay; refusing to drive" >&2
+        exit 1
+      fi
+      echo "==> vm-service relay 127.0.0.1:$VMSERVICE_PORT -> $RELAY_HOST:$VMSERVICE_PORT (pid $RELAY_PID)"
+      return 0
+    fi
+    sleep 0.1
+  done
+  stop_relay
+  echo "ERROR: vm-service relay on 127.0.0.1:$VMSERVICE_PORT not listening after 5s" >&2
+  exit 1
+}
+
+# stop_relay: kills the relay (and any socat fork children); a no-op when none runs.
+stop_relay() {
+  [[ -n "$RELAY_PID" ]] || return 0
+  pkill -P "$RELAY_PID" 2>/dev/null || true
+  kill "$RELAY_PID" 2>/dev/null || true
+  wait "$RELAY_PID" 2>/dev/null || true
+  RELAY_PID=""
+}
 
 # valid_serial <s> -> 0 if safe to pass to `adb -s`.
 valid_serial() { [[ "$1" =~ ^[A-Za-z0-9._:-]+$ && "$1" != -* ]]; }
@@ -136,12 +312,12 @@ summarize_json() {
     size="$(stat -c %s -- "$f" 2>/dev/null || echo 0)"
     (( size > 0 && size <= MAX_JSON_BYTES )) || { echo "ERROR: $(printf '%s' "$f" | scrub_raw) is empty or larger than ${MAX_JSON_BYTES} bytes" >&2; return 1; }
   done
-  python3 - "$BUDGET" "$MIN_FRAMES" "$#" "$@" "${SURFACES[@]}" <<'PY'
+  python3 - "$BUDGET" "$MIN_FRAMES" "$MIN_ENTRANCE_FRAMES" "$#" "$@" "${SURFACES[@]}" <<'PY'
 import json, math, re, sys
 
-budget, min_frames, nfiles = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
-paths = sys.argv[4:4 + nfiles]
-required = sys.argv[4 + nfiles:]
+budget, min_frames, min_entrance_frames, nfiles = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+paths = sys.argv[5:5 + nfiles]
+required = sys.argv[5 + nfiles:]
 
 
 def clean(s):
@@ -190,9 +366,14 @@ for path in paths:
         print("ERROR: %s: top level is not an object" % scrub(path), file=sys.stderr)
         sys.exit(1)
     for raw_key, summary in data.items():
-        if not isinstance(raw_key, str) or not raw_key.endswith("_scroll"):
+        if not isinstance(raw_key, str):
             continue
-        key = clean(raw_key[: -len("_scroll")])
+        if raw_key.endswith("_scroll"):
+            key = clean(raw_key[: -len("_scroll")])
+        elif raw_key.endswith("_entrance"):
+            key = clean(raw_key[: -len("_entrance")]) + "-entrance"
+        else:
+            continue
         if not isinstance(summary, dict):
             failures.append("%s: summary is not an object" % key)
             continue
@@ -216,7 +397,7 @@ for s in required:
     if s not in runs and not any(f.startswith(s + ":") for f in failures):
         failures.append("%s: surface missing from the response data" % s)
 
-print("%-16s %7s %9s %9s %10s %9s %10s  %s" % ("surface", "frames", "p50 ms", "p90 ms", "worst ms", "r90 ms", "rworst ms", "verdict"))
+print("%-20s %7s %9s %9s %10s %9s %10s  %s" % ("surface", "frames", "p50 ms", "p90 ms", "worst ms", "r90 ms", "rworst ms", "verdict"))
 over, any_est = False, False
 for key in sorted(runs, key=lambda k: (k not in required, required.index(k) if k in required else 0, k)):
     rs = runs[key]
@@ -226,13 +407,14 @@ for key in sorted(runs, key=lambda k: (k not in required, required.index(k) if k
     any_est = any_est or est
     p50, p90, worst, r90, rworst = (med([r[i] for r in rs]) for i in (1, 3, 4, 5, 6))
     bad = []
-    if frames is None or frames < min_frames:
-        bad.append("too few frames (%s < %d)" % ("n/a" if frames is None else frames, min_frames))
+    floor = min_entrance_frames if key.endswith("-entrance") else min_frames
+    if frames is None or frames < floor:
+        bad.append("too few frames (%s < %d)" % ("n/a" if frames is None else frames, floor))
     for label, v in (("p90", p90), ("worst", worst), ("r90", r90), ("rworst", rworst)):
         if not v < budget:
             bad.append("%s %.2f >= %g" % (label, v, budget))
     over = over or bool(bad)
-    print("%-16s %7s %8.2f%s %9.2f %10.2f %9.2f %10.2f  %s" % (
+    print("%-20s %7s %8.2f%s %9.2f %10.2f %9.2f %10.2f  %s" % (
         key, "n/a" if frames is None else frames, p50, "~" if est else " ", p90, worst, r90, rworst,
         "FAIL (%s)" % "; ".join(bad) if bad else "PASS"))
 if any_est:
@@ -242,7 +424,7 @@ if nfiles > 1:
 for f in failures:
     print("FAIL: %s" % f, file=sys.stderr)
 if over or failures:
-    print("FAIL: frame budget is p90 < %g ms and worst < %g ms (build AND rasterizer), >= %d frames, on every surface" % (budget, budget, min_frames), file=sys.stderr)
+    print("FAIL: frame budget is p90 < %g ms and worst < %g ms (build AND rasterizer), >= %d frames (entrance: >= %d), on every surface" % (budget, budget, min_frames, min_entrance_frames), file=sys.stderr)
     sys.exit(1)
 print("PASS: all %d surfaces within the %g ms frame budget" % (len(required), budget))
 PY
@@ -339,7 +521,12 @@ main() {
   [[ "$DRIVE_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || die64 "JANK_DRIVE_TIMEOUT_S must be a positive integer"
   [[ "$ADB_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || die64 "JANK_ADB_TIMEOUT_S must be a positive integer"
   [[ "$MIN_FRAMES" =~ ^[1-9][0-9]*$ ]] || die64 "JANK_MIN_FRAMES must be a positive integer"
+  [[ "$MIN_ENTRANCE_FRAMES" =~ ^[1-9][0-9]*$ ]] || die64 "JANK_MIN_ENTRANCE_FRAMES must be a positive integer"
   [[ "$REPEATS" =~ ^[1-9][0-9]*$ ]] && (( REPEATS <= 20 )) || die64 "JANK_REPEATS must be an integer in 1..20"
+  [[ -z "$VMSERVICE_PORT" ]] || valid_port "$VMSERVICE_PORT" || die64 "JANK_VMSERVICE_PORT must be an integer in 1024..65535"
+  [[ -z "$RELAY_HOST" ]] || valid_host "$RELAY_HOST" || die64 "JANK_RELAY_HOST must be an IPv4 address or a host name (A-Za-z0-9.-)"
+  [[ -z "$RELAY_HOST" || -n "$VMSERVICE_PORT" ]] || die64 "JANK_RELAY_HOST needs JANK_VMSERVICE_PORT"
+  [[ -z "$VMSERVICE_PORT" ]] || DRIVE_EXTRA+=(--host-vmservice-port "$VMSERVICE_PORT")
 
   local mode=device serial="${ANDROID_SERIAL:-}" model="" qemu="" enforce=false hz=""
   local -a jsons=()
@@ -395,17 +582,21 @@ main() {
 
   local i rc keep_dir
   keep_dir="$(mktemp -d)"
-  trap "rm -rf -- '$keep_dir'" EXIT
+  trap "stop_relay; rm -rf -- '$keep_dir'" EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   for ((i = 1; i <= REPEATS; i++)); do
     rm -f -- "$resp"
-    echo "==> flutter drive --profile (scroll jank, 4 surfaces, run $i/$REPEATS) on $serial [model: $model]"
+    echo "==> flutter drive --profile (scroll jank, ${#SURFACES[@]} surfaces, run $i/$REPEATS) on $serial [model: $model]"
     rc=0
+    [[ -z "$RELAY_HOST" ]] || start_relay
     ( cd "$MOBILE_DIR" && timeout --kill-after=10 "$DRIVE_TIMEOUT" flutter drive --profile \
         --driver=test_driver/integration_test.dart \
         --target=integration_test/perf/scroll_jank_test.dart \
         --dart-define="JANK_ENFORCE=$enforce" \
         "${DRIVE_EXTRA[@]}" \
         -d "$serial" ) || rc=$?
+    stop_relay
     if (( rc == 124 || rc == 137 )); then
       echo "ERROR: flutter drive timed out after ${DRIVE_TIMEOUT}s (device hung or build stalled)" >&2
       exit 1

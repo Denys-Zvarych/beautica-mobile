@@ -90,6 +90,7 @@ class WeekStrip extends StatelessWidget {
     required this.onTapDay,
     required this.onPrevWeek,
     required this.onNextWeek,
+    this.entrance,
   }) : assert(counts.length == _kDays && dayOff.length == _kDays);
 
   /// The week's Monday date token.
@@ -114,6 +115,11 @@ class WeekStrip extends StatelessWidget {
   final ValueChanged<int> onTapDay;
   final VoidCallback onPrevWeek;
   final VoidCallback onNextWeek;
+
+  /// Phase 486 — the week view's one load moment (0→1): the window glides in
+  /// from Monday to its page. `null` (the default) = at rest, exactly as
+  /// before. Ignored under `MediaQuery.disableAnimations` (reduced motion).
+  final Animation<double>? entrance;
 
   static const Key windowKey = Key('week-strip-window');
 
@@ -149,6 +155,7 @@ class WeekStrip extends StatelessWidget {
             pageController: pageController,
             visibleColumns: visibleColumns,
             onTapDay: onTapDay,
+            entrance: entrance,
           ),
         ),
         WeekStepButton(forward: true, onTap: onNextWeek),
@@ -167,6 +174,7 @@ class _Days extends StatefulWidget {
     required this.pageController,
     required this.visibleColumns,
     required this.onTapDay,
+    this.entrance,
   });
 
   final DateTime weekStart;
@@ -176,6 +184,7 @@ class _Days extends StatefulWidget {
   final PageController pageController;
   final int visibleColumns;
   final ValueChanged<int> onTapDay;
+  final Animation<double>? entrance;
 
   @override
   State<_Days> createState() => _DaysState();
@@ -185,6 +194,27 @@ class _DaysState extends State<_Days> {
   final ForwardedScrollDrag _drag = ForwardedScrollDrag();
 
   PageController get pageController => widget.pageController;
+
+  /// The window's listenable while an entrance is live — built once per
+  /// (pager, entrance) pair, not per build (a fresh `Listenable.merge`
+  /// each build also made the [AnimatedBuilder] re-subscribe).
+  Listenable? _merged;
+  PageController? _mergedPager;
+  Animation<double>? _mergedEntrance;
+
+  Listenable _windowListenable(Animation<double>? entrance) {
+    if (entrance == null) return pageController;
+    final Listenable? cached = _merged;
+    if (cached != null &&
+        identical(_mergedPager, pageController) &&
+        identical(_mergedEntrance, entrance)) {
+      return cached;
+    }
+    _mergedPager = pageController;
+    _mergedEntrance = entrance;
+    return _merged = Listenable.merge(<Listenable>[pageController, entrance]);
+  }
+
   int get visibleColumns => widget.visibleColumns;
 
   @override
@@ -209,6 +239,11 @@ class _DaysState extends State<_Days> {
     return c.initialPage.toDouble();
   }
 
+  /// The entrance glide factor — 1 at rest / without an entrance.
+  static double _glide(Animation<double>? entrance) => entrance == null
+      ? 1
+      : Curves.easeOutCubic.transform(entrance.value.clamp(0, 1).toDouble());
+
   /// Strip px → grid px: one cell of finger travel = one day of grid travel,
   /// in the window's direction (finger right → pixels up, hence negative).
   double _scale(double cellW) {
@@ -221,6 +256,9 @@ class _DaysState extends State<_Days> {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final List<String> weekdays = weekdayShortLabels(l10n);
+    final Animation<double>? entrance = MediaQuery.disableAnimationsOf(context)
+        ? null
+        : widget.entrance;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints c) {
         final double cellW = c.maxWidth / _kDays;
@@ -243,12 +281,16 @@ class _DaysState extends State<_Days> {
                   child: RepaintBoundary(
                     key: WeekStrip.windowLayerKey,
                     child: AnimatedBuilder(
-                      animation: pageController,
+                      animation: _windowListenable(entrance),
                       // A scroll frame only re-translates the fixed-width
                       // window; the inset's cached layer is reused as-is.
+                      // Entrance: the window glides in from Monday (t 0→1).
                       builder: (BuildContext context, Widget? child) =>
                           Transform.translate(
-                            offset: Offset(_page * cellW + 2, 0),
+                            offset: Offset(
+                              _page * cellW * _glide(entrance) + 2,
+                              0,
+                            ),
                             child: child,
                           ),
                       child: Align(

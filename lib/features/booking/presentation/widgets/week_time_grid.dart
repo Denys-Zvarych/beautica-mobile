@@ -190,6 +190,10 @@ class WeekTimeGrid extends StatefulWidget {
   /// 30-minute block keeps its range + name at ×1.3.
   static const double threeDayHourHeight = 72;
 
+  /// Phase 486 — the host's one load moment ([entrance]): the preview's
+  /// 750 ms.
+  static const Duration entranceDuration = Duration(milliseconds: 750);
+
   /// Settle delay after a zero-velocity end before the snap to a day.
   static const Duration settleDelay = Duration(milliseconds: 180);
 
@@ -247,6 +251,19 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   /// the position (a resting finger HOLDS it without scrolling), so the
   /// day snap waits; the last pointer up re-arms it.
   int _pointersDown = 0;
+
+  /// [weekGridWindow] of the last `days` list, memoised on its IDENTITY —
+  /// [_reportTopMinute] runs on every vertical scroll tick and must not
+  /// re-scan seven schedules per frame.
+  List<WeekDayModel>? _windowDays;
+  WeekGridWindow? _windowMemo;
+
+  WeekGridWindow get _window {
+    final WeekGridWindow? cached = _windowMemo;
+    if (cached != null && identical(_windowDays, widget.days)) return cached;
+    _windowDays = widget.days;
+    return _windowMemo = weekGridWindow(widget.days);
+  }
 
   int get _todayIndex {
     for (int i = 0; i < widget.days.length; i++) {
@@ -319,7 +336,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   /// the carried [WeekTimeGrid.topMinute], else the opening rule.
   void _openAtStart({double? target}) {
     if (!mounted || !_vertical.hasClients) return;
-    final WeekGridWindow window = weekGridWindow(widget.days);
+    final WeekGridWindow window = _window;
     final double hourH = _hourHeight(context);
     final int origin = window.firstHour * 60;
     final double minute =
@@ -348,7 +365,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     final ValueNotifier<double?>? holder = widget.topMinute;
     if (holder == null || !_opened || !_vertical.hasClients) return;
     holder.value =
-        weekGridWindow(widget.days).firstHour * 60 +
+        _window.firstHour * 60 +
         _vertical.position.pixels / _hourHeight(context) * 60;
   }
 
@@ -374,7 +391,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
     if (!_opened || !_vertical.hasClients) return;
     final double? anchor = _anchorOffset;
     final int oldFirst = weekGridWindow(old.days).firstHour;
-    final int newFirst = weekGridWindow(widget.days).firstHour;
+    final int newFirst = _window.firstHour;
     final double oldHourH =
         old.hourHeight ??
         WeekTimeGrid.hourHeightFor(context, old.visibleColumns);
@@ -481,7 +498,7 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final List<String> weekdays = weekdayShortLabels(l10n);
-    final WeekGridWindow window = weekGridWindow(widget.days);
+    final WeekGridWindow window = _window;
     final double hourH = _hourHeight(context);
     final int todayIndex = _todayIndex;
     final int totalHours = window.lastHour - window.firstHour;
@@ -630,6 +647,11 @@ class _WeekTimeGridState extends State<WeekTimeGrid> {
                                 )
                               : null,
                           itemCount: kWeekGridDays,
+                          // Phase 486 perf: the builder delegate's default
+                          // `addRepaintBoundaries` gives every column its own
+                          // layer, and with no implicit-scrolling cache only
+                          // the columns in the viewport (plus the one
+                          // sliding in) are built — never all seven.
                           itemBuilder: (BuildContext context, int i) {
                             final Widget column = _DayColumn(
                               key: WeekTimeGrid.columnKey(i),
@@ -856,8 +878,17 @@ class _ColumnEntrance extends StatefulWidget {
 /// Builds the [CurvedAnimation] ONCE (and disposes it) — one per build
 /// leaked a parent status listener each rebuild. Fade + slide are
 /// transitions, so a frame repaints / re-translates without rebuilding.
+///
+/// Phase 486 perf: mid-entrance the sliding column sits on its own layer
+/// (a [RepaintBoundary] under the [SlideTransition]), so the rise
+/// re-composites instead of repainting the cards. Once the entrance has
+/// COMPLETED the wrapper collapses — no [LayoutBuilder], no opacity layer,
+/// no transform — and the column is reparented through [_childKey] (a
+/// move, not a remount: the column's subtree keeps its elements).
 class _ColumnEntranceState extends State<_ColumnEntrance> {
   late CurvedAnimation _curved;
+  final GlobalKey _childKey = GlobalKey();
+  late bool _done;
 
   CurvedAnimation _curve() => CurvedAnimation(
     parent: widget.animation,
@@ -868,15 +899,27 @@ class _ColumnEntranceState extends State<_ColumnEntrance> {
     ),
   );
 
+  void _onStatus(AnimationStatus status) {
+    final bool done = status.isCompleted;
+    if (done != _done) setState(() => _done = done);
+  }
+
   @override
   void initState() {
     super.initState();
     _curved = _curve();
+    _done = widget.animation.isCompleted;
+    widget.animation.addStatusListener(_onStatus);
   }
 
   @override
   void didUpdateWidget(_ColumnEntrance old) {
     super.didUpdateWidget(old);
+    if (old.animation != widget.animation) {
+      old.animation.removeStatusListener(_onStatus);
+      widget.animation.addStatusListener(_onStatus);
+      _done = widget.animation.isCompleted;
+    }
     if (old.animation != widget.animation || old.slot != widget.slot) {
       _curved.dispose();
       _curved = _curve();
@@ -885,29 +928,34 @@ class _ColumnEntranceState extends State<_ColumnEntrance> {
 
   @override
   void dispose() {
+    widget.animation.removeStatusListener(_onStatus);
     _curved.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (BuildContext context, BoxConstraints c) {
-      // SlideTransition offsets are fractions of the child's size; the
-      // column is height-bounded by the grid, so this is the 14 dp rise.
-      final double h = c.maxHeight;
-      final double dy = h.isFinite && h > 0 ? _ColumnEntrance._rise / h : 0;
-      // dim-decorative: one-shot load entrance; rests at opacity 1.
-      return FadeTransition(
-        opacity: _curved,
-        child: SlideTransition(
-          position: _curved.drive(
-            Tween<Offset>(begin: Offset(0, dy), end: Offset.zero),
+  Widget build(BuildContext context) {
+    final Widget child = KeyedSubtree(key: _childKey, child: widget.child);
+    if (_done) return child;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints c) {
+        // SlideTransition offsets are fractions of the child's size; the
+        // column is height-bounded by the grid, so this is the 14 dp rise.
+        final double h = c.maxHeight;
+        final double dy = h.isFinite && h > 0 ? _ColumnEntrance._rise / h : 0;
+        // dim-decorative: one-shot load entrance; rests at opacity 1.
+        return FadeTransition(
+          opacity: _curved,
+          child: SlideTransition(
+            position: _curved.drive(
+              Tween<Offset>(begin: Offset(0, dy), end: Offset.zero),
+            ),
+            child: RepaintBoundary(child: child),
           ),
-          child: widget.child,
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
+  }
 }
 
 // ── One day column ────────────────────────────────────────────────────────
