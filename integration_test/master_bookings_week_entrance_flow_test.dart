@@ -157,6 +157,9 @@ void main() {
 
   testWidgets('opening «Записи» plays the entrance once; a week step and '
       '«День» do not replay it', (WidgetTester tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures();
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
     final FakeBackend fb = FakeBackend()
       ..currentRole = UserRole.independentMaster;
     final GoRouter router = await _tapBookings(tester, fb);
