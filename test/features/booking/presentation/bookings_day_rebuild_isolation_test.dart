@@ -60,11 +60,14 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_week_notifier.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_month_calendar_panel.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
+import '../../../../integration_test/support/week_grid_driver.dart';
 import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
@@ -305,12 +308,21 @@ void main() {
   // vacuous for exactly this reason — see the DST-bug postmortem). Both
   // witnesses below are constructed NON-const at their real call sites in
   // `bookings_discovery_view.dart` (`BookingsFilterButton(activeCount:
-  // ..., onTap: ...)` inside `_Header`; `BookingsDayRail(controller: ...,
-  // ...)` inside its own `Consumer`) — every field is a runtime value, so
-  // `identical()` genuinely reflects whether the enclosing ancestor rebuilt.
-  testWidgets('the PRODUCTION widget tree: a bookingsDayProvider emission on '
+  // ..., onTap: ...)` inside `_Header`; `BookingsMonthCalendarPanel(
+  // railController: ..., timeline: ...)` inside its own `Consumer`) — every
+  // field is a runtime value, so `identical()` genuinely reflects whether the
+  // enclosing ancestor rebuilt.
+  //
+  // Phase 485 — the master «Записи» is the WEEK layout: the list provider is
+  // `bookingsWeekProvider` and the day rail is gone. The rail's role as the
+  // "sibling of the timeline Consumer" witness passes to the month-calendar
+  // panel that hosts the week header and grid (the week strip itself lives
+  // INSIDE a week-watching Consumer — it shows the per-day counts — so it is
+  // meant to rebuild). The grid itself is the fixture guard that the
+  // emission reached the narrow Consumer.
+  testWidgets('the PRODUCTION widget tree: a bookingsWeekProvider emission on '
       'MasterBookingsScreen rebuilds neither the header filter button nor the '
-      'day rail', (tester) async {
+      'calendar panel — only the week grid', (tester) async {
     final _MockBookingRepository repo = _MockBookingRepository();
     when(
       () => repo.getMyBookings(
@@ -344,36 +356,27 @@ void main() {
 
     final BookingsFilterButton headerWitnessBefore = tester
         .widget<BookingsFilterButton>(find.byType(BookingsFilterButton));
-    final BookingsDayRail railWitnessBefore = tester.widget<BookingsDayRail>(
-      find.byType(BookingsDayRail),
+    final BookingsMonthCalendarPanel panelWitnessBefore = tester
+        .widget<BookingsMonthCalendarPanel>(
+          find.byType(BookingsMonthCalendarPanel),
+        );
+    final WeekTimeGrid gridBefore = tester.widget<WeekTimeGrid>(
+      find.byType(WeekTimeGrid),
     );
 
-    // Force a genuine SECOND `bookingsDayProvider` emission with no
+    // Force a genuine SECOND `bookingsWeekProvider` emission with no
     // `setState()` anywhere in `_BookingsDiscoveryViewState` — mirrors
     // what a future pull-to-refresh or cache-eviction would trigger.
     // Reached via the SAME `ProviderScope` `pumpApp` built (not a bespoke
     // `ProviderContainer`), so this exercises the real production tree.
     final ProviderContainer container = ProviderScope.containerOf(
-      tester.element(find.byType(BookingsDayRail)),
+      tester.element(find.byType(WeekTimeGrid)),
       listen: false,
     );
-    final DateTime today = kyivToday(DateTime.now);
-    // The statuses are NOT decoration — `bookingsDayProvider` is a family and
-    // this must name the member the screen is actually watching. Since
-    // 2026-08-13 the landing query carries
-    // `BookingStatus.visibleInDayListByDefault` (CANCELLED/DECLINED hidden by
-    // default), so an empty-status query here invalidates a member nobody
-    // listens to: no second fetch fires and the `.called(2)` fixture guard
-    // below catches it rather than letting the identity assertions pass
-    // vacuously — which is precisely the job that guard exists for.
-    container.invalidate(
-      bookingsDayProvider(
-        BookingsDayQuery.of(
-          day: today,
-          statuses: BookingStatus.visibleInDayListByDefault,
-        ),
-      ),
-    );
+    // The whole family: the screen watches exactly ONE member (this week,
+    // its default status mapping), so this re-fetches that member and no
+    // other — the `.called(2)` guard below proves it.
+    container.invalidate(bookingsWeekProvider);
     await tester.pump();
     await tester.pumpAndSettle();
 
@@ -395,26 +398,37 @@ void main() {
 
     final BookingsFilterButton headerWitnessAfter = tester
         .widget<BookingsFilterButton>(find.byType(BookingsFilterButton));
-    final BookingsDayRail railWitnessAfter = tester.widget<BookingsDayRail>(
-      find.byType(BookingsDayRail),
-    );
+    final BookingsMonthCalendarPanel panelWitnessAfter = tester
+        .widget<BookingsMonthCalendarPanel>(
+          find.byType(BookingsMonthCalendarPanel),
+        );
 
     expect(
       identical(headerWitnessBefore, headerWitnessAfter),
       isTrue,
       reason:
-          'the header rebuilt on a bookingsDayProvider emission on the '
-          'REAL screen — a ref.watch(bookingsDayProvider(...)) call must '
+          'the header rebuilt on a bookingsWeekProvider emission on the '
+          'REAL screen — a ref.watch(bookingsWeekProvider(...)) call must '
           'have leaked out of the narrow Consumer in '
           'bookings_discovery_view.dart into '
           '_BookingsDiscoveryViewState.build()',
     );
     expect(
-      identical(railWitnessBefore, railWitnessAfter),
+      identical(panelWitnessBefore, panelWitnessAfter),
       isTrue,
       reason:
-          'the day rail rebuilt on a bookingsDayProvider emission on the '
-          'REAL screen — same regression as the header case above.',
+          'the calendar panel rebuilt on a bookingsWeekProvider emission on '
+          'the REAL screen — same regression as the header case above.',
+    );
+    expect(
+      identical(
+        tester.widget<WeekTimeGrid>(find.byType(WeekTimeGrid)),
+        gridBefore,
+      ),
+      isFalse,
+      reason:
+          'fixture guard: the week grid itself must have rebuilt, or the '
+          'emission never reached the narrow Consumer',
     );
   });
 
@@ -447,35 +461,29 @@ void main() {
   // than a hand-rolled `ValueNotifier`.
   //
   // VACUOUS-ASSERTION TRAP (same as the LOW-4 block above): the witness must
-  // be non-const at its real call site. `BookingsTimelineGrid(bookings:,
-  // day:, onBookingTap:)` is constructed from runtime values inside
-  // `_Loaded.build`, so `identical()` genuinely reflects a rebuild.
+  // be non-const at its real call site. `WeekTimeGrid(weekStart:, days:,
+  // ...)` is constructed from runtime values inside `_weekBody`, so
+  // `identical()` genuinely reflects a rebuild.
+  //
+  // Phase 485 — the master «Записи» is the WEEK layout. The month grid opens
+  // from the week title ([WeekNavBar.titleKey]) instead of the retired
+  // `bookings-month-calendar-toggle`; a month step lands the SAME
+  // day-of-month (clamped) and shows ITS week, so the witness is
+  // [WeekTimeGrid] and the fixture guard is the grid's `weekStart` (the
+  // week layout's month grid carries its own per-page month header, not the
+  // day layout's `bookings-month-calendar-label`).
 
   group('month step (Варіант D calendar) rebuilds the timeline', () {
-    /// The visible month+year label `Text`.
-    ///
-    /// ⚠ REPOINTED (this session). This used to read the FIRST `Text` inside
-    /// `bookings-month-calendar-grid`, because `_TopRow` dropped its own
-    /// label from the tree once the calendar opened (`if (t < 0.45)`) and
-    /// `MonthCalendar`'s `_MonthHeader` carried the month name from then on.
-    /// Both halves of that are gone: the top-row label is now PERMANENT and
-    /// `MonthCalendar` is composed with `showHeader: false`, so the month
-    /// name exists exactly once on screen, in one place, in every state. The
-    /// grid's first `Text` today is `CalendarWeekdayBar`'s "пн", which never
-    /// changes and would have quietly defanged every fixture guard below.
-    ///
-    /// Reached by key (never a hard-coded Cyrillic month name — the
-    /// i18n-finder gate) so it never depends on `monthNominative`'s exact
-    /// formatting.
-    String monthLabel(WidgetTester tester) => tester
-        .widget<Text>(find.byKey(const Key('bookings-month-calendar-label')))
-        .data!;
+    /// The Monday of the week the grid shows — the fixture guard that a
+    /// step actually moved the selection.
+    DateTime shownWeek(WidgetTester tester) =>
+        tester.widget<WeekTimeGrid>(find.byType(WeekTimeGrid)).weekStart;
 
-    /// Expands the calendar (the month pager is unreachable while collapsed —
-    /// `IgnorePointer(ignoring: t < 0.5)`) and waits out the 280ms open
-    /// animation.
+    /// Expands the calendar from the week title (the month pager is
+    /// unreachable while collapsed — `IgnorePointer(ignoring: t < 0.5)`) and
+    /// waits out the 280ms open animation.
     Future<void> expandCalendar(WidgetTester tester) async {
-      await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
+      await tester.tap(find.byKey(WeekNavBar.titleKey));
       await tester.pumpAndSettle();
     }
 
@@ -616,12 +624,12 @@ void main() {
       return repo;
     }
 
-    BookingsTimelineGrid grid(WidgetTester tester) =>
-        tester.widget<BookingsTimelineGrid>(find.byType(BookingsTimelineGrid));
+    WeekTimeGrid grid(WidgetTester tester) =>
+        tester.widget<WeekTimeGrid>(find.byType(WeekTimeGrid));
 
     /// The `isFalse` widget-IDENTITY check below is satisfied by ANY host
     /// `setState`, not only a genuine query change: `_Loaded` (and the
-    /// `BookingsTimelineGrid` it constructs) is rebuilt by every
+    /// `WeekTimeGrid` it constructs) is rebuilt by every
     /// `_BookingsDiscoveryViewState.build()` pass, because `Consumer`
     /// re-invokes its `builder` whenever its own element rebuilds — which
     /// happens on ANY ancestor `setState`, whether or not the WATCHED
@@ -667,39 +675,37 @@ void main() {
       ).called(calls);
     }
 
-    testWidgets('PAGING the month forward relabels the calendar AND rebuilds '
-        'BookingsTimelineGrid — the port\'s locked "month step selects" '
-        'contract, now reached by swipe instead of a chevron', (tester) async {
+    testWidgets('PAGING the month forward moves the week AND rebuilds '
+        'WeekTimeGrid — the port\'s locked "month step selects" contract, '
+        'now reached by swipe instead of a chevron', (tester) async {
       final _MockBookingRepository repo = await pumpScreen(tester);
       await expandCalendar(tester);
       // The landing fetch — exactly one call before any interaction.
       expectFetchCount(repo, 1);
 
-      final BookingsTimelineGrid before = grid(tester);
-      final String labelBefore = monthLabel(tester);
+      final WeekTimeGrid before = grid(tester);
 
       await pageMonth(tester, direction: 1);
-      // A resolved month step funnels through `_selectImmediate`, which
-      // does not itself debounce, but the surrounding `pumpAndSettle`
-      // below covers both the query round trip and any animation.
-      // fixed-wait-ok: advancing past the 220 ms day-select debounce
-      await tester.pump(const Duration(milliseconds: 300));
+      // The week layout's month step (`_onWeekMonthStep`) shows the target
+      // week immediately — no debounce; `pumpAndSettle` covers the query
+      // round trip and the page animation.
       await tester.pumpAndSettle();
 
-      // Fixture guard FIRST — if the tap did nothing, the rebuild
-      // assertion below would pass for the wrong reason.
+      // Fixture guard FIRST — if the swipe did nothing, the rebuild
+      // assertion below would pass for the wrong reason. 10 Aug → 10 Sep
+      // (same day-of-month), whose week starts Mon 7 Sep.
       expect(
-        monthLabel(tester),
-        isNot(labelBefore),
+        shownWeek(tester),
+        kyivWeekStart(DateTime(2026, 9, 10)),
         reason:
-            'the month step did not relabel the calendar at all, so the '
-            'rebuild assertion proves nothing',
+            'the month step did not move the week at all, so the rebuild '
+            'assertion proves nothing',
       );
       expect(
         identical(grid(tester), before),
         isFalse,
         reason:
-            'BookingsTimelineGrid was NOT reconstructed by a month step. '
+            'WeekTimeGrid was NOT reconstructed by a month step. '
             'Under the Варіант D port, stepping the month SELECTS (same '
             'day-of-month, clamped) — this is the fix for the original '
             'bug where the switcher relabelled while the list stayed on '
@@ -720,15 +726,13 @@ void main() {
       await expandCalendar(tester);
       expectFetchCount(repo, 1);
 
-      final BookingsTimelineGrid before = grid(tester);
-      final String labelBefore = monthLabel(tester);
+      final WeekTimeGrid before = grid(tester);
 
       await pageMonth(tester, direction: -1);
-      // fixed-wait-ok: see the forward-step test above.
-      await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
 
-      expect(monthLabel(tester), isNot(labelBefore));
+      // 10 Aug → 10 Jul, whose week starts Mon 6 Jul.
+      expect(shownWeek(tester), kyivWeekStart(DateTime(2026, 7, 10)));
       expect(identical(grid(tester), before), isFalse);
       expectFetchCount(repo, 1);
     });
@@ -737,67 +741,60 @@ void main() {
     //
     // Without these, the two tests above would prove nothing distinctive —
     // a screen that rebuilds the timeline on EVERY frame would also satisfy
-    // them. These pin that a plain rail-day selection and «Сьогодні» still
-    // rebuild too, exactly as before this port.
+    // them. These pin that a plain day selection in another week and
+    // «Сьогодні» still rebuild too, exactly as before this port.
+    //
+    // Phase 485 — the rail-chip tap became a week-strip day selection
+    // (`selectWeekDay`, the one shared driver). A day in the SAME week only
+    // scrolls the pager (no new data, no rebuild — by design), so the
+    // selection here is a day in the NEXT week, which is the week layout's
+    // "selected day changed → new query" case.
 
     testWidgets(
-      'selecting a DIFFERENT rail day DOES rebuild the timeline — the '
-      'no-rebuild rule is scoped to the month step, not blanket',
+      'selecting a day in a DIFFERENT week DOES rebuild the week grid — the '
+      'no-rebuild rule is scoped, not blanket',
       (tester) async {
         await pumpScreen(tester);
 
-        final BookingsTimelineGrid before = grid(tester);
-        // Pinned, not `kyivToday(DateTime.now)` — see [_fixedMonthStepToday]'s
-        // doc: `railDayAt(today, 1)` below must land inside the rail's
-        // resting week, which a live host clock cannot guarantee on every
-        // weekday.
-        final DateTime today = _fixedMonthStepToday;
+        final WeekTimeGrid before = grid(tester);
+        // Pinned, not `kyivToday(DateTime.now)` — see [_fixedMonthStepToday].
+        final DateTime nextWeekDay = kyivAddDays(_fixedMonthStepToday, 8);
 
-        await tester.tap(find.byKey(dayChipKey(railDayAt(today, 1))));
-        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
-        await tester.pump(const Duration(milliseconds: 300));
-        await tester.pumpAndSettle();
+        await selectWeekDay(tester, nextWeekDay);
 
+        expect(shownWeek(tester), kyivWeekStart(nextWeekDay));
         expect(
           identical(grid(tester), before),
           isFalse,
           reason:
-              'the timeline did NOT rebuild after the selected day changed — '
-              'the screen is now showing one day\'s bookings under another '
-              'day\'s heading',
+              'the week grid did NOT rebuild after the selected day moved to '
+              'another week — the screen is now showing one week\'s bookings '
+              'under another week\'s heading',
         );
       },
     );
 
     testWidgets(
-      '«Сьогодні» DOES rebuild the timeline — it re-selects the day',
+      '«Сьогодні» DOES rebuild the week grid — it re-shows today\'s week',
       (tester) async {
         await pumpScreen(tester);
-        // Pinned, not `kyivToday(DateTime.now)` — see [_fixedMonthStepToday]'s
-        // doc: `railDayAt(today, 2)` below is EXACTLY the offset that went
-        // red whenever the live host clock's Kyiv day was a Saturday or
-        // Sunday, because it rolled past the resting week's Sunday into a
-        // rail page `PageView.builder` never builds at rest.
-        final DateTime today = _fixedMonthStepToday;
 
-        // Move off today first, so «Сьогодні» has a real selection change to
-        // make rather than resolving to the day already shown.
-        await tester.tap(find.byKey(dayChipKey(railDayAt(today, 2))));
-        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
-        await tester.pump(const Duration(milliseconds: 300));
+        // Move off today's week first, so «Сьогодні» has a real selection
+        // change to make rather than resolving to the week already shown.
+        await selectWeekDay(tester, kyivAddDays(_fixedMonthStepToday, 9));
+
+        final WeekTimeGrid before = grid(tester);
+
+        await tester.tap(find.byKey(WeekNavBar.todayKey));
         await tester.pumpAndSettle();
 
-        final BookingsTimelineGrid before = grid(tester);
-
-        await tester.tap(find.byKey(const Key('master-bookings-today')));
-        await tester.pumpAndSettle();
-
+        expect(shownWeek(tester), kyivWeekStart(_fixedMonthStepToday));
         expect(
           identical(grid(tester), before),
           isFalse,
           reason:
-              '«Сьогодні» left the timeline untouched — it must re-select '
-              'today (setState + a new query)',
+              '«Сьогодні» left the week grid untouched — it must re-show '
+              'today\'s week (setState + a new query)',
         );
       },
     );

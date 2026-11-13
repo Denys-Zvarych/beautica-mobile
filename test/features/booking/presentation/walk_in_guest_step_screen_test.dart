@@ -24,6 +24,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_create_seed.dart';
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
     show WalkInGuest;
 import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
@@ -43,8 +44,12 @@ const String _kPhone = '0501234567';
 /// Captures every `extra` pushed to [RouteNames.masterBookingNewServices].
 final List<Object?> _pushedExtras = <Object?>[];
 
+/// Phase 487 — the `at` query value of every push to the services stub.
+final List<String?> _pushedAts = <String?>[];
+
 GoRouter _router() {
   _pushedExtras.clear();
+  _pushedAts.clear();
   return GoRouter(
     initialLocation: '/root',
     routes: <RouteBase>[
@@ -54,12 +59,17 @@ GoRouter _router() {
       ),
       GoRoute(
         path: RouteNames.masterBookingNew,
-        builder: (context, state) => const WalkInGuestStepScreen(),
+        // Phase 487 — parses `?at=` the way `app_router.dart` does; absent
+        // on every pre-487 test here → `seed: null`.
+        builder: (context, state) => WalkInGuestStepScreen(
+          seed: BookingCreateSeed.fromQuery(state.uri.queryParameters['at']),
+        ),
         routes: <RouteBase>[
           GoRoute(
             path: 'services',
             builder: (context, state) {
               _pushedExtras.add(state.extra);
+              _pushedAts.add(state.uri.queryParameters['at']);
               return Scaffold(
                 body: TextButton(
                   key: const Key('stub-services-back'),
@@ -75,10 +85,13 @@ GoRouter _router() {
   );
 }
 
-Future<GoRouter> _pump(WidgetTester tester) async {
+Future<GoRouter> _pump(
+  WidgetTester tester, {
+  String location = RouteNames.masterBookingNew,
+}) async {
   final GoRouter router = _router();
   await tester.pumpRoutedApp(router);
-  unawaited(router.push(RouteNames.masterBookingNew));
+  unawaited(router.push(location));
   await tester.pumpAndSettle();
   return router;
 }
@@ -145,6 +158,55 @@ void main() {
       expect(guest.phone, '+380501234567');
     },
   );
+
+  Future<void> fillAndNext(WidgetTester tester) async {
+    await _enter(
+      tester,
+      const Key('master-create-booking-first-name'),
+      _kFirstName,
+    );
+    await _enter(
+      tester,
+      const Key('master-create-booking-last-name'),
+      _kLastName,
+    );
+    await _enter(tester, const Key('master-create-booking-phone'), _kPhone);
+    await tester.tap(
+      find.byKey(const Key('master-create-booking-client-next')),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  // Phase 487.
+  testWidgets('phase 487: a seeded guest step forwards ?at= to the services '
+      'push, keeping the WalkInGuest extra', (tester) async {
+    await _pump(
+      tester,
+      location: '${RouteNames.masterBookingNew}?at=2025-11-12T14:30',
+    );
+    await fillAndNext(tester);
+
+    expect(_pushedAts, <String?>['2025-11-12T14:30']);
+    expect(_pushedExtras.single, isA<WalkInGuest>());
+  });
+
+  testWidgets('phase 487: no seed → the services push carries no `at`', (
+    tester,
+  ) async {
+    await _pump(tester);
+    await fillAndNext(tester);
+
+    expect(_pushedAts, <String?>[null]);
+  });
+
+  testWidgets('phase 487: a malformed ?at= is dropped, never forwarded', (
+    tester,
+  ) async {
+    await _pump(tester, location: '${RouteNames.masterBookingNew}?at=bogus');
+    await fillAndNext(tester);
+
+    expect(_pushedAts, <String?>[null]);
+  });
 
   testWidgets(
     'should_preserveTypedText_when_poppedBackFromServiceStep — D5: the '

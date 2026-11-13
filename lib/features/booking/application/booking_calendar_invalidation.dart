@@ -35,9 +35,12 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
 
 import '../domain/booking_tab.dart';
 import '../domain/bookings_day_query.dart';
+import '../domain/bookings_week_query.dart';
 import 'booked_days_notifier.dart';
 import 'booking_detail_notifier.dart';
 import 'bookings_day_notifier.dart';
+import 'bookings_week_notifier.dart';
+import 'keep_alive_lru.dart';
 import 'master_archive_notifier.dart';
 import 'my_bookings_notifier.dart';
 import 'pending_booking_actions_count.dart';
@@ -180,6 +183,8 @@ void invalidateBookingViewsAfterExternalDecline(
     // `/bookings/me` member of [day]; see [_invalidateMasterOwnDay].
     _invalidateMasterOwnDay(ref, lru: lru, day: day);
   }
+  // Phase 480 — the live week twin(s) covering those days.
+  invalidateBookingsWeekCovering(ref, affectedDates);
   ref.invalidate(myBookingsProvider(BookingTab.upcoming));
   ref.invalidate(myBookingsProvider(BookingTab.cancelled));
   ref.invalidate(nextAppointmentProvider);
@@ -356,6 +361,8 @@ void invalidateBookingViewsAfterProviderClose(
   // Phase 383 — the hand-built default keys AND every live FILTERED
   // `/bookings/me` member of the day; see [_invalidateMasterOwnDay].
   _invalidateMasterOwnDay(ref, lru: lru, day: affectedDate);
+  // Phase 480 — the live week twin covering that day.
+  invalidateBookingsWeekCovering(ref, <DateTime>[affectedDate]);
 
   ref.invalidate(masterArchiveProvider);
   ref.invalidate(bookedDaysProvider);
@@ -602,6 +609,16 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
       ref.read(bookingsDayProvider(query));
     }
   }
+  // Phase 480 — week twin of the loop above: this path does not know the
+  // day, so every LIVE week query (≤ 3, pinned by the week LRU) — enumerated,
+  // never a bare-family invalidate. Week queries are master-only, so the
+  // salon-board gating above has nothing to skip here. Unlike the day loop,
+  // an UNWATCHED week is dropped, not eagerly refetched — see
+  // [_invalidateLiveWeeks].
+  _invalidateLiveWeeks(
+    ref.read(weekKeepAliveLruProvider),
+    (BookingsWeekQuery week) => ref.invalidate(bookingsWeekProvider(week)),
+  );
   ref.invalidate(bookedDaysProvider);
   // Phase 382 — the owner master mode's own dot singleton (keepAlive,
   // 30-min TTL). Unwatched for every non-owner session, so this only marks a
@@ -818,6 +835,8 @@ void invalidateBookingsDayAfterAppointmentItemReschedule(
     // `/bookings/me` member of [day]; see [_invalidateMasterOwnDay].
     _invalidateMasterOwnDay(ref, lru: lru, day: day);
   }
+  // Phase 480 — the live week twin(s) covering those days.
+  invalidateBookingsWeekCovering(ref, affectedDays);
   ref.invalidate(bookedDaysProvider);
   // Phase 382 — the owner master mode's own dot singleton (keepAlive,
   // 30-min TTL). Unwatched for every non-owner session, so this only marks a
@@ -985,5 +1004,50 @@ void _invalidateMasterOwnDay(
     if (eagerRead) {
       ref.read(bookingsDayProvider(query));
     }
+  }
+}
+
+/// Phase 480 — the week twin of [_invalidateMasterOwnDay]: invalidates every
+/// LIVE `bookingsWeekProvider` member (enumerated from
+/// [weekKeepAliveLruProvider], never a bare-family invalidate) whose Mon–Sun
+/// week covers at least one of [days] — nothing else. Each week is
+/// invalidated ONCE however many of [days] it covers.
+///
+/// Unlike the day fan-out, a week pinned by the week LRU with NO live
+/// listener is not eagerly read back: it is dropped (see
+/// [_invalidateLiveWeeks]) and refetches on its next visit.
+///
+/// Public so `master_schedule_screen.dart`'s pull-to-refresh (schedule edit →
+/// bookings refresh) can refresh the week alongside the day through this ONE
+/// seam.
+void invalidateBookingsWeekCovering(WidgetRef ref, Iterable<DateTime> days) {
+  _invalidateLiveWeeks(
+    ref.read(weekKeepAliveLruProvider),
+    (BookingsWeekQuery week) => ref.invalidate(bookingsWeekProvider(week)),
+    days: days,
+  );
+}
+
+/// Invalidates the live week queries — all of them when [days] is `null`,
+/// else those covering any of [days] — through [invalidate].
+///
+/// Phase 480 perf fix — one rule for EVERY week path: a WATCHED week
+/// (paused or active listener) is invalidated and Riverpod refetches it; a
+/// pinned-but-UNWATCHED week is [KeepAliveLru.evict]ed first, so the
+/// invalidate disposes it with NO request, and its next visit builds it
+/// fresh — never stale. A day-unknown fan-out hitting all ≤ 3 cached weeks
+/// therefore never fires a request for a week nobody is looking at. (The
+/// day fan-out keeps its eager read-back; it is not changed here.)
+///
+/// [KeepAliveLru.liveQueries] is a snapshot, so evicting mid-loop is safe.
+void _invalidateLiveWeeks(
+  KeepAliveLru<BookingsWeekQuery> lru,
+  void Function(BookingsWeekQuery week) invalidate, {
+  Iterable<DateTime>? days,
+}) {
+  for (final BookingsWeekQuery week in lru.liveQueries) {
+    if (days != null && !days.any(week.covers)) continue;
+    if (!lru.isWatched(week)) lru.evict(week);
+    invalidate(week);
   }
 }

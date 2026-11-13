@@ -1,3 +1,6 @@
+// Phase 485 — the screen is the WEEK view now: a week with no hours and no
+// bookings shows the gray state; the booking's week renders `WeekTimeGrid`.
+//
 // Phase 244 — E2E: the master «Мої записи» timeline is bounded by WORKING
 // HOURS, not by whichever bookings happen to exist that day.
 //
@@ -30,8 +33,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -44,7 +46,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
-import 'support/pager_drag.dart';
+import 'support/week_grid_driver.dart';
 
 /// Kyiv "today" **as the app under test computes it** — see
 /// `master_bookings_flow_test.dart`'s identically-named constant for why this
@@ -54,68 +56,10 @@ final DateTime _kyivToday = dateOnly(toBeauticaTime(kFixedNow));
 
 /// The day the fake backend's ONE seeded booking (`fb.bookingStartsAt`) falls
 /// on, in Kyiv — anchored to the REAL device clock (see `FakeBackend`'s own
-/// `_kFixtureDay` doc), which is why the rail has to be scrolled to reach it
-/// (mirrors `master_bookings_flow_test.dart`'s `_selectRailDay`).
+/// `_kFixtureDay` doc), which is why the week header has to be stepped to
+/// reach it (`selectWeekDay`, phase 485).
 DateTime _bookingDay(FakeBackend fb) =>
     dateOnly(toBeauticaTime(DateTime.parse(fb.bookingStartsAt)));
-
-/// Scrolls the timeline grid VERTICALLY until [card] is built — mirrors
-/// `master_bookings_flow_test.dart`'s identically-named helper. The grid
-/// culls any card whose planned top falls more than 1.5 viewports below the
-/// scroll offset (`bookings_timeline_grid.dart`'s "ADDENDUM 4/9"), and the
-/// working-hours window here opens at 09:00 while the fixture booking lands
-/// in the evening — comfortably past the initial cull window.
-Future<void> _scrollTimelineTo(WidgetTester tester, Finder card) async {
-  await tester.scrollUntilVisible(
-    card,
-    200,
-    scrollable: find
-        .descendant(
-          of: find.byType(BookingsTimelineGrid),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 60,
-  );
-  await AppHarness.settle(tester);
-}
-
-/// Pages the rail forward until [day]'s chip is on screen, then taps it.
-///
-/// The rail is a Mon→Sun WEEK pager (`PageScrollPhysics`), so it moves one
-/// whole week per fling and only the current page is built — mirrors
-/// `master_bookings_flow_test.dart`'s `_scrollRailTo`, including why this
-/// flings-and-settles instead of using `scrollUntilVisible`.
-/// Pages the rail forward one WHOLE week — deterministically.
-///
-/// Delegates to [dragPagerByOnePage] (`support/pager_drag.dart`), which
-/// documents the full "why not `fling`" write-up and the steps=4 regression
-/// this call site used to carry (mobile-debugger, 2026-08-14: with 4 samples
-/// `PageController.page` froze mid-drag and never crossed the page boundary).
-Future<void> _pageRailForward(WidgetTester tester) => dragPagerByOnePage(
-  tester,
-  const Key('master-bookings-day-rail'),
-  forward: true,
-);
-
-Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
-  final Finder chip = find.byKey(dayChipKey(day));
-  for (int i = 0; i < 60 && chip.evaluate().isEmpty; i++) {
-    await _pageRailForward(tester);
-  }
-  expect(
-    chip,
-    findsOneWidget,
-    reason:
-        'the rail never paged forward to $day in 60 whole-week turns. If this '
-        'is a fresh failure, check the two clocks first: the rail opens on '
-        'the INJECTED kFixedNow week.',
-  );
-  await tester.tap(chip);
-  // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-  await tester.pump(const Duration(milliseconds: 300));
-  await AppHarness.settle(tester);
-}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -177,7 +121,7 @@ void main() {
             'the gray state must replace the whole body',
       );
       expect(
-        find.byType(BookingsTimelineGrid),
+        find.byType(WeekTimeGrid),
         findsNothing,
         reason:
             'the gray state must fully replace the timeline, not sit beside it',
@@ -231,13 +175,12 @@ void main() {
       // PART 2 — THE SEEDED BOOKING DAY: published hours + a real booking →
       // the bounded timeline, no gray state
       // ═══════════════════════════════════════════════════════════════════
-      await _selectRailDay(tester, bookingDay);
+      // Phase 485 — the ONE shared driver: steps the week header to the
+      // booking's week and taps its strip cell.
+      await selectWeekDay(tester, bookingDay, settle: AppHarness.settle);
       // The timeline replaces the gray state only once this day's
       // effective-schedule response lands — wait for it, not for `settle`.
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byType(BookingsTimelineGrid),
-      );
+      await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
 
       expect(
         find.byKey(const Key('master-bookings-no-schedule')),
@@ -246,11 +189,10 @@ void main() {
             'this day has seeded working hours (09:00–21:00) — the gray '
             'state must not appear',
       );
-      expect(find.byType(BookingsTimelineGrid), findsOneWidget);
-      final Finder bookingCard = find.byKey(
-        const ValueKey<String>('timeline-card-booking-1'),
-      );
-      await _scrollTimelineTo(tester, bookingCard);
+      expect(find.byType(WeekTimeGrid), findsOneWidget);
+      final Finder bookingCard = find.byKey(WeekTimeGrid.cardKey('booking-1'));
+      await tester.ensureVisible(bookingCard);
+      await AppHarness.settle(tester);
       expect(
         bookingCard,
         findsOneWidget,

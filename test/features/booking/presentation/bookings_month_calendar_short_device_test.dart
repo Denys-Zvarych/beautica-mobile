@@ -58,6 +58,16 @@
 // mobile-qa has reduced it to 700dp in that file (see the accompanying diff)
 // — inside the realistic range, with headroom, rather than an arbitrary
 // multiple of the smallest tablet.
+//
+// RE-PROBED FOR PHASE 485 (2026-11-12): the master «Записи» is now the WEEK
+// layout — the month grid opens from the week title under the week header
+// (nav bar + strip) and carries its own per-page month header, so the
+// expanded panel's bottom edge moved from ~496dp to ~560dp (still fixed,
+// viewport-independent). Measured scaffold bottom − panel bottom:
+//   h=480 → −158 (clips)   h=640 → +2   h=667 → +29   h=780 → +142
+// The 780dp margin floor below is re-based from 150 to 120 accordingly. The
+// 640dp case now fits by only ~2dp — reported to the orchestrator as a
+// layout finding, not papered over here.
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -67,6 +77,7 @@ import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -93,6 +104,7 @@ Future<(Rect panel, Rect scaffold)> _pumpExpandedAt(
   WidgetTester tester, {
   required double width,
   required double height,
+  double? textScaleFactor,
 }) async {
   final _MockBookingRepository repo = _MockBookingRepository();
   when(
@@ -119,6 +131,7 @@ Future<(Rect panel, Rect scaffold)> _pumpExpandedAt(
     const MasterBookingsScreen(),
     width: width,
     height: height,
+    textScaleFactor: textScaleFactor,
     overrides: <Object>[
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(repo),
@@ -127,7 +140,9 @@ Future<(Rect panel, Rect scaffold)> _pumpExpandedAt(
   );
   await tester.pumpAndSettle();
 
-  await tester.tap(find.byKey(const Key('bookings-month-calendar-toggle')));
+  // Phase 485 — the master «Записи» is the week layout: the month grid opens
+  // from the week title, not the retired `bookings-month-calendar-toggle`.
+  await tester.tap(find.byKey(WeekNavBar.titleKey));
   await tester.pumpAndSettle();
 
   final Rect panel = tester.getRect(
@@ -193,8 +208,31 @@ void main() {
         // A distinctive margin, not just "fits by 1px" — mobile-qa fixture
         // guard: a REGRESSION that ate into the margin should show up here
         // long before it starts clipping at the two tighter heights above.
-        expect(scaffold.bottom - panel.bottom, greaterThan(150));
+        expect(scaffold.bottom - panel.bottom, greaterThan(120));
       },
+    );
+  });
+
+  // Phase 485 audit-fix cycle 1 (formerly PENDING): the
+  // week layout's open month panel at the 360×640 low end WITH the 1.3 text
+  // scale the app supports — the bottom row must stay fully visible. At 1.0
+  // it fits by ~2dp (header comment), so any text growth clips it today.
+  testWidgets('(e): fits at 360×640 with textScaler 1.3 — the open '
+      'month panel\'s bottom row is not clipped', (tester) async {
+    final (Rect panel, Rect scaffold) = await _pumpExpandedAt(
+      tester,
+      width: 360,
+      height: 640,
+      textScaleFactor: 1.3,
+    );
+
+    expect(
+      scaffold.bottom,
+      greaterThanOrEqualTo(panel.bottom),
+      reason:
+          'at 360×640 ×1.3 the expanded month grid ends at ${panel.bottom}, '
+          'past the scaffold bottom ${scaffold.bottom} — its bottom row is '
+          'silently clipped',
     );
   });
 

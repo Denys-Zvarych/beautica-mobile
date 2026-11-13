@@ -29,6 +29,7 @@ class TimelineHourRuler extends StatelessWidget {
     required this.firstHour,
     required this.lastHour,
     this.density = TimelineDensity.master,
+    this.hourHeight,
     super.key,
   }) : assert(lastHour >= firstHour, 'lastHour must not precede firstHour');
 
@@ -49,6 +50,13 @@ class TimelineHourRuler extends StatelessWidget {
   /// the hosting [BookingsTimelineGrid] was handed — the grid passes its own
   /// down, so they cannot disagree.
   final TimelineDensity density;
+
+  /// Phase 482 — an explicit hour band, overriding [density]'s
+  /// [TimelineDensity.hourHeight]. ADDITIVE: `null` (every caller before the
+  /// week grid) renders exactly as before. The week grid passes its own
+  /// band (72 dp × text scale in «3 дні», 120 in «День») so its ruler and its
+  /// columns read one number.
+  final double? hourHeight;
 
   /// The retired `_kRulerWidth`, kept as the name the ADDENDUM prose in
   /// `bookings_timeline_grid.dart` and `bookings_discovery_view.dart` cites.
@@ -174,7 +182,7 @@ class TimelineHourRuler extends StatelessWidget {
     // constants. At [TimelineDensity.master] these resolve to 42 / 120, which
     // is exactly what the constants held.
     final double rulerWidth = density.rulerWidth;
-    final double hourHeight = density.hourHeight;
+    final double hourHeight = this.hourHeight ?? density.hourHeight;
     return Semantics(
       label: l10n.masterBookingsTimelineHourRulerSemantics,
       container: true,

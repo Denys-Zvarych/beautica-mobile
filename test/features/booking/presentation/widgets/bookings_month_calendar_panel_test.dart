@@ -531,4 +531,240 @@ void main() {
       },
     );
   });
+
+  // Phase 484 — the additive `collapsedHeader` path (master week view).
+  testWidgets(
+    'collapsedHeader replaces top row + rail; monthOpen opens the grid under '
+    'it, a pick reaches onSelectDay, a drag reports onMonthOpenChanged',
+    (tester) async {
+      final DateTime today = DateTime(2026, 7, 15);
+      final PageController controller = PageController(initialPage: 1);
+      addTearDown(controller.dispose);
+      bool monthOpen = false;
+      final List<bool> reported = <bool>[];
+      final List<DateTime> picked = <DateTime>[];
+      late StateSetter setHost;
+
+      await tester.pumpApp(
+        StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            setHost = setState;
+            return Column(
+              children: <Widget>[
+                Expanded(
+                  child: BookingsMonthCalendarPanel(
+                    railController: controller,
+                    railFirstWeekStart: mondayOf(DateTime(2026, 7, 8)),
+                    weekCount: 3,
+                    today: today,
+                    selectedDay: today,
+                    bookedDays: const <DateTime>{},
+                    onSelectRailDay: (DateTime _) {},
+                    onSelectDay: picked.add,
+                    onStepMonth: (int _) {},
+                    timeline: const _TimelineStandIn(),
+                    // Hit-testable, like the real WeekNavBar + WeekStrip.
+                    collapsedHeader: const ColoredBox(
+                      key: Key('custom-header'),
+                      color: Color(0xFFFFFFFF),
+                      child: SizedBox(height: 80, width: double.infinity),
+                    ),
+                    monthOpen: monthOpen,
+                    onMonthOpenChanged: reported.add,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('custom-header')), findsOneWidget);
+      expect(find.byType(BookingsDayRail), findsNothing);
+      expect(
+        find.byKey(const Key('bookings-month-calendar-toggle')),
+        findsNothing,
+      );
+      expect(
+        tester.getSize(find.byKey(const Key('bookings-month-calendar'))).height,
+        0,
+      );
+      final double timelineTop = tester
+          .getTopLeft(find.byKey(const Key('timeline-stand-in')))
+          .dy;
+
+      setHost(() => monthOpen = true);
+      await tester.pumpAndSettle();
+      final double openHeight = tester
+          .getSize(find.byKey(const Key('bookings-month-calendar')))
+          .height;
+      expect(openHeight, greaterThan(300));
+      // Pushed down by exactly the grid's height (paint-time translate).
+      expect(
+        tester.getTopLeft(find.byKey(const Key('timeline-stand-in'))).dy,
+        closeTo(timelineTop + openHeight, 0.5),
+      );
+      // Host-driven change is not echoed back.
+      expect(reported, isEmpty);
+
+      await tester.tapCalendarDay(20);
+      expect(picked, <DateTime>[DateTime(2026, 7, 20)]);
+
+      // A user drag up on the header settles closed and is reported once.
+      await tester.drag(
+        find.byKey(const Key('custom-header')),
+        const Offset(0, -400),
+      );
+      await tester.pumpAndSettle();
+      expect(reported, <bool>[false]);
+      expect(
+        tester.getSize(find.byKey(const Key('bookings-month-calendar'))).height,
+        0,
+      );
+    },
+  );
+
+  // Phase 484 — host-driven `monthOpen` + `onMonthOpenChanged`: the host
+  // echoes every report back (as the master screen will); the echo must
+  // neither re-report nor restart the settle.
+  group('collapsedHeader monthOpen echo', () {
+    Future<(List<bool>, ValueSetter<bool>, ValueGetter<bool>)> pumpHost(
+      WidgetTester tester, {
+      bool initiallyOpen = false,
+    }) async {
+      final PageController controller = PageController(initialPage: 1);
+      addTearDown(controller.dispose);
+      final DateTime today = DateTime(2026, 7, 15);
+      bool monthOpen = initiallyOpen;
+      final List<bool> reported = <bool>[];
+      late StateSetter setHost;
+      await tester.pumpApp(
+        StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            setHost = setState;
+            return Column(
+              children: <Widget>[
+                Expanded(
+                  child: BookingsMonthCalendarPanel(
+                    railController: controller,
+                    railFirstWeekStart: mondayOf(DateTime(2026, 7, 8)),
+                    weekCount: 3,
+                    today: today,
+                    selectedDay: today,
+                    bookedDays: const <DateTime>{},
+                    onSelectRailDay: (DateTime _) {},
+                    onSelectDay: (DateTime _) {},
+                    onStepMonth: (int _) {},
+                    timeline: const _TimelineStandIn(),
+                    collapsedHeader: const ColoredBox(
+                      key: Key('custom-header'),
+                      color: Color(0xFFFFFFFF),
+                      child: SizedBox(height: 80, width: double.infinity),
+                    ),
+                    monthOpen: monthOpen,
+                    onMonthOpenChanged: (bool open) {
+                      reported.add(open);
+                      // The echo: the host stores what the panel reported.
+                      setState(() => monthOpen = open);
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      return (
+        reported,
+        (bool v) => setHost(() => monthOpen = v),
+        () => monthOpen,
+      );
+    }
+
+    double gridHeight(WidgetTester tester) =>
+        tester.getSize(find.byKey(const Key('bookings-month-calendar'))).height;
+
+    testWidgets('user drag open → reported once; the echo restarts nothing; '
+        'host close is not reported', (tester) async {
+      final (
+        List<bool> reported,
+        ValueSetter<bool> setOpen,
+        ValueGetter<bool> open,
+      ) = await pumpHost(
+        tester,
+      );
+      await tester.pumpAndSettle();
+      expect(gridHeight(tester), 0);
+
+      await tester.drag(
+        find.byKey(const Key('custom-header')),
+        const Offset(0, 400),
+      );
+      await tester.pumpAndSettle();
+      expect(reported, <bool>[true]);
+      expect(open(), isTrue);
+      final double openHeight = gridHeight(tester);
+      expect(openHeight, greaterThan(300));
+      // The echo landed in the same frame as the settle; once settled,
+      // nothing is animating any more.
+      expect(tester.binding.hasScheduledFrame, isFalse);
+
+      // A redundant host rebuild with the same value is a no-op.
+      setOpen(true);
+      await tester.pump();
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      expect(gridHeight(tester), openHeight);
+
+      // Host closes it: settles closed, NOT echoed back as a report.
+      setOpen(false);
+      await tester.pumpAndSettle();
+      expect(gridHeight(tester), 0);
+      expect(reported, <bool>[true]);
+    });
+
+    testWidgets('host-driven close then user re-open: each end reported '
+        'exactly once', (tester) async {
+      final (
+        List<bool> reported,
+        ValueSetter<bool> setOpen,
+        ValueGetter<bool> open,
+      ) = await pumpHost(
+        tester,
+        initiallyOpen: true,
+      );
+      // Opens at mount with no animation and no report.
+      await tester.pump();
+      expect(gridHeight(tester), greaterThan(300));
+      expect(reported, isEmpty);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+
+      // User closes by dragging up on the header.
+      await tester.drag(
+        find.byKey(const Key('custom-header')),
+        const Offset(0, -400),
+      );
+      await tester.pumpAndSettle();
+      expect(reported, <bool>[false]);
+      expect(open(), isFalse);
+      expect(gridHeight(tester), 0);
+
+      // User re-opens.
+      await tester.drag(
+        find.byKey(const Key('custom-header')),
+        const Offset(0, 400),
+      );
+      await tester.pumpAndSettle();
+      expect(reported, <bool>[false, true]);
+      expect(gridHeight(tester), greaterThan(300));
+      // Host closes, then re-opens: neither is reported.
+      setOpen(false);
+      await tester.pumpAndSettle();
+      expect(gridHeight(tester), 0);
+      setOpen(true);
+      await tester.pumpAndSettle();
+      expect(gridHeight(tester), greaterThan(300));
+      expect(reported, <bool>[false, true]);
+    });
+  });
 }

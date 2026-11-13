@@ -277,7 +277,12 @@ class MasterBookingsNoWorkingHoursState extends StatelessWidget {
 /// See this file's header for why `isTruncated` is a genuinely reachable
 /// case, not a defensive one.
 class MasterBookingsTruncatedNotice extends StatelessWidget {
-  const MasterBookingsTruncatedNotice({super.key});
+  const MasterBookingsTruncatedNotice({super.key, this.message});
+
+  /// Phase 485 — replaces the day copy. `null` (every pre-485 caller) keeps
+  /// [AppLocalizations.masterBookingsTruncatedNotice]; the week view passes
+  /// [AppLocalizations.masterBookingsWeekTruncatedNotice].
+  final String? message;
 
   @override
   Widget build(BuildContext context) {
@@ -310,7 +315,7 @@ class MasterBookingsTruncatedNotice extends StatelessWidget {
           const SizedBox(width: VelvetSpacing.sm),
           Expanded(
             child: Text(
-              l10n.masterBookingsTruncatedNotice,
+              message ?? l10n.masterBookingsTruncatedNotice,
               style: VelvetText.body(),
             ),
           ),

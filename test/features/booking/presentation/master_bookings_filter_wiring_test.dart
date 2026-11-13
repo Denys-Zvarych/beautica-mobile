@@ -1,5 +1,9 @@
 // Phase 7.7 — the seam between the filter sheet and the QUERY.
 //
+// Phase 485 — the master screen now fetches its Mon–Sun Kyiv WEEK
+// (`bookingsWeekProvider`), so `from`/`to` are that week's Monday/Sunday; the
+// filter → wire mapping is unchanged.
+//
 // Phase 7.11 — rewritten for `BookingsDayQuery` (Phase 7.9): there is no
 // paging, no user-chosen sort, and no date RANGE any more — one Kyiv day,
 // always `from == to`. What survives from 7.7/7.8 is the shape of the
@@ -71,6 +75,10 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 
 /// Kyiv "today" — every landing query is scoped to this day (Phase 7.11).
 DateTime get _kyivToday => kyivToday(DateTime.now);
+
+/// Phase 485 — the master screen fetches the Kyiv WEEK containing today.
+DateTime get _weekMonday => kyivWeekStart(_kyivToday);
+DateTime get _weekSunday => kyivAddDays(_weekMonday, 6);
 
 /// One recorded `getMyBookings` call — every parameter this phase can change.
 typedef _Call = ({
@@ -240,8 +248,8 @@ void main() {
             'cannot eat the single un-paged size:100 budget',
       );
       expect(calls.single.serviceIds, isEmpty);
-      expect(calls.single.from, _kyivToday);
-      expect(calls.single.to, _kyivToday);
+      expect(calls.single.from, _weekMonday);
+      expect(calls.single.to, _weekSunday);
       expect(calls.single.sort, BookingSort.oldest);
       // Wire value as a LITERAL — a typo in the enum must fail here.
       expect(calls.single.sort!.wireValue, 'startsAt,asc');
@@ -315,9 +323,9 @@ void main() {
         <String>{'CONFIRMED', 'CANCELLED', 'DECLINED'},
       );
       expect(calls.single.page, 0);
-      // The day is untouched by a status/service filter.
-      expect(calls.single.from, _kyivToday);
-      expect(calls.single.to, _kyivToday);
+      // The week is untouched by a status/service filter.
+      expect(calls.single.from, _weekMonday);
+      expect(calls.single.to, _weekSunday);
     });
 
     // The other half of the 2026-08-13 decision: hidden by default, but still

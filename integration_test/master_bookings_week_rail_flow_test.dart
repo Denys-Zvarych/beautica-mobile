@@ -51,14 +51,41 @@
 // It is two horizontal `PageView`s and a `Text`. `integration_test/patrol/`
 // coverage would add a native-driver boot for zero additional signal, which
 // is coverage theatre; the exemption is stated rather than skip-marked.
+//
+// PHASE 485 REWIRE (2026-11-12). The master «Записи» is now the WEEK layout
+// (`BookingsLayout.week`): the day rail, its chips, the permanent month+year
+// label and the `bookings-month-calendar-toggle` are gone from this screen
+// (the salon board keeps them). Every test below keeps its intent and is
+// re-pointed at the week equivalent, through the ONE shared driver
+// (`support/week_grid_driver.dart`):
+//   * rail opens on today's week / pages whole weeks / browsing fetches
+//     nothing → the strip opens on today's Mon–Sun, ‹ › steps exactly one
+//     week (one week request, Mon→Sun), and browsing INSIDE the week (a grid
+//     fling) fetches nothing and keeps the week (D3); a strip day tap in a
+//     past week is the positive control;
+//   * the rail-label month relabel across a month boundary → the week title
+//     ([weekTitleLabel]) follows ‹ › into another month and «Сьогодні»
+//     resyncs it;
+//   * the permanent label in both resting states → the week title is the
+//     same widget at the same anchor with the month grid open and closed, a
+//     month page lands the same day-of-month's week and survives the
+//     collapse (the week month grid has the preview's ‹ › header, so the
+//     day layout's "no chevrons" rule is not asserted here);
+//   * the stale-dot self-heal → the strip's per-day COUNT comes from the
+//     week list itself, so an off-device booking the cached booked-days set
+//     lacks is counted on landing; the only extra booked-days read is the
+//     week layout's one month-dot self-heal sweep (phase 485), and it never
+//     loops.
 
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/domain/week_day_model.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
-import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -68,6 +95,7 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 import 'support/pager_drag.dart';
+import 'support/week_grid_driver.dart';
 
 /// Kyiv "today" as the app under test computes it — from the INJECTED
 /// [kFixedNow], never the host clock. See the file header's clock-discipline
@@ -75,10 +103,7 @@ import 'support/pager_drag.dart';
 /// the same name, including why it must not be read before `AppHarness.boot`.
 DateTime get _kyivToday => dateOnly(toBeauticaTime(kFixedNow));
 
-const Key _railKey = Key('master-bookings-day-rail');
 const Key _gridKey = Key('bookings-month-calendar-grid');
-const Key _toggleKey = Key('bookings-month-calendar-toggle');
-const Key _labelKey = Key('bookings-month-calendar-label');
 
 void _seedWorkingHours(FakeBackend fb, Iterable<DateTime> days) {
   fb.seedEffectiveSchedule(<Map<String, dynamic>>[
@@ -93,112 +118,78 @@ void _seedWorkingHours(FakeBackend fb, Iterable<DateTime> days) {
 /// Boots, logs in as the independent master and lands on «Мої записи».
 Future<void> _openBookings(WidgetTester tester, FakeBackend fb) async {
   final GoRouter router = await AppHarness.boot(tester, fb);
-  _seedWorkingHours(fb, <DateTime>[_kyivToday]);
+  // Hours on every day a test can step to — an empty week with no hours
+  // renders the no-hours state instead of the grid.
+  _seedWorkingHours(fb, <DateTime>[
+    for (int i = -6 * kWeekGridDays; i < 10 * kWeekGridDays; i++)
+      kyivAddDays(kyivWeekStart(_kyivToday), i),
+  ]);
   await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
   await tester.tap(find.byKey(const Key('master-nav-tile-1')));
   await AppHarness.settle(tester);
   expect(find.byType(MasterBookingsScreen), findsOneWidget);
   expect(AppHarness.location(router), startsWith(RouteNames.masterBookings));
+  await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
 }
 
-BookingsDayRail _rail(WidgetTester tester) =>
-    tester.widget<BookingsDayRail>(find.byType(BookingsDayRail));
+/// The Monday of the week the strip (and so the grid) shows.
+DateTime _shownWeek(WidgetTester tester) =>
+    tester.widget<WeekStrip>(find.byType(WeekStrip)).weekStart;
 
-String _label(WidgetTester tester) =>
-    tester.widget<Text>(find.byKey(_labelKey)).data!;
+/// The week title currently rendered — exactly one, once settled.
+Finder _title(String label) => find.descendant(
+  of: find.byKey(WeekNavBar.titleKey),
+  matching: find.text(label),
+);
 
-/// The Monday of the week the rail is CURRENTLY resting on, read from the
-/// controller the screen owns rather than from the selection — the two are
-/// deliberately allowed to differ while the master browses, and telling them
-/// apart is the whole point of this file.
-DateTime _restingWeekMonday(WidgetTester tester) {
-  final BookingsDayRail rail = _rail(tester);
-  return railDayAt(
-    rail.firstWeekStart,
-    rail.controller.page!.round() * kRailWeekLength,
-  );
-}
-
-/// Asserts the rail is at rest on a WHOLE Mon→Sun week: seven chips, the
-/// Monday flush at the rail's own leading inset, the Sunday last, and neither
-/// neighbouring week's edge day on screen.
-///
-/// This is the headline user-facing contract of the rework ("the first day is
-/// monday and last is sunday"), and it is asserted from RENDERED GEOMETRY, not
-/// from the controller's page index — an index can be a whole number while the
-/// viewport rests between two pages.
-void _expectWholeWeekAtRest(WidgetTester tester, {required String at}) {
-  final DateTime monday = _restingWeekMonday(tester);
+/// Asserts the strip shows a WHOLE Mon→Sun week: seven cells inside the
+/// strip, Monday first, Sunday last, and neither neighbouring week's edge
+/// day — the headline contract the rail's week pager carried ("the first day
+/// is monday and last is sunday"), from RENDERED geometry.
+void _expectWholeWeek(WidgetTester tester, {required String at}) {
+  final DateTime monday = _shownWeek(tester);
   expect(
     monday.weekday,
     DateTime.monday,
-    reason: '$at: the resting page does not start on a Monday',
+    reason: '$at: the shown week does not start on a Monday',
   );
-
-  final Rect railRect = tester.getRect(find.byKey(_railKey));
   expect(
-    tester.getRect(find.byKey(dayChipKey(monday))).left,
-    closeTo(railRect.left + VelvetSpacing.lg, 1.5),
-    reason:
-        '$at: the rail came to rest BETWEEN two weeks — the leftmost chip is '
-        'not this week\'s Monday at the rail\'s leading inset. A mid-week '
-        'resting span is exactly what the week pager replaced the continuous '
-        'strip to make unreachable.',
+    tester.widget<WeekTimeGrid>(find.byType(WeekTimeGrid)).weekStart,
+    monday,
+    reason: '$at: the grid shows a different week than the strip',
   );
-
-  for (int i = 0; i < kRailWeekLength; i++) {
+  final Rect strip = tester.getRect(find.byType(WeekStrip));
+  double previousLeft = double.negativeInfinity;
+  for (int i = 0; i < kWeekGridDays; i++) {
+    final Finder cell = find.byKey(weekStripDayKey(kyivAddDays(monday, i)));
+    expect(cell, findsOneWidget, reason: '$at: day $i is not on the strip');
+    final Rect r = tester.getRect(cell);
     expect(
-      find.byKey(dayChipKey(railDayAt(monday, i))),
-      findsOneWidget,
-      reason: '$at: day $i of the resting week is not on screen',
+      r.left >= strip.left - 0.5 && r.right <= strip.right + 0.5,
+      isTrue,
+      reason: '$at: day $i is outside the strip',
     );
+    expect(r.left, greaterThan(previousLeft), reason: '$at: out of order');
+    previousLeft = r.left;
   }
-  final DateTime sunday = railDayAt(monday, kRailWeekLength - 1);
-  expect(sunday.weekday, DateTime.sunday, reason: '$at: last chip not Sunday');
   expect(
-    tester.getRect(find.byKey(dayChipKey(sunday))).right,
-    lessThanOrEqualTo(railRect.right - VelvetSpacing.lg + 1.5),
-    reason: '$at: the Sunday chip is not the last one inside the rail\'s inset',
+    find.byKey(weekStripDayKey(kyivAddDays(monday, -1))),
+    findsNothing,
+    reason: '$at: the PREVIOUS week\'s Sunday is on the strip',
   );
   expect(
-    find.byKey(dayChipKey(railDayAt(monday, -1))),
+    find.byKey(weekStripDayKey(kyivAddDays(monday, kWeekGridDays))),
     findsNothing,
-    reason:
-        '$at: the PREVIOUS week\'s Sunday is on screen — the resting page is '
-        'a mid-week span',
-  );
-  expect(
-    find.byKey(dayChipKey(railDayAt(monday, kRailWeekLength))),
-    findsNothing,
-    reason: '$at: the NEXT week\'s Monday is on screen',
+    reason: '$at: the NEXT week\'s Monday is on the strip',
   );
 }
 
-/// Turns [pager] by exactly one page, [forward] or back, then advances past
-/// the screen's day-tap debounce so a selection a paging regression had
-/// queued would have FIRED by the time the "no request" assertions below
-/// run. Without that final wait those assertions would only prove the
-/// debounce timer had not expired yet.
-///
-/// The page turn itself is [dragPagerByOnePage] (`support/pager_drag.dart`)
-/// — see its doc comment for the full "why not `fling`" writeup and the
-/// steps=4 regression this recipe guards against.
-Future<void> _pageBy(
-  WidgetTester tester,
-  Key pager, {
-  required bool forward,
-}) async {
-  await dragPagerByOnePage(tester, pager, forward: forward);
-  // fixed-wait-ok: advancing past the screen's 220 ms day-tap debounce, so a
-  // selection a paging regression had queued would have FIRED by the time the
-  // "no request" assertions below run. Without it those assertions would only
-  // prove the debounce timer had not expired yet.
-  await tester.pump(const Duration(milliseconds: 300));
+Future<void> _step(WidgetTester tester, {required bool forward}) async {
+  await tester.tap(
+    find.byKey(forward ? WeekStepButton.nextKey : WeekStepButton.prevKey),
+  );
   await AppHarness.settle(tester);
 }
-
-Future<void> _pageRail(WidgetTester tester, {required bool forward}) =>
-    _pageBy(tester, _railKey, forward: forward);
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -207,428 +198,268 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'the rail opens on the week containing today and pages one WHOLE week at '
-    'a time — and a paging excursion selects nothing and fetches nothing',
+    'the week opens on the week containing today and steps one WHOLE week at '
+    'a time — and browsing inside the week selects no new week and fetches '
+    'nothing',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       await _openBookings(tester, fb);
 
-      // ── 1. The opening page is the week CONTAINING today ────────────────
       expect(
-        find.byKey(dayChipKey(_kyivToday)),
+        find.byKey(weekStripDayKey(_kyivToday)),
         findsOneWidget,
         reason:
-            'today is not on the rail\'s opening page — the rail opened on '
-            'the wrong week, or parked at the start of its multi-year span',
+            'today is not on the opening strip — the screen opened on the '
+            'wrong week',
       );
       expect(
-        _restingWeekMonday(tester),
-        mondayOf(_kyivToday),
-        reason: 'the opening page is not today\'s own Mon→Sun week',
+        _shownWeek(tester),
+        kyivWeekStart(_kyivToday),
+        reason: 'the opening week is not today\'s own Mon→Sun week',
       );
-      _expectWholeWeekAtRest(tester, at: 'on open');
-
-      final DateTime selectedOnOpen = _rail(tester).selectedDay;
-      expect(
-        selectedOnOpen,
-        _kyivToday,
-        reason: 'the landing selection is not Kyiv today',
-      );
-      final String labelOnOpen = _label(tester);
+      _expectWholeWeek(tester, at: 'on open');
       final int fetchesAfterLanding = fb.getMyBookingsCalls;
       expect(
         fetchesAfterLanding,
         greaterThan(0),
         reason:
             'fixture guard: the landing fetch never happened, so the counter '
-            'below cannot show a paging regression adding to it',
+            'below cannot show a browsing regression adding to it',
       );
 
-      // ── 2. Paging forward and back always lands on a WHOLE week ─────────
-      await _pageRail(tester, forward: true);
-      _expectWholeWeekAtRest(tester, at: 'one page forward');
-      final DateTime weekAfterOneForward = _restingWeekMonday(tester);
-      expect(
-        weekAfterOneForward,
-        railDayAt(mondayOf(_kyivToday), kRailWeekLength),
-        reason:
-            'one fling did not advance exactly one week — a page turn must '
-            'move seven days, never a partial stride',
+      // Browsing INSIDE the week — back to Monday on the strip, then a grid
+      // fling — is pure navigation over the SAME week data (D3).
+      await selectWeekDay(
+        tester,
+        kyivWeekStart(_kyivToday),
+        settle: AppHarness.settle,
       );
-
-      await _pageRail(tester, forward: true);
-      _expectWholeWeekAtRest(tester, at: 'two pages forward');
-
-      await _pageRail(tester, forward: false);
-      _expectWholeWeekAtRest(tester, at: 'back one page');
+      final double width = tester
+          .getRect(find.byKey(WeekTimeGrid.pagerKey))
+          .width;
+      await flingWeek(tester, -width, settle: AppHarness.settle);
       expect(
-        _restingWeekMonday(tester),
-        weekAfterOneForward,
-        reason: 'paging back did not return to the week it came from',
+        visibleWeekDay(tester),
+        greaterThan(0),
+        reason: 'fixture guard: the fling did not move the grid at all',
       );
-
-      // Past weeks stay reachable — the opening page sets a resting position,
-      // it does not clamp the span.
-      await _pageRail(tester, forward: false);
-      await _pageRail(tester, forward: false);
-      _expectWholeWeekAtRest(tester, at: 'one page into the past');
-      final DateTime pastWeekMonday = _restingWeekMonday(tester);
-      expect(
-        pastWeekMonday.isBefore(mondayOf(_kyivToday)),
-        isTrue,
-        reason:
-            'the rail would not page into the past — the opening page has '
-            'clamped the range instead of only setting a resting position',
-      );
-
-      // ── 3. THE PIN — none of that browsing selected or fetched anything ──
-      expect(
-        _rail(tester).selectedDay,
-        selectedOnOpen,
-        reason:
-            'paging the rail moved the SELECTION. Move #2 of the '
-            'rail↔calendar consistency contract (bookings_discovery_view.dart '
-            '_selectDay) is that a week flick moves the viewport and nothing '
-            'else — only a chip TAP selects.',
-      );
-      // FIXTURE GUARD (mobile-qa, 2026-08-14): this excursion is 2 pages
-      // forward + 3 pages back — net ONE WEEK INTO THE PAST from
-      // `mondayOf(_kyivToday)` — which stays inside the SAME calendar month
-      // by construction of the fixture (`_kyivToday` is mid-June; one week
-      // earlier is still June). So `_label(tester) == labelOnOpen` below is
-      // true whether or not the label actually follows the rail's viewport
-      // across a MONTH boundary — it only proves the label does not move
-      // for a same-month browse. This assertion pins PAGING MECHANICS only
-      // and is NOT month-label coverage; the real month-crossing case is the
-      // dedicated "browsing the WEEK RAIL across a month boundary…" test
-      // below (see also the file header's 2026-08-14 addendum).
-      expect(
-        _label(tester),
-        labelOnOpen,
-        reason:
-            'the month+year label followed the rail\'s VIEWPORT instead of '
-            'the selection — the master is reading a month name that the '
-            'query, the grid and the timeline all disagree with',
-      );
+      expect(_shownWeek(tester), kyivWeekStart(_kyivToday));
       expect(
         fb.getMyBookingsCalls,
         fetchesAfterLanding,
         reason:
-            'paging the rail issued GET /bookings/me. A pager that selects on '
-            'settle fires one query per flicked week — the exact rate the '
-            '220 ms day-tap debounce exists to prevent, and it would be '
-            'defeated here because a month/rail step routes through '
-            '_selectImmediate, which CANCELS that debounce.',
+            'browsing inside the week issued GET /bookings/me — every in-week '
+            'move must read the week already loaded (D3)',
       );
 
-      // ── 4. POSITIVE CONTROL (mobile-qa M14) ─────────────────────────────
-      // Everything above is an ABSENCE, and an absence can pass because the
-      // gesture missed, the rail never mounted, or the counter is dead. A
-      // chip TAP on the week the rail has actually paged to must move all
-      // three of the values just asserted constant.
-      final DateTime pastTuesday = railDayAt(pastWeekMonday, 1);
-      await tester.tap(find.byKey(dayChipKey(pastTuesday)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
+      await _step(tester, forward: true);
+      _expectWholeWeek(tester, at: 'one week forward');
+      final DateTime weekAfterOneForward = _shownWeek(tester);
+      expect(
+        weekAfterOneForward,
+        kyivAddDays(kyivWeekStart(_kyivToday), kWeekGridDays),
+        reason: '› did not advance exactly one week',
+      );
+      expect(fb.lastMyBookingsQuery!['from'], toApiDate(weekAfterOneForward));
+      expect(
+        fb.lastMyBookingsQuery!['to'],
+        toApiDate(kyivAddDays(weekAfterOneForward, kWeekGridDays - 1)),
+        reason: 'a week step reads the whole Mon→Sun range, one request',
+      );
 
+      await _step(tester, forward: true);
+      _expectWholeWeek(tester, at: 'two weeks forward');
+
+      await _step(tester, forward: false);
+      _expectWholeWeek(tester, at: 'back one week');
       expect(
-        _rail(tester).selectedDay,
-        pastTuesday,
-        reason:
-            'positive control failed: a chip TAP did not select either, so '
-            'every "paging changed nothing" assertion above was vacuous',
+        _shownWeek(tester),
+        weekAfterOneForward,
+        reason: '‹ did not return to the week it came from',
       );
+
+      await _step(tester, forward: false);
+      await _step(tester, forward: false);
+      _expectWholeWeek(tester, at: 'one week into the past');
+      final DateTime pastWeekMonday = _shownWeek(tester);
       expect(
-        fb.getMyBookingsCalls,
-        greaterThan(fetchesAfterLanding),
-        reason:
-            'positive control failed: a chip TAP issued no request, so the '
-            'fetch-count assertion above was measuring a dead counter',
+        pastWeekMonday.isBefore(kyivWeekStart(_kyivToday)),
+        isTrue,
+        reason: 'the week would not step into the past',
       );
-      expect(fb.lastMyBookingsQuery!['from'], toApiDate(pastTuesday));
-      expect(fb.lastMyBookingsQuery!['to'], toApiDate(pastTuesday));
-      // The rail stays on the tapped day's own week — a tap is inside the
-      // visible page, so nothing pages, and the week must not jump.
-      _expectWholeWeekAtRest(tester, at: 'after a chip tap');
-      expect(_restingWeekMonday(tester), pastWeekMonday);
+
+      // Positive control — a strip day tap scrolls the grid to THAT day.
+      final DateTime pastSaturday = kyivAddDays(pastWeekMonday, 5);
+      await selectWeekDay(tester, pastSaturday, settle: AppHarness.settle);
+      expect(
+        visibleWeekDay(tester),
+        4,
+        reason:
+            'positive control failed: a strip TAP did not bring Saturday into '
+            'the middle of «3 дні» (Fri–Sun)',
+      );
+      expect(_shownWeek(tester), pastWeekMonday);
+      expect(fb.lastMyBookingsQuery!['from'], toApiDate(pastWeekMonday));
     },
   );
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // mobile-qa (2026-08-14) — the day-rail month-label fix, composed against a
-  // real HTTP boundary.
-  //
-  // WHY THE TEST ABOVE DOES NOT ALREADY COVER THIS. Its own paging excursion
-  // (2 forward, 3 back, net ONE WEEK INTO THE PAST from `_kyivToday` = Kyiv
-  // 2026-06-14) never leaves June — `mondayOf(_kyivToday)` is 2026-06-08, and
-  // one week earlier is 2026-06-01, still June — so its
-  // `_label(tester) == labelOnOpen` assertion is true whether or not paging
-  // relabels the screen. It pins "paging selects/fetches nothing"; it was
-  // never a test of the label following a MONTH-crossing browse, and reading
-  // it as one would be a false sense of coverage. Confirmed by fixture: 5
-  // week-pages forward from 2026-06-08 lands on 2026-07-13, genuinely a
-  // different month.
-  //
-  // The second test below (month+year label…) only drives the GRID's month
-  // pager (`_stepMonth`, a SELECTING move) — a different code path from the
-  // rail's `onVisibleWeekChanged` (a pure relabel, no selection, no fetch)
-  // this fix added. Neither existing flow reaches it.
   testWidgets(
-    'browsing the WEEK RAIL across a month boundary relabels the panel, '
-    'issues no request, and «Сьогодні» resyncs the label back — the exact '
-    'composed defect the day-rail month-label fix closes, end-to-end '
-    'against a real HTTP boundary',
+    'stepping the week across a month boundary relabels the week title, and '
+    '«Сьогодні» resyncs it back — end-to-end against a real HTTP boundary',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       await _openBookings(tester, fb);
 
-      final String labelOnOpen = _label(tester);
-      final int fetchesAfterLanding = fb.getMyBookingsCalls;
-      expect(
-        fetchesAfterLanding,
-        greaterThan(0),
-        reason:
-            'fixture guard: the landing fetch never happened, so the '
-            'no-extra-fetch assertions below would prove nothing',
-      );
+      final String titleOnOpen = weekTitleLabel(kyivWeekStart(_kyivToday));
+      expect(_title(titleOnOpen), findsOneWidget);
 
-      // Five week-pages forward from `_kyivToday`'s own week — see the group
-      // comment above for why this (and not the sibling test's ±few-page
-      // excursion) is what actually crosses a month boundary.
       for (int i = 0; i < 5; i++) {
-        await _pageRail(tester, forward: true);
+        await _step(tester, forward: true);
       }
-      _expectWholeWeekAtRest(tester, at: 'five weeks forward');
+      _expectWholeWeek(tester, at: 'five weeks forward');
 
-      final DateTime browsedMonday = _restingWeekMonday(tester);
+      final DateTime browsedMonday = _shownWeek(tester);
       expect(
         browsedMonday.month,
         isNot(_kyivToday.month),
         reason:
-            'fixture guard: five week-pages did not leave the landing '
-            'month, so the relabel assertion below proves nothing',
+            'fixture guard: five week steps did not leave the landing month, '
+            'so the relabel assertion below proves nothing',
       );
       expect(
-        _rail(tester).selectedDay,
-        _kyivToday,
+        _title(weekTitleLabel(browsedMonday)),
+        findsOneWidget,
         reason:
-            'browsing moved the SELECTION — it must stay pure navigation, '
-            'exactly as the sibling test above pins for a same-month '
-            'excursion',
+            'the week title did not follow the week across a month boundary '
+            '— the master reads a range the grid does not show',
       );
+      expect(_title(titleOnOpen), findsNothing);
+      expect(fb.lastMyBookingsQuery!['from'], toApiDate(browsedMonday));
 
-      final String expectedBrowsed =
-          '${monthNominative(browsedMonday.month)} ${browsedMonday.year}';
-      expect(
-        _label(tester),
-        expectedBrowsed,
-        reason:
-            'the month+year label did not follow the rail across a month '
-            'boundary — this is the production defect ("Мої записи" showing '
-            'the OLD month while the rail is scrolled into a new one) the '
-            'day-rail month-label fix exists to close.',
-      );
-
-      // "Also verify": paging the rail is pure navigation — no request, ever
-      // — including across a month boundary, at the level where a request
-      // would actually reach the fake backend.
-      expect(
-        fb.getMyBookingsCalls,
-        fetchesAfterLanding,
-        reason:
-            'browsing the rail across a month boundary issued GET '
-            '/bookings/me — a week flick must only ever relabel',
-      );
-
-      // «Сьогодні» — the day never actually changes (it was already Kyiv
-      // today), so this is a pure relabel-back, the exact scenario the bug
-      // report describes.
-      await tester.tap(find.byKey(const Key('master-bookings-today')));
+      await tester.tap(find.byKey(WeekNavBar.todayKey));
       await AppHarness.settle(tester);
 
       expect(
-        _label(tester),
-        labelOnOpen,
+        _title(titleOnOpen),
+        findsOneWidget,
         reason:
-            'pressing «Сьогодні» after browsing across a month boundary '
-            'left the label on the browsed-to month instead of the current '
-            'one.',
+            'pressing «Сьогодні» after browsing across a month boundary left '
+            'the title on the browsed-to week',
       );
-      // No new fetch: `_day` never actually changed (today → today), so the
-      // value-equal query never re-triggers `bookingsDayProvider`'s
-      // keepalive family — see
-      // `bookings_discovery_view_visible_month_test.dart`'s matching widget
-      // test for the same observation spelled out in full.
-      expect(fb.getMyBookingsCalls, fetchesAfterLanding);
-      _expectWholeWeekAtRest(tester, at: 'after «Сьогодні»');
-      expect(_restingWeekMonday(tester), mondayOf(_kyivToday));
+      _expectWholeWeek(tester, at: 'after «Сьогодні»');
+      expect(_shownWeek(tester), kyivWeekStart(_kyivToday));
     },
   );
 
   testWidgets(
-    'the month+year label is permanent, anchored identically in BOTH resting '
-    'states, follows a month page, and survives the collapse — with no ‹ › '
-    'chevrons anywhere on this screen',
+    'the week title is permanent, anchored identically with the month grid '
+    'open and closed, follows a month page, and survives the collapse — the '
+    'month grid keeping its approved ‹ › header',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       await _openBookings(tester, fb);
 
-      final String expectedOpening =
-          '${monthNominative(_kyivToday.month)} ${_kyivToday.year}';
-      expect(
-        _label(tester),
-        expectedOpening,
-        reason:
-            'the collapsed label does not name the selected day\'s month — '
-            'it is derived from something other than the selection',
+      final String expectedOpening = weekTitleLabel(kyivWeekStart(_kyivToday));
+      expect(_title(expectedOpening), findsOneWidget);
+      final Rect titleCollapsed = tester.getRect(
+        find.byKey(WeekNavBar.titleKey),
       );
-      final Rect labelCollapsed = tester.getRect(find.byKey(_labelKey));
 
-      // ── 1. It does NOT vanish when the calendar opens ────────────────────
-      // The literal user complaint this rework answers: "keep month and year
-      // in same place because now it disappears".
-      await tester.tap(find.byKey(_toggleKey));
+      await tester.tap(find.byKey(WeekNavBar.titleKey));
       await AppHarness.settle(tester);
-
       expect(
-        find.byKey(_labelKey),
+        find.byKey(_gridKey),
         findsOneWidget,
-        reason:
-            'the month+year label vanished when the calendar expanded — the '
-            'exact regression this rework exists to fix',
-      );
-      expect(_label(tester), expectedOpening);
-      expect(
-        tester.getRect(find.byKey(_labelKey)),
-        labelCollapsed,
-        reason:
-            'the label MOVED between the two resting states. It is now the '
-            'only affordance teaching what the grid\'s horizontal swipe does, '
-            'so it must occupy the same anchor at every expand fraction.',
+        reason: 'fixture guard: the title tap did not open the month grid',
       );
 
-      // ── 2. No month-navigation BUTTONS exist (locked requirement) ────────
-      // A negative assertion that catches a re-introduction. Its positive
-      // counterpart — that SlotDateScreen / MasterSchedulePage /
-      // period_range_picker KEEP their chevrons, because `showHeader`
-      // defaults to `true` — is pinned at the widget tier by
-      // `month_calendar_show_header_test.dart` (and, behaviourally, by
-      // `slot_picker_test.dart`, which taps `booking-calendar-next-month` to
-      // change month). Asserting the OTHER screens here would mean booting
-      // two more routes for a fact one widget test already proves exactly.
+      expect(
+        _title(expectedOpening),
+        findsOneWidget,
+        reason: 'the week title vanished when the month grid opened',
+      );
+      expect(
+        tester.getRect(find.byKey(WeekNavBar.titleKey)),
+        titleCollapsed,
+        reason:
+            'the title MOVED between the two resting states — it is the '
+            'affordance that opened the grid and must stay where it was',
+      );
+      // Phase 484/485 — the week layout's month grid is the approved
+      // MasterWeekBookings preview's, whose month header carries ‹ ›
+      // (`_monthPager(withMonthHeader: true)`). The day layout's "swipe ONLY,
+      // no chevrons" rule belongs to the salon board's panel, not here.
       expect(
         find.byKey(const Key('booking-calendar-prev-month')),
-        findsNothing,
-        reason:
-            'a ‹ chevron is on the expanded bookings calendar — the locked '
-            'requirement is that months change by horizontal scroll ONLY, '
-            'with no new buttons',
+        findsWidgets,
+        reason: 'the week month grid lost its approved ‹ month chevron',
       );
       expect(
         find.byKey(const Key('booking-calendar-next-month')),
-        findsNothing,
-        reason: 'a › chevron is on the expanded bookings calendar',
+        findsWidgets,
+        reason: 'the week month grid lost its approved › month chevron',
       );
-      // …and the month name is on screen exactly ONCE, which is what
-      // retiring the grid's own header was for.
       expect(
         find.text(expectedOpening),
         findsOneWidget,
-        reason:
-            'the month+year is rendered twice — the grid has grown its own '
-            'header back alongside the panel\'s permanent label',
+        reason: 'the week range is rendered twice',
       );
 
-      // ── 3. A month PAGE moves the label ─────────────────────────────────
-      // A hand-driven pointer, not `tester.fling` — see [_pageBy]'s doc for
-      // why `fling` is unreliable on the live E2E binding.
-      await _pageBy(tester, _gridKey, forward: true);
+      await dragPagerByOnePage(tester, _gridKey, forward: true);
+      await AppHarness.settle(tester);
 
-      final DateTime steppedDay = _rail(tester).selectedDay;
+      // Same day-of-month in the next month (clamped) — its week.
+      final DateTime steppedDay = DateTime(
+        _kyivToday.year,
+        _kyivToday.month + 1,
+        _kyivToday.day,
+      );
+      final DateTime steppedWeek = kyivWeekStart(steppedDay);
       expect(
-        steppedDay.month,
-        isNot(_kyivToday.month),
+        _shownWeek(tester),
+        steppedWeek,
         reason:
-            'fixture guard: the fling did not turn the month page at all, so '
-            'nothing below is proven',
+            'the month page did not land the same day-of-month\'s week — '
+            'with the chevrons retired the title is the ONLY feedback that '
+            'the swipe landed',
       );
-      final String expectedStepped =
-          '${monthNominative(steppedDay.month)} ${steppedDay.year}';
-      expect(
-        _label(tester),
-        expectedStepped,
-        reason:
-            'the label did not follow the month page — with the chevrons '
-            'retired it is the ONLY feedback that the swipe landed',
-      );
+      expect(_title(weekTitleLabel(steppedWeek)), findsOneWidget);
 
-      // ── 4. Collapse — label AND rail week must agree, by construction ────
-      await tester.tap(find.byKey(_toggleKey));
+      await tester.tap(find.byKey(WeekNavBar.titleKey));
       await AppHarness.settle(tester);
 
       expect(
-        _label(tester),
-        expectedStepped,
-        reason:
-            'collapsing reverted the label to the pre-step month — the label '
-            'is being derived from something other than the selection',
-      );
-      expect(
-        find.byKey(dayChipKey(steppedDay)),
+        _title(weekTitleLabel(steppedWeek)),
         findsOneWidget,
-        reason:
-            'the collapsed rail is not showing the week containing the '
-            'stepped-to day — the two pagers desynced, so the strip shows '
-            'one month\'s days under another month\'s label',
+        reason: 'collapsing reverted the title to the pre-step week',
       );
       expect(
-        _restingWeekMonday(tester),
-        mondayOf(steppedDay),
-        reason: 'the rail rests on a week that is not the selected day\'s',
+        find.byKey(weekStripDayKey(steppedDay)),
+        findsOneWidget,
+        reason: 'the collapsed strip is not showing the stepped-to day\'s week',
       );
-      _expectWholeWeekAtRest(tester, at: 'after expand → page → collapse');
+      _expectWholeWeek(tester, at: 'after open → page → collapse');
 
-      // And the WIRE agrees with both — the original field bug was a label
-      // and a query naming different months.
-      expect(fb.lastMyBookingsQuery!['from'], toApiDate(steppedDay));
-      expect(fb.lastMyBookingsQuery!['to'], toApiDate(steppedDay));
+      expect(fb.lastMyBookingsQuery!['from'], toApiDate(steppedWeek));
+      expect(
+        fb.lastMyBookingsQuery!['to'],
+        toApiDate(kyivAddDays(steppedWeek, kWeekGridDays - 1)),
+      );
     },
   );
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // mobile-qa (2026-10-30) — the rail-dot SELF-HEAL, end to end (Step 2.7
-  // Rule 3b). User report: a day's list shows bookings but its rail dot stays
-  // missing until the app is reopened. The dot set is a 30-minute cached
-  // sweep (`GET /bookings/me/booked-days`) while the day list re-fetches on
-  // every select, so a booking made OFF this device reaches the list first.
-  // `_refreshDotsIfDayMissing` (bookings_discovery_view.dart) re-sweeps the
-  // dots once when a selected day lists bookings but carries no dot.
-  //
-  // The widget tier (`bookings_discovery_view_reuse_test.dart`, 'stale dot
-  // self-heal') pins every guard against overridden providers; this flow
-  // proves the same heal over the real Dio → repository → provider path.
-  //
-  // FALSIFIED 2026-10-30: with the `ref.listen` in `build` removed, this test
-  // fails at the dot assertion (no dot, booked-days called once).
   testWidgets(
-    'a rail day whose list has a booking the cached dot set lacks re-fetches '
-    'the dots once, and its dot appears without reopening the screen',
+    'a day whose booking the cached booked-days set lacks is still counted on '
+    'the strip on landing — the count comes from the week list itself',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
-      // Booted first: `_kyivToday` reads the zone the harness initialises.
       final GoRouter router = await AppHarness.boot(tester, fb);
-      // Wednesday of today's own rail week (kFixedNow is a Sunday) — on the
-      // opening page, inside the ±kBookedDaysSpanDays window, not today.
-      final DateTime staleDay = railDayAt(mondayOf(_kyivToday), 2);
+      final DateTime staleDay = kyivAddDays(kyivWeekStart(_kyivToday), 2);
       expect(staleDay, isNot(_kyivToday), reason: 'fixture guard');
-      // The list knows the booking (dataset path is date-fenced, so the
-      // landing day stays empty); the first dot sweep predates it.
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[
         fb.datasetBookingRow(
           id: 'booking-offdevice',
           status: 'CONFIRMED',
-          // 09:00 UTC == 12:00 Kyiv (UTC+3, summer time).
           startsAt: DateTime.utc(
             staleDay.year,
             staleDay.month,
@@ -647,41 +478,37 @@ void main() {
         AppHarness.location(router),
         startsWith(RouteNames.masterBookings),
       );
+      await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
 
       expect(
         fb.bookedDaysCalls,
-        1,
-        reason: 'precondition: one (stale) sweep on landing, no heal on today',
+        2,
+        reason:
+            'one stale sweep on landing + exactly one week-layout dot '
+            'self-heal (phase 485, behaviour test (d))',
       );
-      expect(
-        find.byKey(dayDotKey(staleDay)),
-        findsNothing,
-        reason: 'precondition: the cached dot set lacks the off-device day',
-      );
-      expect(find.byKey(dayChipKey(staleDay)), findsOneWidget);
-
-      await tester.tap(find.byKey(dayChipKey(staleDay)));
-      // fixed-wait-ok: advancing past the 220 ms day-tap debounce Timer,
-      // which AppHarness.settle (pumpAndSettle) never fires.
-      await tester.pump(const Duration(milliseconds: 300));
-      await AppHarness.settle(tester);
-
       expect(
         fb.lastMyBookingsQuery!['from'],
-        toApiDate(staleDay),
-        reason: 'precondition: the selected day\'s list was fetched',
+        toApiDate(kyivWeekStart(_kyivToday)),
+        reason: 'precondition: the landing read is today\'s week',
       );
       expect(
-        find.byKey(dayDotKey(staleDay)),
+        find.byKey(weekStripCountKey(staleDay)),
         findsOneWidget,
         reason:
-            'the day lists a booking but its rail dot is still missing — the '
-            'stale dot set was never re-fetched (the user-reported bug)',
+            'the week lists a booking on this day but the strip shows no '
+            'count — the strip must read the week list, never the cached '
+            'booked-days set (the user-reported stale-marker bug)',
+      );
+      expect(
+        find.byKey(weekStripCountKey(_kyivToday)),
+        findsNothing,
+        reason: 'fixture guard: a day with no booking shows no count',
       );
       expect(
         fb.bookedDaysCalls,
         2,
-        reason: 'exactly one self-heal sweep — no loop',
+        reason: 'the strip needs no further sweep — and the heal does not loop',
       );
     },
   );

@@ -32,7 +32,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -56,15 +56,6 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 }
 
 DateTime get _kyivToday => kyivToday(DateTime.now);
-
-/// A day on the SAME visible rail week as today (so its chip is tappable),
-/// never today itself.
-DateTime get _otherDayThisWeek {
-  final DateTime monday = mondayOf(_kyivToday);
-  return <DateTime>[
-    for (int i = 0; i < 7; i++) railDayAt(monday, i),
-  ].firstWhere((DateTime d) => d != _kyivToday);
-}
 
 const Key _detailMarker = Key('stub-owner-booking-detail');
 
@@ -200,16 +191,15 @@ void main() {
     return router;
   }
 
+  // Phase 485 — the master screen is a week view: «re-scope» is a week step.
   Future<void> changeDayAndFilter(WidgetTester tester) async {
-    final DateTime otherDay = _otherDayThisWeek;
-    await tester.tap(find.byKey(dayChipKey(otherDay)));
-    // fixed-wait-ok: advancing past the 220 ms day-select debounce.
-    await tester.pump(const Duration(milliseconds: 300));
+    final DateTime nextMonday = kyivAddDays(kyivWeekStart(_kyivToday), 7);
+    await tester.tap(find.byKey(WeekStepButton.nextKey));
     await tester.pumpAndSettle();
     expect(
       listFroms.last,
-      otherDay,
-      reason: 'fixture guard: the rail tap did not re-scope the query',
+      nextMonday,
+      reason: 'fixture guard: the week step did not re-scope the query',
     );
 
     await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
@@ -240,7 +230,7 @@ void main() {
     expect(
       listAsMaster.length,
       greaterThanOrEqualTo(3),
-      reason: 'landing + day change + filter apply each fetch',
+      reason: 'landing + week step + filter apply each fetch',
     );
     expect(listAsMaster, everyElement(isTrue));
     expect(bookedDaysAsMaster, isNotEmpty);

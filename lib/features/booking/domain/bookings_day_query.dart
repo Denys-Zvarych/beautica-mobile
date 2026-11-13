@@ -104,6 +104,26 @@ import 'booking_status.dart';
 
 part 'bookings_day_query.freezed.dart';
 
+/// The shared status normaliser behind every bookings query key —
+/// [BookingsDayQuery.of], [BookingsDayQuery.salonOf] and phase 480's
+/// `BookingsWeekQuery.of` all call THIS, never a copy of it.
+///
+/// Sorts by enum declaration order and returns an unmodifiable `List`, so two
+/// selections holding the same statuses are `==`-equal family keys whatever
+/// order they were ticked in (see the file header's "Why `List`, not `Set`").
+List<BookingStatus> canonicalBookingStatuses(Set<BookingStatus> statuses) {
+  final List<BookingStatus> sorted = statuses.toList(growable: false)
+    ..sort((BookingStatus a, BookingStatus b) => a.index.compareTo(b.index));
+  return List<BookingStatus>.unmodifiable(sorted);
+}
+
+/// [canonicalBookingStatuses]' service-id twin: lexicographic sort,
+/// unmodifiable `List`.
+List<String> canonicalServiceIds(Set<String> serviceIds) {
+  final List<String> sorted = serviceIds.toList(growable: false)..sort();
+  return List<String>.unmodifiable(sorted);
+}
+
 /// An immutable, canonically-normalised filter for the master's day-scoped
 /// booking timeline. Build with [BookingsDayQuery.of].
 @freezed
@@ -170,19 +190,12 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
     bool asOwnerMaster = false,
-  }) {
-    final List<BookingStatus> sortedStatuses = statuses.toList(growable: false)
-      ..sort((BookingStatus a, BookingStatus b) => a.index.compareTo(b.index));
-    final List<String> sortedServiceIds = serviceIds.toList(growable: false)
-      ..sort();
-
-    return BookingsDayQuery.masterOwn(
-      day: dateOnly(day),
-      statuses: List<BookingStatus>.unmodifiable(sortedStatuses),
-      serviceIds: List<String>.unmodifiable(sortedServiceIds),
-      asOwnerMaster: asOwnerMaster,
-    );
-  }
+  }) => BookingsDayQuery.masterOwn(
+    day: dateOnly(day),
+    statuses: canonicalBookingStatuses(statuses),
+    serviceIds: canonicalServiceIds(serviceIds),
+    asOwnerMaster: asOwnerMaster,
+  );
 
   /// [BookingsDayQuery.of]'s salon twin — the ONLY normalising path to
   /// [SalonDayQuery], canonicalising the same three fields the same way for
@@ -194,20 +207,13 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
     String? masterId,
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
-  }) {
-    final List<BookingStatus> sortedStatuses = statuses.toList(growable: false)
-      ..sort((BookingStatus a, BookingStatus b) => a.index.compareTo(b.index));
-    final List<String> sortedServiceIds = serviceIds.toList(growable: false)
-      ..sort();
-
-    return BookingsDayQuery.salon(
-      day: dateOnly(day),
-      salonId: salonId,
-      masterId: masterId,
-      statuses: List<BookingStatus>.unmodifiable(sortedStatuses),
-      serviceIds: List<String>.unmodifiable(sortedServiceIds),
-    );
-  }
+  }) => BookingsDayQuery.salon(
+    day: dateOnly(day),
+    salonId: salonId,
+    masterId: masterId,
+    statuses: canonicalBookingStatuses(statuses),
+    serviceIds: canonicalServiceIds(serviceIds),
+  );
 
   /// [BookingsDayQuery.dayList]'s salon twin — [BookingsDayQuery.salonOf] with
   /// the SAME day-list status default resolved through the SAME

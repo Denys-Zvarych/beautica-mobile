@@ -73,6 +73,24 @@ const List<String> _monthsAbbrev = <String>[
   'гру',
 ];
 
+/// CLDR `uk` abbreviated genitive (format) month names — the forms
+/// `intl`'s `DateFormat('d MMM', 'uk')` prints («28 жовт.»). Phase 484's week
+/// title uses them across a month boundary.
+const List<String> _monthsAbbrevGenitive = <String>[
+  'січ.',
+  'лют.',
+  'бер.',
+  'квіт.',
+  'трав.',
+  'черв.',
+  'лип.',
+  'серп.',
+  'вер.',
+  'жовт.',
+  'листоп.',
+  'груд.',
+];
+
 /// Full Ukrainian weekday names, Monday-first. Friday's apostrophe is
 /// U+02BC (MODIFIER LETTER APOSTROPHE) — see this file's header note.
 const List<String> _weekdaysFull = <String>[
@@ -117,6 +135,10 @@ List<String> get monthNamesNominative =>
 /// by the 1-based [DateTime.month]. Throws [RangeError] on an out-of-range
 /// index.
 String monthAbbrev(int month) => _monthsAbbrev[month - 1];
+
+/// The CLDR abbreviated genitive of [month] ("3 листоп."), indexed by the
+/// 1-based [DateTime.month]. Throws [RangeError] on an out-of-range index.
+String monthAbbrevGenitive(int month) => _monthsAbbrevGenitive[month - 1];
 
 /// The full lowercase Ukrainian name of [weekday], indexed by the 1-based
 /// [DateTime.weekday] (1 = понеділок … 7 = неділя). Throws [RangeError] on an

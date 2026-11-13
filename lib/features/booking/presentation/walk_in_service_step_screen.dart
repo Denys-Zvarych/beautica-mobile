@@ -35,6 +35,7 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import '../data/slot_repository.dart' show maxServicesPerVisit;
+import '../domain/booking_create_seed.dart';
 import '../domain/booking_slot_picker_args.dart';
 import '../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'widgets/booking_summary_bar.dart';
@@ -50,6 +51,7 @@ class WalkInServiceStepScreen extends ConsumerStatefulWidget {
     super.key,
     required this.guest,
     this.returnRoute,
+    this.seed,
   });
 
   final WalkInGuest guest;
@@ -59,6 +61,11 @@ class WalkInServiceStepScreen extends ConsumerStatefulWidget {
   /// `RouteNames.masterBookings`; the owner master-mode mount passes
   /// `RouteNames.ownerMasterBookings`.
   final String? returnRoute;
+
+  /// Phase 487 — the empty week-grid tap's hint, read by the route from its
+  /// `at` query parameter and seeded onto [BookingSlotPickerArgs.seed].
+  /// `null` (the default) builds exactly today's args.
+  final BookingCreateSeed? seed;
 
   @override
   ConsumerState<WalkInServiceStepScreen> createState() =>
@@ -139,6 +146,9 @@ class _WalkInServiceStepScreenState
         guest: widget.guest,
         hideMasterIdentity: true,
         returnRoute: widget.returnRoute,
+        // Phase 487 — `null` on the unseeded path, so the args stay equal to
+        // today's.
+        seed: widget.seed,
       ),
     );
   }

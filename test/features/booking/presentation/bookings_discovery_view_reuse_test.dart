@@ -54,6 +54,8 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+// Phase 485 — the ONE shared day-selection driver (rail on this layout).
+import '../../../../integration_test/support/week_grid_driver.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -389,14 +391,6 @@ void main() {
       return () => counts[scope] ?? 0;
     }
 
-    Future<void> selectRailDay(WidgetTester tester, DateTime day) async {
-      await tester.tap(find.byKey(dayChipKey(day)));
-      // fixed-wait-ok: crosses the 220ms day-selection debounce Timer, which
-      // pumpAndSettle never fires; the list fetch is awaited by pumpAndSettle.
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pumpAndSettle();
-    }
-
     ProviderContainer containerOf(WidgetTester tester) =>
         ProviderScope.containerOf(
           tester.element(find.byType(BookingsDiscoveryView)),
@@ -430,12 +424,12 @@ void main() {
         bookedListDays: <DateTime>{dayA, dayB},
         dotsForFetch: (int _) => <DateTime>{},
       );
-      await selectRailDay(tester, dayA);
+      await selectWeekDay(tester, dayA);
       expect(fetches(), 2, reason: 'precondition: A healed once');
       // B's list settles the heal: its result is adopted as trusted.
-      await selectRailDay(tester, dayB);
+      await selectWeekDay(tester, dayB);
       // Back on A (cached list — no emission yet).
-      await selectRailDay(tester, dayA);
+      await selectWeekDay(tester, dayA);
       expect(fetches(), 2, reason: 'precondition: no heal on B or back on A');
 
       // An unrelated refresh (in-app write, TTL) mints a NEW, still-undotted
@@ -460,9 +454,9 @@ void main() {
         dotsForFetch: (int _) => <DateTime>{},
       );
 
-      await selectRailDay(tester, dayA);
-      await selectRailDay(tester, dayB);
-      await selectRailDay(tester, dayA);
+      await selectWeekDay(tester, dayA);
+      await selectWeekDay(tester, dayB);
+      await selectWeekDay(tester, dayA);
 
       expect(
         fetches(),
@@ -577,7 +571,7 @@ void main() {
         },
       );
 
-      await selectRailDay(tester, dayA);
+      await selectWeekDay(tester, dayA);
       expect(fetches(), 2, reason: 'precondition: A healed');
       expect(find.byKey(dayDotKey(dayA)), findsOneWidget);
 
@@ -586,7 +580,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(fetches(), 3, reason: 'precondition: the in-app write refresh');
 
-      await selectRailDay(tester, dayB);
+      await selectWeekDay(tester, dayB);
 
       expect(
         find.byKey(dayDotKey(dayB)),
