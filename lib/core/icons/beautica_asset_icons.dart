@@ -275,9 +275,10 @@ abstract final class BeauticaAssetIcons {
   //     [AppIcon] tints them exactly like the rest of this registry.
   //
   // Phase 467 adds a 21st, `categoryBodyMassage` (user's own drawing, no
-  // licence, same contract as Group B).
+  // licence, same contract as Group B). A 22nd, `categoryNavchannia`, is an
+  // original in-repo drawing for the `NAVCHANNIA` slug (same contract).
   //
-  // All 21 are monochrome — render via `AppIcon(BeauticaAssetIcons.category…,
+  // All 22 are monochrome — render via `AppIcon(BeauticaAssetIcons.category…,
   // color: …, size: …)`; never `multicolor: true`.
   // ---------------------------------------------------------------------------
 
@@ -365,6 +366,11 @@ abstract final class BeauticaAssetIcons {
   /// approved 2026-11-09 for the `BODY_MASSAGE` slug (Phase 467). No licence
   /// and no Flaticon release-gate obligation.
   static const String categoryBodyMassage = '$_base/category_body_massage.svg';
+
+  /// Original in-repo drawing (easel board + mortarboard), traced via
+  /// `scripts/icons/trace_icon.py`, for the `NAVCHANNIA` slug («Навчання»,
+  /// training/courses). No licence and no Flaticon release-gate obligation.
+  static const String categoryNavchannia = '$_base/category_navchannia.svg';
 
   // ---------------------------------------------------------------------------
   // Navigation — salon "Команда" (team) tab (Phase 21.8 re-icon)

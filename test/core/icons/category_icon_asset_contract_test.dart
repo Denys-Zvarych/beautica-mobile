@@ -26,11 +26,11 @@
 //      against on its own.
 //
 // The two `test/golden/` goldens that touch category icons
-// (`category_rail_svg_glyphs_360_*`) photograph exactly ONE of the 20
+// (`category_rail_svg_glyphs_360_*`) photograph exactly ONE of the 22
 // assets (`categoryBarbering`). A future asset drop that violates this
-// contract on any of the other 19 would render wrong on-device while every
+// contract on any of the other 21 would render wrong on-device while every
 // existing test -- goldens included -- stayed green. This file closes that
-// gap cheaply: it is a text-content check over 20 small XML files, no
+// gap cheaply: it is a text-content check over 22 small XML files, no
 // widget tree, no golden capture.
 //
 // Scope: every `assets/icons/category_*.svg` on disk (Group A, eroded
@@ -58,12 +58,12 @@ void main() {
           .toList()
         ..sort((File a, File b) => a.path.compareTo(b.path));
 
-  test('exactly 21 category_*.svg assets are present on disk', () {
+  test('exactly 22 category_*.svg assets are present on disk', () {
     expect(
       categorySvgs.length,
-      21,
+      22,
       reason:
-          'the registry (`beautica_asset_icons.dart`) documents 21 '
+          'the registry (`beautica_asset_icons.dart`) documents 22 '
           'category assets; a file added or removed under assets/icons/ '
           'without updating this count means the registry and the '
           'bundle have drifted',
@@ -82,7 +82,7 @@ void main() {
           reason:
               'AppIcon renders every category glyph at the same fixed '
               'logical size; a different viewBox scales this one glyph '
-              'wrong relative to the other 19',
+              'wrong relative to the other 21',
         );
       });
 
