@@ -58,6 +58,7 @@ import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step
 import 'package:beautica_mobile/features/booking/presentation/walk_in_service_step_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart'
     show formatSlotTimeRange;
@@ -350,17 +351,58 @@ void main() {
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
       expect(find.byType(WalkInGuestStepScreen), findsNothing);
       expect(find.byType(WalkInServiceStepScreen), findsNothing);
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byKey(const Key('master-booking-card-$kWalkInBookingId')),
+      // Phase 485 — «Записи» is the WEEK view now: the created booking is a
+      // `WeekTimeGrid` card in the column of the day it was booked on
+      // (`_kyivToday`, the injected clock's Sunday), and a column card shows
+      // the time range + the guest's FIRST name only (BOOK-70,
+      // `MasterBookingCard.column`) — never the full «first last» the old
+      // day list rendered.
+      final Finder weekCard = find.byKey(
+        WeekTimeGrid.cardKey(kWalkInBookingId),
+      );
+      await AppHarness.pumpUntilFound(tester, weekCard);
+      final Finder bookedDayColumn = find.byKey(
+        WeekTimeGrid.columnKey(
+          kyivDaysBetween(kyivWeekStart(_kyivToday), _kyivToday),
+        ),
       );
       expect(
-        find.text('$guestFirst $guestLast'),
+        find.descendant(of: bookedDayColumn, matching: weekCard),
+        findsOneWidget,
+        reason: 'the new booking must sit in the column of the booked day',
+      );
+      // The 07:00Z slot picked above (`availableSlotUtcStarts`), one 60-min
+      // service (`assign-1`).
+      final DateTime createdStart = DateTime.utc(
+        _kyivToday.year,
+        _kyivToday.month,
+        _kyivToday.day,
+        7,
+      );
+      expect(
+        find.descendant(
+          of: weekCard,
+          matching: find.text(
+            formatSlotTimeRange(
+              createdStart,
+              createdStart.add(const Duration(minutes: 60)),
+            ),
+            findRichText: true,
+          ),
+        ),
+        findsOneWidget,
+        reason: 'the card shows the submitted slot\'s time range',
+      );
+      expect(
+        find.descendant(
+          of: weekCard,
+          matching: find.text(guestFirst, findRichText: true),
+        ),
         findsOneWidget,
         reason:
-            'the refetched day list must name the guest the routed chain '
-            'just submitted — proving the card is the NEW booking, not a '
-            'stale coincidence',
+            'the refetched week must name the guest the routed chain just '
+            'submitted — proving the card is the NEW booking, not a stale '
+            'coincidence',
       );
       // Exactly ONE genuine refetch happened overall — the fresh
       // `MasterBookingsScreen` mount's own `ref.watch`, picking up the

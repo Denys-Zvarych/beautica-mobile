@@ -110,6 +110,7 @@ import '../application/booking_calendar_invalidation.dart';
 import '../application/bookings_capability.dart';
 import '../application/pending_booking_actions_count.dart';
 import '../domain/booking.dart';
+import '../domain/booking_create_seed.dart';
 import '../domain/bookings_day_query.dart';
 import '../../schedule/domain/schedule_scope.dart';
 
@@ -143,6 +144,7 @@ class MasterBookingsScreen extends ConsumerWidget {
     this.onBack,
     this.scheduleScope,
     this.onCreateBooking,
+    this.onCreateBookingSeeded,
     this.detailExtra,
   });
 
@@ -229,6 +231,11 @@ class MasterBookingsScreen extends ConsumerWidget {
   /// owner master-mode mount re-aims (+) at the owner-admitted salon wizard,
   /// since `/master/*` would bounce a SALON_OWNER.
   final VoidCallback? onCreateBooking;
+
+  /// Phase 487 — forwarded to [BookingsDiscoveryView.onCreateBookingSeeded]
+  /// (the empty week-grid tap). `null` keeps `masterBookingNew?at=…`; the
+  /// owner master-mode mount pushes `ownerMasterBookingNew?at=…`.
+  final void Function(BookingCreateSeed seed)? onCreateBookingSeeded;
 
   /// Phase 383 (24.1f) — `extra` for the detail push. `null` (every pre-383
   /// mount) pushes with no `extra`, as before. The owner mount passes its
@@ -384,6 +391,8 @@ class MasterBookingsScreen extends ConsumerWidget {
             context.pushOnce(detailRoute(booking.id), extra: detailExtra),
         // Phase 383 — see [onCreateBooking].
         onCreateBooking: onCreateBooking,
+        // Phase 487 — see [onCreateBookingSeeded].
+        onCreateBookingSeeded: onCreateBookingSeeded,
         // Phase 231 — the master «Архів» page. Additive-only wiring (see
         // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
         onOpenArchive: () {

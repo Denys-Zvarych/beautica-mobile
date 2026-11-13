@@ -60,6 +60,7 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_create_seed.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -393,6 +394,96 @@ void main() {
         expect(find.byType(WalkInServiceStepScreen), findsNothing);
       },
     );
+
+    // Phase 487 — the empty week-grid tap's `?at=` seed rides the query
+    // only: the literal `new` still wins over `:bookingId`, the guest step
+    // receives the parsed seed, and the services child forwards it into the
+    // service step while the `WalkInGuest` extra contract is unchanged.
+    testWidgets('phase 487: /master/bookings/new?at=… resolves the guest step '
+        'with the parsed seed', (tester) async {
+      final container = makeContainer();
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      unawaited(
+        router.push('${RouteNames.masterBookingNew}?at=2025-11-12T14:30'),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(
+        tester
+            .widget<WalkInGuestStepScreen>(find.byType(WalkInGuestStepScreen))
+            .seed,
+        BookingCreateSeed(day: DateTime(2025, 11, 12), minute: 14 * 60 + 30),
+      );
+    });
+
+    testWidgets('phase 487: /master/bookings/new/services?at=… with the guest '
+        'extra resolves the service step with the seed', (tester) async {
+      final container = makeContainer();
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      unawaited(
+        router.push(
+          '${RouteNames.masterBookingNewServices}?at=2025-11-12T14:30',
+          extra: const WalkInGuest(
+            name: 'Марина',
+            surname: 'Кравчук',
+            phone: '+380501234567',
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<WalkInServiceStepScreen>(
+              find.byType(WalkInServiceStepScreen),
+            )
+            .seed,
+        BookingCreateSeed(day: DateTime(2025, 11, 12), minute: 14 * 60 + 30),
+      );
+    });
+
+    testWidgets('phase 487: ?at= without the guest extra still bounces to '
+        'the guest step (the extra redirect is unchanged)', (tester) async {
+      final container = makeContainer();
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      unawaited(
+        router.push(
+          '${RouteNames.masterBookingNewServices}?at=2025-11-12T14:30',
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(WalkInGuestStepScreen), findsOneWidget);
+      expect(find.byType(WalkInServiceStepScreen), findsNothing);
+    });
 
     testWidgets('should_stillResolveBookingDetail_when_uuidPushed — '
         '/master/bookings/<uuid> still resolves BookingDetailScreen, not '

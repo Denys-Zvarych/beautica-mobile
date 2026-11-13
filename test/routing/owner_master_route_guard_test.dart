@@ -57,6 +57,9 @@ final List<String> _gatedLocations = <String>[
   // Phase 383 (decision 2026-10-07) — «Новий запис» walk-in chain.
   RouteNames.ownerMasterBookingNew,
   RouteNames.ownerMasterBookingNewServices,
+  // Phase 487 — the empty week-grid tap's seeded form: `?at=` is a hint,
+  // never a key past the gate.
+  '${RouteNames.ownerMasterBookingNew}?at=2026-06-17T14:30',
 ];
 
 void main() {

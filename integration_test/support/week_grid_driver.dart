@@ -22,6 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:beautica_mobile/features/booking/application/master_bookings_view_mode.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_column_painter.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
@@ -154,4 +155,60 @@ int visibleWeekDay(WidgetTester tester) {
       .widget<WeekTimeGrid>(find.byType(WeekTimeGrid))
       .pageController;
   return (c.page ?? c.initialPage.toDouble()).round();
+}
+
+/// Phase 487 — taps the EMPTY grid of week day [dayIndex] (0 = Monday) at
+/// Kyiv wall clock [hour]:[minute]: switches to «День», pages to that day,
+/// scrolls the time axis so the minute is on screen, then taps the column's
+/// empty-tap layer at the y the column's OWN painter maps that minute to
+/// (`topPad` + first hour + hour height) — so the tap lands on that
+/// wall-clock minute whatever hour window the grid resolved.
+Future<void> tapEmptyGridAt(
+  WidgetTester tester, {
+  required int dayIndex,
+  required int hour,
+  required int minute,
+  WeekGridSettle settle = _pumpAndSettle,
+}) async {
+  await switchViewMode(tester, BookingsWeekViewMode.day, settle: settle);
+  tester
+      .widget<WeekTimeGrid>(find.byType(WeekTimeGrid))
+      .pageController
+      .jumpToPage(dayIndex);
+  await settle(tester);
+  // fixed-wait-ok: crossing the grid's day-snap settle delay, which
+  // pumpAndSettle never fires (see [flingWeek]).
+  await tester.pump(WeekTimeGrid.settleDelay);
+  await settle(tester);
+
+  final Finder column = find.byKey(WeekTimeGrid.columnKey(dayIndex));
+  final WeekColumnPainter painter =
+      tester
+              .widgetList<CustomPaint>(
+                find.descendant(of: column, matching: find.byType(CustomPaint)),
+              )
+              .map((CustomPaint p) => p.painter)
+              .firstWhere((CustomPainter? p) => p is WeekColumnPainter)
+          as WeekColumnPainter;
+  final double localY =
+      painter.topPad +
+      (hour * 60 + minute - painter.firstHour * 60) / 60 * painter.hourHeight;
+  final ScrollableState vertical = tester.state<ScrollableState>(
+    find
+        .descendant(
+          of: find.byKey(WeekTimeGrid.verticalScrollKey),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
+  vertical.position.jumpTo(
+    (localY - 120).clamp(0, vertical.position.maxScrollExtent),
+  );
+  await settle(tester);
+
+  final Rect layer = tester.getRect(
+    find.byKey(WeekTimeGrid.emptyTapKey(dayIndex)),
+  );
+  await tester.tapAt(Offset(layer.center.dx, layer.top + localY));
+  await settle(tester);
 }

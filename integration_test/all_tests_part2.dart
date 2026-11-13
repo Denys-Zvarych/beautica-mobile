@@ -29,6 +29,8 @@ import 'master_bookings_week_flow_test.dart' as master_bookings_week;
 import 'master_bookings_week_entrance_flow_test.dart'
     as master_bookings_week_entrance;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
+import 'master_bookings_week_seeded_create_flow_test.dart'
+    as master_bookings_week_seeded_create;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
@@ -186,6 +188,14 @@ void main() {
   group(
     'master_bookings_week_entrance_flow',
     master_bookings_week_entrance.main,
+  );
+  // Phase 487 — an empty week-grid tap seeds the create wizard: guest →
+  // service → the picker preselects the tapped day + time (or the next later
+  // offered slot) → confirm books it; owner master-mode variant; a
+  // hand-typed `?at=` never bypasses the route guards (Step 2.7 Rule 3b).
+  group(
+    'master_bookings_week_seeded_create_flow',
+    master_bookings_week_seeded_create.main,
   );
   // Phase 244 — the master booking timeline's working-hours window: a day
   // with no published hours shows the gray state (CTA → /schedule?date=,

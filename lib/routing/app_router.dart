@@ -47,6 +47,7 @@ import '../features/auth/domain/auth_session.dart';
 import '../features/auth/domain/reset_password_args.dart';
 import '../features/auth/domain/user_role.dart';
 import '../features/booking/domain/booking_confirm_args.dart';
+import '../features/booking/domain/booking_create_seed.dart';
 import '../features/booking/domain/booking_entry_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
 import '../features/booking/domain/booking_success_args.dart';
@@ -1987,9 +1988,11 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: 'new',
             redirect: independentMasterOnlyGuard,
-            pageBuilder: (context, state) => const MaterialPage<void>(
+            // Phase 487 — the empty week-grid tap's `?at=` hint (absent on
+            // the (+) path → `seed: null`, today's screen exactly).
+            pageBuilder: (context, state) => MaterialPage<void>(
               fullscreenDialog: true,
-              child: WalkInGuestStepScreen(),
+              child: WalkInGuestStepScreen(seed: _createSeedOf(state)),
             ),
             routes: [
               // Phase 264 — /master/bookings/new/services, the walk-in
@@ -2033,8 +2036,11 @@ GoRouter appRouter(Ref ref) {
                 // how `time` nests under [bookingSlots] elsewhere in this
                 // file: a normal forward push within the already-modal
                 // chain, carrying the theme's swipe-back gesture.
-                builder: (context, state) =>
-                    WalkInServiceStepScreen(guest: state.extra! as WalkInGuest),
+                builder: (context, state) => WalkInServiceStepScreen(
+                  guest: state.extra! as WalkInGuest,
+                  // Phase 487 — `?at=` forwarded by the guest step.
+                  seed: _createSeedOf(state),
+                ),
               ),
             ],
           ),
@@ -2687,6 +2693,12 @@ GoRouter appRouter(Ref ref) {
                       // would bounce a SALON_OWNER.
                       onCreateBooking: () =>
                           context.pushOnce(RouteNames.ownerMasterBookingNew),
+                      // Phase 487 — the empty week-grid tap: the same chain,
+                      // seeded with the tapped day + time as `?at=`.
+                      onCreateBookingSeeded: (BookingCreateSeed seed) =>
+                          context.pushOnce(
+                            seed.appendTo(RouteNames.ownerMasterBookingNew),
+                          ),
                       detailExtra: salonId,
                       detailRouteBuilder: RouteNames.salonStaffBookingDetail,
                       archiveRoute: RouteNames.ownerMasterBookingsArchive,
@@ -2746,10 +2758,12 @@ GoRouter appRouter(Ref ref) {
           // shadowing_test.dart` pins both.
           GoRoute(
             path: RouteNames.ownerMasterBookingNew,
-            pageBuilder: (context, state) => const MaterialPage<void>(
+            pageBuilder: (context, state) => MaterialPage<void>(
               fullscreenDialog: true,
               child: WalkInGuestStepScreen(
                 servicesRoute: RouteNames.ownerMasterBookingNewServices,
+                // Phase 487 — see `/master/bookings/new`.
+                seed: _createSeedOf(state),
               ),
             ),
             routes: [
@@ -2774,6 +2788,8 @@ GoRouter appRouter(Ref ref) {
                           String masterId,
                         ) => WalkInServiceStepScreen(
                           guest: guest,
+                          // Phase 487 — `?at=` forwarded by the guest step.
+                          seed: _createSeedOf(state),
                           // «Готово» returns to the owner's own «Записи»;
                           // `go(masterBookings)` would bounce a SALON_OWNER.
                           returnRoute: RouteNames.ownerMasterBookings,
@@ -3370,6 +3386,14 @@ String? _expandCategoryParam(GoRouterState state) {
   final raw = state.uri.queryParameters['expandCategory']?.trim().toUpperCase();
   return (raw != null && isValidCategorySlug(raw)) ? raw : null;
 }
+
+/// Phase 487 — the ONE `?at=` parser for the walk-in create chain (the
+/// empty week-grid tap's day + time hint); `null` when absent or malformed.
+/// Read from the query only — the chain's `extra` contract is untouched.
+BookingCreateSeed? _createSeedOf(GoRouterState state) =>
+    BookingCreateSeed.fromQuery(
+      state.uri.queryParameters[bookingCreateSeedQueryKey],
+    );
 
 /// The `/staff/services` and (phase 380) `/owner/master/services` leaf.
 ///

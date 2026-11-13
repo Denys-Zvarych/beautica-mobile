@@ -9,7 +9,10 @@
 //   * a column-header tap in «3 дні» opens «День» on THAT day;
 //   * the filter sheet feeds the WEEK query (one request, the week's range);
 //   * empty-grid tap opens the create flow — and is absent for a viewer who
-//     may not create (read-only staff).
+//     may not create (read-only staff);
+//   * phase 487: the tap SEEDS the flow — `masterBookingNew?at=<day>T<half
+//     hour>` (independent), `onCreateBookingSeeded` (owner mount); the (+)
+//     push carries no `at`.
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -20,6 +23,7 @@ import 'package:beautica_mobile/features/booking/application/master_bookings_vie
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_create_seed.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
@@ -42,6 +46,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../../integration_test/support/week_grid_driver.dart';
 import '../../../helpers/pump_app.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
@@ -120,9 +125,14 @@ void main() {
   late _MockBookingRepository repo;
   late List<Invocation> calls;
 
+  /// Phase 487 — every `at` query value the create stub was opened with
+  /// (`null` = opened without one).
+  late List<String?> createAts;
+
   setUp(() {
     repo = _MockBookingRepository();
     calls = <Invocation>[];
+    createAts = <String?>[];
     when(
       () => repo.getMyBookings(
         statuses: any(named: 'statuses'),
@@ -152,6 +162,7 @@ void main() {
     _Mount mount = _Mount.independent,
     bool canCreate = true,
     DateTime Function()? clock,
+    void Function(BookingCreateSeed seed)? onSeeded,
   }) async {
     final GoRouter router = GoRouter(
       initialLocation: '/',
@@ -170,15 +181,18 @@ void main() {
                   navBookingsRoute: RouteNames.salonMasterBookings,
                   canAddWorkingHours: false,
                 ),
-                _Mount.ownerMaster => const MasterBookingsScreen(
+                _Mount.ownerMaster => MasterBookingsScreen(
                   asOwnerMaster: true,
+                  onCreateBookingSeeded: onSeeded,
                 ),
               },
         ),
         GoRoute(
           path: RouteNames.masterBookingNew,
-          builder: (BuildContext context, GoRouterState state) =>
-              const Scaffold(body: SizedBox.shrink(key: _createMarker)),
+          builder: (BuildContext context, GoRouterState state) {
+            createAts.add(state.uri.queryParameters['at']);
+            return const Scaffold(body: SizedBox.shrink(key: _createMarker));
+          },
         ),
         // AFTER the literal `new` — a dynamic segment first would shadow it.
         GoRoute(
@@ -364,6 +378,52 @@ void main() {
 
     expect(find.byKey(_createMarker), findsOne);
     expect(router.canPop(), isTrue);
+  });
+
+  /// Phase 487 — taps Wednesday's (index 2) empty column at Kyiv
+  /// [hour]:[minute] through the ONE shared grid driver.
+  Future<void> tapWednesdayAt(
+    WidgetTester tester, {
+    required int hour,
+    required int minute,
+  }) => tapEmptyGridAt(tester, dayIndex: 2, hour: hour, minute: minute);
+
+  testWidgets('phase 487: an empty Wed 14:40 tap pushes masterBookingNew '
+      '?at=<Wed>T14:30', (WidgetTester tester) async {
+    await pump(tester);
+    await tapWednesdayAt(tester, hour: 14, minute: 40);
+
+    expect(find.byKey(_createMarker), findsOne);
+    final DateTime wednesday = kyivAddDays(_weekMonday, 2);
+    expect(createAts, <String?>[
+      BookingCreateSeed(day: wednesday, minute: 14 * 60 + 30).toQuery(),
+    ]);
+    expect(createAts.single, endsWith('T14:30'));
+  });
+
+  testWidgets('phase 487: owner mount — the tap calls onCreateBookingSeeded '
+      'with the Wed 14:30 seed and pushes nothing itself', (
+    WidgetTester tester,
+  ) async {
+    final List<BookingCreateSeed> seeds = <BookingCreateSeed>[];
+    await pump(tester, mount: _Mount.ownerMaster, onSeeded: seeds.add);
+    await tapWednesdayAt(tester, hour: 14, minute: 40);
+
+    expect(seeds, <BookingCreateSeed>[
+      BookingCreateSeed(day: kyivAddDays(_weekMonday, 2), minute: 14 * 60 + 30),
+    ]);
+    expect(find.byKey(_createMarker), findsNothing);
+  });
+
+  testWidgets('phase 487: the header (+) push carries no `at`', (
+    WidgetTester tester,
+  ) async {
+    await pump(tester);
+    await tester.tap(find.byKey(const Key('master-bookings-add')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(_createMarker), findsOne);
+    expect(createAts, <String?>[null]);
   });
 
   // MUTATION: passed `onTapEmpty` regardless of `canCreateBooking` → the tap

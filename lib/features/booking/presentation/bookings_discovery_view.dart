@@ -178,6 +178,7 @@ import 'package:beautica_mobile/features/schedule/presentation/effective_schedul
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 
 import '../domain/booking.dart';
+import '../domain/booking_create_seed.dart';
 import '../domain/booking_status.dart';
 import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
@@ -334,6 +335,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     this.columnsBuilder,
     this.boardWindowBuilder,
     this.onCreateBooking,
+    this.onCreateBookingSeeded,
     this.addSemanticsLabelOverride,
     this.showServiceFilter = true,
     this.showBookedDayDots = true,
@@ -642,6 +644,14 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// ._openCreateBooking`, which pushes the approved salon «Новий запис»
   /// wizard (`RouteNames.salonStaffBookingNew`).
   final VoidCallback? onCreateBooking;
+
+  /// Phase 487 — where an EMPTY WEEK-GRID TAP goes, carrying the tapped Kyiv
+  /// day + half-hour-rounded time as a [BookingCreateSeed]. `null` (the
+  /// default) keeps today's routing: [onCreateBooking] when the host set one
+  /// (unseeded), else `masterBookingNew?at=…`. The owner master-mode mount
+  /// passes a push to `ownerMasterBookingNew?at=…`. The header (+) never
+  /// carries a seed and never calls this.
+  final void Function(BookingCreateSeed seed)? onCreateBookingSeeded;
 
   /// Phase 340 — overrides the (+) button's semantics label. `null` (the
   /// default, both master routes) keeps [AppLocalizations
@@ -1675,7 +1685,19 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView>
   /// — a claim an earlier revision of this comment made and that was simply
   /// false. Keep the tear-off for the allocation, not for a skip that never
   /// happened; do not reintroduce the `BuildContext` parameter.
-  void _openCreateBooking() {
+  ///
+  /// Phase 487 — [seed] (the empty week-grid tap only; the (+) tear-off
+  /// passes none) travels as the `at` query parameter, never as `extra`. A
+  /// host with [BookingsDiscoveryView.onCreateBookingSeeded] receives it; a
+  /// host with only [BookingsDiscoveryView.onCreateBooking] gets today's
+  /// unseeded call.
+  void _openCreateBooking({BookingCreateSeed? seed}) {
+    final void Function(BookingCreateSeed)? seededHandler =
+        widget.onCreateBookingSeeded;
+    if (seed != null && seededHandler != null) {
+      seededHandler(seed);
+      return;
+    }
     // Phase 21.12 — the HOST may redirect this. `null` (both master routes)
     // keeps the Phase 248 destination verbatim. See
     // [BookingsDiscoveryView.onCreateBooking].
@@ -1684,8 +1706,14 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView>
       hostHandler();
       return;
     }
-    context.pushOnce(RouteNames.masterBookingNew);
+    context.pushOnce(withBookingCreateSeed(RouteNames.masterBookingNew, seed));
   }
+
+  /// Phase 487 — the week grid's empty-cell tap: the Kyiv [day] and the
+  /// grid's half-hour-rounded [minute] seed the create wizard.
+  void _openCreateBookingAt(DateTime day, int minute) => _openCreateBooking(
+    seed: BookingCreateSeed(day: day, minute: minute),
+  );
 
   // ── Phase 485 — week layout ─────────────────────────────────────────────
 
@@ -2116,7 +2144,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView>
                       _liveQuery.showsAllOccupancy && !model.week.isTruncated,
                   // Read-only staff get no create affordance at all.
                   onTapEmpty: widget.canCreateBooking
-                      ? (DateTime _, int _) => _openCreateBooking()
+                      ? _openCreateBookingAt
                       : null,
                 ),
               ),
