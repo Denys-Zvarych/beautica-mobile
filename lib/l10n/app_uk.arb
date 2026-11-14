@@ -136,6 +136,16 @@
       }
     }
   },
+  "bookingErrClientConflictProvider": "У клієнта вже є запис на цей час: {window}",
+  "@bookingErrClientConflictProvider": {
+    "description": "PROVIDER-perspective counterpart of bookingErrClientConflict: shown to a provider whose reschedule of a client's booking returns HTTP 409 CLIENT_BOOKING_CONFLICT — the CLIENT (not the provider) already has an overlapping booking (ClientBookingConflictFailure.asProviderView). Shows ONLY the time window: the clashing booking's service/master belong to the client's other provider and must not be disclosed (security HIGH, 2026-11-14).",
+    "placeholders": {
+      "window": {
+        "type": "String",
+        "example": "вт, 15 лип · 14:00–15:30"
+      }
+    }
+  },
   "bookingErrRateLimited": "Забагато спроб бронювання. Зачекайте кілька секунд і спробуйте ще раз.",
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."

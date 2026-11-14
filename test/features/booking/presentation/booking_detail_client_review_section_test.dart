@@ -22,7 +22,6 @@
 // a `findsNothing` can never pass because the screen failed to render at all.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
@@ -51,6 +50,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 import '../../moderation/support/fake_content_report_repository.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 // Fixture identities injected BY this test — backend data, never app copy,
 // and locale-invariant by construction (a person's name is not translated).
@@ -168,7 +168,7 @@ final Finder _screenChrome = find.byType(BookingSummaryCards);
 /// Star icons INSIDE the review block only, so nothing else on the screen can
 /// contribute to the count.
 Finder _sectionStars() =>
-    find.descendant(of: _section, matching: find.byIcon(Icons.star_rounded));
+    find.descendant(of: _section, matching: findAssetStar());
 
 /// How many of the block's five stars are painted FILLED — i.e. the score the
 /// card actually draws.
@@ -176,12 +176,10 @@ Finder _sectionStars() =>
 /// [_sectionStars] counts the glyphs, and `ReviewStarRow` always draws five of
 /// them whatever the rating (`review_card.dart:205-211` — only the colour
 /// changes), so a count assertion alone can never see a wrong score. This is
-/// the assertion that can: it is the same `accentDeep`-vs-`faint` distinction
-/// `review_card_test`'s own `_filledStars` reads, scoped to this block.
-int _sectionFilledStars(WidgetTester tester) => tester
-    .widgetList<Icon>(_sectionStars())
-    .where((Icon i) => i.color == BrandColors.accentDeep)
-    .length;
+/// the assertion that can: the painted `accentDeep`-vs-`faint` distinction,
+/// read from pixels by the shared `countFilledAssetStars`, scoped to this block.
+Future<int> _sectionFilledStars(WidgetTester tester) =>
+    countFilledAssetStars(tester, _sectionStars());
 
 void main() {
   group('the block renders for the provider', () {
@@ -305,7 +303,7 @@ void main() {
 
       expect(_sectionStars(), findsNWidgets(5), reason: 'five glyphs drawn');
       expect(
-        _sectionFilledStars(tester),
+        await _sectionFilledStars(tester),
         2,
         reason:
             'the payload rating must reach the card — a constant, an '
@@ -385,7 +383,7 @@ void main() {
           findsOneWidget,
         );
         expect(
-          _sectionFilledStars(tester),
+          await _sectionFilledStars(tester),
           4,
           reason: 'anti-vacuity — the same block really did draw a 4',
         );

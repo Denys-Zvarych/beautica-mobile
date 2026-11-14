@@ -165,6 +165,17 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     String? rescheduleClientName,
     String? rescheduleClientPhone,
 
+    /// RESCHEDULE-ONLY (2026-11-14) — the rest of the client strip the
+    /// provider sees on «Деталі запису» (photo, monogram, ★ rating), read off
+    /// the SAME fresh `Booking` and populated under the SAME
+    /// `hideMasterIdentity` gate as [rescheduleClientName]; `null` on every
+    /// other path. [rescheduleClientRating] is already display-normalized
+    /// (`BookingDisplayX.clientDisplayRating`).
+    String? rescheduleClientAvatarUrl,
+    String? rescheduleClientInitials,
+    double? rescheduleClientRating,
+    int? rescheduleClientReviewCount,
+
     /// See the file header (phase-273 D2). Defaults to `false` so every
     /// existing call site is unaffected.
     @Default(false) bool returnSlotToCaller,

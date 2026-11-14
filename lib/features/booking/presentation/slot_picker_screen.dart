@@ -726,6 +726,10 @@ class SlotTimeScreen extends ConsumerWidget {
         rescheduleTargetIsWalkIn: args.rescheduleTargetIsWalkIn,
         rescheduleClientName: args.rescheduleClientName,
         rescheduleClientPhone: args.rescheduleClientPhone,
+        rescheduleClientAvatarUrl: args.rescheduleClientAvatarUrl,
+        rescheduleClientInitials: args.rescheduleClientInitials,
+        rescheduleClientRating: args.rescheduleClientRating,
+        rescheduleClientReviewCount: args.rescheduleClientReviewCount,
         // VENUE ADDRESS (2026-09-18) — forwarded verbatim; `null` on every
         // create path, so this chain link is inert there.
         venueStreet: args.venueStreet,

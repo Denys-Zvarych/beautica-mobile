@@ -43,6 +43,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 import 'favorites_test_fixtures.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 /// A wire-shaped arrival note. Latin, so no Cyrillic-finder escape is needed.
 const String _note = 'entrance from the yard';
@@ -323,7 +324,7 @@ void main() {
       // The star is still DRAWN (dimmed), so the identity line keeps its shape
       // down a scroll rather than the column appearing and vanishing row to
       // row.
-      expect(find.byIcon(Icons.star_rounded), findsOneWidget);
+      expect(findAssetStar(), findsOneWidget);
     });
 
     testWidgets('a rated provider renders exactly one decimal', (

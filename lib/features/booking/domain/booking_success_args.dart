@@ -73,6 +73,14 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     String? rescheduleClientName,
     String? rescheduleClientPhone,
 
+    /// RESCHEDULE-ONLY (2026-11-14) — the rest of the provider's client strip
+    /// (photo, monogram, ★ rating), forwarded unchanged from
+    /// `BookingConfirmArgs`; `null` wherever [rescheduleClientName] is.
+    String? rescheduleClientAvatarUrl,
+    String? rescheduleClientInitials,
+    double? rescheduleClientRating,
+    int? rescheduleClientReviewCount,
+
     /// `true` when the person who reached this screen is a PROVIDER (salon
     /// owner / salon admin / master) acting on someone else's booking, rather
     /// than a client acting on their own. Forwarded unchanged from

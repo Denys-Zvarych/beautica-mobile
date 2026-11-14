@@ -136,6 +136,16 @@
       }
     }
   },
+  "bookingErrClientConflictProvider": "The client already has a booking at this time: {window}",
+  "@bookingErrClientConflictProvider": {
+    "description": "PROVIDER-perspective counterpart of bookingErrClientConflict: shown to a provider whose reschedule of a client's booking returns HTTP 409 CLIENT_BOOKING_CONFLICT — the CLIENT (not the provider) already has an overlapping booking (ClientBookingConflictFailure.asProviderView). Shows ONLY the time window: the clashing booking's service/master belong to the client's other provider and must not be disclosed (security HIGH, 2026-11-14).",
+    "placeholders": {
+      "window": {
+        "type": "String",
+        "example": "Tue, 15 Jul · 14:00–15:30"
+      }
+    }
+  },
   "bookingErrRateLimited": "Too many booking attempts. Please wait a few seconds and try again.",
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."

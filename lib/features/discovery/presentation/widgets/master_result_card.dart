@@ -11,6 +11,9 @@
 // entirely — no placeholder.
 
 import 'package:flutter/material.dart';
+
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -280,7 +283,11 @@ class _RatingRow extends StatelessWidget {
 
     return Row(
       children: <Widget>[
-        const Icon(Icons.star_rounded, color: BrandColors.accent, size: 17),
+        const AppIcon(
+          BeauticaAssetIcons.star,
+          color: BrandColors.accent,
+          size: 17,
+        ),
         const SizedBox(width: 3),
         Text(r.toStringAsFixed(1), style: ResultCardText.ratingValue),
         const SizedBox(width: 4),

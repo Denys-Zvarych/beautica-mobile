@@ -69,6 +69,7 @@ import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import '../test/helpers/asset_star_finder.dart';
 
 const String _kSalonId = 'salon-xyz';
 
@@ -1718,10 +1719,7 @@ void main() {
 
           // Positive control — the master's ★ row renders the wire rating.
           expect(
-            find.descendant(
-              of: master,
-              matching: find.byIcon(Icons.star_rounded),
-            ),
+            find.descendant(of: master, matching: findAssetStar()),
             findsOneWidget,
           );
           expect(
@@ -1737,10 +1735,7 @@ void main() {
           );
           // The admin card: no glyph, no `—` placeholder, no spoken rating.
           expect(
-            find.descendant(
-              of: admin,
-              matching: find.byIcon(Icons.star_rounded),
-            ),
+            find.descendant(of: admin, matching: findAssetStar()),
             findsNothing,
           );
           expect(

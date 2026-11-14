@@ -16,6 +16,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -131,7 +134,11 @@ class _DistributionRow extends StatelessWidget {
       children: <Widget>[
         Text('$star', style: VelvetText.bodyStrong12),
         const SizedBox(width: 3),
-        const Icon(Icons.star_rounded, size: 12, color: BrandColors.accent),
+        const AppIcon(
+          BeauticaAssetIcons.star,
+          size: 12,
+          color: BrandColors.accent,
+        ),
         const SizedBox(width: VelvetSpacing.sm),
         Expanded(
           child: ClipRRect(

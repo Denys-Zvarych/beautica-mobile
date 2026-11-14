@@ -51,6 +51,7 @@ import '../../../helpers/fakes/fake_favorite_repository.dart';
 import '../../../helpers/fakes/fake_wishlist_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 // ---------------------------------------------------------------------------
 // Auth-free favourite toggle — skips the production build()'s
@@ -573,10 +574,7 @@ void main() {
         // showRating:true → the camel ★ + rating readout renders (previously
         // absent on the Step-1 card).
         expect(
-          find.descendant(
-            of: masterStrip,
-            matching: find.byIcon(Icons.star_rounded),
-          ),
+          find.descendant(of: masterStrip, matching: findAssetStar()),
           findsOneWidget,
           reason: 'Change 2 set showRating:true — the ★ glyph must render.',
         );

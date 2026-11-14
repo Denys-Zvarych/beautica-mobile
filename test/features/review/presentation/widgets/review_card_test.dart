@@ -11,12 +11,12 @@
 //     serviceName is null/empty (the master case) and PRESENT when supplied
 //     (the salon case) — rendered as the raw service name with no label.
 
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
+import '../../../../helpers/asset_star_finder.dart';
 
 ReviewCardData _data({
   String id = 'r-1',
@@ -45,13 +45,10 @@ List<String> _texts(WidgetTester tester) => tester
 
 Widget _host(ReviewCard card) => Scaffold(body: Center(child: card));
 
-/// Counts the star icons rendered with the "filled" colour ([accentDeep]).
-int _filledStars(WidgetTester tester) {
-  return tester
-      .widgetList<Icon>(find.byIcon(Icons.star_rounded))
-      .where((Icon i) => i.color == BrandColors.accentDeep)
-      .length;
-}
+/// Stars PAINTED filled — the shared pixel counter (see
+/// `asset_star_finder.dart`).
+Future<int> _filledStars(WidgetTester tester) =>
+    countFilledAssetStars(tester, findAssetStar());
 
 void main() {
   testWidgets('renders under the composed keyPrefix-id key', (tester) async {
@@ -73,8 +70,8 @@ void main() {
     );
 
     // 5 stars total; exactly 3 are the filled accentDeep colour.
-    expect(find.byIcon(Icons.star_rounded), findsNWidgets(5));
-    expect(_filledStars(tester), 3);
+    expect(findAssetStar(), findsNWidgets(5));
+    expect(await _filledStars(tester), 3);
   });
 
   testWidgets('renders the masked client name and comment verbatim', (
@@ -153,8 +150,8 @@ void main() {
       _host(ReviewCard(data: _data(rating: 0), keyPrefix: 'master-review')),
     );
 
-    expect(find.byIcon(Icons.star_rounded), findsNWidgets(5));
-    expect(_filledStars(tester), 0);
+    expect(findAssetStar(), findsNWidgets(5));
+    expect(await _filledStars(tester), 0);
   });
 
   // ── Phase 334 — the nullable widening ───────────────────────────────────
@@ -217,8 +214,8 @@ void main() {
     expect(_texts(tester), <String>['Олена К.']);
     // i18n-finder-ok: the fixture review body is backend data, not UI copy.
     expect(find.text('Все чудово, дякую!'), findsNothing);
-    expect(find.byIcon(Icons.star_rounded), findsNWidgets(5));
-    expect(_filledStars(tester), 4);
+    expect(findAssetStar(), findsNWidgets(5));
+    expect(await _filledStars(tester), 4);
   });
 
   testWidgets('REGRESSION — an EMPTY comment still renders its Text, exactly '
