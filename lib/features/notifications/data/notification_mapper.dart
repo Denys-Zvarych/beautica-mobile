@@ -93,6 +93,10 @@ abstract final class NotificationMapper {
     if (dto == api.NotificationResponseTypeEnum.REVIEW_ABOUT_YOU_REMOVED) {
       return AppNotificationType.reviewAboutYouRemoved;
     }
+    // Phase 497 — visit reminder (backend 495).
+    if (dto == api.NotificationResponseTypeEnum.BOOKING_REMINDER) {
+      return AppNotificationType.bookingReminder;
+    }
     return AppNotificationType.unknown;
   }
 

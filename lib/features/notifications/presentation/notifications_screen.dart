@@ -363,7 +363,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
     if (cached != null &&
         identical(cached.item, item) &&
         cached.isClient == isClient &&
-        cached.showMaster == showMaster) {
+        cached.showMaster == showMaster &&
+        cached.today == _today) {
       return cached.widget;
     }
     final Widget widget = Padding(
@@ -376,13 +377,15 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
         showMaster: showMaster,
         onOpen: () => _open(notifier, item),
         onMarkRead: () => _markRead(notifier, item.id),
+        // Phase 497: a reminder row's «сьогодні» / «завтра».
+        today: _today,
         // Phase 412: sentence + «Причина: …» needs a third line.
         bodyMaxLines: NotificationCopy.isCatalogDecision(item.type)
             ? NotificationCopy.decisionBodyMaxLines
             : NotificationTile.defaultBodyMaxLines,
       ),
     );
-    _rows[item.id] = _CachedRow(item, isClient, showMaster, widget);
+    _rows[item.id] = _CachedRow(item, isClient, showMaster, _today, widget);
     return widget;
   }
 
@@ -564,11 +567,18 @@ final class _Layout {
 
 /// One row widget plus what it was built from.
 final class _CachedRow {
-  const _CachedRow(this.item, this.isClient, this.showMaster, this.widget);
+  const _CachedRow(
+    this.item,
+    this.isClient,
+    this.showMaster,
+    this.today,
+    this.widget,
+  );
 
   final AppNotification item;
   final bool isClient;
   final bool showMaster;
+  final DateTime today;
   final Widget widget;
 }
 
