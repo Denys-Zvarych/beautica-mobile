@@ -55,6 +55,7 @@ class NotificationTile extends StatefulWidget {
     this.onOpen,
     this.onMarkRead,
     this.bodyMaxLines = defaultBodyMaxLines,
+    this.today,
   });
 
   /// Today's body clamp. A row whose body can carry a second line (phase 412:
@@ -81,6 +82,10 @@ class NotificationTile extends StatefulWidget {
 
   /// Body line clamp; defaults to [defaultBodyMaxLines].
   final int bodyMaxLines;
+
+  /// Phase 497 — the viewer's Kyiv «today» date token, so a reminder row says
+  /// «сьогодні» / «завтра». `null` (default) → the reminder names the date.
+  final DateTime? today;
 
   static const Duration _flip = Duration(milliseconds: 320);
   static const Curve _curve = Curves.easeOutCubic;
@@ -172,6 +177,7 @@ class _NotificationTileState extends State<NotificationTile> {
       item,
       isClient: isClient,
       showMaster: widget.showMaster,
+      today: widget.today,
     );
     // Rendered whenever the backend sent one: it is null for independent-master
     // and client-side items, present on owner / admin rows.

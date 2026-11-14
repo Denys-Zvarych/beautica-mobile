@@ -77,6 +77,8 @@ void main() {
     'REPORT_REVIEWED': AppNotificationType.reportReviewed,
     'CONTENT_REMOVED': AppNotificationType.contentRemoved,
     'REVIEW_ABOUT_YOU_REMOVED': AppNotificationType.reviewAboutYouRemoved,
+    // Phase 497 (backend 495) — visit reminder.
+    'BOOKING_REMINDER': AppNotificationType.bookingReminder,
   };
 
   const bookingTarget = <String, Object?>{
@@ -141,6 +143,23 @@ void main() {
 
     test('should_yieldNoTarget_when_targetAbsent', () {
       expect(_one(_row()).target, const NotificationTarget.none());
+    });
+
+    // Phase 497 — the generated member maps; lost access (target NONE,
+    // params nulled) keeps the type and leads nowhere.
+    test('should_mapBookingReminder_fromTheGeneratedEnum', () {
+      expect(
+        NotificationMapper.typeFromDto(
+          api.NotificationResponseTypeEnum.BOOKING_REMINDER,
+        ),
+        AppNotificationType.bookingReminder,
+      );
+    });
+
+    test('should_keepBookingReminder_withNoTarget_when_accessLost', () {
+      final n = _one(_row(type: 'BOOKING_REMINDER', target: {'kind': 'NONE'}));
+      expect(n.type, AppNotificationType.bookingReminder);
+      expect(n.target, const NotificationTarget.none());
     });
 
     test('should_yieldUnknownAndNoTarget_when_typeAbsent', () {
@@ -547,6 +566,28 @@ void main() {
         expect(tap.type, AppNotificationType.unknown);
         expect(tap.target, const NotificationTarget.none());
       }
+    });
+
+    // Phase 497 — a BOOKING_REMINDER push opens the booking like the feed.
+    test('BOOKING_REMINDER push -> bookingReminder + BookingTarget', () {
+      final tap = NotificationMapper.pushTapFromData(
+        d({
+          'type': 'BOOKING_REMINDER',
+          'targetKind': 'BOOKING',
+          'bookingId': _bk1,
+          'appointmentId': _ap1,
+          'salonId': _sl1,
+        }),
+      )!;
+      expect(tap.type, AppNotificationType.bookingReminder);
+      expect(
+        tap.target,
+        const NotificationTarget.booking(
+          bookingId: _bk1,
+          appointmentId: _ap1,
+          salonId: _sl1,
+        ),
+      );
     });
 
     test('unknown v is not gated; known keys still parse', () {

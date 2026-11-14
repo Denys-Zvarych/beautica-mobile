@@ -64,6 +64,9 @@ const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED =
     const NotificationResponseTypeEnum._('REVIEW_ABOUT_YOU_REMOVED');
 const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_BOOKING_REMINDER =
+    const NotificationResponseTypeEnum._('BOOKING_REMINDER');
+const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_unknownDefaultOpenApi =
     const NotificationResponseTypeEnum._('unknownDefaultOpenApi');
 
@@ -108,6 +111,8 @@ NotificationResponseTypeEnum _$notificationResponseTypeEnumValueOf(
       return _$notificationResponseTypeEnum_CONTENT_REMOVED;
     case 'REVIEW_ABOUT_YOU_REMOVED':
       return _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED;
+    case 'BOOKING_REMINDER':
+      return _$notificationResponseTypeEnum_BOOKING_REMINDER;
     case 'unknownDefaultOpenApi':
       return _$notificationResponseTypeEnum_unknownDefaultOpenApi;
     default:
@@ -137,6 +142,7 @@ final BuiltSet<NotificationResponseTypeEnum>
   _$notificationResponseTypeEnum_REPORT_REVIEWED,
   _$notificationResponseTypeEnum_CONTENT_REMOVED,
   _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED,
+  _$notificationResponseTypeEnum_BOOKING_REMINDER,
   _$notificationResponseTypeEnum_unknownDefaultOpenApi,
 ]);
 
@@ -166,6 +172,7 @@ class _$NotificationResponseTypeEnumSerializer
     'REPORT_REVIEWED': 'REPORT_REVIEWED',
     'CONTENT_REMOVED': 'CONTENT_REMOVED',
     'REVIEW_ABOUT_YOU_REMOVED': 'REVIEW_ABOUT_YOU_REMOVED',
+    'BOOKING_REMINDER': 'BOOKING_REMINDER',
     'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
@@ -188,6 +195,7 @@ class _$NotificationResponseTypeEnumSerializer
     'REPORT_REVIEWED': 'REPORT_REVIEWED',
     'CONTENT_REMOVED': 'CONTENT_REMOVED',
     'REVIEW_ABOUT_YOU_REMOVED': 'REVIEW_ABOUT_YOU_REMOVED',
+    'BOOKING_REMINDER': 'BOOKING_REMINDER',
     'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 

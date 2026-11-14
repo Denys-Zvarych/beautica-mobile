@@ -183,7 +183,8 @@ bool isBookingNotificationType(AppNotificationType type) => switch (type) {
   AppNotificationType.reviewRequested ||
   AppNotificationType.bookingCancelledSalonClosed ||
   AppNotificationType.bookingCancelledMasterRemoved ||
-  AppNotificationType.reviewReceived => true,
+  AppNotificationType.reviewReceived ||
+  AppNotificationType.bookingReminder => true,
   AppNotificationType.inviteAccepted ||
   AppNotificationType.categoryRequestApproved ||
   AppNotificationType.categoryRequestRejected ||

@@ -249,6 +249,8 @@ import 'notification_bell_flow_test.dart' as notification_bell;
 import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
 import 'notifications_flow_test.dart' as notifications;
+import 'notification_booking_reminder_flow_test.dart'
+    as notification_booking_reminder;
 import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
 import 'notification_category_decision_flow_test.dart'
     as notification_category_decision;
@@ -874,6 +876,11 @@ void main() {
   );
   // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
   group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
+  // Phase 497 — BOOKING_REMINDER row copy -> tap -> booking detail; lost access.
+  group(
+    'notification_booking_reminder_flow',
+    notification_booking_reminder.main,
+  );
   // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).
   group('notifications_flow', notifications.main);
   // Phase 365 — a BOOKING_CREATED / INVITE_ACCEPTED tap for every provider role.

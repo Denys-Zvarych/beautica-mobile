@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import '../domain/app_notification.dart';
@@ -69,6 +70,8 @@ abstract final class NotificationCopy {
     AppNotificationType.contentRemoved => l10n.notificationTitleContentRemoved,
     AppNotificationType.reviewAboutYouRemoved =>
       l10n.notificationTitleReviewAboutYouRemoved,
+    AppNotificationType.bookingReminder =>
+      l10n.notificationTitleBookingReminder,
     AppNotificationType.unknown => l10n.notificationTitleUnknown,
   };
 
@@ -78,14 +81,22 @@ abstract final class NotificationCopy {
   /// A known type whose params are missing any field its template needs reads
   /// «Деталі більше недоступні» — the backend nulls them when the recipient
   /// lost access to the subject, and a half-filled sentence would mislead.
+  ///
+  /// [today] (phase 497) is the viewer's Kyiv «today» date token
+  /// (`kyivToday(clock)`); only a `BOOKING_REMINDER` body reads it, to say
+  /// «сьогодні» / «завтра». `null` → the reminder names the date instead.
   static String? body(
     AppLocalizations l10n,
     AppNotification item, {
     required bool isClient,
     bool showMaster = false,
+    DateTime? today,
   }) {
     final NotificationParams p = item.params;
     if (item.type == AppNotificationType.unknown) return null;
+    if (item.type == AppNotificationType.bookingReminder) {
+      return _reminderBody(l10n, p.startsAt, today);
+    }
 
     // Phase 428 — moderation outcomes: fixed, role-agnostic copy (D3/D6); no
     // names or UGC are carried, so there is no «params gone» case.
@@ -177,6 +188,25 @@ abstract final class NotificationCopy {
     return rescheduled
         ? l10n.notificationBodyProviderRescheduled(counterpart, service, when)
         : l10n.notificationBodyProvider(counterpart, service, when);
+  }
+
+  /// Phase 497 — «Ваш візит завтра о 14:00». The day word is computed HERE, at
+  /// render time (D2), so a row read days later never says «завтра» wrongly.
+  /// A null `startsAt` (the client lost access) reads «params gone».
+  static String _reminderBody(
+    AppLocalizations l10n,
+    DateTime? startsAt,
+    DateTime? today,
+  ) {
+    if (startsAt == null) return l10n.notificationsParamsGone;
+    final DateTime visitDay = kyivDayOf(startsAt);
+    final int? offset = today == null ? null : kyivDaysBetween(today, visitDay);
+    final String day = switch (offset) {
+      0 => l10n.notificationReminderDayToday,
+      1 => l10n.notificationReminderDayTomorrow,
+      _ => _dateLabel(visitDay),
+    };
+    return l10n.notificationBodyBookingReminder(day, formatSlotTime(startsAt));
   }
 
   /// Body line clamp for a decision row: the sentence (up to 2 lines) plus the
@@ -437,6 +467,10 @@ abstract final class NotificationCopy {
         '${monthGenitive(local.month)}, ${formatSlotTime(startsAt)}';
   }
 
+  /// «пт, 3 жовтня» for a Kyiv calendar day token.
+  static String _dateLabel(DateTime day) =>
+      '${weekdayAbbrev(day.weekday)}, ${day.day} ${monthGenitive(day.month)}';
+
   /// The row timestamp, `HH:mm` in Europe/Kyiv.
   static String time(DateTime createdAt) => formatSlotTime(createdAt);
 
@@ -464,6 +498,7 @@ abstract final class NotificationCopy {
     AppNotificationType.reportReviewed => Icons.fact_check_rounded,
     AppNotificationType.contentRemoved => Icons.gpp_maybe_rounded,
     AppNotificationType.reviewAboutYouRemoved => Icons.reviews_rounded,
+    AppNotificationType.bookingReminder => Icons.alarm_rounded,
     AppNotificationType.unknown => Icons.notifications_rounded,
   };
 

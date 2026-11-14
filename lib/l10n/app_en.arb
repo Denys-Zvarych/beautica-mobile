@@ -3464,6 +3464,26 @@
   "@notificationTitleUnknown": {
     "description": "Phase 363 — title of a notification whose type this build does not recognise."
   },
+  "notificationTitleBookingReminder": "Visit reminder",
+  "@notificationTitleBookingReminder": {
+    "description": "Phase 497 — title of a BOOKING_REMINDER notification (to the booking's client)."
+  },
+  "notificationBodyBookingReminder": "Your visit is {day} at {time}",
+  "@notificationBodyBookingReminder": {
+    "description": "Phase 497 — body of a BOOKING_REMINDER notification. {day} is notificationReminderDayToday / notificationReminderDayTomorrow or a date («пт, 3 жовтня»), computed at render time in Europe/Kyiv; {time} is the Kyiv HH:mm start.",
+    "placeholders": {
+      "day": { "type": "String" },
+      "time": { "type": "String" }
+    }
+  },
+  "notificationReminderDayToday": "today",
+  "@notificationReminderDayToday": {
+    "description": "Phase 497 — lowercase day word inside notificationBodyBookingReminder for a visit today (Kyiv)."
+  },
+  "notificationReminderDayTomorrow": "tomorrow",
+  "@notificationReminderDayTomorrow": {
+    "description": "Phase 497 — lowercase day word inside notificationBodyBookingReminder for a visit tomorrow (Kyiv)."
+  },
   "notificationBodyProvider": "{counterpart} — {service}, {dateTime}",
   "@notificationBodyProvider": {
     "description": "Phase 363 — body line for a provider: client first, then service and time.",

@@ -53,6 +53,10 @@ enum AppNotificationType {
   /// the copy is the same for both.
   reviewAboutYouRemoved,
 
+  /// Phase 497 (backend 495) — to the booking's CLIENT: the visit is
+  /// tomorrow / later today. Opens the booking detail like any booking item.
+  bookingReminder,
+
   /// A wire value this build predates. Rendered as a generic row; never throws.
   unknown,
 }
