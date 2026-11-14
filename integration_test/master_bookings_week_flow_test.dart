@@ -16,6 +16,9 @@
 // Phase 492 (SCH-39) — next week (no today) opens with the first working
 // hour as the top ruler row (no padding hour above), the same window in
 // «День», and a day off's «Вихідний» viewport-centred without a scroll.
+//
+// BOOK-70 — on a no-hours week (no grid, pager without clients) a strip tap
+// still moves the strip window and the add-hours CTA opens that day.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/application/master_bookings_view_mode.dart';
@@ -23,6 +26,7 @@ import 'package:beautica_mobile/features/booking/domain/week_day_model.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_nav_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -557,6 +561,69 @@ void main() {
     final List<String> dayLabels = _rulerLabels(tester);
     expect(dayLabels.first, '09:00');
     expect(dayLabels.last, '19:00');
+    expect(tester.takeException(), isNull);
+  });
+
+  // BOOK-70 (fix/week-view-strip-loading-errorbox, Bug 2) — on a week with NO
+  // working hours the grid is replaced by the no-hours state, so the pager
+  // has no clients. A strip tap must still move the strip window to the
+  // tapped day, and «Додати робочі години» must open the schedule on it.
+  // The week opens on Sunday (kFixedNow) → window Пт–Нд; › keeps that
+  // offset, so tapping MONDAY is the move the pre-fix code dropped.
+  testWidgets('no-hours week: a strip tap on Monday moves the strip window '
+      'there and the add-hours CTA opens the schedule on that Monday', (
+    WidgetTester tester,
+  ) async {
+    final FakeBackend fb = FakeBackend()
+      ..currentRole = UserRole.independentMaster;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    _seedBookingThisWeek(fb);
+    // Hours on the current week only — next week is unseeded, which the
+    // fake answers as NO_SCHEDULE for every day (the no-hours state).
+    fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+      for (int i = 0; i < kWeekGridDays; i++)
+        FakeBackend.seedEffectiveScheduleDay(kyivAddDays(_weekMonday, i)),
+    ]);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+    await AppHarness.settle(tester);
+    await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
+
+    await tester.tap(find.byKey(WeekStepButton.nextKey));
+    await AppHarness.settle(tester);
+    final Finder noHours = find.byKey(const Key('master-bookings-no-schedule'));
+    await AppHarness.pumpUntilFound(tester, noHours);
+    expect(find.byType(WeekTimeGrid), findsNothing, reason: 'no grid mounted');
+
+    final DateTime next = kyivAddDays(_weekMonday, kWeekGridDays);
+    final Finder window = find.byKey(WeekStrip.windowKey);
+    Offset dayCentre(int i) =>
+        tester.getCenter(find.byKey(weekStripDayKey(kyivAddDays(next, i))));
+    expect(
+      tester.getRect(window).contains(dayCentre(0)),
+      isFalse,
+      reason: 'fixture guard: the window opens on Пт–Нд, away from Monday',
+    );
+
+    await tester.tap(find.byKey(weekStripDayKey(next)));
+    await AppHarness.settle(tester);
+
+    final Rect moved = tester.getRect(window);
+    expect(
+      moved.contains(dayCentre(0)),
+      isTrue,
+      reason: 'the strip window must move onto the tapped Monday',
+    );
+    expect(moved.contains(dayCentre(6)), isFalse, reason: 'and leave Sunday');
+    expect(noHours, findsOneWidget, reason: 'still the no-hours state');
+
+    await tester.tap(find.byKey(const Key('master-bookings-no-schedule-cta')));
+    await AppHarness.settle(tester);
+    expect(
+      AppHarness.location(router),
+      startsWith('${RouteNames.masterSchedule}?date=${toApiDate(next)}'),
+      reason: '«Додати робочі години» targets the tapped day',
+    );
     expect(tester.takeException(), isNull);
   });
 }

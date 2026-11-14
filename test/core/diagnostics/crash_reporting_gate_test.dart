@@ -26,8 +26,29 @@ void main() {
     expect(_gate(env: 'prod', baseUrl: 'https://api.beautica.app'), isTrue);
   });
 
+  test('debug + DSN + staging + https -> enabled (2026-11-13)', () {
+    expect(_gate(isDebug: true), isTrue);
+  });
+
   group('disabled', () {
-    test('debug build', () => expect(_gate(isDebug: true), isFalse));
+    test('debug + prod', () {
+      expect(
+        _gate(isDebug: true, env: 'prod', baseUrl: 'https://api.beautica.app'),
+        isFalse,
+      );
+    });
+    test('debug + local', () {
+      expect(_gate(isDebug: true, env: 'local'), isFalse);
+    });
+    test('debug + unset env', () {
+      expect(_gate(isDebug: true, env: ''), isFalse);
+    });
+    test('debug + staging + loopback http base URL', () {
+      expect(_gate(isDebug: true, baseUrl: 'http://10.0.2.2:8080'), isFalse);
+    });
+    test('debug + staging + empty DSN', () {
+      expect(_gate(isDebug: true, dsn: ''), isFalse);
+    });
     test('empty DSN', () => expect(_gate(dsn: ''), isFalse));
     test('blank DSN', () => expect(_gate(dsn: '   '), isFalse));
     test('BEAUTICA_ENV missing', () => expect(_gate(env: ''), isFalse));

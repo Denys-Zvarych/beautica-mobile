@@ -1784,7 +1784,20 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView>
     // No setState: only the month grid reads the focus, on its next build.
     _weekFocusDay = kyivAddDays(_weekStart, index);
     final PageController? pager = _weekPager;
-    if (pager == null || !pager.hasClients) return;
+    if (pager == null) return;
+    if (!pager.hasClients) {
+      // No grid mounted (the week's no-hours state): the strip reads its
+      // window from the pager's initial page, so re-seed the pager on the
+      // tapped day — the highlight moves and «Додати робочі години»
+      // targets that day.
+      setState(() {
+        _replaceWeekPager(
+          _weekPagerColumns,
+          _firstVisibleFor(index, _weekPagerColumns),
+        );
+      });
+      return;
+    }
     pager.animateToPage(
       _firstVisibleFor(index, _weekPagerColumns),
       duration: WeekStrip.settleDuration,
@@ -2175,7 +2188,6 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView>
       VelvetSpacing.xxl,
     ),
     children: <Widget>[
-      const BookingsSkeleton(),
       // The escape hatch for an indefinite `AsyncLoading`, added
       // after a master reported the skeleton shimmering forever on
       // the one day a manual walk-in booking had just been created
@@ -2192,7 +2204,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView>
       // which replaces this whole subtree long before then — never
       // shows it. See the widget's own doc for why no flash is
       // possible.
+      // Sits ABOVE the skeleton so it lands under the header on every
+      // phone size instead of below the fold.
       MyBookingsSlowLoadNotice(onRetry: onRetry),
+      const BookingsSkeleton(
+        key: ValueKey<String>('my_bookings_loading_skeleton'),
+      ),
     ],
   );
 
