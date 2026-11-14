@@ -62,6 +62,13 @@ const Duration _minSplashDuration = AppStartTime.minSplashDuration;
 String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) =>
     authRedirectForLocation(session, state.matchedLocation);
 
+/// Whether [authRedirectForLocation] would ADMIT [session] at [location]
+/// (no redirect). The production read of the same matrix for a caller that
+/// holds a location but no [GoRouterState] — the cold-start App Link replay
+/// (`app_link_replay.dart`) checks a held link's role gate through it.
+bool authRedirectAdmits(AsyncValue<AuthSession> session, String location) =>
+    authRedirectForLocation(session, location) == null;
+
 /// Pure redirect decision over the resolved [location] string.
 ///
 /// This is the single source of truth for the auth redirect matrix. [authRedirect]
