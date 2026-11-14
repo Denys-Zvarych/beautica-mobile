@@ -179,6 +179,14 @@ void main() {
     await $.pumpWidgetAndSettle(
       const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
     );
+    // WAIT for the signed-out landing — pumpAndSettle returns before the
+    // async session bootstrap resolves and authRedirect parks on /login, so an
+    // immediate expect raced it (CI: 0 widgets with key login_email). Poll,
+    // never a fixed delay.
+    await $.tester.pumpUntilFound(
+      find.byKey(const ValueKey<String>('login_email')),
+      timeout: const Duration(seconds: 30),
+    );
     expect(
       find.byKey(const ValueKey<String>('login_email')),
       findsOneWidget,
