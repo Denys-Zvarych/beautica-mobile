@@ -47,6 +47,7 @@ import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
+import 'widgets/booking_client_strip.dart';
 import 'widgets/guest_identity_card.dart';
 
 /// Phase 383 (security) — the ONLY routes a walk-in success «Готово» may
@@ -291,17 +292,29 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         // CLIENT IDENTITY PARITY (2026-08-22) — the RESCHEDULE-path
         // counterpart of the walk-in guest card just above: a PROVIDER
         // rescheduling a booking with a registered client sees the SAME
-        // `GuestIdentityCard` (via `.identity`) on the terminal done screen,
-        // rather than an empty gap. `rescheduleClientName` is `null` on
+        // client identity on the terminal done screen, rather than an empty
+        // gap. `rescheduleClientName` is `null` on
         // every CREATE path and on a CLIENT's own reschedule (see
         // `BookingSuccessArgs.rescheduleClientName`'s doc), so those paths
         // render byte-identically.
+        //
+        // CLIENT STRIP PARITY (2026-11-14) — now the SAME [BookingClientStrip]
+        // «Деталі запису» and the confirm screen show the client in (photo /
+        // monogram, ★ rating; guest qualifier and no rating for a walk-in —
+        // `isWalkIn` is `rescheduleTargetIsWalkIn` on this path), with the
+        // shipped «Клієнт» caption.
         if (widget.args.rescheduleClientName != null)
-          GuestIdentityCard.identity(
+          BookingClientStrip(
             key: const Key('booking-success-client-card'),
-            name: widget.args.rescheduleClientName!,
-            phone: widget.args.rescheduleClientPhone,
-            label: l10n.bookingClientLabel,
+            name: widget.args.rescheduleClientName,
+            avatarUrl: widget.args.rescheduleClientAvatarUrl,
+            initials: widget.args.rescheduleClientInitials,
+            rating: widget.args.rescheduleClientRating,
+            reviewCount: widget.args.rescheduleClientReviewCount ?? 0,
+            isGuest: widget.args.isWalkIn,
+            topLabel: l10n.bookingClientLabel,
+            shellKey: const Key('booking-success-client-strip'),
+            avatarImageKey: const Key('booking-success-client-avatar-photo'),
           ),
         // ONE visit recap: the shared address, the single window, the ordered
         // service list + «Разом» total, with the whole-visit calendar export as

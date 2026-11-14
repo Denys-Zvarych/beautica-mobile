@@ -120,6 +120,7 @@ import '../domain/booking_success_args.dart';
 import '../domain/booking_tab.dart';
 import '../domain/create_appointment_request.dart';
 import '../domain/create_master_booking_request.dart';
+import 'widgets/booking_client_strip.dart';
 import 'widgets/booking_comment_field.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
@@ -298,7 +299,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                 .read(appointmentSubmitProvider.notifier)
                 .reschedule(rescheduleId, widget.args.startAt);
           }
-        } on ClientBookingConflictFailure catch (conflict) {
+        } on ClientBookingConflictFailure catch (conflict, stackTrace) {
           // CLIENT-actor counterpart of the client-create catch below — SAME
           // shared dialog, SAME resubmit-with-override contract (backend
           // commit c1c2349 added `allowClientOverlap` to BOTH reschedule
@@ -309,8 +310,12 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // opening the dialog for one would only earn a second identical
           // 409 on "confirm" — rethrow instead and let the generic
           // `on Failure` clause below render the shared banner, unchanged
-          // from before this wiring.
-          if (isProviderReschedule) rethrow;
+          // from before this wiring. The banner copy is re-addressed to the
+          // provider (`asProviderView`, 2026-11-14): the clash is the
+          // CLIENT's, so «У вас вже є запис…» misread as the owner's own.
+          if (isProviderReschedule) {
+            Error.throwWithStackTrace(conflict.asProviderView(), stackTrace);
+          }
           if (!mounted) return;
           final bool proceed =
               await showClientBookingConflictDialog(
@@ -589,11 +594,15 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // CLIENT IDENTITY PARITY (2026-08-22) — the reschedule-path
           // counterpart of `guest`, forwarded unchanged from
           // `BookingConfirmArgs.rescheduleClientName`/`rescheduleClientPhone`
-          // so the terminal done screen can render the same
-          // `GuestIdentityCard.identity` this screen renders below. `null` on
+          // so the terminal done screen can render its
+          // `BookingClientStrip`. `null` on
           // every non-reschedule-provider path, same as those args fields.
           rescheduleClientName: widget.args.rescheduleClientName,
           rescheduleClientPhone: widget.args.rescheduleClientPhone,
+          rescheduleClientAvatarUrl: widget.args.rescheduleClientAvatarUrl,
+          rescheduleClientInitials: widget.args.rescheduleClientInitials,
+          rescheduleClientRating: widget.args.rescheduleClientRating,
+          rescheduleClientReviewCount: widget.args.rescheduleClientReviewCount,
           // PROVIDER-VIEWER CALENDAR GATE (2026-09-18) — seeded from the
           // ALREADY-THREADED `hideMasterIdentity`, which
           // `reschedule_navigation.dart` derives from
@@ -760,7 +769,15 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     // with a registered client (see
                     // `reschedule_navigation.dart`).
                     rescheduleClientName: widget.args.rescheduleClientName,
-                    rescheduleClientPhone: widget.args.rescheduleClientPhone,
+                    rescheduleClientAvatarUrl:
+                        widget.args.rescheduleClientAvatarUrl,
+                    rescheduleClientInitials:
+                        widget.args.rescheduleClientInitials,
+                    rescheduleClientRating: widget.args.rescheduleClientRating,
+                    rescheduleClientReviewCount:
+                        widget.args.rescheduleClientReviewCount,
+                    rescheduleTargetIsWalkIn:
+                        widget.args.rescheduleTargetIsWalkIn,
                     // The reschedule endpoint takes only the new start — a
                     // note-to-master input would be silently ignored, so it is
                     // hidden on the reschedule path. Also hidden on the
@@ -808,7 +825,11 @@ class _ConfirmBody extends StatelessWidget {
     this.onDuplicateRefresh,
     this.guest,
     this.rescheduleClientName,
-    this.rescheduleClientPhone,
+    this.rescheduleClientAvatarUrl,
+    this.rescheduleClientInitials,
+    this.rescheduleClientRating,
+    this.rescheduleClientReviewCount,
+    this.rescheduleTargetIsWalkIn = false,
   });
 
   final Master master;
@@ -855,7 +876,18 @@ class _ConfirmBody extends StatelessWidget {
   /// a booking with a registered client (see `reschedule_navigation.dart`).
   /// `null` on every other call site, so those paths render byte-identically.
   final String? rescheduleClientName;
-  final String? rescheduleClientPhone;
+
+  /// See `BookingConfirmArgs.rescheduleClientAvatarUrl` & co — the rest of
+  /// the provider's client strip (photo, monogram, ★ rating). `null` wherever
+  /// [rescheduleClientName] is.
+  final String? rescheduleClientAvatarUrl;
+  final String? rescheduleClientInitials;
+  final double? rescheduleClientRating;
+  final int? rescheduleClientReviewCount;
+
+  /// `BookingConfirmArgs.rescheduleTargetIsWalkIn` — a guest/walk-in client
+  /// gets the guest qualifier and no rating, as on «Деталі запису».
+  final bool rescheduleTargetIsWalkIn;
 
   @override
   Widget build(BuildContext context) {
@@ -902,16 +934,26 @@ class _ConfirmBody extends StatelessWidget {
           ] else if (rescheduleClientName != null) ...<Widget>[
             // CLIENT IDENTITY PARITY (2026-08-22) — the RESCHEDULE-path
             // counterpart of the walk-in card just above: a PROVIDER
-            // rescheduling a booking with a registered client sees the SAME
-            // `GuestIdentityCard` (via `.identity`) in the same visual slot,
+            // rescheduling a booking sees the client in the same visual slot,
             // rather than an empty gap where the hidden master card would
             // otherwise sit. `null` on every client-viewer reschedule and
             // every create path, so those render byte-identically.
-            GuestIdentityCard.identity(
+            //
+            // CLIENT STRIP PARITY (2026-11-14) — now the SAME
+            // [BookingClientStrip] «Деталі запису» shows the client in
+            // (photo / monogram, ★ rating, guest qualifier), with the shipped
+            // «Клієнт» caption on top, instead of a bare label card.
+            BookingClientStrip(
               key: const Key('booking-confirm-client-card'),
-              name: rescheduleClientName!,
-              phone: rescheduleClientPhone,
-              label: l10n.bookingClientLabel,
+              name: rescheduleClientName,
+              avatarUrl: rescheduleClientAvatarUrl,
+              initials: rescheduleClientInitials,
+              rating: rescheduleClientRating,
+              reviewCount: rescheduleClientReviewCount ?? 0,
+              isGuest: rescheduleTargetIsWalkIn,
+              topLabel: l10n.bookingClientLabel,
+              shellKey: const Key('booking-confirm-client-strip'),
+              avatarImageKey: const Key('booking-confirm-client-avatar-photo'),
             ),
             const SizedBox(height: VelvetSpacing.md),
           ],

@@ -138,6 +138,17 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     String? rescheduleClientName,
     String? rescheduleClientPhone,
 
+    /// RESCHEDULE-ONLY (2026-11-14) — the rest of the client strip the
+    /// provider sees on «Деталі запису» (photo, monogram, ★ rating), read off
+    /// the SAME fresh `Booking` and populated under the SAME
+    /// `hideMasterIdentity` gate as [rescheduleClientName]; `null` on every
+    /// other path. [rescheduleClientRating] is already display-normalized
+    /// (`BookingDisplayX.clientDisplayRating`).
+    String? rescheduleClientAvatarUrl,
+    String? rescheduleClientInitials,
+    double? rescheduleClientRating,
+    int? rescheduleClientReviewCount,
+
     /// VENUE ADDRESS OVERRIDE (2026-09-18). Forwarded unchanged from
     /// [BookingSlotPickerArgs.venueStreet] / [BookingSlotPickerArgs
     /// .venueBuildingNo] / [BookingSlotPickerArgs.venueCity] /

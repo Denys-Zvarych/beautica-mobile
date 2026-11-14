@@ -82,6 +82,7 @@ import '../../../helpers/overflow_guard.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/rendered_image_url.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 const String _kSalonId = 'salon-1';
 
@@ -2753,7 +2754,7 @@ void main() {
         const Key('salon-manage-staff-card-admin-1'),
       );
       expect(
-        find.descendant(of: master, matching: find.byIcon(Icons.star_rounded)),
+        find.descendant(of: master, matching: findAssetStar()),
         findsOneWidget,
       );
       expect(
@@ -2761,7 +2762,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.descendant(of: admin, matching: find.byIcon(Icons.star_rounded)),
+        find.descendant(of: admin, matching: findAssetStar()),
         findsNothing,
       );
       expect(

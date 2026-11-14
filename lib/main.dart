@@ -237,6 +237,9 @@ Future<void> _warmSharedSvgs() async {
     BeauticaAssetIcons.notificationPlain,
     // Phase 361 — the unread bell (baked-in red dot) is the same shared glyph.
     BeauticaAssetIcons.notificationUnread,
+    // 2026-11-14 — the one rating star, now drawn by every rating readout
+    // (strips, cards, review rows), so the first list frame never waits on it.
+    BeauticaAssetIcons.star,
   ];
   for (final String asset in assets) {
     final SvgAssetLoader loader = SvgAssetLoader(asset);

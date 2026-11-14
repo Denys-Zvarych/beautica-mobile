@@ -21,6 +21,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -314,8 +317,8 @@ class MasterRatingReadout extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        Icon(
-          Icons.star_rounded,
+        AppIcon(
+          BeauticaAssetIcons.star,
           size: compact ? 11 : 16,
           color: fade(BrandColors.accent),
         ),

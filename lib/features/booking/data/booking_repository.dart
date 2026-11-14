@@ -1638,11 +1638,11 @@ final class HttpBookingRepository implements BookingRepository {
       final String? masterName = data['masterName'] as String?;
       final String? startsAtRaw = data['startsAt'] as String?;
       final String? endsAtRaw = data['endsAt'] as String?;
-      if (conflictingBookingId == null ||
-          serviceName == null ||
-          masterName == null ||
-          startsAtRaw == null ||
-          endsAtRaw == null) {
+      // Only the window is required (security HIGH, 2026-11-14): the backend
+      // omits conflictingBookingId/serviceName/masterName on a
+      // PROVIDER-initiated request, which must still map to the typed
+      // failure so the provider sees the window-only copy.
+      if (startsAtRaw == null || endsAtRaw == null) {
         return null;
       }
 

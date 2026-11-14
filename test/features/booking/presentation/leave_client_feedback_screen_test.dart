@@ -29,6 +29,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -56,6 +57,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
@@ -284,8 +286,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.star_rounded), findsNWidgets(5));
-      expect(find.byIcon(Icons.star_border_rounded), findsNothing);
+      expect(findAssetStar(color: BrandColors.accent), findsNWidgets(5));
+      expect(findAssetStar(color: BrandColors.faint), findsNothing);
       expect(find.text(_l10n(tester).clientReviewRatingLabel5), findsOneWidget);
     });
 

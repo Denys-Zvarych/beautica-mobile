@@ -30,6 +30,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -53,6 +54,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 const String _bookingId = 'b1';
 
@@ -386,11 +388,11 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('leave-review-stars')),
-          matching: find.byIcon(Icons.star_rounded),
+          matching: findAssetStar(color: BrandColors.accent),
         ),
         findsNWidgets(5),
       );
-      expect(find.byIcon(Icons.star_border_rounded), findsNothing);
+      expect(findAssetStar(color: BrandColors.faint), findsNothing);
       // The live readout crossfaded to the 5★ word.
       expect(find.text(_l10n(tester).reviewRatingLabel5), findsOneWidget);
     });

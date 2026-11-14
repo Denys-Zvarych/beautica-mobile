@@ -18,7 +18,9 @@ import 'package:beautica_mobile/features/booking/domain/booking_success_args.dar
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
     show WalkInGuest;
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -562,21 +564,68 @@ void main() {
         expect(find.text('Олена Ковальчук'), findsOneWidget);
       });
 
-      testWidgets('should_showClientPhone_when_rescheduleClientPhonePresent', (
-        tester,
-      ) async {
+      testWidgets('should_showClientAvatarAndRating_when_providerReschedule — '
+          'the done screen renders the SAME BookingClientStrip «Деталі запису» '
+          'uses: monogram avatar fallback + ★ rating readout', (tester) async {
         await _pump(
           tester,
           _args(
             isReschedule: true,
             rescheduleClientName: 'Олена Ковальчук',
-            rescheduleClientPhone: '+380671112233',
+          ).copyWith(
+            rescheduleClientInitials: 'ОК',
+            rescheduleClientRating: 4.6,
+            rescheduleClientReviewCount: 7,
           ),
         );
 
-        // i18n-finder-ok: phone is fixture data, not localized copy.
-        expect(find.text('+380671112233'), findsOneWidget);
+        final Finder card = find.byKey(
+          const Key('booking-success-client-card'),
+        );
+        expect(card, findsOneWidget);
+        expect(tester.widget(card), isA<BookingClientStrip>());
+        expect(
+          // i18n-finder-ok: fixture initials, locale-invariant data.
+          find.descendant(of: card, matching: find.text('ОК')),
+          findsOneWidget,
+        );
+        final Finder readout = find.descendant(
+          of: card,
+          matching: find.byType(MasterRatingReadout),
+        );
+        expect(readout, findsOneWidget);
+        expect(
+          find.descendant(of: readout, matching: find.text('4.6')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: readout, matching: find.text('(7)')),
+          findsOneWidget,
+        );
       });
+
+      testWidgets(
+        'should_notShowClientPhone_when_rescheduleClientPhonePresent',
+        (tester) async {
+          await _pump(
+            tester,
+            _args(
+              isReschedule: true,
+              rescheduleClientName: 'Олена Ковальчук',
+              rescheduleClientPhone: '+380671112233',
+            ),
+          );
+
+          // i18n-finder-ok: phone is fixture data, not localized copy.
+          expect(
+            find.text('+380671112233'),
+            findsNothing,
+            reason:
+                'the reschedule client card carries no phone line (security '
+                'LOW, 2026-11-14) — production never seeds one either',
+          );
+        },
+      );
 
       testWidgets(
         'should_hideClientCard_when_rescheduleClientNameNull — the ordinary '

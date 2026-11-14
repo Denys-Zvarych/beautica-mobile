@@ -45,6 +45,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
@@ -59,15 +61,20 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/support/presentation/contact_support_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/asset_star_finder.dart';
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
@@ -682,6 +689,177 @@ void main() {
             'inside the CLIENT shell',
       );
       AppHarness.expectLocation(router, RouteNames.masterProfile);
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // ==========================================================================
+  // CLIENT STRIP PARITY + REDACTED CLIENT CONFLICT (2026-11-14, BOOK-74/75).
+  //
+  // The provider reschedule confirm/done screens now render the client via the
+  // promoted `BookingClientStrip` (photo / monogram + ★ rating) — proven here
+  // off a REAL `GET /bookings/booking-1` carrying `clientAvatarUrl` /
+  // `clientAvgRating` / `clientReviewCount`, through `reschedule_navigation`
+  // → `BookingConfirmArgs` → `BookingSuccessArgs`. And a PROVIDER-initiated
+  // reschedule 409 `CLIENT_BOOKING_CONFLICT` arrives REDACTED (no id /
+  // service / master): the REAL `HttpBookingRepository` must still decode it
+  // to `ClientBookingConflictFailure` (else the banner shows the generic
+  // conflict copy) and the banner must read the window-only provider copy.
+  // ==========================================================================
+
+  const String clientPhoto = 'https://media.test/avatars/client-1.png';
+
+  /// Seeds the client photo + rating, boots as INDEPENDENT_MASTER and drives
+  /// «Перенести» → slot picker → the confirm step.
+  Future<FakeBackend> reachProviderConfirmWithRatedClient(
+    WidgetTester tester, {
+    bool redactedConflict = false,
+  }) async {
+    final fb = FakeBackend()
+      ..currentRole = UserRole.independentMaster
+      ..bookingClientAvatarUrl = clientPhoto
+      ..bookingClientAvgRating = 4.5
+      ..bookingClientReviewCount = 12;
+    if (redactedConflict) {
+      fb
+        ..rescheduleClientOverlapConflict = true
+        ..rescheduleClientOverlapRedacted = true;
+    }
+    MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+    addTearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+    });
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+    unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+    await AppHarness.settle(tester);
+    await tester.tap(
+      find.byKey(const Key('booking-detail-provider-reschedule')),
+    );
+    await AppHarness.settle(tester);
+    await pickNewDateAndTime(tester);
+    expect(find.byType(BookingConfirmScreen), findsOneWidget);
+    return fb;
+  }
+
+  /// Asserts the client strip keyed [stripKey] shows the seeded photo (from
+  /// the exact wire URL), «4.5», «(12)» and exactly one asset ★.
+  Future<void> expectRatedClientStrip(
+    WidgetTester tester, {
+    required Key stripKey,
+    required Key photoKey,
+  }) async {
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    final Finder strip = find.byKey(stripKey);
+    expect(strip, findsOneWidget);
+    final Finder photo = find.descendant(
+      of: find.descendant(of: strip, matching: find.byKey(photoKey)),
+      matching: find.byType(Image),
+    );
+    expect(photo, findsOneWidget, reason: 'the client PHOTO, not a monogram');
+    final ImageProvider<Object> shown = tester.widget<Image>(photo).image;
+    final ImageProvider<Object> source = shown is ResizeImage
+        ? shown.imageProvider
+        : shown;
+    expect(source, isA<CachedNetworkImageProvider>());
+    expect((source as CachedNetworkImageProvider).url, clientPhoto);
+    // i18n-finder-ok: rating figure + count are wire data, not l10n copy.
+    expect(find.descendant(of: strip, matching: find.text('4.5')), findsOne);
+    expect(find.descendant(of: strip, matching: find.text('(12)')), findsOne);
+    expect(find.descendant(of: strip, matching: findAssetStar()), findsOne);
+  }
+
+  testWidgets(
+    'PROVIDER reschedule: confirm AND done screens show the registered client '
+    'in BookingClientStrip with the wire photo and ★ 4.5 (12)',
+    (tester) async {
+      await reachProviderConfirmWithRatedClient(tester);
+
+      await expectRatedClientStrip(
+        tester,
+        stripKey: const Key('booking-confirm-client-strip'),
+        photoKey: const Key('booking-confirm-client-avatar-photo'),
+      );
+
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+      await expectRatedClientStrip(
+        tester,
+        stripKey: const Key('booking-success-client-strip'),
+        photoKey: const Key('booking-success-client-avatar-photo'),
+      );
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  testWidgets(
+    'PROVIDER reschedule 409 with the REDACTED CLIENT_BOOKING_CONFLICT body '
+    '(no id / service / master) shows the window-only provider banner — never '
+    'the client popup, the generic conflict copy, or any service/master name',
+    (tester) async {
+      final FakeBackend fb = await reachProviderConfirmWithRatedClient(
+        tester,
+        redactedConflict: true,
+      );
+
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await AppHarness.settle(tester);
+
+      expect(fb.rescheduleBookingCalls, 1);
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('client-booking-conflict-dialog')),
+        findsNothing,
+        reason: 'a provider never gets the client-actor override popup',
+      );
+      final Finder banner = find.byKey(
+        const Key('booking-confirm-submit-error'),
+      );
+      expect(banner, findsOneWidget);
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingConfirmScreen)),
+      );
+      final String window = formatBookingWindow(
+        DateTime.parse(fb.bookingStartsAt),
+        DateTime.parse(fb.bookingEndsAt),
+      );
+      expect(
+        find.descendant(
+          of: banner,
+          matching: find.text(l10n.bookingErrClientConflictProvider(window)),
+        ),
+        findsOneWidget,
+        reason:
+            'the redacted envelope must still decode to '
+            'ClientBookingConflictFailure (window-only) and be re-addressed to '
+            'the provider — «У клієнта вже є запис на цей час: <window>»',
+      );
+      expect(
+        find.descendant(of: banner, matching: find.text(l10n.errConflict)),
+        findsNothing,
+        reason: 'generic copy = the redacted body failed to decode',
+      );
+      for (final String leaked in <String>[
+        FakeBackend.kRescheduleConflictServiceName,
+        FakeBackend.kRescheduleConflictMasterName,
+      ]) {
+        expect(
+          find.descendant(of: banner, matching: find.textContaining(leaked)),
+          findsNothing,
+          reason: 'BOOK-75: no service/master of the client\'s other booking',
+        );
+      }
       expect(tester.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 120)),

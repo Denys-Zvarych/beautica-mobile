@@ -61,6 +61,8 @@ import 'package:beautica_mobile/features/booking/presentation/booking_success_sc
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_cta_footer.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
@@ -2242,52 +2244,86 @@ void main() {
         },
       );
 
-      testWidgets(
-        'PROVIDER-initiated reschedule: a ClientBookingConflictFailure '
-        'RETHROWS to the generic banner — the dialog never opens',
-        (tester) async {
-          final bookings = _RecordingRescheduleRepository()
-            ..rescheduleErrorToThrow = conflictFixture();
-          final router = _router();
-          await tester.pumpRoutedApp(
-            router,
-            overrides: <Object>[
-              bookingRepositoryProvider.overrideWith((_) => bookings),
-              publicMasterProfileProvider(_kMaster.id).overrideWith(
-                (ref) => (_kMaster, const <MasterService>[_kService]),
+      // Security HIGH (2026-11-14): the provider copy is WINDOW-ONLY. Run
+      // against a stale backend that still sends the other booking's
+      // service/master AND the fixed backend that omits them (null).
+      for (final (String shape, ClientBookingConflictFailure Function() make)
+          in <(String, ClientBookingConflictFailure Function())>[
+            ('names sent', conflictFixture),
+            (
+              'names omitted',
+              () => ClientBookingConflictFailure(
+                startsAt: _kStartAt,
+                endsAt: _kStartAt.add(const Duration(minutes: 45)),
               ),
-              // INDEPENDENT_MASTER — the provider side of the booking.
-              authProvider.overrideWith(_StubAuth.new),
-            ],
-          );
-          unawaited(
-            router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
-          );
-          await tester.pumpAndSettle();
-          await warmAuth(tester);
+            ),
+          ]) {
+        testWidgets(
+          'PROVIDER-initiated reschedule ($shape): a ClientBookingConflictFailure '
+          'RETHROWS to the generic banner — the dialog never opens',
+          (tester) async {
+            final bookings = _RecordingRescheduleRepository()
+              ..rescheduleErrorToThrow = make();
+            final router = _router();
+            await tester.pumpRoutedApp(
+              router,
+              overrides: <Object>[
+                bookingRepositoryProvider.overrideWith((_) => bookings),
+                publicMasterProfileProvider(_kMaster.id).overrideWith(
+                  (ref) => (_kMaster, const <MasterService>[_kService]),
+                ),
+                // INDEPENDENT_MASTER — the provider side of the booking.
+                authProvider.overrideWith(_StubAuth.new),
+              ],
+            );
+            unawaited(
+              router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+            );
+            await tester.pumpAndSettle();
+            await warmAuth(tester);
 
-          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
-          await tester.pumpAndSettle();
+            await tester.tap(
+              find.byKey(const Key('booking-confirm-submit-cta')),
+            );
+            await tester.pumpAndSettle();
 
-          expect(
-            find.byKey(const Key('booking-confirm-submit-error')),
-            findsOneWidget,
-            reason:
-                'a PROVIDER cannot waive the CLIENT\'s own-overlap check on '
-                'their behalf — the backend still 409s regardless, so this '
-                'must fall through to the generic banner',
-          );
-          expect(
-            find.byKey(const Key('client-booking-conflict-dialog')),
-            findsNothing,
-          );
-          expect(
-            bookings.rescheduleCalls,
-            hasLength(1),
-            reason: 'no dialog means no resubmit is ever offered',
-          );
-        },
-      );
+            expect(
+              find.byKey(const Key('booking-confirm-submit-error')),
+              findsOneWidget,
+              reason:
+                  'a PROVIDER cannot waive the CLIENT\'s own-overlap check on '
+                  'their behalf — the backend still 409s regardless, so this '
+                  'must fall through to the generic banner',
+            );
+            // Provider-perspective, WINDOW-ONLY copy (2026-11-14): «У клієнта
+            // вже є запис на цей час: {window}» — never the client-voice «У вас
+            // вже є запис…», and never the other booking's service/master.
+            final l10n = AppLocalizations.of(
+              tester.element(find.byType(BookingConfirmScreen)),
+            );
+            final String expected = l10n.bookingErrClientConflictProvider(
+              formatBookingWindow(
+                _kStartAt,
+                _kStartAt.add(const Duration(minutes: 45)),
+              ),
+            );
+            expect(find.text(expected), findsOneWidget);
+            // i18n-finder-ok: fixture service/master names must be absent.
+            expect(find.textContaining('Стрижка'), findsNothing);
+            // i18n-finder-ok: fixture service/master names must be absent.
+            expect(find.textContaining('Ірина Бондар'), findsNothing);
+            expect(
+              find.byKey(const Key('client-booking-conflict-dialog')),
+              findsNothing,
+            );
+            expect(
+              bookings.rescheduleCalls,
+              hasLength(1),
+              reason: 'no dialog means no resubmit is ever offered',
+            );
+          },
+        );
+      }
 
       // THE ROLE-SIGNAL FIX — mobile-qa (2026-08-26). `_submit` used to
       // derive `isProviderReschedule` from `widget.args.hideMasterIdentity`
@@ -2588,10 +2624,113 @@ void main() {
         // i18n-finder-ok: client name/phone are fixture data, not
         // localized copy.
         expect(find.text('Марта Дяченко'), findsOneWidget);
-        expect(find.text('+380671112233'), findsOneWidget);
+        expect(
+          find.text('+380671112233'),
+          findsNothing,
+          reason:
+              'the reschedule client card carries no phone line (security '
+              'LOW, 2026-11-14) — production never seeds one either',
+        );
         // The walk-in guest card slot stays empty — mutually exclusive.
         expect(
           find.byKey(const Key('booking-confirm-guest-card')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('should_showClientAvatarAndRating_when_providerReschedule — '
+          'the client card is the SAME BookingClientStrip «Деталі запису» '
+          'uses: monogram avatar fallback + ★ rating readout', (tester) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.bookingConfirm,
+            extra: _rescheduleArgsWithClientName().copyWith(
+              rescheduleClientInitials: 'МД',
+              rescheduleClientRating: 4.6,
+              rescheduleClientReviewCount: 7,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(
+          const Key('booking-confirm-client-card'),
+        );
+        expect(card, findsOneWidget);
+        expect(tester.widget(card), isA<BookingClientStrip>());
+        expect(
+          // i18n-finder-ok: fixture initials, locale-invariant data.
+          find.descendant(of: card, matching: find.text('МД')),
+          findsOneWidget,
+        );
+        final Finder readout = find.descendant(
+          of: card,
+          matching: find.byType(MasterRatingReadout),
+        );
+        expect(readout, findsOneWidget);
+        expect(
+          find.descendant(of: readout, matching: find.text('4.6')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: readout, matching: find.text('(7)')),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('should_showGuestQualifierAndNoRating_when_walkInTarget — '
+          'a walk-in client gets the booking card\'s guest fallback', (
+        tester,
+      ) async {
+        final fake = _RecordingRescheduleRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            bookingRepositoryProvider.overrideWith((_) => fake),
+            publicMasterProfileProvider(_kMaster.id).overrideWith(
+              (ref) => (_kMaster, const <MasterService>[_kService]),
+            ),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.bookingConfirm,
+            extra: _rescheduleArgsWithClientName().copyWith(
+              rescheduleTargetIsWalkIn: true,
+              rescheduleClientInitials: 'МД',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingConfirmScreen)),
+        );
+        final Finder card = find.byKey(
+          const Key('booking-confirm-client-card'),
+        );
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.text(l10n.bookingDetailGuestBookingLabel),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: card, matching: find.byType(MasterRatingReadout)),
           findsNothing,
         );
       });
@@ -2678,7 +2817,13 @@ void main() {
           // i18n-finder-ok: client name/phone are fixture data, not
           // localized copy.
           expect(find.text('Марта Дяченко'), findsOneWidget);
-          expect(find.text('+380671112233'), findsOneWidget);
+          expect(
+            find.text('+380671112233'),
+            findsNothing,
+            reason:
+                'the reschedule client card carries no phone line (security '
+                'LOW, 2026-11-14) — production never seeds one either',
+          );
         },
       );
     });

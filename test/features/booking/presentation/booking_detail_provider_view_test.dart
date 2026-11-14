@@ -40,6 +40,7 @@ import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/dim_probe.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 // Fixture identities injected BY these tests — NOT app copy. They are
 // locale-invariant by construction (a person's name is not translated), which
@@ -1218,10 +1219,7 @@ void main() {
         lessThan(countX),
         reason: 'the figure precedes the count: «★ 4.7 (12)»',
       );
-      expect(
-        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
-        findsOne,
-      );
+      expect(find.descendant(of: strip, matching: findAssetStar()), findsOne);
     });
 
     testWidgets(
@@ -1261,7 +1259,7 @@ void main() {
         role: UserRole.independentMaster,
       );
       expect(
-        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        find.descendant(of: strip, matching: findAssetStar()),
         findsNothing,
       );
       expect(

@@ -16,6 +16,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -264,8 +267,8 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      const Icon(
-                        Icons.star_rounded,
+                      const AppIcon(
+                        BeauticaAssetIcons.star,
                         size: 13,
                         color: BrandColors.accentDeep,
                       ),

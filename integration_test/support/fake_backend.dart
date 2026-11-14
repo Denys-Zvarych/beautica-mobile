@@ -5509,6 +5509,20 @@ final class FakeBackend {
 
   bool _rescheduleClientOverlapConflict = false;
 
+  /// Opt-in (BOOK-75, 2026-11-14): when `true`, the
+  /// [rescheduleClientOverlapConflict] 409 envelope is the REDACTED
+  /// provider-initiated shape — `conflictingBookingId`, `serviceName` and
+  /// `masterName` are OMITTED, only the window is sent. Read per REQUEST
+  /// inside the reply callback (body content, not status), so no re-wire is
+  /// needed. Off by default so the client-actor flows keep the full envelope.
+  bool rescheduleClientOverlapRedacted = false;
+
+  /// The clashing booking's service/master names the FULL (client-actor)
+  /// [rescheduleClientOverlapConflict] envelope carries — exposed so a
+  /// provider flow can assert they never reach the screen.
+  static const String kRescheduleConflictServiceName = 'Стрижка';
+  static const String kRescheduleConflictMasterName = 'Ірина Бондар';
+
   /// Phase 431 — when `true`, `PATCH /bookings/{id}/reschedule` answers HTTP
   /// **409** with the `{ "data": { "code": "RESCHEDULE_LIMIT_REACHED" } }`
   /// envelope (`isRescheduleLimitReached`'s exact shape): the per-booking
@@ -7412,9 +7426,11 @@ final class FakeBackend {
               'success': false,
               'data': <String, dynamic>{
                 'code': 'CLIENT_BOOKING_CONFLICT',
-                'conflictingBookingId': 'booking-existing',
-                'serviceName': 'Стрижка',
-                'masterName': 'Ірина Бондар',
+                if (!rescheduleClientOverlapRedacted) ...<String, dynamic>{
+                  'conflictingBookingId': 'booking-existing',
+                  'serviceName': kRescheduleConflictServiceName,
+                  'masterName': kRescheduleConflictMasterName,
+                },
                 'startsAt': bookingStartsAt,
                 'endsAt': bookingEndsAt,
               },
