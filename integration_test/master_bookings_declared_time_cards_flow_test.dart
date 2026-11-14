@@ -1,3 +1,6 @@
+// Phase 485 — driven through the week view's «День» mode (the shipped
+// declared-time list inside `WeekTimeGrid`).
+//
 // Phase 244 follow-up — E2E: the master «Мої записи» day view for an
 // EXPLICIT_TIMES working day renders `DeclaredTimeCards`, not
 // `BookingsTimelineGrid` and not the gray "no working hours" state.
@@ -6,9 +9,9 @@
 // --------------------------------------------------------------
 // The widget/unit tier proves the mechanism in isolation:
 // `declared_time_cards_test.dart` (the merge + card rendering, against a bare
-// pumped widget) and `bookings_discovery_view_declared_times_test.dart` (the
-// composition wiring, against a mocked `BookingRepository` and a STATIC
-// `EffectiveScheduleNotifier` fake). Neither proves the journey wired
+// pumped widget) and `week_time_grid_explicit_times_test.dart` (the week
+// grid's EXPLICIT_TIMES column; the day view's composition test went with
+// that arm in phase 486). Neither proves the journey wired
 // together against a real HTTP boundary: a master opens «Мої записи» on a day
 // whose `GET .../effective-schedule` genuinely returns discrete `times`
 // (not `intervals`) — mirroring `master_bookings_working_hours_window_flow_
@@ -18,9 +21,9 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/booking/application/master_bookings_view_mode.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/declared_time_cards.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -34,7 +37,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
-import 'support/pager_drag.dart';
+import 'support/week_grid_driver.dart';
 
 /// The day the fake backend's ONE seeded booking (`fb.bookingStartsAt`) falls
 /// on, in Kyiv — mirrors `master_bookings_working_hours_window_flow_test
@@ -61,53 +64,6 @@ Map<String, dynamic> _explicitTimesDay(DateTime date, List<TimeOfDay> times) =>
       'windowStart': null,
       'windowEnd': null,
     };
-
-/// Pages the rail forward one WHOLE week — deterministically.
-///
-/// Delegates to [dragPagerByOnePage] (`support/pager_drag.dart`), which
-/// documents the full "why not `fling`" write-up and the steps=4 regression
-/// this call site used to carry (mobile-debugger, 2026-08-14: with 4 samples
-/// `PageController.page` froze mid-drag and never crossed the page boundary).
-Future<void> _pageRailForward(WidgetTester tester) => dragPagerByOnePage(
-  tester,
-  const Key('master-bookings-day-rail'),
-  forward: true,
-);
-
-/// Pages the rail forward until [day]'s chip is on screen, then taps it —
-/// mirrors `master_bookings_working_hours_window_flow_test.dart`'s
-/// identically-named helper.
-///
-/// The rail is a `PageView.builder` of Monday-first WEEK pages (see
-/// `bookings_day_rail.dart`'s "A WEEK PAGER, not a continuous strip"), which
-/// only builds the current page (plus whatever its cache extent reaches).
-/// `tester.scrollUntilVisible` — the previous implementation here — drives
-/// the scrollable with plain pixel-offset drags, which is the wrong
-/// primitive for a snapping pager: it can find [day]'s chip because a
-/// neighbour page got lazily built into the cache extent, WITHOUT the pager
-/// ever actually landing on that page, so the follow-up tap lands on a
-/// render object whose global offset sits outside the live viewport
-/// entirely (an off-viewport `Offset` regardless of the surface's own
-/// size — this is not a viewport-size artifact, see the fix's own commit
-/// message). Real page turns only.
-Future<void> _selectRailDay(WidgetTester tester, DateTime day) async {
-  final Finder chip = find.byKey(dayChipKey(day));
-  for (int i = 0; i < 60 && chip.evaluate().isEmpty; i++) {
-    await _pageRailForward(tester);
-  }
-  expect(
-    chip,
-    findsOneWidget,
-    reason:
-        'the rail never paged forward to $day in 60 whole-week turns. If this '
-        'is a fresh failure, check the two clocks first: the rail opens on '
-        'the INJECTED kFixedNow week.',
-  );
-  await tester.tap(chip);
-  // fixed-wait-ok: advancing past the 220 ms day-tap debounce.
-  await tester.pump(const Duration(milliseconds: 300));
-  await AppHarness.settle(tester);
-}
 
 /// Boots the app as an INDEPENDENT_MASTER, seeds the fixture booking's own
 /// day as an EXPLICIT_TIMES day, logs in, navigates to «Мої записи», and
@@ -181,7 +137,14 @@ _bootToDeclaredTimesDay(WidgetTester tester, FakeBackend fb) async {
   AppHarness.expectLocation(router, RouteNames.masterBookings);
   expect(find.byType(MasterBookingsScreen), findsOneWidget);
 
-  await _selectRailDay(tester, bookingDay);
+  // Phase 485 — «День» shows the shipped declared-time list for the day
+  // (decision D2 of phase 483); the ONE shared driver selects it.
+  await switchViewMode(
+    tester,
+    BookingsWeekViewMode.day,
+    settle: AppHarness.settle,
+  );
+  await selectWeekDay(tester, bookingDay, settle: AppHarness.settle);
 
   return (
     bookedTime: bookedTime,
@@ -253,21 +216,11 @@ Key _freeCardKey(TimeOfDay t) => Key(
 /// entry that would sit ABOVE the fold if it existed, so it can never pass
 /// merely because the row was unbuilt.
 Future<void> _scrollCardsTo(WidgetTester tester, Finder target) async {
-  await tester.scrollUntilVisible(
-    target,
-    200,
-    scrollable: find
-        .descendant(
-          of: find.byKey(const Key('declared-time-cards')),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 20,
-  );
+  // Phase 485 — the list is embedded in the week grid's ONE vertical scroll.
+  await tester.ensureVisible(target);
+  await AppHarness.settle(tester);
 }
 
-/// Asserts the free card for [t] renders, scrolling to it first — see
-/// [_scrollCardsTo].
 Future<void> _expectFreeCard(
   WidgetTester tester,
   TimeOfDay t,
@@ -310,9 +263,11 @@ void main() {
             'not appear',
       );
       expect(
-        find.byType(BookingsTimelineGrid),
+        find.byKey(WeekTimeGrid.cardKey('booking-1')),
         findsNothing,
-        reason: 'an EXPLICIT_TIMES day must never render the hour-ruler grid',
+        reason:
+            'an EXPLICIT_TIMES day in «День» never hour-maps its bookings — '
+            'they sit in the declared-time list',
       );
       expect(find.byType(DeclaredTimeCards), findsOneWidget);
 

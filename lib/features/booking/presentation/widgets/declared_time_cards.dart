@@ -33,7 +33,7 @@
 //   * booked — the shipped [MasterBookingCard], unmodified, at
 //     `minHeight: _kEntryMinHeight` (its FULL body: client name, time range,
 //     service, price/price-band, status badge, client avatar mark).
-//   * free — [_FreeTimeCard]: time / «Вільно», muted. Same fill, radius,
+//   * free — [FreeTimeCard]: time / «Вільно», muted. Same fill, radius,
 //     border and floor as the booked box; the only difference is LIFT — the
 //     booked card keeps its shadow, the free card drops it and stands on its
 //     border alone. NOT a button, no tap target.
@@ -135,11 +135,11 @@
 // [TimeOfDay] (a pure wall-clock value, carrying no zone of its own) reads
 // through [toBeauticaTime] — never `.hour`/`.minute` off the raw UTC instant,
 // which would render the wrong card on any non-Kyiv device or CI's UTC
-// runner. Mirrors `bookings_timeline_grid.dart`'s own
-// `_minutesSinceDayStart` (kept private there; re-derived here rather than
-// exported, since the two files' minute conventions — this one never needs
-// values >= 1440, that file's R1 fix explicitly does for a booking crossing
-// midnight — are not quite the same contract).
+// runner. Minutes come from the shared `minutesSinceDayStart`
+// (`shared/time/kyiv_day.dart`) — the same Kyiv wall-clock conversion the
+// timeline grids use (phase 482 audit: a hand-copied private duplicate was
+// rewired onto it). Values >= 1440 never arise here (only starts and ends on
+// the selected day are compared), so the shared contract fits as-is.
 //
 // ## Gating — EXPLICIT_TIMES days only
 //
@@ -158,7 +158,10 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart'
     show formatTime;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart'
+    show minutesSinceDayStart;
 import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/widgets/fixed_lines_text.dart';
 
 import '../../domain/booking.dart';
 import '../../domain/booking_status.dart';
@@ -180,16 +183,6 @@ class _DeclaredEntry {
   final int minute;
   final TimeOfDay time;
   final Booking? booking;
-}
-
-/// Kyiv wall-clock minutes-since-midnight for [instant] on the day
-/// [midnight] anchors — mirrors `bookings_timeline_grid.dart`'s
-/// `_minutesSinceDayStart`. Not exported from that file (see this file's
-/// header); re-derived here rather than duplicated via a shared export
-/// because the two live on genuinely separate contracts (see the header).
-int _kyivMinutesSinceMidnight(DateTime instant, tz.TZDateTime midnight) {
-  final tz.TZDateTime local = toBeauticaTime(instant);
-  return local.difference(midnight).inMinutes;
 }
 
 /// Whether a booking in [status] OCCUPIES the clock for the purpose of
@@ -289,7 +282,7 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
       return byStart != 0 ? byStart : a.id.compareTo(b.id);
     });
   final List<int> bookingMinutes = sortedBookings
-      .map((Booking b) => _kyivMinutesSinceMidnight(b.startAt, midnight))
+      .map((Booking b) => minutesSinceDayStart(b.startAt, midnight))
       .toList(growable: false);
   final List<bool> consumed = List<bool>.filled(sortedBookings.length, false);
 
@@ -369,7 +362,7 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
   // memo), never per frame — the saved comparisons are worth far less than
   // that independence.
   final List<int> bookingEndMinutes = sortedBookings
-      .map((Booking b) => _kyivMinutesSinceMidnight(b.endAt, midnight))
+      .map((Booking b) => minutesSinceDayStart(b.endAt, midnight))
       .toList(growable: false);
 
   bool isConsumed(int dm) {
@@ -440,6 +433,77 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
   return merged;
 }
 
+/// Phase 483 — the declared times of [day] that render as FREE, by the SAME
+/// merge [DeclaredTimeCards] runs ([_mergeDeclaredAndBookings]: pass 1's
+/// status-blind exact-start pairing, pass 1b's SCH-18 consumption through
+/// [consumesDeclaredTimes] on the half-open `[startAt, endAt)` range, pass
+/// 1c's [showsAllOccupancy] suppression). The week grid's «3 дні» column
+/// reads this instead of re-deriving the rule, so the two views can never
+/// disagree about which time is «Вільно». Ascending, declared order.
+List<TimeOfDay> freeDeclaredTimes(
+  List<TimeOfDay> declaredTimes,
+  List<Booking> bookings,
+  DateTime day, {
+  required bool showsAllOccupancy,
+}) => <TimeOfDay>[
+  for (final _DeclaredEntry e in _mergeDeclaredAndBookings(
+    declaredTimes,
+    bookings,
+    day,
+    showsAllOccupancy: showsAllOccupancy,
+  ))
+    if (e.booking == null) e.time,
+];
+
+/// Phase 483 — [freeDeclaredTimes] memoised on the SAME gate
+/// [_DeclaredTimeCardsState.didUpdateWidget] uses: `bookings` by identity,
+/// `day` and `showsAllOccupancy` by value, `declaredTimes` by [listEquals]
+/// (a schedule refetch hands a fresh but equal list). The week grid holds one
+/// per column, so a rebuild with identical inputs (a now-tick, a page drag,
+/// the entrance) reuses the last merge instead of rerunning it.
+final class FreeDeclaredTimesMemo {
+  List<TimeOfDay>? _declaredTimes;
+  List<Booking>? _bookings;
+  DateTime? _day;
+  bool? _showsAllOccupancy;
+  List<TimeOfDay> _value = const <TimeOfDay>[];
+  int _computeCount = 0;
+
+  /// How many times [of] actually ran the merge — the test seam.
+  @visibleForTesting
+  int get computeCount => _computeCount;
+
+  /// [freeDeclaredTimes] of these inputs; recomputed only when one changed.
+  List<TimeOfDay> of(
+    List<TimeOfDay> declaredTimes,
+    List<Booking> bookings,
+    DateTime day, {
+    required bool showsAllOccupancy,
+  }) {
+    final List<Booking>? lastBookings = _bookings;
+    final bool hit =
+        lastBookings != null &&
+        identical(bookings, lastBookings) &&
+        day == _day &&
+        showsAllOccupancy == _showsAllOccupancy &&
+        listEquals(declaredTimes, _declaredTimes);
+    if (hit) return _value;
+    _computeCount++;
+    _declaredTimes = declaredTimes;
+    _bookings = bookings;
+    _day = day;
+    _showsAllOccupancy = showsAllOccupancy;
+    return _value = List<TimeOfDay>.unmodifiable(
+      freeDeclaredTimes(
+        declaredTimes,
+        bookings,
+        day,
+        showsAllOccupancy: showsAllOccupancy,
+      ),
+    );
+  }
+}
+
 /// THE ONE BOX every entry in this list occupies — booked or free. A hard
 /// product requirement, not a judgement call: every card in the column must
 /// read as the same footprint down the page, never a taller booked card next
@@ -462,32 +526,32 @@ List<_DeclaredEntry> _mergeDeclaredAndBookings(
 ///     booked card's REAL rendered box is 120, not merely floored at it with
 ///     slack above.
 ///
-/// [_FreeTimeCard] is floored at this SAME constant (a `BoxConstraints
+/// [FreeTimeCard] is floored at this SAME constant (a `BoxConstraints
 /// (minHeight: _kEntryMinHeight)` on its own `Container`, never a fixed
 /// `height:` — same reasoning as [MasterBookingCard.minHeight] being a floor,
 /// not a ceiling: real content past it still grows the box instead of
 /// clipping).
 ///
-/// THE SCALE-1.0 CONSTANT both variants share. Above 1.0, [_FreeTimeCard]
+/// THE SCALE-1.0 CONSTANT both variants share. Above 1.0, [FreeTimeCard]
 /// does not use this bare number as its floor — it calls
 /// [_freeCardMinHeightFor] instead. See that function's doc for the closed
 /// gap this used to describe.
 const double _kEntryMinHeight = 120;
 
-/// [_FreeTimeCard]'s scale-aware floor — the mechanism that keeps it equal
+/// [FreeTimeCard]'s scale-aware floor — the mechanism that keeps it equal
 /// to a booked [MasterBookingCard] ABOVE textScaler 1.0, not just at 1.0.
 ///
 /// THE GAP THIS CLOSES: [MasterBookingCard]'s full body is a fixed stack of
 /// single-line rows, so its REAL rendered box grows past `minHeight: 120` as
 /// the ambient text scale rises — nothing here has to make that happen, it
 /// falls out of the card's own real `Text` widgets scaling like any other
-/// text. [_FreeTimeCard]'s own two-line content, by contrast, never grows
+/// text. [FreeTimeCard]'s own two-line content, by contrast, never grows
 /// enough on its own to reach a taller floor at any realistic scale, so a
 /// bare `120` constraint on it stopped matching the booked card's real box
 /// above 1.0 — measured 120dp @ 1.15 and 126dp @ 1.3 for the booked card as
 /// of the 2026-08-15 font-size pass (was 124dp / 132dp — pinned by
 /// [MasterBookingCard.fullLayoutNaturalHeight]'s own doc). This function
-/// makes [_FreeTimeCard]'s floor track that same growth.
+/// makes [FreeTimeCard]'s floor track that same growth.
 ///
 /// NO SCALE-AWARE API EXISTS ON [MasterBookingCard] TO REUSE HERE.
 /// [MasterBookingCard.fullLayoutNaturalHeight] is a `static const` — it
@@ -561,7 +625,7 @@ double _freeCardMinHeightFor(BuildContext context) {
 
 /// The declared-times day body — a plain scrolling list, one box per
 /// [_mergeDeclaredAndBookings] entry: the shipped [MasterBookingCard] for a
-/// booked entry, [_FreeTimeCard] for a free one — see this file's header.
+/// booked entry, [FreeTimeCard] for a free one — see this file's header.
 /// Sits inside the same `Expanded(child: Padding(...))` slot
 /// `BookingsDiscoveryView._Loaded._body` gives `BookingsTimelineGrid` on an
 /// INTERVAL day, so it owns its own scrolling exactly like that widget does.
@@ -589,8 +653,25 @@ class DeclaredTimeCards extends StatefulWidget {
     required this.day,
     required this.showsAllOccupancy,
     required this.onTapBooking,
+    this.embedded = false,
     super.key,
   });
+
+  /// Phase 483 — `true` lays the list out at its natural height with no
+  /// scrolling of its own (`shrinkWrap`, never-scrollable), for a host that
+  /// already scrolls it — the week grid's «День» column, whose ONE vertical
+  /// scroll must keep owning the drag. ADDITIVE: `false` (the default) is
+  /// the shipped self-scrolling list, unchanged.
+  final bool embedded;
+
+  /// Gap between two entries.
+  static const double entryGap = VelvetSpacing.md;
+
+  /// One entry's floor at the ambient text scale — what a free card
+  /// measures, and the booked card's real box (see [_freeCardMinHeightFor]).
+  /// Lets an [embedded] host size the space the list needs.
+  static double entryExtentOf(BuildContext context) =>
+      _freeCardMinHeightFor(context);
 
   /// The day's declared times, VERBATIM — one card each, in declared order,
   /// unless dropped by [_mergeDeclaredAndBookings]'s pass 1b/1c. Nothing is
@@ -619,7 +700,7 @@ class DeclaredTimeCards extends StatefulWidget {
   final bool showsAllOccupancy;
 
   /// The selected Kyiv calendar day — the anchor
-  /// [_kyivMinutesSinceMidnight] measures every booking's start against.
+  /// [minutesSinceDayStart] measures every booking's start against.
   final DateTime day;
 
   /// Fires with the tapped booking. No `Navigator`/`context.push` in this
@@ -694,14 +775,17 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
     return ListView.separated(
       key: const Key('declared-time-cards'),
       padding: EdgeInsets.zero,
+      shrinkWrap: widget.embedded,
+      primary: widget.embedded ? false : null,
+      physics: widget.embedded ? const NeverScrollableScrollPhysics() : null,
       itemCount: _entries.length,
       separatorBuilder: (BuildContext context, int index) =>
-          const SizedBox(height: VelvetSpacing.md),
+          const SizedBox(height: DeclaredTimeCards.entryGap),
       itemBuilder: (BuildContext context, int index) {
         final _DeclaredEntry entry = _entries[index];
         final Booking? booking = entry.booking;
         if (booking == null) {
-          return _FreeTimeCard(time: entry.time);
+          return FreeTimeCard(time: entry.time);
         }
         // The shipped card, VERBATIM — see this file's header. `minHeight:
         // _kEntryMinHeight` is the ONLY non-default constructor argument;
@@ -729,10 +813,35 @@ class _DeclaredTimeCardsState extends State<DeclaredTimeCards> {
 /// the exact same height as a booked [MasterBookingCard] rather than at some
 /// independently-tuned number, and [_freeCardMinHeightFor]'s doc for how that
 /// floor tracks the booked card's growth above textScaler 1.0.
-class _FreeTimeCard extends StatelessWidget {
-  const _FreeTimeCard({required this.time});
+///
+/// Promoted from the private `_FreeTimeCard` (phase 481) so the week grid can
+/// reuse it; [DeclaredTimeCards] renders it exactly as before.
+class FreeTimeCard extends StatelessWidget {
+  const FreeTimeCard({super.key, required this.time, this.column = false});
 
   final TimeOfDay time;
+
+  /// Phase 481 — the «3 дні» narrow-column density: the 30-minute
+  /// «11:30 / Вільно» marker (preview `DeclaredFreeMarker`). Same border as a
+  /// booking, [VelvetRadii.field] radius, no lift, no stripe; time / «Вільно»
+  /// on two lines when the given height allows, else one line. ADDITIVE:
+  /// `false` (the default) is the shipped list card, unchanged.
+  final bool column;
+
+  /// Column inner padding (preview): 6 dp horizontally, 2 dp vertically.
+  static const EdgeInsets _kColumnPadding = EdgeInsets.symmetric(
+    horizontal: VelvetSpacing.xs + 2,
+    vertical: VelvetSpacing.xs / 2,
+  );
+
+  static final BoxDecoration _columnDecoration = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.field),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: 0.38),
+      width: 1.5,
+    ),
+  );
 
   static const EdgeInsets _kPadding = EdgeInsets.all(VelvetSpacing.lg);
 
@@ -763,6 +872,11 @@ class _FreeTimeCard extends StatelessWidget {
   /// the booked card beside it.
   static final TextStyle _timeStyle = VelvetText.masterFreeCardTime;
 
+  /// Column marker time: `weekBlockName` in mocha, resolved once.
+  static final TextStyle _columnTimeStyle = VelvetText.weekBlockName.copyWith(
+    color: BrandColors.accentDeep,
+  );
+
   /// «Вільно», muted. `VelvetText.masterFreeCardLabel` — the sibling
   /// [MasterBookingCard]'s own FULL-layout secondary tier (Nunito 10/700 as
   /// of the 2026-08-15 font-size pass, was 11/700, muted), verbatim — it
@@ -773,6 +887,7 @@ class _FreeTimeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (column) return _buildColumn(context);
     final AppLocalizations l10n = AppLocalizations.of(context);
     return MergeSemantics(
       child: Semantics(
@@ -796,6 +911,64 @@ class _FreeTimeCard extends StatelessWidget {
               const SizedBox(height: VelvetSpacing.sm),
               Text(l10n.masterBookingsDeclaredTimeFree, style: _freeStyle),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The column marker — see [column]. Time in mocha
+  /// (`VelvetText.weekBlockName`), «Вільно» muted (`weekBlockService`); line
+  /// heights from [fixedLineHeight] so the choice matches what renders.
+  Widget _buildColumn(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final String label = formatTime(time);
+    final String free = l10n.masterBookingsDeclaredTimeFree;
+    final TextStyle timeStyle = _columnTimeStyle;
+    final TextStyle freeStyle = VelvetText.weekBlockService;
+    return MergeSemantics(
+      child: Semantics(
+        key: Key(
+          'declared-time-card-free-column-'
+          '${time.hour.toString().padLeft(2, '0')}'
+          '${time.minute.toString().padLeft(2, '0')}',
+        ),
+        label: '$label — $free',
+        child: DecoratedBox(
+          decoration: _columnDecoration,
+          child: Padding(
+            padding: _kColumnPadding,
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints c) {
+                final double twoLines =
+                    fixedLineHeight(context, timeStyle) +
+                    fixedLineHeight(context, freeStyle);
+                if (!c.hasBoundedHeight || c.maxHeight + 1e-6 >= twoLines) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      FixedLinesText(label, style: timeStyle),
+                      FixedLinesText(free, style: freeStyle),
+                    ],
+                  );
+                }
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text.rich(
+                    TextSpan(
+                      children: <InlineSpan>[
+                        TextSpan(text: '$label ', style: timeStyle),
+                        TextSpan(text: free, style: freeStyle),
+                      ],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ),

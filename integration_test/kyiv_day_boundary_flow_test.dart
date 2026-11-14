@@ -76,7 +76,7 @@ void main() {
 
   testWidgets(
     'INDEPENDENT_MASTER opens «Мої записи» at the Kyiv day boundary: both '
-    'the day-scoped landing fetch AND the booked-days rail window are '
+    'the week-scoped landing fetch AND the booked-days rail window are '
     'anchored to the KYIV day, never the UTC/device one that is still "the '
     '1st" at this exact instant',
     (tester) async {
@@ -99,33 +99,34 @@ void main() {
       );
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
 
-      // ── 1. The day-scoped LANDING fetch (`GET /bookings/me?from=&to=`,
-      //        from == to, Phase 7.9) lands on Aug 2 — the KYIV day — never
-      //        Aug 1, even though Aug 1 is still "today" in UTC. ───────────
+      // ── 1. The week-scoped LANDING fetch (`GET /bookings/me?from=&to=`,
+      //        Phase 480: Kyiv Mon–Sun of the landing day's week). Landing day
+      //        = Kyiv Aug 2 (Sunday) → week Mon Jul 27 .. Sun Aug 2. NOTE: the
+      //        UTC day (Aug 1, Saturday) falls in the SAME week, so this fetch
+      //        pins the Kyiv week window; the day-exact Kyiv-vs-UTC
+      //        discrimination is carried by the booked-days rail in § 2. ────
       final Map<String, dynamic>? landingQuery = fb.lastMyBookingsQuery;
       expect(
         landingQuery,
         isNotNull,
         reason: 'the landing fetch must have reached the fake backend',
       );
+      final DateTime kyivMonday = kyivWeekStart(_kKyivToday);
+      final DateTime kyivSunday = kyivAddDays(kyivMonday, 6);
       expect(
         landingQuery!['from'],
+        toApiDate(kyivMonday),
+        reason:
+            'the landing window opens on the KYIV Monday (Jul 27) of the week '
+            'containing the Kyiv day (Aug 2)',
+      );
+      expect(
         landingQuery['to'],
-        reason: 'the landing fetch is a single Kyiv calendar day (from==to)',
-      );
-      expect(
-        landingQuery['from'],
-        toApiDate(_kKyivToday),
+        toApiDate(kyivSunday),
         reason:
-            'BookingsDiscoveryView must open on the KYIV day (Aug 2), not '
-            'the UTC/device day (Aug 1) this instant still reads as',
-      );
-      expect(
-        landingQuery['from'],
-        isNot(toApiDate(_kUtcDeviceDay)),
-        reason:
-            'the exact wrong value a device/UTC-day `_today` regression '
-            'would send on the wire',
+            'the landing window closes on the KYIV Sunday (Aug 2) — the Kyiv '
+            'landing day itself, not the UTC/device day (Aug 1) this instant '
+            'still reads as',
       );
 
       // ── 2. The SEPARATE booked-days rail window (`GET /bookings/me/

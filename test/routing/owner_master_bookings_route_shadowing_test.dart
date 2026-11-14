@@ -100,6 +100,20 @@ void main() {
     );
   });
 
+  // Phase 487 — the seeded tap pushes `…/new?at=…`; the query never changes
+  // which route matches.
+  test('/owner/master/bookings/new?at=… still matches ONLY the owner `new` '
+      'literal', () {
+    final GoRouter router = _productionRouter();
+    expect(
+      _leafPath(
+        router,
+        '${RouteNames.ownerMasterBookingNew}?at=2025-11-12T14:30',
+      ),
+      RouteNames.ownerMasterBookingNew,
+    );
+  });
+
   test('/owner/master/bookings/new/services matches the `services` child of '
       'the owner `new` route', () {
     final GoRouter router = _productionRouter();

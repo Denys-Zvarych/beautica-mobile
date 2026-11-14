@@ -69,6 +69,8 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -168,6 +170,19 @@ class _TransitionableAuthNotifier extends AuthNotifier {
   }
 }
 
+/// Phase 489 — [mySalonsProvider] stub resolving to whatever [_builder]
+/// returns (a list, a never-completing future, or a throw).
+class _StubMySalons extends MySalons {
+  _StubMySalons(this._builder);
+
+  final Future<List<Salon>> Function() _builder;
+
+  @override
+  Future<List<Salon>> build() => _builder();
+}
+
+const Salon _activeSalon = Salon(id: 'salon-1', name: 'Салон');
+
 // ---------------------------------------------------------------------------
 // Container factories
 // ---------------------------------------------------------------------------
@@ -191,11 +206,16 @@ ProviderContainer _makeContainer(AsyncValue<AuthSession> authState) {
 /// EXACT [notifier] instance passed in, so the caller can invoke its own
 /// methods (e.g. [_TransitionableAuthNotifier.forceError]) after the
 /// container is built.
-ProviderContainer _makeContainerFor(AuthNotifier notifier) {
+ProviderContainer _makeContainerFor(
+  AuthNotifier notifier, {
+  Future<List<Salon>> Function()? mySalons,
+}) {
   final container = ProviderContainer(
     retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(() => notifier),
+      if (mySalons != null)
+        mySalonsProvider.overrideWith(() => _StubMySalons(mySalons)),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
     ],
@@ -664,8 +684,8 @@ void main() {
   // Test matrix:
   //   1-4. Ordinary truth table — client / salonAdmin / salonMaster /
   //        independentMaster → true.
-  //   5. salonOwner → false (server-side 403; already covered elsewhere,
-  //      repeated here for this provider directly).
+  //   5. salonOwner (phase 489) → true only on a settled EMPTY salon list;
+  //      active salon / loading / error / refreshing → false.
   //   6. Unauthenticated → false.
   //   7. Never-resolved AsyncLoading (no prior value) → false.
   //   8-10. Riverpod copyWithPrevious hardening (independentMaster — the
@@ -693,16 +713,134 @@ void main() {
     }
 
     // -----------------------------------------------------------------------
-    // Test 5 — SALON_OWNER → false (excluded; owns a salon with staff
-    // beneath them; 403 server-side).
+    // Test 5 — SALON_OWNER (phase 489): true ONLY when the salon list has
+    // settled to empty; an active salon, a loading list and a failed list
+    // all fail closed (409 OWNER_HAS_ACTIVE_SALONS server-side otherwise).
     // -----------------------------------------------------------------------
-    test('SALON_OWNER session → false', () async {
-      final container = _makeContainerFor(
-        _AuthenticatedAs(_userWith(UserRole.salonOwner)),
-      );
-      await container.read(authProvider.future);
+    group('SALON_OWNER (phase 489)', () {
+      test('with an active salon → false', () async {
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          mySalons: () async => <Salon>[_activeSalon],
+        );
+        await container.read(authProvider.future);
+        container.listen(canSelfDeleteAccountProvider, (_, _) {});
+        await container.read(mySalonsProvider.future);
 
-      expect(container.read(canSelfDeleteAccountProvider), isFalse);
+        expect(container.read(canSelfDeleteAccountProvider), isFalse);
+      });
+
+      test('with NO active salon (settled empty list) → true', () async {
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          mySalons: () async => <Salon>[],
+        );
+        await container.read(authProvider.future);
+        container.listen(canSelfDeleteAccountProvider, (_, _) {});
+        await container.read(mySalonsProvider.future);
+
+        expect(container.read(canSelfDeleteAccountProvider), isTrue);
+      });
+
+      test('while the salon list is still loading → false', () async {
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          mySalons: () => Completer<List<Salon>>().future,
+        );
+        await container.read(authProvider.future);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(container.read(mySalonsProvider).isLoading, isTrue);
+        expect(container.read(canSelfDeleteAccountProvider), isFalse);
+      });
+
+      test('when the salon list failed → false', () async {
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          mySalons: () async => throw const NetworkFailure(),
+        );
+        await container.read(authProvider.future);
+        container.listen(canSelfDeleteAccountProvider, (_, _) {});
+        await expectLater(
+          container.read(mySalonsProvider.future),
+          throwsA(isA<NetworkFailure>()),
+        );
+
+        // Exact state, not just `hasError` (M12): a SETTLED AsyncError, not
+        // an AsyncLoading still retrying with a carried error.
+        final AsyncValue<List<Salon>> salons = container.read(mySalonsProvider);
+        expect(salons, isA<AsyncError<List<Salon>>>());
+        expect(salons.isLoading, isFalse);
+        expect(salons.error, isA<NetworkFailure>());
+        expect(container.read(canSelfDeleteAccountProvider), isFalse);
+      });
+
+      // Phase 489 fix (a): the «Видалити акаунт» row must NOT flicker away
+      // while the salon list reloads for an owner whose PREVIOUS settled value
+      // was an empty list. Only a reload that RESOLVES non-empty hides the row
+      // (companion test below). Replaces the old test that pinned the flicker.
+      test('an empty list being reloaded keeps the row '
+          '(true) while the reload is in flight — no flicker', () async {
+        Future<List<Salon>> Function() next = () async => <Salon>[];
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          mySalons: () => next(),
+        );
+        await container.read(authProvider.future);
+        final List<bool> emitted = <bool>[];
+        container.listen<bool>(
+          canSelfDeleteAccountProvider,
+          (_, bool v) => emitted.add(v),
+          fireImmediately: true,
+        );
+        await container.read(mySalonsProvider.future);
+        expect(container.read(canSelfDeleteAccountProvider), isTrue);
+
+        // Hold the reload open so the in-flight state is observable.
+        final Completer<List<Salon>> reload = Completer<List<Salon>>();
+        next = () => reload.future;
+        emitted.clear();
+        container.invalidate(mySalonsProvider);
+        await Future<void>.value();
+
+        expect(container.read(mySalonsProvider).isLoading, isTrue);
+        expect(
+          container.read(canSelfDeleteAccountProvider),
+          isTrue,
+          reason:
+              'previous value was an empty list — the row must stay while '
+              'the list reloads (no disappear/reappear flicker)',
+        );
+
+        reload.complete(<Salon>[]);
+        await container.read(mySalonsProvider.future);
+
+        expect(container.read(canSelfDeleteAccountProvider), isTrue);
+        expect(
+          emitted,
+          isNot(contains(false)),
+          reason: 'the selector must never emit false across the reload',
+        );
+      });
+
+      test('an empty list reloaded INTO an active salon hides the row once the '
+          'reload settles (409 recovery path)', () async {
+        Future<List<Salon>> Function() next = () async => <Salon>[];
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          mySalons: () => next(),
+        );
+        await container.read(authProvider.future);
+        container.listen(canSelfDeleteAccountProvider, (_, _) {});
+        await container.read(mySalonsProvider.future);
+        expect(container.read(canSelfDeleteAccountProvider), isTrue);
+
+        next = () async => <Salon>[_activeSalon];
+        container.invalidate(mySalonsProvider);
+        await container.read(mySalonsProvider.future);
+
+        expect(container.read(canSelfDeleteAccountProvider), isFalse);
+      });
     });
 
     // -----------------------------------------------------------------------

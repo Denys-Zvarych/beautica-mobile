@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/master/presentation/widgets/section_sca
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1060,6 +1061,98 @@ void main() {
       expect(_CountingIdentity.builds, greaterThan(before));
     });
   });
+
+  // ── Phase 489 fix (b) — /masters/me 404 renders an error state ───────────
+  //
+  // An owner with no salons opens «Особисті дані» from the owner settings hub
+  // (`RouteNames.ownerEditPersonal` → this screen). `GET /masters/me` answers
+  // 404 (no active SALON_OWNER master row), so [masterProfileProvider] settles
+  // to AsyncError — and the screen's `!_initialized || cached == null` branch
+  // used to render a bare spinner FOREVER, with no back button.
+  //
+  // Assertion chosen: ERROR STATE with back + retry (not "row hidden"). Neither
+  // phase-489 doc nor docs/specs says to hide the row; M3 requires every
+  // screen to render an error state with retry; and hiding the row would also
+  // hide it for a transient failure. Uses the shared [ErrorState]
+  // (`error_state_retry_button`) and the screen's existing `btn-back-personal`.
+  group('/masters/me 404 for an owner (phase 489)', () {
+    GoRouter ownerErrorRouter() => GoRouter(
+      initialLocation: RouteNames.ownerEditPersonal,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.ownerEditPersonal,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: PersonalInfoEditScreen(
+              doneRoute: RouteNames.ownerMasterProfile,
+              backFallbackRoute: RouteNames.ownerSettings,
+            ),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.ownerSettings,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: Scaffold(body: SizedBox(key: Key('stub-owner-settings'))),
+          ),
+        ),
+      ],
+    );
+
+    Future<void> pumpNotFound(WidgetTester tester) async {
+      _NotFoundMasterProfile.builds = 0;
+      await tester.pumpRoutedApp(
+        ownerErrorRouter(),
+        overrides: <Object>[
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          masterProfileProvider.overrideWith(_NotFoundMasterProfile.new),
+          masterRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      // The 404 resolves in microtasks; NotFoundFailure is non-transient
+      // (no retry curve), so two frames reach the terminal AsyncError.
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('renders an error state with back — no endless spinner', (
+      tester,
+    ) async {
+      await pumpNotFound(tester);
+
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(ErrorState), findsOneWidget);
+      expect(find.byKey(const Key('btn-back-personal')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('btn-back-personal')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('stub-owner-settings')), findsOneWidget);
+    });
+
+    testWidgets('retry re-fetches the profile', (tester) async {
+      await pumpNotFound(tester);
+      expect(_NotFoundMasterProfile.builds, 1);
+
+      await tester.tap(find.byKey(const Key('error_state_retry_button')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(_NotFoundMasterProfile.builds, 2);
+    });
+  });
+}
+
+/// Phase 489 fix (b) — [masterProfileProvider] as `GET /masters/me` 404
+/// for an owner with no master row: fails ASYNCHRONOUSLY (M13 shape) with
+/// [NotFoundFailure]; counts builds so retry can be asserted.
+class _NotFoundMasterProfile extends MasterProfile {
+  static int builds = 0;
+
+  @override
+  Future<Master> build() async {
+    builds++;
+    throw const NotFoundFailure();
+  }
 }
 
 /// Watches [masterProfileProvider] and records each emission so a test can

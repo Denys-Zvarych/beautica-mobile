@@ -110,6 +110,7 @@ import '../application/booking_calendar_invalidation.dart';
 import '../application/bookings_capability.dart';
 import '../application/pending_booking_actions_count.dart';
 import '../domain/booking.dart';
+import '../domain/booking_create_seed.dart';
 import '../domain/bookings_day_query.dart';
 import '../../schedule/domain/schedule_scope.dart';
 
@@ -134,6 +135,7 @@ class MasterBookingsScreen extends ConsumerWidget {
     this.navServicesRoute,
     this.navScheduleRoute,
     this.navProfileRoute,
+    this.navBookingsRoute,
     this.canAddWorkingHours = true,
     this.asOwnerMaster = false,
     this.bottomNavBar,
@@ -142,6 +144,7 @@ class MasterBookingsScreen extends ConsumerWidget {
     this.onBack,
     this.scheduleScope,
     this.onCreateBooking,
+    this.onCreateBookingSeeded,
     this.detailExtra,
   });
 
@@ -165,6 +168,12 @@ class MasterBookingsScreen extends ConsumerWidget {
   final String? navServicesRoute;
   final String? navScheduleRoute;
   final String? navProfileRoute;
+
+  /// Tile 1's («Мої записи») route — phase 485 (backlog INFO 154): passed
+  /// like the three sibling screens do. Tile 1 is this screen, so the bar
+  /// resolves it to `null` while active; the value only keeps the four-tile
+  /// override set complete for the `/staff/bookings` mount.
+  final String? navBookingsRoute;
 
   /// Whether the "no working hours" empty state offers its
   /// «Додати робочі години» CTA. `true` (the `/master/bookings` mount and
@@ -223,6 +232,11 @@ class MasterBookingsScreen extends ConsumerWidget {
   /// since `/master/*` would bounce a SALON_OWNER.
   final VoidCallback? onCreateBooking;
 
+  /// Phase 487 — forwarded to [BookingsDiscoveryView.onCreateBookingSeeded]
+  /// (the empty week-grid tap). `null` keeps `masterBookingNew?at=…`; the
+  /// owner master-mode mount pushes `ownerMasterBookingNew?at=…`.
+  final void Function(BookingCreateSeed seed)? onCreateBookingSeeded;
+
   /// Phase 383 (24.1f) — `extra` for the detail push. `null` (every pre-383
   /// mount) pushes with no `extra`, as before. The owner mount passes its
   /// salon id so a write on `/salon/bookings/:id` also drops that salon's
@@ -262,7 +276,8 @@ class MasterBookingsScreen extends ConsumerWidget {
   VelvetBottomNavBar get _navBar =>
       navServicesRoute == null &&
           navScheduleRoute == null &&
-          navProfileRoute == null
+          navProfileRoute == null &&
+          navBookingsRoute == null
       ? const VelvetBottomNavBar(
           activeIndex: 1,
           showSetupHints: true,
@@ -273,6 +288,7 @@ class MasterBookingsScreen extends ConsumerWidget {
           servicesRoute: navServicesRoute,
           scheduleRoute: navScheduleRoute,
           profileRoute: navProfileRoute,
+          bookingsRoute: navBookingsRoute,
         );
 
   @override
@@ -337,6 +353,9 @@ class MasterBookingsScreen extends ConsumerWidget {
           asOwnerMaster: asOwnerMaster,
         ),
         title: l10n.masterBookingsTitle,
+        // Phase 485 — the provider «Записи» is a Mon–Sun week (all three
+        // mounts). The salon board keeps the default day layout.
+        layout: BookingsLayout.week,
         // Bottom-nav tab root — no back affordance, except the owner
         // master-mode mount's plain arrow (phase 383, decision 2026-10-08).
         onBack: onBack,
@@ -372,6 +391,8 @@ class MasterBookingsScreen extends ConsumerWidget {
             context.pushOnce(detailRoute(booking.id), extra: detailExtra),
         // Phase 383 — see [onCreateBooking].
         onCreateBooking: onCreateBooking,
+        // Phase 487 — see [onCreateBookingSeeded].
+        onCreateBookingSeeded: onCreateBookingSeeded,
         // Phase 231 — the master «Архів» page. Additive-only wiring (see
         // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
         onOpenArchive: () {
@@ -400,11 +421,12 @@ class MasterBookingsScreen extends ConsumerWidget {
         canCreateBooking: ref.watch(bookingCreationEnabledProvider),
       ),
       // Tile 1 («Мої записи») — this screen IS that destination, so the bar
-      // short-circuits it to `null` and no `bookingsRoute` override is
-      // needed. The other three tiles are aimed by the host (phase 330): at
-      // `/master/*` by default (the bar's own literals, so this stays `const`
-      // for the INDEPENDENT_MASTER mount) and at `/staff/*` when the
-      // `/staff/bookings` route supplies them.
+      // short-circuits it to `null`; [navBookingsRoute] is still passed so
+      // the override set matches the sibling screens (phase 485). The tiles
+      // are aimed by the host (phase 330): at `/master/*` by default (the
+      // bar's own literals, so this stays `const` for the INDEPENDENT_MASTER
+      // mount) and at `/staff/*` when the `/staff/bookings` route supplies
+      // them.
       bottomNavigationBar: bottomNavBar ?? _navBar,
     );
   }

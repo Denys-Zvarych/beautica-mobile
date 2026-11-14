@@ -189,6 +189,11 @@ final class HttpUserRepository implements UserRepository {
     if (statusCode == 429) {
       return AccountDeleteRateLimitedFailure(cause: e);
     }
+    // Phase 489 — the owner still has an active salon. Only the typed body
+    // code is mapped; any other 409 keeps the interceptor's failure.
+    if (statusCode == 409 && isOwnerHasActiveSalonsBody(e.response?.data)) {
+      return AccountDeleteOwnerHasActiveSalonsFailure(cause: e);
+    }
     if (e.error is Failure) return e.error as Failure;
     switch (e.type) {
       case DioExceptionType.connectionError:

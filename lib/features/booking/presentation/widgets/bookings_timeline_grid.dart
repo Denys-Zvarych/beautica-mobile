@@ -223,7 +223,7 @@
 //   guarantee's mechanism — see the R3 section above, unmodified.
 //
 //   `plannedBottom`'s bookkeeping now advances by each card's actual computed
-//   `minHeight` (see `_cardMinHeightFor`) rather than the fixed
+//   `minHeight` (see `cardMinHeightFor`) rather than the fixed
 //   `MasterBookingCard.estimatedNaturalHeight` constant the R3-era code used
 //   — a strictly better "planned" number now that a real duration-derived
 //   floor exists, though (per the R3 section) the Column's real layout would
@@ -291,7 +291,7 @@
 // leading-card clip in place on any narrow device whose day happens to have
 // an overlapping booking. Clamping every lane to the same `effectiveCardW`
 // also keeps all lanes' cards a uniform width, matching every other
-// assumption in this file (`_LaneColumn`'s spacer math, [_cardMinHeightFor]'s
+// assumption in this file (`_LaneColumn`'s spacer math, [cardMinHeightFor]'s
 // height side of the layout, R2/R3 above) — none of which depend on the
 // card's width value, only on it being decided once per render and applied
 // consistently.
@@ -346,7 +346,7 @@
 // [_BookingsTimelineGridState] computes them once in `initState` and again
 // only when `!identical(widget.bookings, old.bookings) || widget.day !=
 // old.day`. The Kyiv midnight in particular was being reconstructed on EVERY
-// [_minutesSinceDayStart] call (~3N per build, i.e. 300 timezone-table
+// [minutesSinceDayStart] call (~3N per build, i.e. 300 timezone-table
 // lookups at N=100) — it is now built once and passed in.
 //
 // ============================================================================
@@ -354,7 +354,7 @@
 // PROPERLY (mobile-qa HIGH; ADDENDUM 4's own argument was wrong)
 // ============================================================================
 // ADDENDUM 4 justified its placeholder by claiming the real card "would have
-// rendered at exactly `cardMinHeight`", because [_cardMinHeightFor]'s 56dp
+// rendered at exactly `cardMinHeight`", because [cardMinHeightFor]'s 56dp
 // floor clears the card's 54dp natural height. That reasoning covers
 // `MasterBookingCard`'s COMPACT layout ONLY.
 //
@@ -395,7 +395,7 @@
 //
 // THE MECHANISM — direction (a): make the placeholder genuinely size-exact.
 // [_LaneColumn] no longer sizes the placeholder from the FLOOR it hands the
-// card ([_cardMinHeightFor]); it sizes it from
+// card ([cardMinHeightFor]); it sizes it from
 // `MasterBookingCard.occupiedHeightFor(floor)` — the box the card really
 // occupies, `max(floor, the selected layout's natural content height)`. That
 // is computable WITHOUT building the card because both inputs are pure
@@ -516,7 +516,7 @@
 //
 //  * THE PER-CARD GEOMETRY (mobile-perf LOW). `startMinute` (a
 //    [toBeauticaTime] timezone-table lookup plus a `difference`),
-//    [_cardMinHeightFor], `occupiedHeightFor` and the running `plannedTop`
+//    [cardMinHeightFor], `occupiedHeightFor` and the running `plannedTop`
 //    used to be recomputed inside `_LaneColumn.build`. Before culling, lane
 //    columns rebuilt only on a data change; culling made them rebuild on
 //    every window re-anchor (~every half viewport of scroll), so at N=100
@@ -571,7 +571,7 @@
 // scale was correct in spirit but two numbers fought each other.
 //
 // THE ROOT CAUSE — A CONFLATED FLOOR:
-//   `_cardMinHeightFor` floored the card at `hourHeight / 2` (one 30-minute
+//   `cardMinHeightFor` floored the card at `hourHeight / 2` (one 30-minute
 //   slot). At `_kHourH = 112` that slot was 56dp, which happened to equal the
 //   card's real legible height (54dp + headroom), so the single number 56 was
 //   doing DOUBLE DUTY: the gridline unit AND the card's minimum. The two only
@@ -583,7 +583,7 @@
 //   1. Raise `_kHourH` 112 -> 168 (and the ruler's, in lockstep). At 168 a
 //      booking's proportional height `duration/60 * 168` lands its bottom
 //      exactly on its end-time line.
-//   2. DECOUPLE the card floor from the slot: `_cardMinHeightFor` now floors
+//   2. DECOUPLE the card floor from the slot: `cardMinHeightFor` now floors
 //      at `MasterBookingCard.estimatedNaturalHeight` (56dp, the compact card's
 //      own natural legible height), NOT `hourHeight / 2` (now 84dp). This is
 //      the load-bearing change — without it the floor would jump 56 -> 84 and
@@ -663,7 +663,7 @@
 // nearly twice its band. `MasterBookingCard` gained a THIRD, single-row layout
 // (service name · time range · status dot) whose natural height is `28dp`,
 // selected when the floor cannot contain the compact body — see that widget's
-// "THE MICRO LAYOUT" section. [_cardMinHeightFor]'s floor moved to it.
+// "THE MICRO LAYOUT" section. [cardMinHeightFor]'s floor moved to it.
 //
 // (That natural was `29dp` until the ONE-TIME-STYLE pass, 2026-07-24, put the
 // range on the full card's own type recipe — see `master_booking_card.dart`'s
@@ -876,6 +876,7 @@ import 'master_bookings_states.dart';
 import 'master_column_strip.dart';
 import 'schedule_timeline_window.dart';
 import 'timeline_density.dart';
+import 'timeline_geometry.dart';
 import 'timeline_hour_ruler.dart';
 
 /// Phase 21.12 — ONE master's column on the salon board: the roster chip that
@@ -966,7 +967,7 @@ class BookingsTimelineGrid extends StatefulWidget {
   final List<Booking> bookings;
 
   /// The selected Kyiv calendar day, date-only — the anchor
-  /// [_minutesSinceDayStart] measures every card position against.
+  /// [minutesSinceDayStart] measures every card position against.
   final DateTime day;
 
   /// ═══════════════════════════════════════════════════════════════════════
@@ -1085,7 +1086,7 @@ class BookingsTimelineGrid extends StatefulWidget {
   /// NAME, not a render-path read: gridlines come off `density.slotHeight`.
   /// Drives the half-hour GRIDLINE spacing only. Since the vertical-scale pass it does NOT govern the card
   /// floor — that is [MasterBookingCard.microLayoutNaturalHeight] (see
-  /// `_cardMinHeightFor`), and keeping the two decoupled is what lets short
+  /// `cardMinHeightFor`), and keeping the two decoupled is what lets short
   /// bookings land on their end-time line. Read off this constant for
   /// gridlines, never a re-derived literal.
   static const double kMasterSlotHeight = kMasterHourHeight / 2;
@@ -1646,7 +1647,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   void _recomputeLayoutModel() {
     final DateTime day = widget.day;
 
-    // Hoisted out of [_minutesSinceDayStart] (mobile-perf MEDIUM): that
+    // Hoisted out of [minutesSinceDayStart] (mobile-perf MEDIUM): that
     // function used to construct this `TZDateTime` on every call, ~3N times
     // per build. It cannot change unless [BookingsTimelineGrid.day] does.
     final tz.TZDateTime midnight = tz.TZDateTime(
@@ -1671,11 +1672,11 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // (mobile-perf LOW, 2026-09-20). On the salon board this list is the
     // FLATTENED union of every column's bookings, and [_modelForColumn] then
     // converts each column's bookings again — so every card's `startAt` went
-    // through `_minutesSinceDayStart`'s Europe/Kyiv table lookup TWICE per
+    // through `minutesSinceDayStart`'s Europe/Kyiv table lookup TWICE per
     // recompute, which the file header itself measures as ~99 % of the cost.
     //
     // Keyed on the INSTANT rather than on the `Booking` instance, deliberately:
-    // `_minutesSinceDayStart` is pure over `(instant, midnight)` and `midnight`
+    // `minutesSinceDayStart` is pure over `(instant, midnight)` and `midnight`
     // is fixed for this whole pass, so two bookings sharing a start time share
     // an answer BY DEFINITION. Keying on identity would additionally depend on
     // the flattened list and the column lists holding the same objects, which
@@ -1683,7 +1684,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     final Map<DateTime, int> minuteCache = <DateTime, int>{};
     int minutesOf(DateTime instant) => minuteCache.putIfAbsent(
       instant,
-      () => _minutesSinceDayStart(instant, midnight),
+      () => minutesSinceDayStart(instant, midnight),
     );
     final List<int> startMinutes = <int>[
       for (final Booking b in bookings) minutesOf(b.startAt),
@@ -1696,7 +1697,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // ------------------------------------------------------------------
     // R1 FIX — minutes-since-[day]'s-Kyiv-midnight, never scalar hours.
     //
-    // [_minutesSinceDayStart] anchors every instant to the SAME Kyiv
+    // [minutesSinceDayStart] anchors every instant to the SAME Kyiv
     // midnight, so a booking ending after midnight yields a value > 1440
     // rather than wrapping to a small number — monotonicity holds by
     // construction and `lastMinute - firstMinute` cannot go negative. The
@@ -3285,7 +3286,7 @@ class _CardGeometry {
 /// "ADDENDUM 2") it advances by each card's real occupied box, not the fixed
 /// `MasterBookingCard.estimatedNaturalHeight` the R3-era code used;
 /// ADDENDUM 5 sharpened it further to `MasterBookingCard.occupiedHeightFor
-/// (...)` rather than the bare [_cardMinHeightFor] FLOOR, so for a card whose
+/// (...)` rather than the bare [cardMinHeightFor] FLOOR, so for a card whose
 /// layout overshoots its floor (the >=60-minute full layout) the planned
 /// position equals the rendered one exactly. This remains a PLANNING number
 /// only: it decides how generous the blank space between cards looks, never
@@ -3325,7 +3326,7 @@ List<_CardGeometry> _geometryForLane({
           0.0,
           maxTopPx,
         );
-    final double minHeight = _cardMinHeightFor(
+    final double minHeight = cardMinHeightFor(
       bookings[index].durationMinutes,
       hourHeight,
     );
@@ -3396,7 +3397,7 @@ class _ColumnModel {
 /// which is the whole grid's floored-hour origin, so a card in column 3 lands
 /// on the same gridline as a same-time card in column 0.
 ///
-/// [minutesOf] is the CALLER's memo over [_minutesSinceDayStart], not a bare
+/// [minutesOf] is the CALLER's memo over [minutesSinceDayStart], not a bare
 /// `midnight` to convert against (mobile-perf LOW, 2026-09-20). Every booking
 /// in [column] also appears in the flattened list
 /// `_recomputeLayoutModel` already converted for the ruler's minute extent, so
@@ -3445,48 +3446,9 @@ _ColumnModel _modelForColumn({
   return _ColumnModel(bookings: bookings, lanes: geometry, bottom: bottom);
 }
 
-/// A booking's proportional-duration card floor — see this file's
-/// "ADDENDUM 2" for the original derivation and "ADDENDUM 8" for the current
-/// floor. Proportional to [durationMinutes] against [hourHeight], floored at
-/// the MICRO card's natural height
-/// ([MasterBookingCard.microLayoutNaturalHeight], `28dp`) — the shortest box
-/// `MasterBookingCard` can render anything legible in.
-///
-/// THE FLOOR IS THE SMALLEST OF THE CARD'S THREE NATURALS, ON PURPOSE. It used
-/// to be [MasterBookingCard.estimatedNaturalHeight] (`56dp`, the COMPACT
-/// body's), which meant every booking whose band was shorter than `56dp` got a
-/// box taller than its own wall-clock footprint — the residual overrun the
-/// previous pass documented as "irreducible". It was not irreducible; it was a
-/// consequence of the card having no shape below the compact grid. Now that it
-/// has one, the floor drops with it and the overrun only survives below ~14.0
-/// minutes.
-///
-/// STILL INDEPENDENT OF THE 30-MINUTE SLOT (`hourHeight / 2`, now `60dp`): the
-/// slot governs the gridlines, the card's own natural governs the card. Tying
-/// the floor back to the slot would re-inflate every short card off its
-/// end-time line, which is the bug the decoupling exists to prevent.
-///
-/// A MINIMUM, not an exact size — [MasterBookingCard] applies it as a
-/// `BoxConstraints.minHeight`, so real content taller than this value always
-/// wins (see that widget's class doc).
-double _cardMinHeightFor(int durationMinutes, double hourHeight) {
-  final double proportional = durationMinutes / 60.0 * hourHeight;
-  return math.max(proportional, MasterBookingCard.microLayoutNaturalHeight);
-}
-
-/// Minutes between the selected day's Kyiv [midnight] and [instant]'s Kyiv
-/// wall-clock — the R1 fix's anchor. A booking ending after midnight yields a
-/// value **greater than 1440** rather than wrapping to a small number, so
-/// monotonicity holds by construction.
-///
-/// [midnight] is passed IN rather than derived here (mobile-perf MEDIUM): it
-/// is a pure function of the selected day, and constructing a `TZDateTime` per
-/// call cost ~3N timezone-table lookups per build. See the file header's
-/// "ADDENDUM 4".
-int _minutesSinceDayStart(DateTime instant, tz.TZDateTime midnight) {
-  final tz.TZDateTime local = toBeauticaTime(instant);
-  return local.difference(midnight).inMinutes;
-}
+// `cardMinHeightFor` and `minutesSinceDayStart` were promoted (phase 482)
+// to `timeline_geometry.dart` as [cardMinHeightFor] / [minutesSinceDayStart]
+// — the week grid places its cards with the same two functions.
 
 /// Filters [bookings] to those whose Kyiv-day start on [day] falls inside
 /// [window] (per [ScheduleTimelineWindow.includesStart]) — the ONE filtering
@@ -3500,7 +3462,7 @@ int _minutesSinceDayStart(DateTime instant, tz.TZDateTime midnight) {
 /// for BOTH the header count and [BookingsTimelineGrid.bookings], so the
 /// count is always exactly `visible.length`, i.e. exactly what renders.
 /// Public (not `_`-prefixed) specifically so a caller outside this file can
-/// reach it — the same Kyiv-minute conversion ([_minutesSinceDayStart]) this
+/// reach it — the same Kyiv-minute conversion ([minutesSinceDayStart]) this
 /// grid's own layout model uses internally, exposed once rather than
 /// re-implemented at the call site.
 ///
@@ -3531,7 +3493,7 @@ List<Booking> bookingsInsideScheduleWindow(
   for (int i = 0; i < bookings.length; i++) {
     final Booking b = bookings[i];
     final bool inside = window.includesStart(
-      _minutesSinceDayStart(b.startAt, midnight),
+      minutesSinceDayStart(b.startAt, midnight),
     );
     if (filtered == null) {
       // Nothing excluded yet — defer allocating a copy until we actually
@@ -3555,7 +3517,7 @@ List<Booking> bookingsInsideScheduleWindow(
 /// Phase 335 — public, and living HERE rather than in
 /// `schedule_timeline_window.dart`, for the same reason
 /// [bookingsInsideScheduleWindow] does: this file owns the
-/// [_minutesSinceDayStart] Kyiv conversion, and a second implementation of it
+/// [minutesSinceDayStart] Kyiv conversion, and a second implementation of it
 /// at a call site is exactly the kind of copy that drifts. Its one caller today
 /// is `salon_bookings_screen.dart`'s board-window builder.
 ///
@@ -3582,7 +3544,7 @@ List<Booking> bookingsInsideScheduleWindow(
   int? first;
   int? lastEnd;
   for (final Booking b in bookings) {
-    final int start = _minutesSinceDayStart(b.startAt, midnight);
+    final int start = minutesSinceDayStart(b.startAt, midnight);
     final int end = start + math.max(b.durationMinutes, 1);
     first = first == null ? start : math.min(first, start);
     lastEnd = lastEnd == null ? end : math.max(lastEnd, end);

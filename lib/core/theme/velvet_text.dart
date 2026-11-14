@@ -1756,6 +1756,67 @@ abstract final class VelvetText {
     height: 1.2,
   );
 
+  // Phase 481 — the «3 дні» narrow-column density of `MasterBookingCard`
+  // (`column: true`) and of `FreeTimeCard`. Transcribed from the
+  // MasterWeekBookings preview's `velvet_tokens.dart`; every one is a
+  // `copyWith` of a shipped card token and none is below 10 sp.
+
+  /// Narrow-column block: start–end range («10:00–11:30») —
+  /// [masterCardTime] at 10 sp in [BrandColors.textSecondary].
+  static final TextStyle weekBlockTime = masterCardTime.copyWith(
+    fontSize: 10,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Narrow-column block: client first name — [masterCardClientName]
+  /// (Comfortaa) stepped 11.5 → 11 sp.
+  static final TextStyle weekBlockName = masterCardClientName.copyWith(
+    fontSize: 11,
+  );
+
+  /// Narrow-column block: services, in every whole line left —
+  /// [masterCardService] at 10 sp, muted.
+  static final TextStyle weekBlockService = masterCardService.copyWith(
+    fontSize: 10,
+    color: BrandColors.muted,
+  );
+
+  // Phase 482 — the week time grid's own chrome (MasterWeekBookings preview
+  // `velvet_tokens.dart`).
+
+  /// Week-grid column header («Чт 12») — the day rail's [railWeekday].
+  static final TextStyle weekColumnHeader = railWeekday;
+
+  /// Phase 483 — working hours under the week column header («9:00–18:00» /
+  /// «Вихідний» / «Свій час · 6») and the «Перерва» / «Вихідний» band labels
+  /// — [masterCardTime] at 10 sp (preview `weekColumnHours`).
+  static final TextStyle weekColumnHours = masterCardTime.copyWith(
+    fontSize: 10,
+    height: 1.25,
+  );
+
+  // Phase 484 — the week header (MasterWeekBookings preview `velvet_tokens`).
+
+  /// Week range over the strip («16–22 листопада», preview `weekTitle`) —
+  /// [subheading] (Comfortaa) at 16 sp, w700. Not a page title: it is the
+  /// tappable month-calendar toggle under the «Записи» page title.
+  static final TextStyle weekRangeLabel = _subheadingStyle.copyWith(
+    fontSize: 16,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// The week strip's per-day booking count — [_pillStyle] (Nunito w800) at
+  /// 10 sp.
+  static final TextStyle weekCount = _pillStyle.copyWith(fontSize: 10);
+
+  /// Now-line time pill on the week grid's hour ruler — [_feedbackBase] at
+  /// 10 sp, cream on mocha.
+  static final TextStyle nowPill = _feedbackBase.copyWith(
+    fontSize: 10,
+    height: 1.2,
+    color: BrandColors.white,
+  );
+
   // Adaptive-layout pass (2026-07-20, later the same day as the compact
   // pass above): `MasterBookingCard` now renders a FULLER layout (client
   // name → divider → service+date → price+status) whenever its box is tall

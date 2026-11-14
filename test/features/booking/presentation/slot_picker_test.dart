@@ -22,9 +22,11 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/application/slot_picker_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_create_seed.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
@@ -42,6 +44,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -2571,6 +2574,311 @@ void main() {
         expected: 0.7,
         reason:
             'if the real face was restyled, update the replica in test/helpers/dim_probe_replicas.dart',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 487 — the empty week-grid tap's create seed (D2–D4).
+  //
+  // ONE pinned clock for the whole group (pattern M — both pinned): Monday
+  // 2025-11-10 10:00 Kyiv. The seed day is Wednesday 2025-11-12 (EET, +2, so
+  // Kyiv HH:mm = UTC (HH-2):mm). Every instant is in the past on purpose: the
+  // picker compares days against the INJECTED clock only, never the host's.
+  // -------------------------------------------------------------------------
+  group('Phase 487 — create seed', () {
+    final DateTime clockInstant = DateTime.utc(2025, 11, 10, 8);
+    final DateTime wednesday = DateTime(2025, 11, 12);
+
+    BookingSlot kyivSlot(int day, int hour, int minute) {
+      final DateTime start = DateTime.utc(2025, 11, day, hour - 2, minute);
+      return BookingSlot(
+        startAt: start,
+        endAt: start.add(const Duration(minutes: 60)),
+        available: true,
+      );
+    }
+
+    BookingSlot wed(int hour, int minute) => kyivSlot(12, hour, minute);
+
+    Key chipKey(BookingSlot s) =>
+        Key('slot-chip-${s.startAt.toIso8601String()}');
+
+    BookingSlotPickerArgs seededArgs(BookingCreateSeed? seed) =>
+        BookingSlotPickerArgs(
+          masterId: _kMaster.id,
+          master: _kMaster,
+          services: const <MasterService>[_kService],
+          guest: _kGuest,
+          hideMasterIdentity: true,
+          seed: seed,
+        );
+
+    Future<_FakeSlotRepository> pumpSeeded(
+      WidgetTester tester, {
+      required BookingCreateSeed? seed,
+      required List<BookingSlot> slots,
+      bool? Function(DateTime day, String? serviceId)? working,
+    }) async {
+      final fake = _FakeSlotRepository(slots, workingDaysOverride: working);
+      final router = _router(
+        dateScreen: SlotDateScreen(args: seededArgs(seed)),
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          slotRepositoryProvider.overrideWith((_) => fake),
+          clockProvider.overrideWithValue(() => clockInstant),
+        ],
+      );
+      await tester.pumpAndSettle();
+      return fake;
+    }
+
+    SlotPickerState pickerState(WidgetTester tester) =>
+        ProviderScope.containerOf(
+          tester.element(find.byType(SlotDateScreen)),
+        ).read(slotPickerProvider);
+
+    Future<void> openTimeScreen(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+    }
+
+    bool chipSelected(WidgetTester tester, BookingSlot s) =>
+        tester.widget<SlotChip>(find.byKey(chipKey(s))).selected;
+
+    // MUTATION: skipped `_applySeed` in `_onSeedWorkingDays` → no day was
+    // selected and this test failed. Restored.
+    testWidgets('the seed day is selected and the exact chip is selected', (
+      tester,
+    ) async {
+      final BookingSlot exact = wed(14, 30);
+      final fake = await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 14 * 60 + 30),
+        slots: <BookingSlot>[wed(10, 0), exact, wed(16, 0)],
+      );
+
+      expect(fake.callCount, 1, reason: 'one slots read for the seed day');
+      expect(fake.lastDate, wednesday);
+      expect(
+        tester
+            .widget<MonthCalendar>(
+              find.byKey(const Key('booking-month-calendar')),
+            )
+            .selected,
+        wednesday,
+      );
+      expect(pickerState(tester).selectedSlot, exact);
+
+      await openTimeScreen(tester);
+      expect(chipSelected(tester, exact), isTrue);
+      expect(chipSelected(tester, wed(16, 0)), isFalse);
+    });
+
+    testWidgets('INTERVAL fixture: a 14:30 tap that is not offered (tail) '
+        'selects the next LATER chip', (tester) async {
+      final BookingSlot next = wed(15, 0);
+      await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 14 * 60 + 30),
+        slots: <BookingSlot>[wed(10, 0), wed(13, 0), next, wed(15, 30)],
+      );
+      await openTimeScreen(tester);
+      expect(chipSelected(tester, next), isTrue);
+    });
+
+    testWidgets('EXPLICIT_TIMES fixture (10:00, 13:15) + seed 13:00 → 13:15', (
+      tester,
+    ) async {
+      final BookingSlot declared = wed(13, 15);
+      await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 13 * 60),
+        slots: <BookingSlot>[wed(10, 0), declared],
+      );
+      await openTimeScreen(tester);
+      expect(chipSelected(tester, declared), isTrue);
+      expect(chipSelected(tester, wed(10, 0)), isFalse);
+    });
+
+    testWidgets('nothing later → the last EARLIER chip', (tester) async {
+      final BookingSlot lastEarlier = wed(12, 30);
+      await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 14 * 60 + 30),
+        slots: <BookingSlot>[wed(9, 0), wed(11, 0), lastEarlier],
+      );
+      await openTimeScreen(tester);
+      expect(chipSelected(tester, lastEarlier), isTrue);
+    });
+
+    testWidgets('no slots at all → the day is selected, no chip (the '
+        'existing empty state)', (tester) async {
+      await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 14 * 60 + 30),
+        slots: const <BookingSlot>[],
+      );
+      expect(pickerState(tester).selectedDate, wednesday);
+      expect(pickerState(tester).selectedSlot, isNull);
+    });
+
+    testWidgets('seed day unavailable → no day selected, the seed MONTH is '
+        'visible', (tester) async {
+      final DateTime december = DateTime(2025, 12, 3);
+      final fake = await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: december, minute: 14 * 60 + 30),
+        slots: <BookingSlot>[kyivSlot(12, 14, 30)],
+        working: (DateTime d, String? _) => d != december,
+      );
+
+      expect(fake.callCount, 0);
+      expect(pickerState(tester).selectedDate, isNull);
+      expect(
+        tester
+            .widget<MonthCalendar>(
+              find.byKey(const Key('booking-month-calendar')),
+            )
+            .visibleMonth,
+        DateTime(2025, 12, 1),
+      );
+    });
+
+    // D4 — the seed is consumed once; a later day load never snaps to it.
+    testWidgets('a user day change after the seed never re-snaps', (
+      tester,
+    ) async {
+      final fake = await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 14 * 60 + 30),
+        slots: <BookingSlot>[wed(14, 30)],
+      );
+      expect(pickerState(tester).selectedSlot, wed(14, 30));
+
+      // Thursday offers its own 14:30 — a re-applied seed would pick it.
+      fake.slotsToReturn = <BookingSlot>[kyivSlot(13, 14, 30)];
+      await tester.tapCalendarDay(13);
+      await tester.pumpAndSettle();
+
+      expect(pickerState(tester).selectedDate, DateTime(2025, 11, 13));
+      expect(pickerState(tester).selectedSlot, isNull);
+      await openTimeScreen(tester);
+      expect(chipSelected(tester, kyivSlot(13, 14, 30)), isFalse);
+    });
+
+    testWidgets('a late seeded chip is scrolled into view on the time screen', (
+      tester,
+    ) async {
+      // A phone-sized viewport and a dense day, so 21:00 starts BELOW the
+      // fold (falsified: with the scroll disabled this test fails).
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final List<BookingSlot> day = <BookingSlot>[
+        for (int m = 8 * 60; m <= 21 * 60; m += 15) wed(m ~/ 60, m % 60),
+      ];
+      final BookingSlot late = wed(21, 0);
+      await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 21 * 60),
+        slots: day,
+      );
+      await openTimeScreen(tester);
+
+      expect(chipSelected(tester, late), isTrue);
+      final Rect chip = tester.getRect(find.byKey(chipKey(late)));
+      final Size screen =
+          tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(chip.top, greaterThanOrEqualTo(0));
+      expect(chip.bottom, lessThanOrEqualTo(screen.height));
+    });
+
+    // Audit-fix (mobile-security LOW): an `at=` past the 3-month horizon
+    // must not open (or select in) a month beyond it.
+    testWidgets('seed ~6 months out → the last horizon month, no day or '
+        'slot selected', (tester) async {
+      final DateTime farDay = DateTime(2026, 5, 13);
+      final fake = await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: farDay, minute: 14 * 60 + 30),
+        slots: <BookingSlot>[kyivSlot(12, 14, 30)],
+      );
+
+      expect(fake.callCount, 0, reason: 'no slots read past the horizon');
+      expect(pickerState(tester).selectedDate, isNull);
+      expect(pickerState(tester).selectedSlot, isNull);
+      expect(
+        tester
+            .widget<MonthCalendar>(
+              find.byKey(const Key('booking-month-calendar')),
+            )
+            .visibleMonth,
+        DateTime(2026, 2, 1),
+      );
+    });
+
+    // Audit-fix (mobile-perf LOW): the one-time scroll anchor must not
+    // reparent the selected chip, so a selection change keeps every chip's
+    // State (no remount, animations uncut).
+    testWidgets('a selection change on a seeded picker never remounts a chip', (
+      tester,
+    ) async {
+      final BookingSlot seeded = wed(14, 30);
+      final BookingSlot other = wed(16, 0);
+      await pumpSeeded(
+        tester,
+        seed: BookingCreateSeed(day: wednesday, minute: 14 * 60 + 30),
+        slots: <BookingSlot>[wed(10, 0), seeded, other],
+      );
+      await openTimeScreen(tester);
+      expect(chipSelected(tester, seeded), isTrue);
+
+      final State<SlotChip> seededBefore = tester.state(
+        find.byKey(chipKey(seeded)),
+      );
+      final State<SlotChip> otherBefore = tester.state(
+        find.byKey(chipKey(other)),
+      );
+
+      await tester.tap(find.byKey(chipKey(other)));
+      await tester.pumpAndSettle();
+
+      expect(chipSelected(tester, other), isTrue);
+      expect(chipSelected(tester, seeded), isFalse);
+      expect(
+        identical(tester.state(find.byKey(chipKey(seeded))), seededBefore),
+        isTrue,
+        reason: 'previously selected chip kept its State',
+      );
+      expect(
+        identical(tester.state(find.byKey(chipKey(other))), otherBefore),
+        isTrue,
+        reason: 'newly selected chip kept its State',
+      );
+    });
+
+    testWidgets('seed == null: nothing is preselected (unchanged picker)', (
+      tester,
+    ) async {
+      final fake = await pumpSeeded(
+        tester,
+        seed: null,
+        slots: <BookingSlot>[wed(14, 30)],
+      );
+      expect(fake.callCount, 0);
+      expect(pickerState(tester).selectedDate, isNull);
+      expect(
+        tester
+            .widget<MonthCalendar>(
+              find.byKey(const Key('booking-month-calendar')),
+            )
+            .visibleMonth,
+        DateTime(2025, 11, 1),
       );
     });
   });

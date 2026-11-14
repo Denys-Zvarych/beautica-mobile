@@ -2222,6 +2222,40 @@ final class FakeBackend {
   /// endpoint (mobile-qa, 2026-09-08).
   int deleteMyAccountCalls = 0;
 
+  /// Phase 489 QA — opt-in model of a SALON_OWNER's account lifecycle:
+  /// delete → re-register with the SAME email → a brand-new account that sees
+  /// none of the old data (user decision 2026-11-12). Off (default) = every
+  /// handler below is byte-identical to before.
+  ///
+  /// When on:
+  ///   • a SUCCESSFUL `DELETE /users/me` wipes the old account's server state
+  ///     ([mySalons], [mediaAvatarUrl], [masterProfessionalTitle]) and sets
+  ///     [ownerAccountDeleted];
+  ///   • `POST /auth/register` echoes the SENT email (not `new@beautica.ua`);
+  ///   • `POST /auth/verify-email` after such a register as SALON_OWNER issues
+  ///     a NEW owner identity ([reRegisteredOwnerJson], id `user-owner-2`,
+  ///     names from the register body) instead of `_masterUserJson`, and the
+  ///     owner `GET /users/me` + `POST /salons` (`ownerId`) use it.
+  ///
+  /// Body-level only (no status code changes), so it is safe to set after
+  /// construction.
+  bool modelOwnerAccountLifecycle = false;
+
+  /// Phase 489 QA — set by a successful `DELETE /users/me` while
+  /// [modelOwnerAccountLifecycle] is on.
+  bool ownerAccountDeleted = false;
+
+  /// Phase 489 QA — the re-registered owner's identity (see
+  /// [modelOwnerAccountLifecycle]); `null` until then.
+  Map<String, dynamic>? reRegisteredOwnerJson;
+
+  void _wipeDeletedOwnerAccount() {
+    ownerAccountDeleted = true;
+    mySalons.clear();
+    mediaAvatarUrl = null;
+    masterProfessionalTitle = null;
+  }
+
   /// When set (constructor-time — see [masterMeNotFound]'s identical note:
   /// `DioAdapter.onRoute` fixes a route's STATUS CODE at registration, only
   /// the BODY is resolved per request, and route wiring runs from THIS
@@ -4048,8 +4082,11 @@ final class FakeBackend {
   /// just tapped was drawn from the injected one. Same two-clock rule as
   /// [_workingDaysEnvelope]; no longer `static` because it now reads
   /// instance state.
-  Map<String, dynamic> _availableSlotsEnvelope() {
-    final DateTime day = kyivDayOf(serverNow);
+  ///
+  /// Phase 487 — [requestedDay] (a Kyiv date token) dates the slots on that day
+  /// instead; only the opt-in [masterOwnSlotsOnRequestedDate] path passes it.
+  Map<String, dynamic> _availableSlotsEnvelope({DateTime? requestedDay}) {
+    final DateTime day = requestedDay ?? kyivDayOf(serverNow);
     DateTime at(int hourUtc, int minute) =>
         DateTime.utc(day.year, day.month, day.day, hourUtc, minute);
     Map<String, dynamic> slot(DateTime start, DateTime end) =>
@@ -4092,6 +4129,18 @@ final class FakeBackend {
   /// (`…T13:00:00+03:00`) and the generated client normalises to UTC, so a UTC
   /// instant here is the same value the app would hold in production.
   List<(int, int)> availableSlotUtcStarts = const <(int, int)>[(7, 0), (11, 0)];
+
+  /// Phase 487 — the `date` query value (`YYYY-MM-DD`) of every
+  /// `GET /masters/{masterRowId}/slots` (the walk-in chain's own availability
+  /// read), in call order — the request log a seeded-create flow asserts
+  /// "exactly one read for the seed day" against.
+  final List<String> masterOwnSlotsDates = <String>[];
+
+  /// Phase 487 — when `true`, `GET /masters/{masterRowId}/slots` dates its
+  /// [availableSlotUtcStarts] on the REQUESTED `date` rather than on
+  /// `kyivDayOf(serverNow)`, so a flow can book a day other than today.
+  /// `false` (the default) keeps every pre-487 flow byte-identical.
+  bool masterOwnSlotsOnRequestedDate = false;
 
   /// PUBLIC working-days envelope for `master-aaa` — answers
   /// `GET /api/v1/masters/master-aaa/working-days?from=&to=` (Phase 14.14
@@ -5758,6 +5807,17 @@ final class FakeBackend {
   /// move this assignment back into a status-specific branch — keep it at
   /// the top of the shared route callback, before any dispatch.
   Map<String, dynamic>? lastMyBookingsQuery;
+
+  /// Phase 485 (mobile-qa) — the raw query map of EVERY `GET /bookings/me`
+  /// call, in order. Unlike [lastMyBookingsQuery] this is a request LOG, so a
+  /// flow can count exactly how many reads fetched one week's range.
+  final List<Map<String, dynamic>> myBookingsQueries = <Map<String, dynamic>>[];
+
+  /// Phase 485 (mobile-qa) — the raw query map (`from`/`to`) of EVERY
+  /// `GET /masters/{me|id}/effective-schedule` call, in order — the week
+  /// view's schedule request log (480 AC1: one schedule read per week).
+  final List<Map<String, dynamic>> masterEffectiveScheduleQueries =
+      <Map<String, dynamic>>[];
 
   /// The seeded booking's provider affiliation (phase 232). Defaults to the
   /// INDEPENDENT_MASTER shape every pre-existing flow already asserts against:
@@ -8166,7 +8226,9 @@ final class FakeBackend {
         lastRegisterBody = _decodeBody(req.data);
         return _ok(<String, dynamic>{
           'verificationRequired': true,
-          'email': 'new@beautica.ua',
+          'email': modelOwnerAccountLifecycle
+              ? lastRegisterBody!['email']
+              : 'new@beautica.ua',
         });
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -8192,6 +8254,24 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         verifyEmailCalls++;
         lastVerifyEmailEmail = _decodeBody(req.data)['email'] as String?;
+        final Map<String, dynamic>? reg = lastRegisterBody;
+        if (modelOwnerAccountLifecycle &&
+            ownerAccountDeleted &&
+            reg != null &&
+            reg['role'] == 'SALON_OWNER') {
+          ownerFirstName = reg['firstName'] as String? ?? '';
+          ownerLastName = reg['lastName'] as String? ?? '';
+          final Map<String, dynamic> fresh = <String, dynamic>{
+            'id': 'user-owner-2',
+            'email': lastVerifyEmailEmail ?? reg['email'],
+            'role': 'SALON_OWNER',
+            'firstName': ownerFirstName,
+            'lastName': ownerLastName,
+            'phoneNumber': reg['phoneNumber'],
+          };
+          reRegisteredOwnerJson = fresh;
+          return _authResponse(fresh);
+        }
         return _authResponse(_masterUserJson);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -8389,6 +8469,7 @@ final class FakeBackend {
           // Phase 137 — owner identity is mutable (see [ownerFirstName]).
           UserRole.salonOwner => _ok(<String, dynamic>{
             ...userJsonForRole(currentRole),
+            ...?reRegisteredOwnerJson,
             'firstName': ownerFirstName,
             'lastName': ownerLastName,
             // Phase 399 — the label lives on the shared `users` row, so the
@@ -8451,7 +8532,7 @@ final class FakeBackend {
             mySalons.add(
               withSeededSalonLocality(<String, dynamic>{
                 'id': newId,
-                'ownerId': 'user-owner-1',
+                'ownerId': reRegisteredOwnerJson?['id'] ?? 'user-owner-1',
                 'name': body['name'] as String? ?? '',
                 // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/
                 // `.oblastId` are non-null on the wire. `register_salon_
@@ -8671,6 +8752,7 @@ final class FakeBackend {
             if (deleteMyAccountFailureStatusCode != null) {
               return <String, dynamic>{'success': false, 'data': null};
             }
+            if (modelOwnerAccountLifecycle) _wipeDeletedOwnerAccount();
             return null;
           }),
       request: const Request(method: RequestMethods.delete),
@@ -9021,7 +9103,14 @@ final class FakeBackend {
           req.queryParameters,
           'serviceId',
         );
-        return _availableSlotsEnvelope();
+        // Phase 487 — the request log + the opt-in requested-day dating.
+        final String date = '${req.queryParameters['date']}';
+        masterOwnSlotsDates.add(date);
+        return _availableSlotsEnvelope(
+          requestedDay: masterOwnSlotsOnRequestedDate
+              ? DateTime.parse(date)
+              : null,
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -10116,15 +10205,17 @@ final class FakeBackend {
     ]) {
       _adapter.onRoute(
         path,
-        (server) => server.replyCallback(
-          200,
-          (req) => _okList(
+        (server) => server.replyCallback(200, (req) {
+          masterEffectiveScheduleQueries.add(
+            Map<String, dynamic>.from(req.queryParameters),
+          );
+          return _okList(
             _effectiveScheduleOverride ??
                 (deriveEffectiveScheduleFromWeekly
                     ? _weeklyEffectiveDays(req.queryParameters)
                     : const <dynamic>[]),
-          ),
-        ),
+          );
+        }),
         request: const Request(method: RequestMethods.get),
       );
     }
@@ -10585,6 +10676,7 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         getMyBookingsCalls++;
         lastMyBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
+        myBookingsQueries.add(Map<String, dynamic>.from(req.queryParameters));
         final bool asMaster = _asMasterFrom(
           Map<String, dynamic>.from(req.queryParameters),
         );

@@ -25,7 +25,12 @@ import 'master_bookings_flow_test.dart' as master_bookings;
 import 'guest_phone_tap_to_call_flow_test.dart' as guest_phone_tap_to_call;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
+import 'master_bookings_week_flow_test.dart' as master_bookings_week;
+import 'master_bookings_week_entrance_flow_test.dart'
+    as master_bookings_week_entrance;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
+import 'master_bookings_week_seeded_create_flow_test.dart'
+    as master_bookings_week_seeded_create;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
@@ -97,6 +102,7 @@ import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
+import 'owner_delete_account_flow_test.dart' as owner_delete_account;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'media_avatar_upload_flow_test.dart' as media_avatar_upload;
 import 'portfolio_data_layer_flow_test.dart' as portfolio_data_layer;
@@ -172,6 +178,25 @@ void main() {
   // identically in both resting states, follows a month page and survives the
   // collapse; and no ‹ › chevrons exist on this screen.
   group('master_bookings_week_rail_flow', master_bookings_week_rail.main);
+  // Phase 485 — the provider «Записи» week view: «3 дні» opens on the
+  // injected clock's week, a fling rests on a day boundary, the booking
+  // detail round trip and «День» read the same week (one request).
+  group('master_bookings_week_flow', master_bookings_week.main);
+  // Phase 486 — the week view's load moment: opening «Записи» plays the
+  // entrance once (not on a week step or «День»); reduced motion: no frame
+  // moves (Step 2.7 Rule 3b).
+  group(
+    'master_bookings_week_entrance_flow',
+    master_bookings_week_entrance.main,
+  );
+  // Phase 487 — an empty week-grid tap seeds the create wizard: guest →
+  // service → the picker preselects the tapped day + time (or the next later
+  // offered slot) → confirm books it; owner master-mode variant; a
+  // hand-typed `?at=` never bypasses the route guards (Step 2.7 Rule 3b).
+  group(
+    'master_bookings_week_seeded_create_flow',
+    master_bookings_week_seeded_create.main,
+  );
   // Phase 244 — the master booking timeline's working-hours window: a day
   // with no published hours shows the gray state (CTA → /schedule?date=,
   // pre-selected); a day with hours + a booking renders the bounded timeline
@@ -396,6 +421,7 @@ void main() {
   // owner swipes -> confirms -> a real DELETE /api/v1/salons/{salonId}
   // round trip -> lands back on the hub with the remaining salon.
   group('swipe_to_delete_salon_flow', swipe_to_delete_salon.main);
+  group('owner_delete_account_flow', owner_delete_account.main);
   // VelvetSnack AS A FEATURE (mobile-qa, Step 2.7 Rule 3b) — a real
   // failure-path error snack raised + auto-retired, a success snack
   // surviving the context.pop() that follows it, and single-slot

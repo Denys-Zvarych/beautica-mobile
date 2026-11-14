@@ -56,8 +56,8 @@ import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_tab_bar.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/week_time_grid.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/master_result_card.dart';
 import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
@@ -74,6 +74,7 @@ import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
+import 'support/week_grid_driver.dart';
 
 /// Pointer ids for [_rapidTaps] — far above the ids `WidgetTester` hands out,
 /// so a burst never collides with a gesture the tester itself has open.
@@ -307,24 +308,25 @@ Future<void> _openMyServicesViaNav(WidgetTester tester, GoRouter router) async {
   expect(find.byType(ServicesListScreen), findsOneWidget);
 }
 
-/// Independent master: «Мої записи» tile → today's timeline → booking-1 card →
-/// «Деталі запису». booking-1 must be seeded on the injected clock's Kyiv day.
+/// Independent master: «Мої записи» tile → this week's grid → booking-1 card
+/// → «Деталі запису». booking-1 must be seeded on the injected clock's Kyiv
+/// day.
+///
+/// Phase 485 — the card sits in the week grid (a horizontal day pager inside
+/// one vertical scroll): the shared week driver brings today's column into
+/// view, then `ensureVisible` scrolls the grid vertically to the card.
 Future<void> _openMasterBookingDetailViaNav(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('master-nav-tile-1')));
   await AppHarness.settle(tester);
   expect(find.byType(MasterBookingsScreen), findsOneWidget);
-  final Finder card = find.byKey(const Key('master-booking-card-booking-1'));
-  await tester.scrollUntilVisible(
-    card,
-    200,
-    scrollable: find
-        .descendant(
-          of: find.byType(BookingsTimelineGrid),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-    maxScrolls: 60,
+  await AppHarness.pumpUntilFound(tester, find.byType(WeekTimeGrid));
+  await selectWeekDay(
+    tester,
+    kyivToday(() => kFixedNow),
+    settle: AppHarness.settle,
   );
+  final Finder card = find.byKey(WeekTimeGrid.cardKey('booking-1'));
+  await tester.ensureVisible(card);
   await AppHarness.settle(tester);
   await tester.tap(card);
   await AppHarness.settle(tester);

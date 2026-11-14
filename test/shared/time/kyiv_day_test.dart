@@ -289,6 +289,101 @@ void main() {
       expect(kyivAddDays(DateTime(2026, 6, 15), 0), DateTime(2026, 6, 15));
     });
   });
+
+  // Phase 480 — the Monday key of the week view's range read.
+  group('kyivWeekStart returns the Monday date token of the ISO week', () {
+    test('a Monday is its own week start', () {
+      expect(kyivWeekStart(DateTime(2026, 7, 20)), DateTime(2026, 7, 20));
+    });
+
+    test('a Sunday steps back six calendar days', () {
+      expect(kyivWeekStart(DateTime(2026, 7, 26)), DateTime(2026, 7, 20));
+    });
+
+    test('the SPRING FORWARD Sunday (2026-03-29) resolves to its Monday at '
+        'midnight', () {
+      final DateTime monday = kyivWeekStart(DateTime(2026, 3, 29));
+      expect(monday, DateTime(2026, 3, 23));
+      expect(monday.hour, 0);
+    });
+
+    test('the FALL BACK Sunday (2026-10-25) resolves to its Monday at '
+        'midnight, and the next day starts the next week', () {
+      final DateTime monday = kyivWeekStart(DateTime(2026, 10, 25));
+      expect(monday, DateTime(2026, 10, 19));
+      expect(monday.hour, 0);
+      expect(kyivWeekStart(DateTime(2026, 10, 26)), DateTime(2026, 10, 26));
+    });
+
+    test('crosses a month / year boundary', () {
+      expect(kyivWeekStart(DateTime(2027, 1, 3)), DateTime(2026, 12, 28));
+    });
+  });
+
+  // The Kyiv zone (not the host's) decides these offsets, so every case
+  // below discriminates under TZ=UTC as well as TZ=Europe/Kyiv.
+  group('minutesSinceDayStart reads Kyiv WALL-CLOCK minutes, not elapsed '
+      'time (phase 482 DST fix)', () {
+    int minutesOn(int y, int m, int d, DateTime instant) =>
+        minutesSinceDayStart(instant, kyivMidnight(DateTime(y, m, d)));
+
+    test('spring forward 2026-03-29 (03:00 → 04:00): a 10:00 booking sits on '
+        'its 10:00 line — elapsed time would read 09:00', () {
+      // 10:00 EEST (+3) = 07:00Z; Kyiv midnight = 2026-03-28T22:00Z (EET),
+      // so ELAPSED is 9 h (540) and the wall clock is 10:00 (600).
+      expect(minutesOn(2026, 3, 29, DateTime.utc(2026, 3, 29, 7)), 600);
+    });
+
+    test('spring forward 2026-03-29: an instant before the switch is '
+        'unchanged', () {
+      // 02:30 EET (+2) = 00:30Z.
+      expect(minutesOn(2026, 3, 29, DateTime.utc(2026, 3, 29, 0, 30)), 150);
+    });
+
+    test('fall back 2026-10-25 (04:00 → 03:00): a 10:00 booking sits on its '
+        '10:00 line — elapsed time would read 11:00', () {
+      // 10:00 EET (+2) = 08:00Z; Kyiv midnight = 2026-10-24T21:00Z (EEST),
+      // so ELAPSED is 11 h (660) and the wall clock is 10:00 (600).
+      expect(minutesOn(2026, 10, 25, DateTime.utc(2026, 10, 25, 8)), 600);
+    });
+
+    test('fall back 2026-10-25: both passes of the repeated 03:30 read '
+        '03:30', () {
+      // 03:30 EEST = 00:30Z; 03:30 EET = 01:30Z.
+      expect(minutesOn(2026, 10, 25, DateTime.utc(2026, 10, 25, 0, 30)), 210);
+      expect(minutesOn(2026, 10, 25, DateTime.utc(2026, 10, 25, 1, 30)), 210);
+    });
+
+    test('a DST-day booking ending past midnight still exceeds 1440', () {
+      // 2026-10-26 01:15 EET = 2026-10-25T23:15Z.
+      expect(
+        minutesOn(2026, 10, 25, DateTime.utc(2026, 10, 25, 23, 15)),
+        1440 + 75,
+      );
+    });
+
+    test('non-DST day: identical to elapsed minutes, incl. >24 h, truncated '
+        'seconds and an instant just before midnight', () {
+      final tz.TZDateTime midnight = kyivMidnight(DateTime(2026, 11, 12));
+      for (final DateTime instant in <DateTime>[
+        DateTime.utc(2026, 11, 12, 8, 30), // 10:30 Kyiv
+        DateTime.utc(2026, 11, 12, 8, 30, 59), // seconds truncate
+        DateTime.utc(2026, 11, 12, 23, 15), // 01:15 next Kyiv day
+        DateTime.utc(2026, 11, 11, 21, 59, 30), // 23:59:30 the day before
+        DateTime.utc(2026, 11, 11, 21, 30), // 23:30 the day before
+      ]) {
+        expect(
+          minutesSinceDayStart(instant, midnight),
+          toBeauticaTime(instant).difference(midnight).inMinutes,
+          reason: '$instant',
+        );
+      }
+      expect(
+        minutesSinceDayStart(DateTime.utc(2026, 11, 12, 8, 30), midnight),
+        630,
+      );
+    });
+  });
 }
 
 /// `null` (run the test) when the HOST process zone's UTC offset differs

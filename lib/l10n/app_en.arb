@@ -3092,6 +3092,14 @@
   "@deleteAccountConfirmBodyAdmin": {
     "description": "Body copy of the delete-account confirm dialog for SALON_ADMIN. An admin has no calendar of their own (D3) and performs no bookings, so — unlike deleteAccountConfirmBody (CLIENT) and deleteAccountConfirmBodyMaster (SALON_MASTER / INDEPENDENT_MASTER) — this variant drops the bookings-cancelled sentence entirely rather than stating something untrue; the backend's StaffAccountSelfDeletionService confirms an admin's self-delete never checks or cancels any booking. Keeps only the irreversibility and data-loss sentences."
   },
+  "deleteAccountConfirmBodyOwner": "Your owner account will be permanently deleted: profile, photos and sign-in. Booking history in the deleted salons stays with clients, without your data. This action cannot be undone.",
+  "@deleteAccountConfirmBodyOwner": {
+    "description": "Phase 489 — body copy of the delete-account confirm dialog for a SALON_OWNER with no active salon. The deleted salons stay as ownerless rows so clients keep their booking history (B488 D2 = detach)."
+  },
+  "errOwnerHasActiveSalons": "Delete all your salons first",
+  "@errOwnerHasActiveSalons": {
+    "description": "Phase 489 — error snack when DELETE /users/me returns 409 OWNER_HAS_ACTIVE_SALONS (the owner still has an active salon)."
+  },
   "contactSupportTitle": "Contact us",
   "@contactSupportTitle": {
     "description": "App-bar title of the support / contact-us screen."
@@ -6041,6 +6049,10 @@
   "@masterBookingsTruncatedNotice": {
     "description": "Persistent notice on the master's «Мої записи» timeline when BookingsDayState.isTruncated — the day reports more bookings than fit in one page (locked decision 2026-07-18: no multi-page loop, surface the overflow instead of silently dropping bookings). Genuinely reachable, not defensive: the backend enforces no minimum service duration, so a day CAN exceed the backend's 100-row page."
   },
+  "masterBookingsWeekTruncatedNotice": "Not all of this week's bookings could be loaded — some may be missing. Refresh, or contact support.",
+  "@masterBookingsWeekTruncatedNotice": {
+    "description": "Phase 485 — persistent notice on the master's week view when BookingsWeekState.isTruncated: fewer rows were read than the server reported, either because the 10-page hard stop was hit (too many bookings) or because the server returned an empty page early. The copy covers both: some bookings may be missing."
+  },
   "bookingsDiscoveryBackSemantics": "Back",
   "@bookingsDiscoveryBackSemantics": {
     "description": "Accessibility label for the shared BookingsDiscoveryView header's back arrow (Phase 7.11), shown only when a host passes a non-null onBack (never on the master's own bottom-nav-tab-root screen, which passes null)."
@@ -7498,5 +7510,21 @@
   "updateRequiredBody": "This version of Beautica is no longer supported. Update it on Google Play to keep using bookings. Your account and bookings will be kept.",
   "updateRequiredButton": "Update",
   "updateRequiredPlayError": "Couldn't open Google Play. Open the Play Store and search for «Beautica» manually.",
-  "updateRequiredInstalledVersion": "Installed version {version}"
+  "updateRequiredInstalledVersion": "Installed version {version}",
+  "weekGridDayHeader": "{weekday} {day}",
+  "weekGridDayHeaderTodaySemantics": "{weekday} {day}, today",
+  "masterWeekBreakLabel": "Break",
+  "masterWeekCustomTimes": "Custom times · {count}",
+  "masterWeekHours": "{start}–{end}",
+  "masterWeekThisWeek": "This week",
+  "masterWeekNextWeek": "Next week",
+  "masterWeekPrevWeek": "Last week",
+  "masterWeekRelative": "{count, plural, =1{In 1 week} other{In {count} weeks}}",
+  "masterWeekAgo": "{count, plural, one{{count} week ago} other{{count} weeks ago}}",
+  "masterWeekViewDay": "Day",
+  "masterWeekViewThreeDays": "3 days",
+  "masterWeekTitleSemantics": "{range}, month calendar",
+  "masterWeekStripTodaySemantics": "today",
+  "masterWeekStripDayOffSemantics": "day off",
+  "masterWeekStripNoBookingsSemantics": "no bookings"
 }

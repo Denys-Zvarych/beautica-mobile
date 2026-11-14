@@ -56,7 +56,7 @@ import 'app_harness.dart';
 /// the distance or the duration. Do not reduce `steps` below 8 to save time —
 /// it does not save time, it produces a pager that never turns and a target
 /// chip/label that never mounts, surfacing as an unrelated-looking assertion
-/// failure or, in a caller that retries in a loop (see `_selectRailDay` in
+/// failure or, in a caller that retries in a loop (see `selectWeekDay` in
 /// the booking flows), a many-minute timeout.
 ///
 /// Does not include a trailing debounce-window pump — some callers need one

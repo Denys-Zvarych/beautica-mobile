@@ -25,6 +25,7 @@ import 'features/notifications/presentation/push_registration_notifier.dart';
 import 'features/notifications/presentation/unread_notifications_notifier.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
+import 'shared/widgets/release_error_box.dart';
 import 'shared/time/time_zones.dart';
 
 /// Beautica mobile entry point.
@@ -83,6 +84,10 @@ Future<void> main() async {
   // The dioProvider also calls this guard, but that fires lazily; this call
   // ensures the guard runs unconditionally on every startup path.
   AppConfig.assertSecureUrl();
+
+  // Release only: a failed subtree paints a compact themed box instead of
+  // Flutter's grey fill-the-parent ErrorWidget. Debug keeps the red screen.
+  installReleaseErrorWidget();
 
   // Load the IANA timezone database and pin the Beautica market zone
   // (Europe/Kyiv) BEFORE any booking/slot formatter runs. Booking instants are

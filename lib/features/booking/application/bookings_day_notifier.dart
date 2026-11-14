@@ -198,16 +198,10 @@
 // `LocalDate` in `Europe/Kyiv` — see `shared/formatters/api_date.dart`'s
 // header for why this repository call never `.toUtc()`s a bound.
 
-import 'dart:collection';
 import 'dart:developer';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-// `KeepAliveLink` is not part of `riverpod_annotation`'s show-list — it lives
-// on the dedicated advanced-API surface, `misc.dart` (mirrors
-// `package:riverpod/misc.dart`; imported via `flutter_riverpod`, an existing
-// direct dependency, rather than adding `riverpod` itself as one).
-import 'package:flutter_riverpod/misc.dart';
 // `ProviderListenable.select` (used below to narrow the `authProvider` watch
 // to the identity-bearing slice — mobile-security HIGH, 2026-07-19) is not
 // part of `riverpod_annotation`'s show-list either; every other caller of
@@ -229,6 +223,7 @@ import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
+import 'keep_alive_lru.dart';
 
 part 'bookings_day_notifier.g.dart';
 
@@ -278,191 +273,15 @@ const int _kMaxKeptDays = 3;
 /// Only [touch] and [clear] are meant to be called from outside this file;
 /// every other file should keep reaching this exclusively through
 /// [dayKeepAliveLruProvider], never by constructing one directly.
-class DayKeepAliveLru {
-  final LinkedHashMap<BookingsDayQuery, KeepAliveLink> _links =
-      LinkedHashMap<BookingsDayQuery, KeepAliveLink>();
-
-  /// Whether [query] currently holds one of the [_kMaxKeptDays] budget
-  /// slots — i.e. its [BookingsDayNotifier] element has built at least once
-  /// this session and has not (yet) been evicted.
-  ///
-  /// FIX A (mobile-debugger, this session) — the ONLY cheap, correct signal
-  /// callers outside this file have for "is this family member the kind of
-  /// PINNED-BUT-UNWATCHED element a bare `ref.invalidate` can race Riverpod's
-  /// own disposal scheduler on". See `booking_confirm_screen.dart`'s per-item
-  /// reschedule invalidation for the call site this exists for, and that
-  /// call site's doc for the full mechanism (verified against
-  /// `package:riverpod` 3.1.0's own `element.dart`/`scheduler.dart` source —
-  /// `ProviderScheduler._performDispose` RE-CHECKS `ref._keepAliveLinks` at
-  /// task-FIRE time, not at schedule time, so re-establishing a link
-  /// synchronously — before the scheduler's queued task ever runs — reliably
-  /// cancels a disposal already queued against this element).
-  ///
-  /// `true` does NOT distinguish "actively watched right now" from "pinned
-  /// but nobody is currently watching it" — [touch] runs unconditionally on
-  /// every [BookingsDayNotifier.build], regardless of whether anyone is
-  /// watching, so both states are indistinguishable from here and a caller
-  /// does not need to tell them apart: either way, an element that has built
-  /// at least once is exactly the case a bare invalidate can leave mid-
-  /// disposal. `false` means the query was never built this session (or was
-  /// already evicted-and-disposed) — invalidating THAT is a genuine no-op,
-  /// nothing to race.
-  bool contains(BookingsDayQuery query) => _links.containsKey(query);
-
-  /// Every query currently holding one of the [_kMaxKeptDays] budget slots —
-  /// i.e. every candidate [contains] would answer `true` for — snapshotted
-  /// into a `List` at call time.
-  ///
-  /// FIX (mobile-debugger, this track) — the ONE gap the FIX A signal above
-  /// left open: [contains] answers "is THIS ONE query pinned", which is
-  /// enough for a caller that already knows which date(s) it touched
-  /// (`invalidateBookingViewsAfterExternalDecline`,
-  /// `invalidateBookingViewsAfterProviderClose`,
-  /// `invalidateBookingsDayAfterAppointmentItemReschedule`). A caller doing a
-  /// BARE FAMILY invalidate — `invalidateBookingViewsAfterBookingCreated`,
-  /// which does not know which Kyiv day the rail is currently showing —
-  /// cannot name a query to check `contains` against; it needs the whole set
-  /// of currently-at-risk candidates, mirroring
-  /// `EffectiveScheduleRangeTracker.liveRanges`'s identical role for
-  /// `weekly_schedule_notifier.dart`'s own bare-family fan-out.
-  ///
-  /// Snapshotted (not a live view) for the same reason `liveRanges` is:
-  /// callers iterate this list while invalidating/reading members of the
-  /// family, and an eager `ref.read` back re-touches [touch] on the SAME
-  /// query — replacing, not adding, an entry — so the underlying map can
-  /// mutate mid-iteration if a caller iterated it directly.
-  List<BookingsDayQuery> get liveQueries => _links.keys.toList(growable: false);
-
-  /// Queries with at least one Riverpod listener RIGHT NOW — paused
-  /// (covered by an opaque route) or active, doesn't matter; only whether a
-  /// subscription exists at all.
-  ///
-  /// FIX (mobile-debugger, this track) — the signal [contains]/[liveQueries]
-  /// cannot provide for a BARE FAMILY caller. `invalidateBookingViewsAfter
-  /// BookingCreated` iterates every [liveQueries] member, and checking
-  /// [contains] against a query DRAWN FROM [liveQueries] itself is
-  /// tautological — every member of that list is, by construction, `true`
-  /// for [contains]. That collapsed "genuinely zero-listener, pinned only by
-  /// this LRU's keepAlive link" (the one case the eager `ref.read` in that
-  /// function exists to protect — see `booking_calendar_invalidation.dart`'s
-  /// doc) and "paused-but-mounted, e.g. covered by the create-booking
-  /// wizard" (a case Riverpod's own pause/resume machinery already recovers
-  /// — see `bookings_day_notifier.dart`'s file header, "What the queued
-  /// refresh does and does NOT guarantee") into the same `true`, so the
-  /// eager read fired for BOTH — including the one day the rail happens to
-  /// be showing at submit time, which is wrong per that function's own doc
-  /// contract.
-  ///
-  /// Backed by [markWatched]/[markUnwatched], wired from
-  /// [BookingsDayNotifier.build] via `ref.onAddListener`/`onRemoveListener`
-  /// — those fire on raw listener-COUNT changes only (verified against
-  /// `package:riverpod` 3.1.0's `element.dart::_onChangeSubscription`: the
-  /// add/remove callbacks key off `listenerCount`, while `onCancel`/
-  /// `onResume` key off `isActive`, which pause/resume toggle without
-  /// touching `listenerCount`) — so pausing/resuming a covered consumer
-  /// never touches this map, only a genuine subscribe/unsubscribe does.
-  ///
-  /// A REFERENCE COUNT, not a `Set<BookingsDayQuery>` (mobile-qa LOW, this
-  /// track — empirically probed, not guessed: `bookings_day_notifier_test
-  /// .dart`'s "isWatched contract" group's PROBE case). A membership `Set`
-  /// cannot survive `ProviderContainer.read` firing while a REAL listener is
-  /// already attached to the SAME query, because `read<StateT>` is not the
-  /// cheap synchronous peek it looks like —
-  /// `package:riverpod/src/core/provider_container.dart::read` is LITERALLY
-  /// `final sub = listen(provider, (_, _) {}); ...; sub.close();`: every
-  /// `ref.read(bookingsDayProvider(query))` — including the "plain sync
-  /// read, no `.future`" ones this file's four fan-out call sites all use
-  /// (`booking_calendar_invalidation.dart`) — opens and immediately closes
-  /// its OWN transient dependent subscription on the SAME element the real
-  /// listener is attached to, hitting `markWatched` then `markUnwatched` in
-  /// the same synchronous step. Against a `Set`, that transient pair leaves
-  /// `_watched` NOT containing `query` afterwards regardless of the real
-  /// listener still being open — `Set.add` followed by `Set.remove` always
-  /// nets to "absent". Against a count, the same pair nets to a no-op
-  /// (+1 then -1), because the real listener's own earlier `markWatched`
-  /// already holds the count above zero — the transient pair can only ever
-  /// return it to where it started, never take it below the real listeners
-  /// actually attached. Verified against the probe directly: forcing this
-  /// back to a `Set` reproduces `isWatched == false` immediately after
-  /// `invalidate` + a plain `read`, with the real `sub` from the test's own
-  /// `container.listen` still open and never closed.
-  final Map<BookingsDayQuery, int> _watched = <BookingsDayQuery, int>{};
-
-  /// Whether [query] currently has at least one live Riverpod subscription
-  /// (paused or active) — see [_watched]'s doc. `false` means either the
-  /// query was never built this session, OR it built and every subscriber
-  /// has since unsubscribed, leaving it pinned by [touch]'s keepAlive link
-  /// alone: exactly the "genuinely zero-listener" case
-  /// [invalidateBookingViewsAfterBookingCreated] must eager-read to avoid
-  /// racing Riverpod's queued disposal.
-  bool isWatched(BookingsDayQuery query) => (_watched[query] ?? 0) > 0;
-
-  /// Records that [query] gained a live subscription. Called from
-  /// [BookingsDayNotifier.build] via `ref.onAddListener` — including for a
-  /// transient subscription `ProviderContainer.read` opens and closes
-  /// internally (see [_watched]'s doc), which is exactly why this increments
-  /// a count instead of setting a flag.
-  void markWatched(BookingsDayQuery query) =>
-      _watched.update(query, (int count) => count + 1, ifAbsent: () => 1);
-
-  /// Records that [query] lost a live subscription. Called from
-  /// [BookingsDayNotifier.build] via `ref.onRemoveListener` — see
-  /// [markWatched]'s doc on why a transient `ProviderContainer.read` firing
-  /// this is expected and harmless: it only ever undoes its own paired
-  /// [markWatched], never a real listener's.
-  void markUnwatched(BookingsDayQuery query) {
-    final int? count = _watched[query];
-    if (count == null) return;
-    if (count <= 1) {
-      _watched.remove(query);
-    } else {
-      _watched[query] = count - 1;
-    }
-  }
-
-  void touch(BookingsDayQuery query, KeepAliveLink link) {
-    // A rebuild of a query already tracked (e.g. the error state's «retry»
-    // invalidating the SAME query) replaces the link instead of leaking a
-    // second one for it.
-    _links.remove(query)?.close();
-    _links[query] = link;
-    // `LinkedHashMap` iterates in insertion order, so the first key is the
-    // least-recently-touched one once every touch above re-inserts at the
-    // end.
-    while (_links.length > _kMaxKeptDays) {
-      _links.remove(_links.keys.first)?.close();
-    }
-  }
-
-  /// Closes every held [KeepAliveLink] and forgets all tracked queries.
-  ///
-  /// Called from [AuthNotifier.logout] (mobile-security HIGH, 2026-07-19) as
-  /// a deterministic sweep of THIS class's own bookkeeping — see the file
-  /// header's "Session-boundary PII" section for the full reasoning,
-  /// verified against Riverpod's own disposal internals. It is NOT what
-  /// reclaims an unwatched member's cached PII: [BookingsDayNotifier.build]'s
-  /// `authProvider` watch already does that on its own, for both the watched
-  /// and unwatched case, the moment the identity changes (`invalidateSelf()`
-  /// unconditionally severs every `KeepAliveLink` an element holds and queues
-  /// either its disposal or a rebuild — never left lazily pending on a future
-  /// read). What [clear] actually prevents is [_links] here accumulating
-  /// "zombie" entries: `runOnDispose()` detaches a link from the Riverpod
-  /// element's `Ref`, never from this map, so without this sweep a
-  /// logged-out query's slot would keep pointing at an already-severed link —
-  /// silently wasting one of [_kMaxKeptDays] budget slots — until a future
-  /// [touch] for that same query happens to overwrite it.
-  void clear() {
-    for (final KeepAliveLink link in _links.values) {
-      link.close();
-    }
-    _links.clear();
-    // `runOnDispose` (triggered for every element by the same
-    // `authProvider`-driven invalidation this sweeps after) severs the
-    // `KeepAliveLink`s this class holds but never touches `_watched` either
-    // — mirrors the "zombie entry" reasoning above for `_links`, just for
-    // the listener-tracking set instead of the link map.
-    _watched.clear();
-  }
+///
+/// Phase 480 — the bookkeeping itself now lives in the generic
+/// [KeepAliveLru] (`keep_alive_lru.dart`), shared with the week notifier;
+/// this class is `KeepAliveLru<BookingsDayQuery>` at capacity
+/// [_kMaxKeptDays], byte-identical to the original body. Kept as a named
+/// subclass (not a typedef) so existing test doubles that `extends` /
+/// `implements DayKeepAliveLru` keep compiling unchanged.
+class DayKeepAliveLru extends KeepAliveLru<BookingsDayQuery> {
+  DayKeepAliveLru() : super(capacity: _kMaxKeptDays);
 }
 
 /// Container-scoped home for [DayKeepAliveLru] — see that class's doc for

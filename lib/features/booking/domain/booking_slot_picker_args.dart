@@ -71,6 +71,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
+import 'booking_create_seed.dart';
 import 'create_master_booking_request.dart';
 
 part 'booking_slot_picker_args.freezed.dart';
@@ -218,5 +219,12 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// `RouteNames.ownerMasterBookings`, since `/master/*` would bounce a
     /// SALON_OWNER. Inert on every non-walk-in path.
     String? returnRoute,
+
+    /// Phase 487 — the empty week-grid tap's day + time hint
+    /// ([BookingCreateSeed]). `SlotDateScreen` applies it ONCE: opens the
+    /// seed month, selects the seed day when bookable, then the matching (or
+    /// nearest offered) slot. `null` (the default, every other caller and the
+    /// (+) path) keeps the picker's unseeded behaviour exactly.
+    BookingCreateSeed? seed,
   }) = _BookingSlotPickerArgs;
 }

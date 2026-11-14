@@ -36,6 +36,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
 import 'package:beautica_mobile/features/user/data/user_repository.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -102,6 +104,25 @@ class _ResolvingAuthenticatedAs extends AuthNotifier {
   }
 }
 
+/// Phase 489 — [mySalonsProvider] stub: each `build()` (first load and every
+/// invalidate) takes the next answer from [_answers] (the last one repeats)
+/// and is counted, so a test can prove the 409 path reloaded the list.
+class _CountingMySalons extends MySalons {
+  _CountingMySalons(this._answers);
+
+  final List<List<Salon>> _answers;
+  static int builds = 0;
+
+  @override
+  Future<List<Salon>> build() async {
+    final int i = builds < _answers.length ? builds : _answers.length - 1;
+    builds++;
+    return _answers[i];
+  }
+}
+
+const Salon _activeSalon = Salon(id: 'salon-1', name: 'Салон');
+
 Finder get _rowFinder => find.byKey(const Key('row-delete-account'));
 Finder get _dividerFinder =>
     find.byKey(const Key('account-settings-delete-account-divider'));
@@ -132,7 +153,10 @@ void main() {
       });
     }
 
-    testWidgets('salonOwner session → row AND divider hidden', (tester) async {
+    testWidgets('salonOwner WITH an active salon → row AND divider hidden', (
+      tester,
+    ) async {
+      _CountingMySalons.builds = 0;
       await tester.pumpApp(
         const SettingsScreen(),
         overrides: [
@@ -141,12 +165,40 @@ void main() {
           ),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          mySalonsProvider.overrideWith(
+            () => _CountingMySalons(<List<Salon>>[
+              <Salon>[_activeSalon],
+            ]),
+          ),
         ],
       );
       await tester.pumpAndSettle();
 
+      expect(_CountingMySalons.builds, 1, reason: 'the list did resolve');
       expect(_rowFinder, findsNothing);
       expect(_dividerFinder, findsNothing);
+    });
+
+    testWidgets('salonOwner with NO active salon → row AND divider render '
+        '(phase 489)', (tester) async {
+      _CountingMySalons.builds = 0;
+      await tester.pumpApp(
+        const SettingsScreen(),
+        overrides: [
+          authProvider.overrideWith(
+            () => _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          ),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          mySalonsProvider.overrideWith(
+            () => _CountingMySalons(<List<Salon>>[<Salon>[]]),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(_rowFinder, findsOneWidget);
+      expect(_dividerFinder, findsOneWidget);
     });
 
     testWidgets('Unauthenticated session → row AND divider hidden', (
@@ -668,6 +720,166 @@ void main() {
 
       await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
       await tester.pumpAndSettle();
+    });
+  });
+
+  group('SettingsScreen delete-account row — SALON_OWNER with no active '
+      'salon (phase 489)', () {
+    GoRouter router() => GoRouter(
+      initialLocation: RouteNames.settings,
+      redirect: (context, state) => null,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.settings,
+          builder: (_, _) => const SettingsScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.login,
+          builder: (_, _) =>
+              const Scaffold(body: SizedBox(key: Key('stub-login'))),
+        ),
+      ],
+    );
+
+    Future<GoRouter> pumpOwner(
+      WidgetTester tester, {
+      required _ResolvingAuthenticatedAs auth,
+      required FakeUserRepository userRepo,
+      required List<List<Salon>> salonAnswers,
+    }) async {
+      _CountingMySalons.builds = 0;
+      final r = router();
+      addTearDown(r.dispose);
+      await tester.pumpRoutedApp(
+        r,
+        overrides: <Object>[
+          authProvider.overrideWith(() => auth),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          userRepositoryProvider.overrideWithValue(userRepo),
+          mySalonsProvider.overrideWith(() => _CountingMySalons(salonAnswers)),
+        ],
+      );
+      await tester.pumpAndSettle();
+      return r;
+    }
+
+    Future<void> openDialog(WidgetTester tester) async {
+      await tester.ensureVisible(_rowFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(_rowFinder);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the dialog shows the OWNER body, not any other role copy', (
+      tester,
+    ) async {
+      await pumpOwner(
+        tester,
+        auth: _ResolvingAuthenticatedAs(_userWith(UserRole.salonOwner)),
+        userRepo: FakeUserRepository(),
+        salonAnswers: <List<Salon>>[<Salon>[]],
+      );
+      await openDialog(tester);
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.deleteAccountConfirmBodyOwner), findsOneWidget);
+      expect(find.text(l10n.deleteAccountConfirmBody), findsNothing);
+      expect(find.text(l10n.deleteAccountConfirmBodyMaster), findsNothing);
+      expect(find.text(l10n.deleteAccountConfirmBodyAdmin), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-delete-account-cancel')));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('confirm → deleteMyAccount once → forced logout → login', (
+      tester,
+    ) async {
+      final auth = _ResolvingAuthenticatedAs(_userWith(UserRole.salonOwner));
+      final userRepo = FakeUserRepository();
+      await pumpOwner(
+        tester,
+        auth: auth,
+        userRepo: userRepo,
+        salonAnswers: <List<Salon>>[<Salon>[]],
+      );
+      await openDialog(tester);
+
+      await tester.tap(find.byKey(const Key('btn-delete-account-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(userRepo.deleteMyAccountCalls, 1);
+      expect(auth.logoutCalls, 1);
+      expect(find.byKey(const Key('stub-login')), findsOneWidget);
+    });
+
+    testWidgets('409 OWNER_HAS_ACTIVE_SALONS → snack, session kept, salon '
+        'list reloaded and the row hidden again', (tester) async {
+      final auth = _ResolvingAuthenticatedAs(_userWith(UserRole.salonOwner));
+      final userRepo = FakeUserRepository()
+        ..deleteMyAccountError =
+            const AccountDeleteOwnerHasActiveSalonsFailure();
+      await pumpOwner(
+        tester,
+        auth: auth,
+        userRepo: userRepo,
+        // First load: empty (row offered). Reload after the 409: the
+        // salon the server knows about.
+        salonAnswers: <List<Salon>>[
+          <Salon>[],
+          <Salon>[_activeSalon],
+        ],
+      );
+      expect(_CountingMySalons.builds, 1);
+      await openDialog(tester);
+
+      await tester.tap(find.byKey(const Key('btn-delete-account-confirm')));
+      await tester.pump();
+      await pumpVelvetSnackIn(tester);
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expectVelvetSnack(
+        l10n.errOwnerHasActiveSalons,
+        variant: VelvetSnackVariant.error,
+      );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(userRepo.deleteMyAccountCalls, 1);
+      expect(auth.logoutCalls, 0, reason: 'the session must stay');
+      expect(find.byKey(const Key('stub-login')), findsNothing);
+
+      await pumpPastVelvetSnack(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        _CountingMySalons.builds,
+        2,
+        reason: 'the 409 must invalidate mySalonsProvider exactly once',
+      );
+      expect(_rowFinder, findsNothing);
+      expect(_dividerFinder, findsNothing);
+    });
+
+    testWidgets('a NON-owner failure does not reload the salon list', (
+      tester,
+    ) async {
+      final userRepo = FakeUserRepository()
+        ..deleteMyAccountError = const NetworkFailure();
+      await pumpOwner(
+        tester,
+        auth: _ResolvingAuthenticatedAs(_userWith(UserRole.salonOwner)),
+        userRepo: userRepo,
+        salonAnswers: <List<Salon>>[<Salon>[]],
+      );
+      await openDialog(tester);
+
+      await tester.tap(find.byKey(const Key('btn-delete-account-confirm')));
+      await tester.pump();
+      await pumpVelvetSnackIn(tester);
+      await pumpPastVelvetSnack(tester);
+      await tester.pumpAndSettle();
+
+      expect(_CountingMySalons.builds, 1);
+      expect(_rowFinder, findsOneWidget);
     });
   });
 }

@@ -29,6 +29,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
+import '../domain/booking_create_seed.dart';
 import '../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'widgets/booking_top_bar.dart';
 import 'widgets/booking_wizard_steps.dart' show ClientStep, toE164UaPhone;
@@ -36,13 +37,20 @@ import 'widgets/booking_wizard_steps.dart' show ClientStep, toE164UaPhone;
 /// «Новий запис» step 1 — collects the walk-in guest's identity
 /// (ім'я/прізвище/телефон) via the shared [ClientStep].
 class WalkInGuestStepScreen extends ConsumerStatefulWidget {
-  const WalkInGuestStepScreen({super.key, this.servicesRoute});
+  const WalkInGuestStepScreen({super.key, this.servicesRoute, this.seed});
 
   /// Phase 383 (24.1f) — where «Далі» pushes the service step. `null` (the
   /// default) keeps [RouteNames.masterBookingNewServices]; the owner
   /// master-mode mount passes [RouteNames.ownerMasterBookingNewServices] so
   /// the chain stays inside the owner shell's `serviceTargetProvider` scope.
   final String? servicesRoute;
+
+  /// Phase 487 — the empty week-grid tap's day + time hint, parsed by the
+  /// route from its `at` query parameter. Forwarded verbatim as `?at=` on
+  /// the push to the service step (never as `extra` — the [WalkInGuest]
+  /// extra contract is unchanged). `null` (the default, the (+) path) pushes
+  /// exactly today's location.
+  final BookingCreateSeed? seed;
 
   @override
   ConsumerState<WalkInGuestStepScreen> createState() =>
@@ -91,7 +99,10 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
     if (firstName.isEmpty || lastName.isEmpty) return;
 
     context.pushOnce(
-      widget.servicesRoute ?? RouteNames.masterBookingNewServices,
+      withBookingCreateSeed(
+        widget.servicesRoute ?? RouteNames.masterBookingNewServices,
+        widget.seed,
+      ),
       extra: WalkInGuest(name: firstName, surname: lastName, phone: phone),
     );
   }

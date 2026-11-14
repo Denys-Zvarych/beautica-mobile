@@ -443,6 +443,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/price_tag.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/widgets/fixed_lines_text.dart';
 
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
@@ -507,6 +508,8 @@ class MasterBookingCard extends StatefulWidget {
     this.showMasterAttribution = false,
     this.dense = false,
     this.laneWidth,
+    this.column = false,
+    this.fillServices = false,
   }) : assert(
          onComplete == null || now != null,
          'A caller that offers «Виконано» must also supply `now` (from '
@@ -516,6 +519,11 @@ class MasterBookingCard extends StatefulWidget {
          !(dense && showMasterAttribution),
          'The dense (salon-board) layout has no master-attribution row — the '
          'board\'s columns are already per master.',
+       ),
+       assert(
+         !(column && dense),
+         'The column (week «3 дні») density and the dense (salon-board) '
+         'layout are mutually exclusive.',
        );
 
   final Booking booking;
@@ -711,7 +719,7 @@ class MasterBookingCard extends StatefulWidget {
   ///
   /// Heights: [denseCompactNaturalHeight] / [denseFullNaturalHeight] feed
   /// [occupiedHeightFor]`(dense: true)` and are EXACT for any content: the
-  /// client name always occupies a reserved ONE-line slot ([_FixedLinesText];
+  /// client name always occupies a reserved ONE-line slot ([FixedLinesText];
   /// the full name, else the first name only, else ellipsized) and
   /// the full layout's service gets the same slot (the compact service is a
   /// single ellipsized line), so nothing can wrap past the prediction.
@@ -727,6 +735,52 @@ class MasterBookingCard extends StatefulWidget {
   /// padding and leading/trailing mark from this width and measures the two
   /// candidates with a `TextPainter` (`_denseDisplayName`).
   final double? laneWidth;
+
+  /// Phase 481 — the «3 дні» NARROW-COLUMN density (~100 dp wide), ported
+  /// from the MasterWeekBookings preview's `WeekBookingBlock`. ADDITIVE:
+  /// `false` (the default, every caller before this phase) renders exactly
+  /// as before.
+  ///
+  /// Derived from the MICRO layout, not a new card: same base fill,
+  /// `accent @ 0.38` 1.5 dp border and press feedback. Changed for the
+  /// column:
+  ///  * the lift is [VelvetShadows.columnCard] (same halo, blur 4 not 10) —
+  ///    dense grids re-rasterise every card's blur per scroll frame;
+  ///  * radius [VelvetRadii.field] (16), not `card` (24) — 24 on a 34 dp
+  ///    block makes a pill and eats the stripe;
+  ///  * the status DOT becomes a 3 dp left STRIPE (same
+  ///    [BookingStatusVisual] table);
+  ///  * content is chosen by the height the block is GIVEN at the live text
+  ///    scale, never by shrinking type: range / first name / services →
+  ///    range / name → one line «10:00–10:30 Олена». The time is always the
+  ///    start–end range ([formatSlotTimeRange]). Nothing below 10 sp
+  ///    (`VelvetText.weekBlock*`);
+  ///  * cancelled / declined: name struck through and muted, faded border
+  ///    and stripe, no lift.
+  ///
+  /// The block reads the height it is laid out at (a `LayoutBuilder`), so a
+  /// column card is NOT intrinsic-safe — it is meant for the week grid,
+  /// which places it at an exact height. [minHeight] is still only a floor.
+  /// Unbounded height renders the three-line layout with one service line.
+  ///
+  /// PLACEMENT CONTRACT (phase 482 week grid): put a column card under a
+  /// `Positioned` with both `top` and `height` (or a tight `SizedBox`) —
+  /// NEVER under `IntrinsicHeight` / `IntrinsicWidth` or an intrinsic table
+  /// column, where its `LayoutBuilder` throws in debug ("LayoutBuilder does
+  /// not support returning intrinsic dimensions"). Only a TIGHT height lets
+  /// [fillServices] take every line; a loose one keeps one service line.
+  final bool column;
+
+  /// Phase 481 — the services line takes EVERY whole line of height left
+  /// (ellipsized on the last) instead of one. ADDITIVE and opt-in: `false`
+  /// keeps one service line (archive, salon board, declared-time list).
+  ///
+  /// On the [column] density it fills the height the block is given. On the
+  /// full / compact bodies it applies only when the card is laid out at a
+  /// TIGHT height (the week grid's «День» slot); any other parent — a list,
+  /// a loose `Stack` — keeps the shipped one line, so the card never
+  /// stretches to fill a loose parent. Ignored on [dense] and micro bodies.
+  final bool fillServices;
 
   /// Horizontal space a DENSE card spends BESIDE its client name: border,
   /// padding and the avatar (full) or status dot (compact), gaps included. The
@@ -969,16 +1023,21 @@ class MasterBookingCard extends StatefulWidget {
   ///
   /// [dense] selects the salon-board naturals ([denseFullNaturalHeight] /
   /// [denseCompactNaturalHeight]); the layout THRESHOLDS are shared.
-  static double occupiedHeightFor(double minHeight, {bool dense = false}) {
-    final double natural;
+  static double occupiedHeightFor(double minHeight, {bool dense = false}) =>
+      math.max(minHeight, naturalHeightFor(minHeight, dense: dense));
+
+  /// Phase 482 — the natural content height, at textScaler 1.0, of the body
+  /// [minHeight] selects (micro / compact / full, [dense] or not) — the
+  /// `natural` term of [occupiedHeightFor], exposed so the week grid's «День»
+  /// column can scale it by the live text scale before placing the card at a
+  /// tight height. Same thresholds, same numbers.
+  static double naturalHeightFor(double minHeight, {bool dense = false}) {
     if (minHeight >= fullLayoutMinHeight) {
-      natural = dense ? denseFullNaturalHeight : fullLayoutNaturalHeight;
+      return dense ? denseFullNaturalHeight : fullLayoutNaturalHeight;
     } else if (minHeight < microLayoutMaxHeight) {
-      natural = microLayoutNaturalHeight;
-    } else {
-      natural = dense ? denseCompactNaturalHeight : estimatedNaturalHeight;
+      return microLayoutNaturalHeight;
     }
-    return math.max(minHeight, natural);
+    return dense ? denseCompactNaturalHeight : estimatedNaturalHeight;
   }
 
   @override
@@ -1048,6 +1107,11 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// short-circuit in `updateChild`.
   bool? _fullBodyContentCacheAttribution;
   bool? _fullBodyContentCacheDense;
+
+  /// Whether [_fullBodyContent] was built filling the services line
+  /// ([MasterBookingCard.fillServices] at a tight height) — part of the key,
+  /// since it changes the subtree's shape.
+  bool? _fullBodyContentCacheFill;
   double? _fullBodyContentCacheLaneWidth;
   double? _fullBodyContentCacheScale;
 
@@ -1129,6 +1193,56 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       width: _kBorderWidth,
     ),
   );
+
+  /// [MasterBookingCard.column] decorations — the preview's
+  /// `WeekBookingBlock` recipe: [VelvetRadii.field] (16), the same border and
+  /// a lift; pressed drops the lift; cancelled / declined fade the border to
+  /// 0.18 and never lift. The lift is [VelvetShadows.columnCard], the
+  /// low-blur sibling of `borderedCard` (phase 482 perf audit: ~56 column
+  /// cards re-rasterise their blur every scroll frame on Impeller).
+  static final BoxDecoration _columnDecorationUnpressed = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.field),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: _kBorderAlpha),
+      width: _kBorderWidth,
+    ),
+    boxShadow: VelvetShadows.columnCard,
+  );
+  static final BoxDecoration _columnDecorationPressed = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.field),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: _kBorderAlpha),
+      width: _kBorderWidth,
+    ),
+  );
+  static final BoxDecoration _columnDecorationGone = BoxDecoration(
+    color: BrandColors.base,
+    borderRadius: BorderRadius.circular(VelvetRadii.field),
+    border: Border.all(
+      color: BrandColors.accent.withValues(alpha: _kColumnGoneBorderAlpha),
+      width: _kBorderWidth,
+    ),
+  );
+  static const double _kColumnGoneBorderAlpha = 0.18;
+
+  /// Column stripe: 3 dp wide; a cancelled / declined block fades it.
+  static const double _kColumnStripeWidth = 3;
+  static const double _kColumnGoneStripeAlpha = 0.55;
+
+  /// Column inner padding (preview): stripe 3 + gap 3 on the left, 2 dp on
+  /// the right and vertically — buys the «10:00–11:30» range its ~82 dp at
+  /// 1.3× and keeps a 30-minute block on range + name at 1.0 and 1.3.
+  static const EdgeInsets _kColumnPadding = EdgeInsets.fromLTRB(
+    VelvetSpacing.xs + 2,
+    VelvetSpacing.xs / 2,
+    VelvetSpacing.xs / 2,
+    VelvetSpacing.xs / 2,
+  );
+
+  /// Gap between the name and the services line (preview).
+  static const double _kColumnServiceGap = 1;
 
   /// The height, in dp, at or above which [build] switches from the
   /// compact grid to the fuller divided layout — see this file's
@@ -1252,6 +1366,11 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     final String clientName = b.clientName ?? l10n.bookingDetailGuestClient;
 
     final _MasterCardLayout layout = _layout;
+    final bool column = widget.column;
+    // Column-only data, resolved ONCE per build and shared by the semantics
+    // value and the body (mobile-perf INFO, phase 481 audit). `null` on every
+    // other density, which computes nothing extra.
+    final _ColumnData? col = column ? _columnData(b, l10n) : null;
 
     return Semantics(
       button: true,
@@ -1260,7 +1379,11 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
       // the a11y channel rather than disappearing — see the class doc's "WHAT
       // IS DROPPED, AND WHERE IT WENT". `null` on the other two layouts, whose
       // semantics are unchanged.
-      value: layout == _MasterCardLayout.micro && b.showsPrice
+      // The column density shows no status label (stripe only), so the
+      // range and the status label move to the a11y channel.
+      value: col != null
+          ? '${col.range}, ${col.label}'
+          : layout == _MasterCardLayout.micro && b.showsPrice
           ? b.priceLabel
           : null,
       child: GestureDetector(
@@ -1272,11 +1395,19 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           widget.onTap();
         },
         child: AnimatedScale(
-          scale: _pressed ? 0.99 : 1,
+          scale: _pressed ? (column ? 0.98 : 0.99) : 1,
           duration: const Duration(milliseconds: 110),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            decoration: _pressed ? _decorationPressed : _decorationUnpressed,
+            decoration: column
+                ? _columnDecoration(b)
+                : _pressed
+                ? _decorationPressed
+                : _decorationUnpressed,
+            // No clip, on any density: the column stripe clips itself to
+            // the rounded border ([_ColumnStripeClipper]), so the card
+            // itself stays unclipped (mobile-perf LOW, phase 481 audit).
+            clipBehavior: Clip.none,
             // A FLOOR, not an exact size — see the class doc's [minHeight]
             // section. `constraints` sits OUTSIDE the padding below, in
             // `Container`'s own build order, so the decorated box (not just
@@ -1293,25 +1424,191 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             // `LayoutBuilder`", for why this reads [minHeight] itself
             // rather than the box's resolved `BoxConstraints` at build
             // time.
-            padding: layout == _MasterCardLayout.full
+            padding: column
+                ? EdgeInsets.zero
+                : layout == _MasterCardLayout.full
                 ? (widget.dense ? _denseFullPadding : _fullPadding)
                 : _compactPadding,
-            child: switch (layout) {
-              // `l10n` is passed down rather than re-resolved inside: the
-              // additive «Виконано»/«Відгук» slots each need a label, and an
-              // `AppLocalizations.of(context)` per slot repeated the lookup
-              // this method already did — twice on a row that stacks both
-              // (mobile-perf INFO, 2026-08-17).
-              _MasterCardLayout.full => _buildFullBody(b, clientName, l10n),
-              _MasterCardLayout.compact =>
-                widget.dense
-                    ? _buildDenseCompactBody(b, clientName)
-                    : _buildCompactBody(b, clientName),
-              _MasterCardLayout.micro => _buildMicroBody(b),
-            },
+            child: col != null
+                ? _buildColumnBody(b, clientName, col)
+                : _wantsServiceFill(layout)
+                ? LayoutBuilder(
+                    builder: (BuildContext context, BoxConstraints c) => _body(
+                      layout,
+                      b,
+                      clientName,
+                      l10n,
+                      fill: c.hasTightHeight && c.maxHeight.isFinite,
+                    ),
+                  )
+                : _body(layout, b, clientName, l10n, fill: false),
           ),
         ),
       ),
+    );
+  }
+
+  /// The full / compact / micro switch. `fill` is
+  /// [MasterBookingCard.fillServices] resolved against a tight parent height
+  /// — always `false` for a default card, whose output is unchanged.
+  Widget _body(
+    _MasterCardLayout layout,
+    Booking b,
+    String clientName,
+    AppLocalizations l10n, {
+    required bool fill,
+  }) {
+    return switch (layout) {
+      // `l10n` is passed down rather than re-resolved inside: the
+      // additive «Виконано»/«Відгук» slots each need a label, and an
+      // `AppLocalizations.of(context)` per slot repeated the lookup
+      // this method already did — twice on a row that stacks both
+      // (mobile-perf INFO, 2026-08-17).
+      _MasterCardLayout.full => _buildFullBody(b, clientName, l10n, fill: fill),
+      _MasterCardLayout.compact =>
+        widget.dense
+            ? _buildDenseCompactBody(b, clientName)
+            : _buildCompactBody(b, clientName, fill: fill),
+      _MasterCardLayout.micro => _buildMicroBody(b),
+    };
+  }
+
+  /// Only an opted-in, non-dense, non-micro card measures its parent; every
+  /// other card builds no `LayoutBuilder` (intrinsic-safe, as shipped).
+  bool _wantsServiceFill(_MasterCardLayout layout) =>
+      widget.fillServices && !widget.dense && layout != _MasterCardLayout.micro;
+
+  /// Cancelled / declined — the slot is free again; the column block stays
+  /// on the grid struck through, muted, without lift.
+  static bool _isGone(Booking b) =>
+      b.status == BookingStatus.cancelled || b.status == BookingStatus.declined;
+
+  BoxDecoration _columnDecoration(Booking b) {
+    if (_isGone(b)) return _columnDecorationGone;
+    return _pressed ? _columnDecorationPressed : _columnDecorationUnpressed;
+  }
+
+  static _ColumnData _columnData(Booking b, AppLocalizations l10n) {
+    final ({Color accent, String label}) v = _timelineStatusVisual(b, l10n);
+    return (
+      range: formatSlotTimeRange(b.startAt, b.endAt),
+      accent: v.accent,
+      label: v.label,
+    );
+  }
+
+  /// Column client-name styles, resolved once (not a `copyWith` per build).
+  static final TextStyle _columnNameStyle = VelvetText.weekBlockName.copyWith(
+    color: BrandColors.text,
+    decorationColor: BrandColors.muted,
+  );
+  static final TextStyle _columnNameStyleGone = VelvetText.weekBlockName
+      .copyWith(
+        color: BrandColors.muted,
+        decoration: TextDecoration.lineThrough,
+        decorationColor: BrandColors.muted,
+      );
+
+  /// The [MasterBookingCard.column] body — see that field's doc. Transcribed
+  /// from the preview's `WeekBookingBlock`; line heights come from
+  /// [fixedLineHeight] and every line renders through [FixedLinesText], so
+  /// the choice and the rendered height agree whatever font loads.
+  ///
+  /// ONE `LayoutBuilder`, outside the `Stack` (a `Stack` loosens what its
+  /// non-positioned children get, so tightness is only visible here). The
+  /// layout CHOICE (3 / 2 / 1 lines) reads any bounded height; the services
+  /// FILL needs a TIGHT height — the same rule as the full / compact bodies —
+  /// so a loose parent keeps one service line and never grows the block.
+  Widget _buildColumnBody(Booking b, String clientName, _ColumnData col) {
+    final bool gone = _isGone(b);
+    final String range = col.range;
+    final String firstName = _firstNameOf(b, clientName);
+    final TextStyle timeStyle = VelvetText.weekBlockTime;
+    final TextStyle nameStyle = gone ? _columnNameStyleGone : _columnNameStyle;
+    final TextStyle serviceStyle = VelvetText.weekBlockService;
+    final Color stripe = gone
+        ? col.accent.withValues(alpha: _kColumnGoneStripeAlpha)
+        : col.accent;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints outer) {
+        final double tH = fixedLineHeight(context, timeStyle);
+        final double nH = fixedLineHeight(context, nameStyle);
+        final double sH = fixedLineHeight(context, serviceStyle);
+        const double eps = 1e-6;
+        final bool bounded = outer.hasBoundedHeight;
+        final bool fill =
+            widget.fillServices && outer.hasTightHeight && bounded;
+        // The inner (post-padding) height the lines are chosen against.
+        final double inner = outer.maxHeight - _kColumnPadding.vertical;
+        final double left = inner - tH - nH - _kColumnServiceGap;
+        final Widget content;
+        if (!bounded || left + eps >= sH) {
+          content = Column(
+            key: Key('master-booking-card-column-3-${b.id}'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              FixedLinesText(range, style: timeStyle),
+              FixedLinesText(firstName, style: nameStyle),
+              const SizedBox(height: _kColumnServiceGap),
+              if (fill)
+                FixedLinesText.fit(
+                  b.serviceName,
+                  style: serviceStyle,
+                  availableHeight: left,
+                )
+              else
+                FixedLinesText(b.serviceName, style: serviceStyle),
+            ],
+          );
+        } else if (inner + eps >= tH + nH) {
+          content = Column(
+            key: Key('master-booking-card-column-2-${b.id}'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              FixedLinesText(range, style: timeStyle),
+              FixedLinesText(firstName, style: nameStyle),
+            ],
+          );
+        } else {
+          content = Align(
+            key: Key('master-booking-card-column-1-${b.id}'),
+            alignment: Alignment.centerLeft,
+            child: Text.rich(
+              TextSpan(
+                children: <InlineSpan>[
+                  TextSpan(text: '$range ', style: timeStyle),
+                  TextSpan(text: firstName, style: nameStyle),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
+            ),
+          );
+        }
+        return Stack(
+          children: <Widget>[
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _kColumnStripeWidth,
+              // Only the 3 dp stripe is clipped (to the card's outer
+              // rounded border), never the whole card.
+              child: ClipRRect(
+                clipper: const _ColumnStripeClipper(),
+                child: ColoredBox(
+                  key: Key('master-booking-card-stripe-${b.id}'),
+                  color: stripe,
+                ),
+              ),
+            ),
+            Padding(padding: _kColumnPadding, child: content),
+          ],
+        );
+      },
     );
   }
 
@@ -1392,7 +1689,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             scaler: MediaQuery.textScalerOf(context),
             maxWidth: lane - chrome,
           );
-    return _FixedLinesText(
+    return FixedLinesText(
       shown,
       style: style,
       lines: 1,
@@ -1531,7 +1828,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           color: BrandColors.faint,
         ),
         const SizedBox(height: _kDenseGap),
-        _FixedLinesText(b.serviceName, style: VelvetText.masterCardService),
+        FixedLinesText(b.serviceName, style: VelvetText.masterCardService),
         const SizedBox(height: _kDenseTightGap),
         _DenseFixedRow(
           style: VelvetText.masterCardPricePillDense,
@@ -1581,7 +1878,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             const Icon(Icons.spa_outlined, size: 16, color: BrandColors.accent),
             const SizedBox(width: VelvetSpacing.xs + 2),
             Expanded(
-              child: _FixedLinesText(
+              child: FixedLinesText(
                 b.serviceName,
                 style: VelvetText.masterCardServiceFull,
                 lines: 2,
@@ -1626,10 +1923,13 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// was 56dp before the 2026-08-15 font-size pass) slot without clipping.
   /// See this file's "The compact layout is a
   /// MINIATURE OF THE FULL CARD" and "THE 41dp BUDGET" header sections.
-  Widget _buildCompactBody(Booking b, String clientName) {
+  Widget _buildCompactBody(Booking b, String clientName, {required bool fill}) {
+    // [MasterBookingCard.fillServices] at a tight height: the column takes
+    // the slot and row 2 takes every whole line left (see [_compactRow2]).
+    final Widget row2 = _compactRow2(b, fill: fill);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
       children: <Widget>[
         // ROW 1 — IDENTITY: who, then when, then the status dot hard right.
         //
@@ -1771,38 +2071,53 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         // `FittedBox(fit: BoxFit.scaleDown)`, so it scales into whatever
         // bounded width this `Row` hands it however narrow that gets — no
         // reserve, and no row-width measurement, required.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                b.serviceName,
-                style: VelvetText.masterCardService,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            // See `BookingDisplayX.showsPrice`: a cancelled, declined or
-            // missed appointment owes nothing, so printing a sum on it
-            // would assert a debt that does not exist. On those cards
-            // this row is the service name alone.
-            if (b.showsPrice) ...<Widget>[
-              const SizedBox(width: VelvetSpacing.xs),
-              // NON-flex, exactly as the retired `ConstrainedBox` was: a
-              // `Row` hands its non-flex children unbounded width, under
-              // which [PriceTag]'s own `Flexible` + [PriceTag.maxTextWidth]
-              // resolve to the identical 112dp ceiling the inert 135dp cap
-              // used to sit above. Making it `Flexible` here would NOT be
-              // equivalent — it would split the free space with the service
-              // name's `Expanded` instead of leaving the remainder to it.
-              PriceTag(
-                price: b.priceLabel,
-                verticalPadding: _kCompactPriceVPad,
-                style: VelvetText.masterCardPricePill,
-              ),
-            ],
-          ],
+        if (fill) Expanded(child: row2) else row2,
+      ],
+    );
+  }
+
+  /// Compact ROW 2 — THE TRANSACTION: service name (flexes) · price. With
+  /// `fill` the service takes every whole line of the height row 2 is given
+  /// and the price pill tops-aligns beside it (preview); without it the row
+  /// is exactly the shipped one-line row.
+  Widget _compactRow2(Booking b, {required bool fill}) {
+    return Row(
+      crossAxisAlignment: fill
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
+      children: <Widget>[
+        Expanded(
+          child: fill
+              ? FixedLinesText.fit(
+                  b.serviceName,
+                  style: VelvetText.masterCardService,
+                )
+              : Text(
+                  b.serviceName,
+                  style: VelvetText.masterCardService,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
         ),
+        // See `BookingDisplayX.showsPrice`: a cancelled, declined or
+        // missed appointment owes nothing, so printing a sum on it
+        // would assert a debt that does not exist. On those cards
+        // this row is the service name alone.
+        if (b.showsPrice) ...<Widget>[
+          const SizedBox(width: VelvetSpacing.xs),
+          // NON-flex, exactly as the retired `ConstrainedBox` was: a
+          // `Row` hands its non-flex children unbounded width, under
+          // which [PriceTag]'s own `Flexible` + [PriceTag.maxTextWidth]
+          // resolve to the identical 112dp ceiling the inert 135dp cap
+          // used to sit above. Making it `Flexible` here would NOT be
+          // equivalent — it would split the free space with the service
+          // name's `Expanded` instead of leaving the remainder to it.
+          PriceTag(
+            price: b.priceLabel,
+            verticalPadding: _kCompactPriceVPad,
+            style: VelvetText.masterCardPricePill,
+          ),
+        ],
       ],
     );
   }
@@ -1820,8 +2135,13 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// inline mark nor the opt-in master-name row reopens. The MASTER-NAME row
   /// is back, for the one host it was ever meant for, behind
   /// [MasterBookingCard.showMasterAttribution] (`false` by default).
-  Widget _buildFullBody(Booking b, String clientName, AppLocalizations l10n) {
-    final Widget content = _fullBodyContent(b, clientName);
+  Widget _buildFullBody(
+    Booking b,
+    String clientName,
+    AppLocalizations l10n, {
+    required bool fill,
+  }) {
+    final Widget content = _fullBodyContent(b, clientName, fill: fill);
     // See [MasterBookingCard.onComplete] / [MasterBookingCard.onReview]'s
     // docs — both additive, independently-gated slots, kept as independent
     // `if`s below rather than an if/else for that reason. [showReview] once
@@ -1857,9 +2177,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     if (!showComplete && !showReview) return content;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
       children: <Widget>[
-        content,
+        // A filling body takes the height the action slots leave.
+        if (fill) Expanded(child: content) else content,
         // Phase 231 — the ADDITIVE «Виконано» slot. See
         // [MasterBookingCard.onComplete]'s doc for why this lives here
         // rather than in a composed-around wrapper. Deliberately built
@@ -1903,7 +2224,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// The identity/hairline/service/price content shared by every
   /// [_buildFullBody] call — see [_fullBodyContentCache]'s doc for why this
   /// is split out and memoized rather than inlined.
-  Widget _fullBodyContent(Booking b, String clientName) {
+  Widget _fullBodyContent(Booking b, String clientName, {required bool fill}) {
     // KEYED ON THE WHOLE [Booking], DELIBERATELY — do not narrow it to the
     // fields this content actually renders (mobile-perf INFO, 2026-08-17,
     // recorded here so it is not "optimized" later). The known cost is exact
@@ -1921,6 +2242,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         _fullBodyContentCacheClientName == clientName &&
         _fullBodyContentCacheAttribution == attribute &&
         _fullBodyContentCacheDense == widget.dense &&
+        _fullBodyContentCacheFill == fill &&
         _fullBodyContentCacheLaneWidth == widget.laneWidth &&
         _fullBodyContentCacheScale ==
             MediaQuery.textScalerOf(context).scale(1)) {
@@ -1940,11 +2262,51 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     // it would spend 17dp of a card whose budget is already exact.
     final String masterName = b.masterName;
     final bool showAttribution = attribute && masterName.isNotEmpty;
+    // Row 2 (full body) — hoisted so the [MasterBookingCard.fillServices]
+    // path can wrap the SAME row in an `Expanded`; see its comment below.
+    final Widget serviceRow = Row(
+      crossAxisAlignment: fill
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
+      children: <Widget>[
+        const Icon(Icons.spa_outlined, size: 16, color: BrandColors.accent),
+        const SizedBox(width: VelvetSpacing.sm),
+        Expanded(
+          child: fill
+              ? FixedLinesText.fit(
+                  b.serviceName,
+                  style: VelvetText.masterCardServiceFull,
+                )
+              : Text(
+                  b.serviceName,
+                  style: VelvetText.masterCardServiceFull,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+        ),
+        const SizedBox(width: VelvetSpacing.sm),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(
+              Icons.schedule_outlined,
+              size: 12,
+              color: BrandColors.muted,
+            ),
+            const SizedBox(width: 3),
+            Text(
+              formatSlotTimeRange(b.startAt, b.endAt),
+              style: VelvetText.masterCardDateFull,
+            ),
+          ],
+        ),
+      ],
+    );
     final Widget content = widget.dense
         ? _buildDenseFullColumn(b, clientName)
         : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
             children: <Widget>[
               // Row 1 — client identity: a `person_outlined` glyph leading the
               // client's name.
@@ -2106,41 +2468,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
               // and the day rail above the timeline already names the day, so a
               // per-card date was redundant chrome. The range reads NARROWER than
               // the "12 лип, 14:30" caption it replaced, so this row gained margin.
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  const Icon(
-                    Icons.spa_outlined,
-                    size: 16,
-                    color: BrandColors.accent,
-                  ),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      b.serviceName,
-                      style: VelvetText.masterCardServiceFull,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      const Icon(
-                        Icons.schedule_outlined,
-                        size: 12,
-                        color: BrandColors.muted,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        formatSlotTimeRange(b.startAt, b.endAt),
-                        style: VelvetText.masterCardDateFull,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              if (fill) Expanded(child: serviceRow) else serviceRow,
               const SizedBox(height: VelvetSpacing.xs + 2),
               // Row 3 — price (left) + status badge (right). See
               // `BookingDisplayX.showsPrice`: a cancelled, declined or missed
@@ -2199,71 +2527,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     _fullBodyContentCacheClientName = clientName;
     _fullBodyContentCacheAttribution = attribute;
     _fullBodyContentCacheDense = widget.dense;
+    _fullBodyContentCacheFill = fill;
     _fullBodyContentCacheLaneWidth = widget.laneWidth;
     _fullBodyContentCacheScale = MediaQuery.textScalerOf(context).scale(1);
     return content;
-  }
-}
-
-/// Line-height multiple used when a slot's style carries no explicit `height`
-/// (the client-name tokens inherit the font's own metrics, which cannot be
-/// computed without a layout pass).
-const double _kSlotFallbackLineHeight = 1.15;
-
-/// One line box of [style] under the ambient text scaler, in WHOLE dp:
-/// `ceil(scaledFontSize x lineHeight)`. Font-independent: it reads only the
-/// style's size and (explicit or fallback) height multiple, never the font's
-/// ascent/descent. Whole dp so a dense card's height is never fractional.
-double _fixedLineHeight(BuildContext context, TextStyle style) {
-  final double fontSize = style.fontSize ?? 14;
-  final double lineHeight = style.height ?? _kSlotFallbackLineHeight;
-  return (MediaQuery.textScalerOf(context).scale(fontSize) * lineHeight)
-      .ceilToDouble();
-}
-
-/// A text that ALWAYS occupies exactly [lines] lines of [style]: `maxLines:
-/// lines` + ellipsis inside a fixed `SizedBox` of `lines x _fixedLineHeight`,
-/// with a forced strut so every line box is exactly that tall whatever font
-/// renders. A one-line name and a wrapped one therefore render the SAME
-/// height, which keeps [MasterBookingCard.occupiedHeightFor]`(dense: true)`
-/// exact on every device. Used by the DENSE bodies only.
-class _FixedLinesText extends StatelessWidget {
-  const _FixedLinesText(
-    this.text, {
-    required this.style,
-    this.lines = 1,
-    this.semanticsLabel,
-  });
-
-  final String text;
-
-  /// Overrides what a screen reader announces (the full name when [text] is
-  /// the first name only). `null` announces [text].
-  final String? semanticsLabel;
-  final TextStyle style;
-  final int lines;
-
-  @override
-  Widget build(BuildContext context) {
-    final double line = _fixedLineHeight(context, style);
-    return SizedBox(
-      height: line * lines,
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          text,
-          style: style,
-          strutStyle: StrutStyle.fromTextStyle(
-            style,
-            height: style.height ?? _kSlotFallbackLineHeight,
-            forceStrutHeight: true,
-          ),
-          semanticsLabel: semanticsLabel,
-          maxLines: lines,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    );
   }
 }
 
@@ -2307,10 +2574,38 @@ String _denseDisplayName({
   }
 }
 
-/// A dense row of FIXED height, `_fixedLineHeight(style) + extra`, so the
+/// A dense row of FIXED height, `fixedLineHeight(style) + extra`, so the
 /// price/status row never depends on the font that renders the pill. [extra]
 /// is the pill's own vertical padding (2 x `PriceTag` v-pad). The child is
 /// left-aligned and centred vertically inside it.
+/// Column-density data resolved once per build — see
+/// [_MasterBookingCardState._columnData].
+typedef _ColumnData = ({String range, Color accent, String label});
+
+/// Clips the column stripe to the CARD's outer rounded border — the exact
+/// region the card-wide `Clip.antiAlias` used to leave visible. The stripe
+/// sits inside the border (offset by its width), so the card's rounded rect
+/// is re-expressed in the stripe's own coordinates; the rect is at least
+/// `2 x radius` wide so its radii scale exactly as the card's did.
+class _ColumnStripeClipper extends CustomClipper<RRect> {
+  const _ColumnStripeClipper();
+
+  static const double _border = _MasterBookingCardState._kBorderWidth;
+  static const double _radius = VelvetRadii.field;
+
+  @override
+  RRect getClip(Size size) => RRect.fromLTRBR(
+    -_border,
+    -_border,
+    -_border + 2 * _radius + size.width,
+    size.height + _border,
+    const Radius.circular(_radius),
+  );
+
+  @override
+  bool shouldReclip(_ColumnStripeClipper oldClipper) => false;
+}
+
 class _DenseFixedRow extends StatelessWidget {
   const _DenseFixedRow({
     required this.style,
@@ -2325,7 +2620,7 @@ class _DenseFixedRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: _fixedLineHeight(context, style) + extra,
+      height: fixedLineHeight(context, style) + extra,
       child: Align(alignment: Alignment.centerLeft, child: child),
     );
   }

@@ -96,7 +96,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart'
-    show kyivAddDays, kyivDaysBetween;
+    show kyivAddDays, kyivDaysBetween, kyivWeekStart;
 import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
     show calendarDayIsDeemphasized, isWeekendWeekday, kCalendarDotColor;
 
@@ -208,7 +208,11 @@ int calendarDayCount(DateTime from, DateTime to) => kyivDaysBetween(from, to);
 /// [day] MUST already be a local date-only value — a Kyiv day token from
 /// `kyivToday`/`railDayAt`/`dateOnly`, never a raw UTC wire instant, whose
 /// `.weekday` can name the wrong day (mobile-backlog `_DateStub`, `0eca0791`).
-DateTime mondayOf(DateTime day) => railDayAt(day, 1 - day.weekday);
+///
+/// Phase 480 — delegates to the shared `kyivWeekStart` (identical arithmetic:
+/// `kyivAddDays(day, 1 - day.weekday)`, which is what [railDayAt] forwards to)
+/// so the week data layer keys on the same Monday.
+DateTime mondayOf(DateTime day) => kyivWeekStart(day);
 
 /// The rail page index for the week containing [day], counted from
 /// [firstWeekStart] (itself a Monday — [mondayOf] its input if in doubt).
@@ -220,8 +224,9 @@ DateTime mondayOf(DateTime day) => railDayAt(day, 1 - day.weekday);
 int railWeekIndex(DateTime firstWeekStart, DateTime day) =>
     calendarDayCount(firstWeekStart, mondayOf(day)) ~/ kRailWeekLength;
 
-/// Memoised weekday abbreviations, keyed by the [AppLocalizations] instance
-/// they came from (perf P4).
+/// Memoised weekday abbreviations («Пн» … «Нд», Monday first), keyed by the
+/// [AppLocalizations] instance they came from (perf P4). Public since phase
+/// 482 — the week grid's column headers read the same list.
 ///
 /// The seven captions are fixed for a locale, but they were rebuilt into a
 /// fresh `List<String>` on every rail `build()`. `AppLocalizations` is a
@@ -232,7 +237,7 @@ int railWeekIndex(DateTime firstWeekStart, DateTime day) =>
 List<String>? _weekdayShortCache;
 AppLocalizations? _weekdayShortCacheKey;
 
-List<String> _weekdayShorts(AppLocalizations l10n) {
+List<String> weekdayShortLabels(AppLocalizations l10n) {
   final List<String>? cached = _weekdayShortCache;
   if (cached != null && identical(_weekdayShortCacheKey, l10n)) return cached;
   final List<String> built = List<String>.unmodifiable(<String>[
@@ -487,7 +492,7 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
   /// | read by `build()`                          | in the gate? |
   /// |--------------------------------------------|--------------|
   /// | `AppLocalizations.of(context)`             | yes — [_cachedL10n] |
-  /// | `_weekdayShorts(l10n)`                     | via `l10n` (its own key) |
+  /// | `weekdayShortLabels(l10n)`                 | via `l10n` (its own key) |
   /// | `widget.controller` (`PageView.controller`)| yes |
   /// | `widget.weekCount` (`itemCount`)           | yes |
   /// | `widget.firstWeekStart` (itemBuilder capture) | yes |
@@ -523,7 +528,7 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
     final Widget? cached = _cached;
     if (cached != null && identical(l10n, _cachedL10n)) return cached;
 
-    final List<String> weekdayShort = _weekdayShorts(l10n);
+    final List<String> weekdayShort = weekdayShortLabels(l10n);
 
     final Widget built = SizedBox(
       // The design's strip is 70dp. It is 78 here because the app's

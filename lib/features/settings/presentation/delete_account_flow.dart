@@ -48,6 +48,12 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 /// see `deleteAccountConfirmBodyMaster` / `deleteAccountConfirmBodyAdmin`
 /// in the ARB files and `SettingsScreen._deleteAccountConfirmBody`.
 ///
+/// [onFailure] is additive too (phase 489): `null` (the default) keeps every
+/// caller's behaviour. When set it runs after the failure snack, only while
+/// [context] is still mounted, so the caller may use its own `ref` — e.g.
+/// [SettingsScreen] reloads the owner's salon list on
+/// [AccountDeleteOwnerHasActiveSalonsFailure].
+///
 /// Two [ValueNotifier<bool>]s, owned by the calling widget, mirror
 /// [runLogoutFlow]'s own contract — they do two DIFFERENT jobs and must not
 /// be merged back into one flag:
@@ -78,6 +84,7 @@ Future<void> runDeleteAccountFlow(
   required ValueNotifier<bool> inFlight,
   required ValueNotifier<bool> loading,
   String? confirmBody,
+  void Function(Failure failure)? onFailure,
 }) async {
   if (inFlight.value) return;
   inFlight.value = true;
@@ -150,6 +157,7 @@ Future<void> runDeleteAccountFlow(
     loading.value = false;
     if (!context.mounted) return;
     showErrorSnack(context, f.userMessage(context));
+    onFailure?.call(f);
   } catch (_) {
     inFlight.value = false;
     loading.value = false;

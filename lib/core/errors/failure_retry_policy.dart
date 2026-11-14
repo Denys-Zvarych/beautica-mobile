@@ -270,6 +270,9 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // spinner and 422s again. The only recovery is a deliberate user action
   // (cancel some bookings first), never an automatic re-issue.
   AccountDeleteBookingLimitFailure() => false,
+  // 409 — the owner still has an active salon (phase 489). Deterministic until
+  // the owner deletes the salon; never re-issued automatically.
+  AccountDeleteOwnerHasActiveSalonsFailure() => false,
   // 403 — the caller's authorization/scoping over the target master, or the
   // master's existence/active state. Neither can change by re-issuing the
   // identical request (Phase 246).

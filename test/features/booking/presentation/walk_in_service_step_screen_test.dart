@@ -21,6 +21,7 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
     show maxServicesPerVisit;
+import 'package:beautica_mobile/features/booking/domain/booking_create_seed.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
     show WalkInGuest;
@@ -143,15 +144,21 @@ class _FailingServicesList extends ServicesList {
 /// Captures every `extra` pushed to [RouteNames.bookingSlots].
 final List<Object?> _pushedExtras = <Object?>[];
 
-GoRouter _router({String? returnRoute}) {
+GoRouter _router({String? returnRoute, String? at}) {
   _pushedExtras.clear();
   return GoRouter(
-    initialLocation: RouteNames.masterBookingNewServices,
+    initialLocation: at == null
+        ? RouteNames.masterBookingNewServices
+        : '${RouteNames.masterBookingNewServices}?at=$at',
     routes: <RouteBase>[
       GoRoute(
         path: RouteNames.masterBookingNewServices,
-        builder: (context, state) =>
-            WalkInServiceStepScreen(guest: _kGuest, returnRoute: returnRoute),
+        // Phase 487 — parses `?at=` the way `app_router.dart` does.
+        builder: (context, state) => WalkInServiceStepScreen(
+          guest: _kGuest,
+          returnRoute: returnRoute,
+          seed: BookingCreateSeed.fromQuery(state.uri.queryParameters['at']),
+        ),
       ),
       GoRoute(
         path: RouteNames.bookingSlots,
@@ -175,8 +182,9 @@ Future<GoRouter> _pump(
   ServicesList Function()? servicesListOverride,
   bool settle = true,
   String? returnRoute,
+  String? at,
 }) async {
-  final GoRouter router = _router(returnRoute: returnRoute);
+  final GoRouter router = _router(returnRoute: returnRoute, at: at);
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
@@ -318,6 +326,38 @@ void main() {
     expect(args.hideMasterIdentity, isTrue);
     // Phase 383 — the default keeps the independent master's «Готово».
     expect(args.returnRoute, isNull);
+    // Phase 487 — no `?at=` → no seed, so the args equal the pre-487 shape.
+    expect(args.seed, isNull);
+    expect(
+      args,
+      BookingSlotPickerArgs(
+        masterId: _kMaster.id,
+        master: _kMaster,
+        services: args.services,
+        guest: _kGuest,
+        hideMasterIdentity: true,
+      ),
+    );
+  });
+
+  // Phase 487.
+  testWidgets('phase 487: ?at= lands in BookingSlotPickerArgs.seed', (
+    tester,
+  ) async {
+    await _pump(tester, at: '2025-11-12T14:30');
+
+    await tester.tap(find.byKey(const Key('mcb_service_card_svc-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('booking-summary-cta')));
+    await tester.pumpAndSettle();
+
+    final BookingSlotPickerArgs args =
+        _pushedExtras.single! as BookingSlotPickerArgs;
+    expect(
+      args.seed,
+      BookingCreateSeed(day: DateTime(2025, 11, 12), minute: 14 * 60 + 30),
+    );
+    expect(args.guest, _kGuest);
   });
 
   // Phase 383 (24.1f) — the owner master-mode mount seeds the done screen's

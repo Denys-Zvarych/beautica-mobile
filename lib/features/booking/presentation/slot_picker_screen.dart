@@ -57,6 +57,7 @@ import 'package:beautica_mobile/shared/time/time_zones.dart';
 import '../application/slot_picker_notifier.dart';
 import '../application/working_days_notifier.dart';
 import '../domain/booking_confirm_args.dart';
+import '../domain/booking_create_seed.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_slot_picker_args.dart';
 import '../domain/time_window_overlap.dart';
@@ -129,13 +130,13 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// the clamp the grid would sit on a month that is now entirely in the past,
   /// with its «prev» arrow already disabled.
   ///
-  /// The LOWER bound is the only one clamped, deliberately. [_lastMonth] is
+  /// Only the LOWER bound is clamped here. [_lastMonth] is
   /// `today + _horizonMonths`, so the very rollover that pushes the floor up
-  /// pushes the ceiling up by the same month — it only ever moves FORWARD, and
-  /// [_pagedMonth] is never written above it in the first place («next» is
-  /// wired to `null` once the visible month reaches it, see [_calendarBody]).
-  /// So nothing can strand [_pagedMonth] over the ceiling and an upper clamp
-  /// would be dead code.
+  /// pushes the ceiling up by the same month — it only ever moves FORWARD.
+  /// [_pagedMonth] is never written above it: «next» is wired to `null` once
+  /// the visible month reaches it (see [_calendarBody]), and `initState`
+  /// clamps a caller-supplied seed month DOWN to it (phase 487 — an `at=`
+  /// past the horizon opens the last bookable month with no day selected).
   DateTime _visibleMonth(DateTime today) {
     final DateTime first = _firstMonth(today);
     return _pagedMonth.isBefore(first) ? first : _pagedMonth;
@@ -149,10 +150,107 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     // picker for an unscheduled row while another row is already
     // scheduled). `_visibleMonth`'s own floor-clamp still applies on every
     // read, so a stale/past seed can never strand the grid before `_today`.
-    final DateTime? seed = widget.args.initialVisibleDate;
-    _pagedMonth = seed != null
+    //
+    // Phase 487 — a create seed (the empty week-grid tap) opens on ITS month
+    // instead; the two are never set together (the seed is walk-in only, the
+    // visible-date hint is the salon hub's).
+    //
+    // A seed month past the booking horizon (a hand-crafted `at=` months out)
+    // is clamped DOWN to [_lastMonth] and the create seed is dropped — the
+    // phase rule «seed day not bookable → no day selected, month only».
+    final DateTime today = _today;
+    final DateTime lastMonth = _lastMonth(today);
+    final BookingCreateSeed? rawSeed = widget.args.seed;
+    final DateTime? seed = rawSeed?.dayToken ?? widget.args.initialVisibleDate;
+    final DateTime? seedMonth = seed != null
         ? DateTime(seed.year, seed.month, 1)
-        : _firstMonth(_today);
+        : null;
+    final bool beyondHorizon =
+        seedMonth != null && seedMonth.isAfter(lastMonth);
+    final BookingCreateSeed? createSeed = beyondHorizon ? null : rawSeed;
+    _pagedMonth = beyondHorizon ? lastMonth : (seedMonth ?? _firstMonth(today));
+    if (createSeed != null) {
+      _seedDaySub = ref.listenManual<AsyncValue<List<WorkingDay>>>(
+        workingDaysProvider(_workingDaysQuery(_visibleMonth(_today))),
+        (_, AsyncValue<List<WorkingDay>> next) =>
+            _onSeedWorkingDays(createSeed, next),
+        fireImmediately: true,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _seedDaySub?.close();
+    super.dispose();
+  }
+
+  // ── Phase 487 — create seed, applied ONCE per screen instance (D4) ───────
+
+  /// Keeps the seed month's working-days query observed until it first
+  /// resolves; closed right after (or on dispose).
+  ProviderSubscription<AsyncValue<List<WorkingDay>>>? _seedDaySub;
+
+  /// The seed month's working days have resolved (or failed) — the seed has
+  /// been consumed and is never re-applied.
+  bool _seedApplied = false;
+
+  /// The user tapped a day or paged the month: from then on the seed never
+  /// selects anything (D4 — no re-snap after a user choice).
+  bool _userActed = false;
+
+  void _onSeedWorkingDays(
+    BookingCreateSeed seed,
+    AsyncValue<List<WorkingDay>> next,
+  ) {
+    if (_seedApplied || (!next.hasValue && !next.hasError)) return;
+    _seedApplied = true;
+    final List<WorkingDay>? days = next.value;
+    // Post-frame: this can fire synchronously from `initState`
+    // (`fireImmediately`), where writing `slotPickerProvider` is illegal.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _seedDaySub?.close();
+      _seedDaySub = null;
+      if (!mounted || _userActed || days == null) return;
+      final DateTime day = seed.dayToken;
+      final DateTime today = _today;
+      // Same predicate the calendar renders with: a day off, a closed or
+      // fully-booked day, or a past day selects nothing (month only).
+      if (!_availabilityFrom(days, today)(day)) return;
+      _applySeed(seed, day);
+    });
+  }
+
+  /// Selects the seed day exactly as a user tap does ([_selectDay]), then —
+  /// once that day's slots land — the seed's slot per [pickSeededSlot] (D3).
+  Future<void> _applySeed(BookingCreateSeed seed, DateTime day) async {
+    await _selectDay(day);
+    if (!mounted || _userActed) return;
+    final SlotPickerState state = ref.read(slotPickerProvider);
+    if (state.selectedDate != day || state.selectedSlot != null) return;
+    final List<BookingSlot>? slots = state.slots.value;
+    if (slots == null) return;
+    final List<DateTimeRange> windows = widget.args.excludeWindows;
+    final BookingSlot? pick = pickSeededSlot(<BookingSlot>[
+      for (final BookingSlot s in slots)
+        if (!windows.any(
+          (DateTimeRange w) => timeWindowsOverlap(
+            aStart: s.startAt,
+            aEnd: s.endAt,
+            bStart: w.start,
+            bEnd: w.end,
+          ),
+        ))
+          s,
+    ], seed);
+    if (pick == null) return;
+    ref.read(slotPickerProvider.notifier).selectSlot(pick);
+  }
+
+  /// A user day tap — cancels any pending seed before selecting.
+  void _onUserSelectDay(DateTime day) {
+    _userActed = true;
+    _selectDay(day);
   }
 
   /// Loading-flash fix (mirrors `MasterScheduleScreen`'s `_lastDays` visual
@@ -230,11 +328,11 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     };
   }
 
-  void _selectDay(DateTime day) {
+  Future<void> _selectDay(DateTime day) {
     // MO-3: fetch availability for the WHOLE ordered visit selection — the
     // backend sizes each returned slot to the summed duration of all these
     // services performed back-to-back.
-    ref
+    return ref
         .read(slotPickerProvider.notifier)
         .loadSlots(
           masterId: widget.args.masterId,
@@ -244,6 +342,7 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   }
 
   void _prevMonth() {
+    _userActed = true;
     final DateTime visible = _visibleMonth(_today);
     setState(() {
       _pagedMonth = DateTime(visible.year, visible.month - 1, 1);
@@ -251,6 +350,7 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   }
 
   void _nextMonth() {
+    _userActed = true;
     final DateTime visible = _visibleMonth(_today);
     setState(() {
       _pagedMonth = DateTime(visible.year, visible.month + 1, 1);
@@ -469,7 +569,7 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
         today: today,
         selected: selectedDate,
         isAvailable: _availabilityFrom(daysToRender, today),
-        onSelectDay: _selectDay,
+        onSelectDay: _onUserSelectDay,
         onPrevMonth: visibleMonth.isAfter(_firstMonth(today))
             ? _prevMonth
             : null,
@@ -793,6 +893,9 @@ class SlotTimeScreen extends ConsumerWidget {
                       // the client can see WHICH pick made the day
                       // unavailable, instead of a lying generic message.
                       conflictServiceName: args.services.first.name,
+                      // Phase 487 — a seeded picker scrolls its preselected
+                      // chip into view; unseeded pickers are untouched.
+                      scrollSelectedIntoView: args.seed != null,
                     ),
                   ],
                 ),
@@ -817,6 +920,7 @@ class _SlotsSection extends StatefulWidget {
     required this.onChangeDate,
     required this.conflictServiceName,
     this.excludeWindows = const <DateTimeRange>[],
+    this.scrollSelectedIntoView = false,
   });
 
   final AsyncValue<List<BookingSlot>> slotsAsync;
@@ -838,11 +942,60 @@ class _SlotsSection extends StatefulWidget {
   /// only by [_AllSlotsExcludedEmptyState] to name what conflicted.
   final String conflictServiceName;
 
+  /// Phase 487 — when `true` (a seeded picker), the selected chip is
+  /// scrolled into view ONCE, on the first build that shows it. `false` (the
+  /// default, every unseeded picker) builds exactly today's tree.
+  final bool scrollSelectedIntoView;
+
   @override
   State<_SlotsSection> createState() => _SlotsSectionState();
 }
 
 class _SlotsSectionState extends State<_SlotsSection> {
+  /// Phase 487 — the one-time [_SlotsSection.scrollSelectedIntoView] scroll
+  /// has been scheduled.
+  bool _scrolledToSelected = false;
+
+  void _maybeScrollToSelected() {
+    final BookingSlot? selected = widget.selectedSlot;
+    if (!widget.scrollSelectedIntoView ||
+        _scrolledToSelected ||
+        selected == null) {
+      return;
+    }
+    _scrolledToSelected = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final BuildContext? chip = _findChip(_chipKey(selected));
+      if (chip == null) return;
+      // A jump, not an animation: it lands with the page's own push
+      // transition, before the user has looked at the list.
+      Scrollable.ensureVisible(chip, alignment: 0.5);
+    });
+  }
+
+  /// Locates the chip by its own [_chipKey] — no wrapper widget, so a
+  /// selection change never reparents (remounts) a stateful [SlotChip] and
+  /// its press/selection animations run uncut. One-time walk of this
+  /// section's subtree.
+  BuildContext? _findChip(Key key) {
+    Element? found;
+    void visit(Element e) {
+      if (found != null) return;
+      if (e.widget.key == key) {
+        found = e;
+        return;
+      }
+      e.visitChildren(visit);
+    }
+
+    context.visitChildElements(visit);
+    return found;
+  }
+
+  static Key _chipKey(BookingSlot s) =>
+      Key('slot-chip-${s.startAt.toIso8601String()}');
+
   // Memoized time-of-day buckets (mobile-perf finding #5): bucketing `slots`
   // into Ранок/День/Вечір doesn't depend on `selectedSlot`, but this widget
   // used to redo the O(n) bucketing loop on every rebuild — including the
@@ -988,6 +1141,7 @@ class _SlotsSectionState extends State<_SlotsSection> {
             ) = _bucketsFor(
               slots,
             );
+            _maybeScrollToSelected();
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1012,21 +1166,20 @@ class _SlotsSectionState extends State<_SlotsSection> {
   Widget _group(String label, List<BookingSlot> group) {
     return SlotGroup(
       label: label,
-      children: <Widget>[
-        for (final BookingSlot s in group)
-          SizedBox(
-            width: 74,
-            child: SlotChip(
-              key: Key('slot-chip-${s.startAt.toIso8601String()}'),
-              time: formatSlotTime(s.startAt),
-              available: s.available,
-              selected: widget.selectedSlot == s,
-              onTap: () => widget.onSelectSlot(s),
-            ),
-          ),
-      ],
+      children: <Widget>[for (final BookingSlot s in group) _chip(s)],
     );
   }
+
+  Widget _chip(BookingSlot s) => SizedBox(
+    width: 74,
+    child: SlotChip(
+      key: _chipKey(s),
+      time: formatSlotTime(s.startAt),
+      available: s.available,
+      selected: widget.selectedSlot == s,
+      onTap: () => widget.onSelectSlot(s),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------

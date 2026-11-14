@@ -8,7 +8,9 @@
 //   `+38 050 111 22 33`, any run of ≥ 9 digits), [jwt], [otp] (4–6 digits
 //   within 20 chars of `otp|code|код`), `Bearer [redacted]`,
 //   `<password|pin|token|refresh|secret>=[redacted]` (key: value pairs,
-//   quoted values whole), `PIN [redacted]` (`PIN 482913`).
+//   quoted values whole), `PIN [redacted]` (`PIN 482913`), `[path]`
+//   (absolute filesystem paths: `/home/<x>/…`, `/Users/<x>/…`,
+//   `C:\Users\<x>\…`, `file:///…` — a dev username / local checkout path).
 // On top of the regexes:
 //   - `event.request` dropped; `event.user` reduced to the anonymous install
 //     ID only (never email / username / IP);
@@ -55,6 +57,26 @@ final RegExp _pinSpaced = RegExp(
 // (`{"alg":…}`, tens of chars) is capped at 512 — a 4096 cap there still
 // costs ~0.5 s on an 84 KB `eyJ` run; payload/signature at 4096.
 final RegExp _jwt = RegExp(r'eyJ[\w-]{1,512}\.[\w-]{1,4096}\.[\w-]{1,4096}');
+// Absolute local filesystem paths (dev username / checkout dir). `package:`
+// URIs and API paths (`/api/v1/…`, `/users/me`, `/home-feed/…`) never match.
+// The username segment allows spaces (`/Users/John Smith/x`); it over-redacts
+// to EOL when no separator follows — fail-closed, still linear.
+// Two regexes, because Dart RegExp has no inline `(?i)`:
+//   - [_absPathWin]: `file:///…` and `C:\Users\…`, case-INSENSITIVE (Windows
+//     paths are). Applied first so `file:///home/…` is taken whole.
+//   - [_absPathPosix]: `/home/…`, `/Users/…`, case-SENSITIVE — real Linux /
+//     macOS paths are exactly `home` / `Users`, while an API path in an error
+//     message (`GET /users/me 500`) must survive.
+final RegExp _absPathWin = RegExp(
+  r'file:///\S+|[A-Za-z]:\\Users\\[^\\/\n]+(?:\\\S*)?',
+  caseSensitive: false,
+);
+final RegExp _absPathPosix = RegExp(
+  r'(?<![\w.])/(?:home|Users)/[^/\\\n]+(?:/\S*)?',
+);
+
+String _redactPaths(String s) =>
+    s.replaceAll(_absPathWin, '[path]').replaceAll(_absPathPosix, '[path]');
 final RegExp _bearer = RegExp(r'Bearer\s+\S+', caseSensitive: false);
 // UA phone, compact or spaced/dashed (`+380 50 111 22 33`).
 final RegExp _uaPhone = RegExp(
@@ -91,6 +113,7 @@ String redactText(String input) {
   String s = input;
   s = s.replaceAll(_jwt, '[jwt]');
   s = s.replaceAll(_bearer, 'Bearer [redacted]');
+  s = _redactPaths(s);
   s = s.replaceAllMapped(_secretKv, (Match m) => '${m[1]}=[redacted]');
   s = s.replaceAllMapped(_pinSpaced, (Match m) => '${m[1]} [redacted]');
   s = s.replaceAll(_email, '[email]');
@@ -219,6 +242,18 @@ SentryEvent scrubEvent(SentryEvent event, {String? installId}) {
         final String? v = ex.value;
         if (v != null) ex.value = _cap(redactText(v));
       }
+    }
+  }
+
+  for (final SentryException ex in exceptions ?? const <SentryException>[]) {
+    final List<SentryStackFrame>? frames = ex.stackTrace?.frames;
+    if (frames == null) continue;
+    for (final SentryStackFrame f in frames) {
+      // `abs_path` is `file:///home/<dev>/…` on debug builds: dropped; the
+      // `package:` / relative `fileName` is kept (paths redacted).
+      f.absPath = null;
+      final String? name = f.fileName;
+      if (name != null) f.fileName = _redactPaths(name);
     }
   }
 
