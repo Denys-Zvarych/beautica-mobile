@@ -7,6 +7,7 @@
 
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notification_copy.dart';
+import 'package:beautica_mobile/l10n/app_localizations_en.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:flutter/material.dart';
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_tile.dart';
@@ -1039,6 +1040,183 @@ void main() {
           isNot(uk.notificationTitleUnknown),
         );
       }
+    });
+  });
+
+  // Phase 497 — BOOKING_REMINDER: «Ваш візит {день} о {час}», the day word is
+  // computed at render time against the viewer's Kyiv «today» (D2).
+  group('booking reminder (phase 497)', () {
+    final AppLocalizationsUk uk = AppLocalizationsUk();
+    final AppLocalizationsEn en = AppLocalizationsEn();
+
+    /// Kyiv «today» date token (2026-11-14, EET = UTC+2).
+    final DateTime today = DateTime(2026, 11, 14);
+
+    /// Expected reminder body built from the ARB template (one shared source);
+    /// only the day label and the Kyiv time are test inputs.
+    String expected(AppLocalizations l10n, String day, String time) =>
+        l10n.notificationBodyBookingReminder(day, time);
+    String ukToday(String time) =>
+        expected(uk, uk.notificationReminderDayToday, time);
+    String ukTomorrow(String time) =>
+        expected(uk, uk.notificationReminderDayTomorrow, time);
+
+    AppNotification row(DateTime? startsAt) => AppNotification(
+      id: '00000000-0000-4000-8000-000000000497',
+      type: AppNotificationType.bookingReminder,
+      createdAt: DateTime.utc(2026, 11, 13, 12),
+      read: false,
+      target: startsAt == null
+          ? const NotificationTarget.none()
+          : const NotificationTarget.booking(
+              bookingId: '00000000-0000-4000-8000-00000000b001',
+            ),
+      params: startsAt == null
+          ? NotificationParams.empty
+          : NotificationParams(
+              counterpartName: 'Олена Коваль',
+              serviceName: 'Манікюр',
+              serviceCount: 1,
+              startsAt: startsAt,
+              masterName: 'Олена Коваль',
+            ),
+    );
+
+    String? body(
+      AppLocalizations l10n,
+      DateTime? startsAt, {
+      DateTime? on,
+      bool isClient = true,
+    }) => NotificationCopy.body(
+      l10n,
+      row(startsAt),
+      isClient: isClient,
+      today: on ?? today,
+    );
+
+    test('should_renderTheTitle_ukAndEn_andAnAlarmGlyph', () {
+      const AppNotificationType t = AppNotificationType.bookingReminder;
+      expect(
+        NotificationCopy.title(uk, t, isClient: true),
+        uk.notificationTitleBookingReminder,
+      );
+      expect(
+        NotificationCopy.title(en, t, isClient: true),
+        en.notificationTitleBookingReminder,
+      );
+      expect(NotificationCopy.glyph(t), Icons.alarm_rounded);
+    });
+
+    test('should_sayToday_when_theVisitIsLaterTodayInKyiv', () {
+      expect(body(uk, DateTime.utc(2026, 11, 14, 12)), ukToday('14:00'));
+    });
+
+    test('should_sayTomorrow_when_theVisitIsTomorrowInKyiv', () {
+      expect(body(uk, DateTime.utc(2026, 11, 15, 12)), ukTomorrow('14:00'));
+    });
+
+    test('should_nameTheDate_when_theVisitIsLater', () {
+      expect(
+        body(uk, DateTime.utc(2026, 11, 17, 12)),
+        expected(uk, 'вт, 17 листопада', '14:00'),
+      );
+    });
+
+    test('should_nameTheDate_when_theVisitIsAlreadyPast', () {
+      // Read days later: the stored row never says «завтра» wrongly (D2).
+      expect(
+        body(uk, DateTime.utc(2026, 11, 15, 12), on: DateTime(2026, 11, 18)),
+        expected(uk, 'нд, 15 листопада', '14:00'),
+      );
+    });
+
+    test('should_recomputeTheDayWord_at_renderTime', () {
+      final DateTime startsAt = DateTime.utc(2026, 11, 15, 12);
+      expect(body(uk, startsAt), ukTomorrow('14:00'));
+      expect(body(uk, startsAt, on: DateTime(2026, 11, 15)), ukToday('14:00'));
+    });
+
+    test('should_useTheKyivDay_notTheUtcDay_acrossMidnight', () {
+      // 22:30 UTC on the 14th = 00:30 Kyiv on the 15th: «завтра», whatever
+      // the host zone (run under TZ=UTC as well).
+      expect(body(uk, DateTime.utc(2026, 11, 14, 22, 30)), ukTomorrow('00:30'));
+      // 21:59 UTC on the 14th = 23:59 Kyiv the same day.
+      expect(body(uk, DateTime.utc(2026, 11, 14, 21, 59)), ukToday('23:59'));
+    });
+
+    test('should_useSummerTime_inKyiv', () {
+      // EEST (+3): 11:00 UTC = 14:00 Kyiv.
+      expect(
+        body(uk, DateTime.utc(2026, 6, 15, 11), on: DateTime(2026, 6, 14)),
+        ukTomorrow('14:00'),
+      );
+    });
+
+    test('should_nameTheDate_when_noTodayIsGiven', () {
+      expect(
+        NotificationCopy.body(
+          uk,
+          row(DateTime.utc(2026, 11, 15, 12)),
+          isClient: true,
+        ),
+        expected(uk, 'нд, 15 листопада', '14:00'),
+      );
+    });
+
+    test('should_fallBackToParamsGone_when_startsAtIsNull', () {
+      expect(body(uk, null), uk.notificationsParamsGone);
+      expect(body(en, null), en.notificationsParamsGone);
+    });
+
+    test('should_renderTheEnglishCopy', () {
+      expect(
+        body(en, DateTime.utc(2026, 11, 15, 12)),
+        expected(en, en.notificationReminderDayTomorrow, '14:00'),
+      );
+      expect(
+        body(en, DateTime.utc(2026, 11, 14, 12)),
+        expected(en, en.notificationReminderDayToday, '14:00'),
+      );
+    });
+
+    test('should_readTheSame_forAnyViewerRole', () {
+      expect(
+        body(uk, DateTime.utc(2026, 11, 15, 12), isClient: false),
+        ukTomorrow('14:00'),
+      );
+    });
+
+    testWidgets('tile: a reminder row renders the title and the body', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: Scaffold(
+            body: SizedBox(
+              width: 360,
+              child: NotificationTile(
+                item: row(DateTime.utc(2026, 11, 15, 12)),
+                isClient: true,
+                today: today,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text(uk.notificationTitleBookingReminder), findsOneWidget);
+      expect(
+        find.text(
+          uk.notificationBodyBookingReminder(
+            uk.notificationReminderDayTomorrow,
+            '14:00',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
     });
   });
 }

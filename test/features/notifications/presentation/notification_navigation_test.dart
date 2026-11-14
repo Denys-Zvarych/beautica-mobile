@@ -172,6 +172,71 @@ void main() {
     });
   });
 
+  // Phase 497 — a BOOKING_REMINDER (to the booking's client) takes the same
+  // branch as BOOKING_RESCHEDULED; lost access (target NONE) leads nowhere.
+  group('routeFor bookingReminder (phase 497)', () {
+    const NotificationTarget reminderTarget = NotificationTarget.booking(
+      bookingId: _bk,
+      appointmentId: 'ap-1',
+      salonId: _salon,
+    );
+
+    test('should_openTheFeedScopedBookingDetail_when_clientTapsAReminder', () {
+      expect(
+        routeFor(
+          reminderTarget,
+          UserRole.client,
+          type: AppNotificationType.bookingReminder,
+        ),
+        RouteNames.notificationBookingDetail(_bk),
+      );
+    });
+
+    test('should_routeLikeBookingRescheduled_forEveryRole', () {
+      for (final UserRole r in UserRole.values) {
+        expect(
+          routeFor(
+            reminderTarget,
+            r,
+            type: AppNotificationType.bookingReminder,
+          ),
+          routeFor(
+            reminderTarget,
+            r,
+            type: AppNotificationType.bookingRescheduled,
+          ),
+          reason: r.name,
+        );
+      }
+    });
+
+    test('should_returnNull_and_beUnavailable_when_accessLost', () {
+      expect(
+        routeFor(
+          _none,
+          UserRole.client,
+          type: AppNotificationType.bookingReminder,
+        ),
+        isNull,
+      );
+      expect(
+        isNotificationUnavailable(
+          notif(
+            'n',
+            type: AppNotificationType.bookingReminder,
+            target: _none,
+            params: NotificationParams.empty,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isBookingNotificationType(AppNotificationType.bookingReminder),
+        isTrue,
+      );
+    });
+  });
+
   group('routeFor serviceCatalog (phase 412)', () {
     const NotificationTarget catalog = NotificationTarget.serviceCatalog();
 
@@ -369,7 +434,7 @@ void main() {
     test('should_classifyBookingAndReviewTypesOnly', () {
       expect(
         AppNotificationType.values.where(isBookingNotificationType).length,
-        9,
+        10,
       );
       expect(isBookingNotificationType(AppNotificationType.unknown), isFalse);
       expect(
