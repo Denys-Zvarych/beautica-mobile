@@ -82,6 +82,30 @@
                     android:host="${appLinkHost}"
                     android:pathPrefix="/invite/accept" />
             </intent-filter>
+            <!--
+                Android App Links for the booking / review email links (2026-11-14,
+                docs/specs/website.md WEB-12/13): the backend's emailed CTA is
+                https://beautica.app/bookings/{id}/review (NotificationService) and booking
+                links are https://beautica.app/bookings/{id}. Both resolve to go_router's
+                /bookings/:bookingId and /bookings/:bookingId/review, CLIENT-gated by
+                authRedirect. Without this filter those links (and the website's «Відкрити в
+                застосунку» intent) open the browser / fall back to Play.
+
+                Scoped to /bookings/ ONLY. The guest web-only review link /r/{token}
+                (docs/specs/reviews.md REV-20/29) and the guest cancel pages /c/{token},
+                /book/cancel/{token} stay on the website — they must NOT be claimed here.
+                The same ${appLinkHost} + assetlinks.json verification as /invite/accept
+                applies. Guarded by test/android/manifest_deeplink_contract_test.dart.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="${appLinkHost}"
+                    android:pathPrefix="/bookings/" />
+            </intent-filter>
         </activity>
         <!-- Phase 071: uCrop crop screen (image_cropper). No storage/camera
              permission is declared anywhere: the Photo Picker and the camera

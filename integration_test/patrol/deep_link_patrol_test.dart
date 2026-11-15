@@ -33,6 +33,7 @@
 //   patrol test --target integration_test/patrol/deep_link_patrol_test.dart
 // See integration_test/patrol/README.md.
 
+import 'package:beautica_mobile/features/booking/presentation/leave_review_screen.dart';
 import 'package:beautica_mobile/main.dart' show BeauticaApp;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,6 +53,14 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 const String _kInviteAcceptDeepLink =
     'https://staging.beautica.app'
     '/invite/accept?token=patrol-e2e-smoke-token';
+
+// The emailed review CTA (`https://{host}/bookings/{id}/review`, claimed by the
+// manifest's `/bookings/` autoVerify filter). A signed-out cold start is gated
+// to /login by authRedirect, which holds the link (app_link_replay.dart) — the
+// native assertion is that Android hands it to the APP (not a browser / Play)
+// and the router parks it on the login screen rather than dropping it.
+const String _kBookingReviewDeepLink =
+    'https://staging.beautica.app/bookings/patrol-e2e-booking/review';
 
 void main() {
   patrolTest('deep link to invite-accept route opens the accept-invite screen', (
@@ -157,6 +166,44 @@ void main() {
       findsOneWidget,
       reason: 'Deep link must land on the accept-invite screen',
     );
+  });
+
+  // CI-ONLY (patrol cannot run locally). Rule 3b: the OS App Link hop for the
+  // review email. The replay-after-sign-in, TTL and sign-out semantics are
+  // covered fake-backed in integration_test/booking_review_app_link_flow_test.dart.
+  patrolTest('deep link to a booking review route is delivered to the app '
+      '(signed out: parked on the login screen, not a browser)', ($) async {
+    applyE2eBootPolicy($.tester);
+    addTearDown(resetE2eBootPolicy);
+
+    await $.pumpWidgetAndSettle(
+      const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
+    );
+    // WAIT for the signed-out landing — pumpAndSettle returns before the
+    // async session bootstrap resolves and authRedirect parks on /login, so an
+    // immediate expect raced it (CI: 0 widgets with key login_email). Poll,
+    // never a fixed delay.
+    await $.tester.pumpUntilFound(
+      find.byKey(const ValueKey<String>('login_email')),
+      timeout: const Duration(seconds: 30),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('login_email')),
+      findsOneWidget,
+      reason: 'Precondition: cold start without a token settles on /login',
+    );
+
+    await $.platform.mobile.openUrl(_kBookingReviewDeepLink);
+
+    // POLL, never pumpAndSettle (see the invite-accept case above). A lost
+    // App Link approval opens a browser and this pump HANGS to the CI cap.
+    // The link is gated to /login: the login form must remain mounted and the
+    // review screen must never render for an anonymous session.
+    await $.tester.pumpUntilFound(
+      find.byKey(const ValueKey<String>('login_email')),
+      timeout: const Duration(seconds: 30),
+    );
+    expect(find.byType(LeaveReviewScreen), findsNothing);
   });
 
   // ── FCM tap-through + notification-permission prompt (DEFERRED) ────────────

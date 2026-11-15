@@ -149,6 +149,7 @@ import '../features/services/application/owner_performed_services_provider.dart'
 import '../features/services/domain/master_service.dart' show MasterService;
 import '../features/services/presentation/service_by_id_notifier.dart';
 import '../shared/formatters/api_date.dart';
+import 'app_link_replay.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
 import 'booking_reschedule_seed.dart';
@@ -572,13 +573,20 @@ GoRouter appRouter(Ref ref) {
     return null;
   }
 
-  return GoRouter(
+  final GoRouter router = GoRouter(
     initialLocation: RouteNames.splash,
     // Phase 410 (R.3 D7) — Sentry navigation breadcrumbs, only when crash
     // reporting is configured for this build; an empty list otherwise.
     observers: CrashReporting.navigatorObservers(),
     refreshListenable: refresh,
-    redirect: (ctx, state) => authRedirect(ref.read(authProvider), state),
+    // 2026-11-14 — the decision is [authRedirect]'s alone; the wrapper only
+    // HOLDS an allow-listed App Link it defers to /splash or /login, for
+    // [attachAppLinkReplay] to open once the session settles.
+    redirect: (ctx, state) => holdAppLinkIfDeferred(
+      ref.read(pendingAppLinkProvider),
+      state.uri,
+      authRedirect(ref.read(authProvider), state),
+    ),
     // Phase 380 — branded not-found handling. Without a handler, a location
     // no route matches (`/owner/master/services//edit`: go_router's
     // `:serviceId` never matches an EMPTY segment; a stale or malformed deep
@@ -893,8 +901,9 @@ GoRouter appRouter(Ref ref) {
                   // matching every other pushed-detail route in this file.
                   GoRoute(
                     path: ':bookingId',
-                    builder: (context, state) => BookingDetailScreen(
-                      bookingId: state.pathParameters['bookingId']!,
+                    builder: (context, state) => bookingIdGuarded(
+                      state,
+                      (id) => BookingDetailScreen(bookingId: id),
                     ),
                     routes: [
                       // Phase 14.6 — «ВІДГУК ПРО МАЙСТРА» (leave-review),
@@ -908,8 +917,9 @@ GoRouter appRouter(Ref ref) {
                       // left-edge swipe-back apply, matching the detail route.
                       GoRoute(
                         path: 'review',
-                        builder: (context, state) => LeaveReviewScreen(
-                          bookingId: state.pathParameters['bookingId']!,
+                        builder: (context, state) => bookingIdGuarded(
+                          state,
+                          (id) => LeaveReviewScreen(bookingId: id),
                         ),
                       ),
                     ],
@@ -1003,17 +1013,21 @@ GoRouter appRouter(Ref ref) {
             // Second guard layer (security L3): the same per-route CLIENT gate
             // as `/masters/:masterId`, independent of the `authRedirect` prefix.
             redirect: clientOnlyGuard,
-            builder: (context, state) => BookingDetailScreen(
-              bookingId: state.pathParameters['bookingId']!,
-              leaveReviewRouteBuilder: RouteNames.notificationBookingReview,
-              onUnavailable: notificationUnavailableHandler(context, state),
+            builder: (context, state) => bookingIdGuarded(
+              state,
+              (id) => BookingDetailScreen(
+                bookingId: id,
+                leaveReviewRouteBuilder: RouteNames.notificationBookingReview,
+                onUnavailable: notificationUnavailableHandler(context, state),
+              ),
             ),
             routes: [
               GoRoute(
                 path: 'review',
                 redirect: clientOnlyGuard,
-                builder: (context, state) => LeaveReviewScreen(
-                  bookingId: state.pathParameters['bookingId']!,
+                builder: (context, state) => bookingIdGuarded(
+                  state,
+                  (id) => LeaveReviewScreen(bookingId: id),
                 ),
               ),
             ],
@@ -1045,9 +1059,9 @@ GoRouter appRouter(Ref ref) {
         // that route's comment for the full investigation). This route was
         // the sibling instance of the identical defect, deferred at the time
         // of the salon fix; this is that follow-up.
-        builder: (context, state) => PublicMasterProfileScreen(
-          masterId: state.pathParameters['masterId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'masterId',
+        ], (ids) => PublicMasterProfileScreen(masterId: ids[0])),
       ),
       // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Kept
       // (D7) for its OTHER consumers (`booking_counterparty_header.dart`,
@@ -1062,9 +1076,9 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/masters/:masterId/reviews',
         redirect: clientOnlyGuard,
-        builder: (context, state) => PublicMasterReviewsScreen(
-          masterId: state.pathParameters['masterId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'masterId',
+        ], (ids) => PublicMasterReviewsScreen(masterId: ids[0])),
       ),
       // Phase 13.6 — Public salon profile (CLIENT-facing, read-only). Same
       // lifecycle/guard as `/masters/:masterId` above: a top-level route
@@ -1284,9 +1298,9 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId',
         redirect: clientOnlyGuard,
-        builder: (context, state) => PublicSalonProfileScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => PublicSalonProfileScreen(salonId: ids[0])),
       ),
       // Phase 21.2 — owner/admin editable salon profile + its settings page.
       //
@@ -1310,15 +1324,16 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/manage',
         redirect: salonManageGuard,
-        builder: (context, state) => SalonManagementProfileScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => SalonManagementProfileScreen(salonId: ids[0])),
       ),
       GoRoute(
         path: '/salons/:salonId/manage/settings',
         redirect: salonManageGuard,
-        builder: (context, state) =>
-            SalonSettingsScreen(salonId: state.pathParameters['salonId'] ?? ''),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => SalonSettingsScreen(salonId: ids[0])),
       ),
       // Phase 21.4 — invite an admin/master to this salon. Literal `/invite`
       // leaf below the ALREADY-RESOLVED `:salonId` capture, so no
@@ -1333,8 +1348,9 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/manage/invite',
         redirect: salonManageGuard,
-        builder: (context, state) =>
-            InviteStaffScreen(salonId: state.pathParameters['salonId'] ?? ''),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => InviteStaffScreen(salonId: ids[0])),
       ),
       // Phase 21.11 — «Надіслані запрошення», the sent-but-unaccepted staff
       // invitations. Reuses [salonManageGuard] VERBATIM (owner + admin, each
@@ -1352,9 +1368,9 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/pending-invites',
         redirect: salonManageGuard,
-        builder: (context, state) => SalonPendingInvitesScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => SalonPendingInvitesScreen(salonId: ids[0])),
       ),
       // Phase 21.5 — staff member (master OR admin) management profile.
       // STANDALONE for the same reason as `/manage/invite` directly above:
@@ -1364,10 +1380,10 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/manage/staff/:memberId',
         redirect: salonManageGuard,
-        builder: (context, state) => SalonStaffProfileScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-          memberId: state.pathParameters['memberId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+          'memberId',
+        ], (ids) => SalonStaffProfileScreen(salonId: ids[0], memberId: ids[1])),
       ),
       // Phase 21.6 — the admin-settings page and its rotate-destination
       // picker. Two literal leaves (`/settings`, `/move`) below the
@@ -1388,18 +1404,18 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/manage/staff/:memberId/settings',
         redirect: salonManageGuard,
-        builder: (context, state) => StaffSettingsScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-          memberId: state.pathParameters['memberId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+          'memberId',
+        ], (ids) => StaffSettingsScreen(salonId: ids[0], memberId: ids[1])),
       ),
       GoRoute(
         path: '/salons/:salonId/manage/staff/:memberId/move',
         redirect: salonManageGuard,
-        builder: (context, state) => MoveAdminSalonScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-          memberId: state.pathParameters['memberId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+          'memberId',
+        ], (ids) => MoveAdminSalonScreen(salonId: ids[0], memberId: ids[1])),
       ),
       // Phase 312 (D9) — a chosen master's «Графік роботи», reached from the
       // `SettingsRow` D3 adds to [SalonStaffProfileScreen]. Renders the SAME
@@ -1412,10 +1428,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/manage/staff/:memberId/schedule',
         redirect: salonManageGuard,
-        builder: (context, state) => _SalonMasterScheduleRoute(
-          salonId: state.pathParameters['salonId'] ?? '',
-          memberId: state.pathParameters['memberId'] ?? '',
-          extra: state.extra,
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['salonId', 'memberId'],
+          (ids) => _SalonMasterScheduleRoute(
+            salonId: ids[0],
+            memberId: ids[1],
+            extra: state.extra,
+          ),
         ),
       ),
       // Phase 312 (D9) — the PARAMETERISED weekly-template editor.
@@ -1516,35 +1536,43 @@ GoRouter appRouter(Ref ref) {
       // `fullPath`. So the scope reads its two ids straight off `state`; no
       // `GoRouterState.of(context)` lookup inside the shell child is needed.
       ShellRoute(
-        builder: (context, state, child) => _SalonManageStaffServicesShell(
-          salonId: state.pathParameters['salonId'] ?? '',
-          memberId: state.pathParameters['memberId'] ?? '',
-          child: child,
+        builder: (context, state, child) => pathIdsGuarded(
+          state,
+          <String>['salonId', 'memberId'],
+          (ids) => _SalonManageStaffServicesShell(
+            salonId: ids[0],
+            memberId: ids[1],
+            child: child,
+          ),
         ),
         routes: <RouteBase>[
           GoRoute(
             path: '/salons/:salonId/manage/staff/:memberId/services',
             redirect: salonManageGuard,
-            builder: (context, state) {
-              final String salonId = state.pathParameters['salonId'] ?? '';
-              final String memberId = state.pathParameters['memberId'] ?? '';
-              // D3 — the two additive destinations, so the FAB, the
-              // empty-state CTA and every card's «Редагувати» stay INSIDE this
-              // subtree (and therefore inside the shell's ProviderScope).
-              //
-              // Phase 322 (D1/D4) — `writable:` is now the salon-scoped
-              // [canManageSalonProvider] predicate, watched reactively by
-              // [_SalonManageServicesListRoute] rather than left at its
-              // implicit `true` default. `salonManageGuard` above already
-              // admits only an owner/salon-scoped-admin to this route, so
-              // this is defense-in-depth (same shape as
-              // `scheduleEditable`'s owner/admin arm) — never a widget that
-              // trusts route reachability alone for a MUTATION affordance.
-              return _SalonManageServicesListRoute(
-                salonId: salonId,
-                memberId: memberId,
-              );
-            },
+            builder: (context, state) => pathIdsGuarded(
+              state,
+              <String>['salonId', 'memberId'],
+              (ids) {
+                final String salonId = ids[0];
+                final String memberId = ids[1];
+                // D3 — the two additive destinations, so the FAB, the
+                // empty-state CTA and every card's «Редагувати» stay INSIDE this
+                // subtree (and therefore inside the shell's ProviderScope).
+                //
+                // Phase 322 (D1/D4) — `writable:` is now the salon-scoped
+                // [canManageSalonProvider] predicate, watched reactively by
+                // [_SalonManageServicesListRoute] rather than left at its
+                // implicit `true` default. `salonManageGuard` above already
+                // admits only an owner/salon-scoped-admin to this route, so
+                // this is defense-in-depth (same shape as
+                // `scheduleEditable`'s owner/admin arm) — never a widget that
+                // trusts route reachability alone for a MUTATION affordance.
+                return _SalonManageServicesListRoute(
+                  salonId: salonId,
+                  memberId: memberId,
+                );
+              },
+            ),
           ),
           // `/setup` (literal leaf) and `/:serviceId/edit` below do NOT
           // shadow each other: they differ in segment count (`.../setup` vs
@@ -1567,9 +1595,13 @@ GoRouter appRouter(Ref ref) {
             // writable bulk-create form. The backend rejects the POST, so
             // there was no escalation — but this is the one leaf of three
             // that trusted route reachability alone for a MUTATION surface.
-            builder: (context, state) => _SalonManageServiceSetupRoute(
-              salonId: state.pathParameters['salonId'] ?? '',
-              memberId: state.pathParameters['memberId'] ?? '',
+            builder: (context, state) => pathIdsGuarded(
+              state,
+              <String>['salonId', 'memberId'],
+              (ids) => _SalonManageServiceSetupRoute(
+                salonId: ids[0],
+                memberId: ids[1],
+              ),
             ),
           ),
           GoRoute(
@@ -1588,10 +1620,14 @@ GoRouter appRouter(Ref ref) {
             // salon-scoped [canManageSalonProvider] predicate, watched
             // reactively by [_SalonManageServiceEditRoute] — same
             // defense-in-depth reasoning as the list route above.
-            builder: (context, state) => _SalonManageServiceEditRoute(
-              salonId: state.pathParameters['salonId'] ?? '',
-              memberId: state.pathParameters['memberId'] ?? '',
-              serviceId: state.pathParameters['serviceId'] ?? '',
+            builder: (context, state) => pathIdsGuarded(
+              state,
+              <String>['salonId', 'memberId', 'serviceId'],
+              (ids) => _SalonManageServiceEditRoute(
+                salonId: ids[0],
+                memberId: ids[1],
+                serviceId: ids[2],
+              ),
             ),
           ),
         ],
@@ -1618,23 +1654,23 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/manage/settings/profile-edit',
         redirect: salonManageOwnerOnlyGuard,
-        builder: (context, state) => SalonProfileEditScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => SalonProfileEditScreen(salonId: ids[0])),
       ),
       GoRoute(
         path: '/salons/:salonId/manage/settings/address-edit',
         redirect: salonManageOwnerOnlyGuard,
-        builder: (context, state) => SalonAddressEditScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => SalonAddressEditScreen(salonId: ids[0])),
       ),
       GoRoute(
         path: '/salons/:salonId/manage/settings/contacts-edit',
         redirect: salonManageOwnerOnlyGuard,
-        builder: (context, state) => SalonContactsEditScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-        ),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'salonId',
+        ], (ids) => SalonContactsEditScreen(salonId: ids[0])),
       ),
       // Phase 21.8 — the salon-scoped bottom-nav shell
       // ([RouteNames.salonShell]). Reuses [salonManageGuard] VERBATIM — it
@@ -1648,15 +1684,21 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/shell',
         redirect: salonManageGuard,
-        builder: (context, state) {
-          // Allow-list: unknown `tab` values are ignored.
-          final String? tab = state.uri.queryParameters[kSalonShellTabQuery];
-          return SalonShellScreen(
-            salonId: state.pathParameters['salonId'] ?? '',
-            initialNavTab: tab == kSalonShellTabTeam ? kSalonTeamNavTab : null,
-            openReviewsTab: tab == kSalonShellTabReviews,
-          );
-        },
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['salonId'],
+          (ids) {
+            // Allow-list: unknown `tab` values are ignored.
+            final String? tab = state.uri.queryParameters[kSalonShellTabQuery];
+            return SalonShellScreen(
+              salonId: ids[0],
+              initialNavTab: tab == kSalonShellTabTeam
+                  ? kSalonTeamNavTab
+                  : null,
+              openReviewsTab: tab == kSalonShellTabReviews,
+            );
+          },
+        ),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
       // master profile's «Записатись до майстра» CTA pushes here with
@@ -2054,9 +2096,12 @@ GoRouter appRouter(Ref ref) {
           // `/bookings/:bookingId` nesting exactly.
           GoRoute(
             path: ':bookingId',
-            builder: (context, state) => BookingDetailScreen(
-              bookingId: state.pathParameters['bookingId']!,
-              onUnavailable: notificationUnavailableHandler(context, state),
+            builder: (context, state) => bookingIdGuarded(
+              state,
+              (bid) => BookingDetailScreen(
+                bookingId: bid,
+                onUnavailable: notificationUnavailableHandler(context, state),
+              ),
             ),
           ),
         ],
@@ -2247,25 +2292,28 @@ GoRouter appRouter(Ref ref) {
       // suppress it either — the server flag is the only gate.
       GoRoute(
         path: '${RouteNames.salonStaffBookings}/:bookingId',
-        builder: (context, state) => BookingDetailScreen(
-          bookingId: state.pathParameters['bookingId']!,
-          clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
-          onUnavailable: notificationUnavailableHandler(context, state),
-          // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
-          // `widget.salonId`, carried on `extra` because NOTHING on this
-          // route's path holds it (`/salon/bookings/:bookingId`) and
-          // `BookingDetailResponse` carries no `salonId` either. Same
-          // `extra`-carries-the-salon-id contract `RouteNames
-          // .salonStaffBookingNew` already uses on this very path prefix.
-          //
-          // Defensively typed: a deep link, a browser reload or any push that
-          // omits `extra` yields `null`, which is exactly the pre-2026-09-19
-          // behaviour (the screen simply does not drop the salon dot set).
-          // Never a cast — an unexpected `extra` must not crash the route.
-          salonId: switch (state.extra) {
-            final String id when id.isNotEmpty => id,
-            _ => null,
-          },
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bid) => BookingDetailScreen(
+            bookingId: bid,
+            clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
+            onUnavailable: notificationUnavailableHandler(context, state),
+            // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
+            // `widget.salonId`, carried on `extra` because NOTHING on this
+            // route's path holds it (`/salon/bookings/:bookingId`) and
+            // `BookingDetailResponse` carries no `salonId` either. Same
+            // `extra`-carries-the-salon-id contract `RouteNames
+            // .salonStaffBookingNew` already uses on this very path prefix.
+            //
+            // Defensively typed: a deep link, a browser reload or any push that
+            // omits `extra` yields `null`, which is exactly the pre-2026-09-19
+            // behaviour (the screen simply does not drop the salon dot set).
+            // Never a cast — an unexpected `extra` must not crash the route.
+            salonId: switch (state.extra) {
+              final String id when id.isNotEmpty => id,
+              _ => null,
+            },
+          ),
         ),
       ),
       // Phase 21.12 — /salon/bookings/:bookingId/review, «ВІДГУК ПРО КЛІЄНТА»
@@ -2283,12 +2331,15 @@ GoRouter appRouter(Ref ref) {
       // (it is a `/salon/bookings` child, this is a grandchild).
       GoRoute(
         path: '${RouteNames.salonStaffBookings}/:bookingId/review',
-        builder: (context, state) => LeaveClientFeedbackScreen(
-          bookingId: state.pathParameters['bookingId']!,
-          entry: switch (state.extra) {
-            final ClientReviewEntry entry => entry,
-            _ => ClientReviewEntry.bookingDetail,
-          },
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bid) => LeaveClientFeedbackScreen(
+            bookingId: bid,
+            entry: switch (state.extra) {
+              final ClientReviewEntry entry => entry,
+              _ => ClientReviewEntry.bookingDetail,
+            },
+          ),
         ),
       ),
       // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
@@ -2346,12 +2397,15 @@ GoRouter appRouter(Ref ref) {
       // resurrected stale CTA.
       GoRoute(
         path: '/master/bookings/:bookingId/review',
-        builder: (context, state) => LeaveClientFeedbackScreen(
-          bookingId: state.pathParameters['bookingId']!,
-          entry: switch (state.extra) {
-            final ClientReviewEntry entry => entry,
-            _ => ClientReviewEntry.bookingDetail,
-          },
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bid) => LeaveClientFeedbackScreen(
+            bookingId: bid,
+            entry: switch (state.extra) {
+              final ClientReviewEntry entry => entry,
+              _ => ClientReviewEntry.bookingDetail,
+            },
+          ),
         ),
       ),
       // Master profile settings hub + per-section edit pages. These replace the
@@ -2835,22 +2889,23 @@ GoRouter appRouter(Ref ref) {
             // No empty-id redirect: `:serviceId` never matches an empty
             // segment (go_router's `[^/]+`), so `services//edit` is a
             // router-level no-match -> `onException` -> role home.
-            builder: (context, state) {
-              final String serviceId = state.pathParameters['serviceId'] ?? '';
-              return _OwnMasterRowGate(
-                role: UserRole.salonOwner,
-                builder:
-                    (
-                      BuildContext context,
-                      WidgetRef ref,
-                      String salonId,
-                      String masterId,
-                    ) => _SalonManageServiceEditRoute(
-                      salonId: salonId,
-                      serviceId: serviceId,
-                    ),
-              );
-            },
+            builder: (context, state) =>
+                pathIdsGuarded(state, <String>['serviceId'], (ids) {
+                  final String serviceId = ids[0];
+                  return _OwnMasterRowGate(
+                    role: UserRole.salonOwner,
+                    builder:
+                        (
+                          BuildContext context,
+                          WidgetRef ref,
+                          String salonId,
+                          String masterId,
+                        ) => _SalonManageServiceEditRoute(
+                          salonId: salonId,
+                          serviceId: serviceId,
+                        ),
+                  );
+                }),
           ),
         ],
       ),
@@ -2901,10 +2956,13 @@ GoRouter appRouter(Ref ref) {
       // Declared AFTER `archive` above — see the ordering banner.
       GoRoute(
         path: '${RouteNames.salonMasterBookings}/:bookingId',
-        builder: (context, state) => BookingDetailScreen(
-          bookingId: state.pathParameters['bookingId']!,
-          clientReviewRouteBuilder: RouteNames.salonMasterClientReview,
-          onUnavailable: notificationUnavailableHandler(context, state),
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bid) => BookingDetailScreen(
+            bookingId: bid,
+            clientReviewRouteBuilder: RouteNames.salonMasterClientReview,
+            onUnavailable: notificationUnavailableHandler(context, state),
+          ),
         ),
       ),
       // Phase 330 — /staff/bookings/:bookingId/review, the SALON_MASTER's
@@ -2916,12 +2974,15 @@ GoRouter appRouter(Ref ref) {
       // for why an absent/unexpected `extra` falls back to `bookingDetail`.
       GoRoute(
         path: '${RouteNames.salonMasterBookings}/:bookingId/review',
-        builder: (context, state) => LeaveClientFeedbackScreen(
-          bookingId: state.pathParameters['bookingId']!,
-          entry: switch (state.extra) {
-            final ClientReviewEntry entry => entry,
-            _ => ClientReviewEntry.bookingDetail,
-          },
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bid) => LeaveClientFeedbackScreen(
+            bookingId: bid,
+            entry: switch (state.extra) {
+              final ClientReviewEntry entry => entry,
+              _ => ClientReviewEntry.bookingDetail,
+            },
+          ),
         ),
       ),
       // Settings hub reached from the profile's trailing `tune_rounded`
@@ -3013,8 +3074,9 @@ GoRouter appRouter(Ref ref) {
       // Uses MaterialPage so swipe-back works on the push stack.
       GoRoute(
         path: '/services/:id/edit',
-        builder: (context, state) =>
-            ServiceEditScreen(id: state.pathParameters['id'] ?? ''),
+        builder: (context, state) => pathIdsGuarded(state, <String>[
+          'id',
+        ], (ids) => ServiceEditScreen(id: ids[0])),
       ),
       // Phase 6.2 — the legacy `/master/working-hours` editor route
       // (WorkingHoursScreen) was retired: it wrote the deprecated `working_hours`
@@ -3104,6 +3166,8 @@ GoRouter appRouter(Ref ref) {
       ),
     ],
   );
+  attachAppLinkReplay(ref, router);
+  return router;
 }
 
 /// Phase 312 (D9) — resolves the [ScheduleScope] for
@@ -4138,4 +4202,41 @@ class _Placeholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Scaffold(body: Center(child: Text(label)));
+}
+
+Widget _invalidIdScaffold(Key key) => Scaffold(
+  backgroundColor: BrandColors.base,
+  body: ErrorState(key: key, failure: const NotFoundFailure()),
+);
+
+/// Gate for every client route taking `:bookingId`: go_router decodes the
+/// param, and the API client puts it in the path unencoded, so an id that is
+/// not a plain `[A-Za-z0-9-]` segment (`..%2F..%2Fx`) renders the shared
+/// not-found [ErrorState] and never reaches a screen / repository.
+Widget bookingIdGuarded(GoRouterState state, Widget Function(String id) build) {
+  final String? id = state.pathParameters['bookingId'];
+  if (id == null || !isValidBookingIdSegment(id)) {
+    return _invalidIdScaffold(const Key('booking_id_invalid_error'));
+  }
+  return build(id);
+}
+
+/// Same gate for every other id path param (`:salonId`, `:masterId`,
+/// `:memberId`, `:serviceId`, `:id`): builds only when EVERY name in [names]
+/// is present and a plain `[A-Za-z0-9-]` segment; otherwise the shared
+/// not-found [ErrorState]. [build] receives the validated values by name.
+Widget pathIdsGuarded(
+  GoRouterState state,
+  List<String> names,
+  Widget Function(List<String> ids) build,
+) {
+  final List<String> ids = <String>[];
+  for (final String name in names) {
+    final String? value = state.pathParameters[name];
+    if (value == null || !isValidIdSegment(value)) {
+      return _invalidIdScaffold(const Key('path_id_invalid_error'));
+    }
+    ids.add(value);
+  }
+  return build(ids);
 }

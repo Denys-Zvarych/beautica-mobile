@@ -28,6 +28,7 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../routing/app_router.dart';
+import '../../../routing/deferred_navigation.dart';
 import '../../../routing/route_names.dart';
 import '../../auth/domain/auth_session.dart';
 import '../../auth/domain/user_role.dart';
@@ -40,14 +41,6 @@ import 'pending_push_tap_notifier.dart';
 import 'unread_notifications_notifier.dart';
 
 part 'push_tap_dispatcher.g.dart';
-
-/// Locations a tap must wait out: the splash and the pre-session screens.
-bool _holdsPushTap(String location) =>
-    location == RouteNames.splash ||
-    location == RouteNames.login ||
-    location == RouteNames.verification ||
-    location == RouteNames.register ||
-    location.startsWith('${RouteNames.register}/');
 
 @Riverpod(keepAlive: true)
 void pushTapDispatcher(Ref ref) {
@@ -66,7 +59,7 @@ void pushTapDispatcher(Ref ref) {
       return;
     }
     final String location = router.routerDelegate.currentConfiguration.uri.path;
-    if (_holdsPushTap(location)) return;
+    if (holdsDeferredNavigation(location)) return;
     final BuildContext? context =
         router.routerDelegate.navigatorKey.currentContext;
     if (context == null || !context.mounted) {

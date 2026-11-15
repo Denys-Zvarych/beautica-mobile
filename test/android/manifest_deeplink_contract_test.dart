@@ -13,8 +13,10 @@ import 'package:flutter_test/flutter_test.dart';
 ///      ACTION_VIEW intent URL to go_router via the framework),
 ///   2. MainActivity `launchMode="singleTop"` (so a warm-app deep link reuses
 ///      the existing task instead of spawning a duplicate),
-///   3. the `autoVerify` App-Link intent-filter for `/invite/accept` on the
-///      production Railway host.
+///   3. the `autoVerify` App-Link intent-filters for `/invite/accept` and
+///      `/bookings/` (emailed booking / review links) on the per-flavor host —
+///      and NOTHING else (the guest web-only `/r/`, `/c/`, `/book/` pages
+///      must stay on the website).
 ///
 /// mobile-security MEDIUM (Beautica OTP task): the `/reset-password`
 /// `autoVerify` intent-filter that used to be asserted here was REMOVED from
@@ -237,6 +239,90 @@ void main() {
       );
     });
 
+    // 2026-11-14 — booking / review email links (docs/specs/website.md
+    // WEB-12/13). The emailed review CTA is `/bookings/{id}/review` and booking
+    // links are `/bookings/{id}`; without an autoVerify filter they open the
+    // browser and the website's «Відкрити в застосунку» intent falls back to
+    // Play.
+    test('declares an https autoVerify App-Link intent-filter for /bookings/ '
+        'on the production host', () {
+      final List<String> matching = _appLinkFilters(manifest, productionHost)
+          .where(
+            (c) => RegExp(r'android:pathPrefix\s*=\s*"/bookings/"').hasMatch(c),
+          )
+          .toList();
+
+      expect(
+        matching,
+        hasLength(1),
+        reason:
+            'Expected exactly one <intent-filter android:autoVerify="true"> '
+            'with <data android:scheme="https" android:host="$productionHost" '
+            'android:pathPrefix="/bookings/"/> so emailed booking / review '
+            'links (/bookings/{id}, /bookings/{id}/review) open the app.',
+      );
+      expect(
+        RegExp(r'android:scheme\s*=\s*"https"').hasMatch(matching.single),
+        isTrue,
+        reason:
+            'App Links are https-only; the /bookings/ filter must use '
+            'android:scheme="https".',
+      );
+    });
+
+    // The guest web-only surfaces must stay on the website: the guest review
+    // link `/r/{token}` (docs/specs/reviews.md REV-20/29) and the guest cancel
+    // pages `/c/{token}` + `/book/cancel/{token}` (WEB-12). Claiming any of
+    // them would open a sign-in-gated app for a guest who has no account.
+    for (final String webOnly in <String>['/r/', '/c/', '/book/']) {
+      test('does NOT claim the guest web-only path $webOnly', () {
+        final RegExp claims = RegExp(
+          'android:path(Prefix|Pattern)?\\s*=\\s*"'
+          '${RegExp.escape(webOnly)}[^"]*"',
+        );
+        expect(
+          _appLinkFilters(
+            manifest,
+            productionHost,
+          ).where(claims.hasMatch).toList(),
+          isEmpty,
+          reason:
+              '$webOnly is a guest web-only surface and must not be claimed '
+              'by an App-Link intent-filter.',
+        );
+      });
+    }
+
+    test('every App-Link filter on the production host is an approved path '
+        '(/invite/accept or /bookings/)', () {
+      final RegExp pathAttr = RegExp(
+        r'android:path(?:Prefix|Pattern)?\s*=\s*"([^"]*)"',
+      );
+      final Set<String> claimed = <String>{
+        for (final String c in _appLinkFilters(manifest, productionHost))
+          for (final RegExpMatch m in pathAttr.allMatches(c)) m.group(1)!,
+      };
+      expect(
+        claimed,
+        <String>{'/invite/accept', '/bookings/'},
+        reason:
+            'A new App-Link path was claimed (or a bare host filter with no '
+            'path, which would claim the whole site incl. the guest /r/ and '
+            '/c/ pages). Add it here deliberately after checking it is not a '
+            'guest web-only surface.',
+      );
+      expect(
+        _appLinkFilters(
+          manifest,
+          productionHost,
+        ).where((c) => !pathAttr.hasMatch(c)).toList(),
+        isEmpty,
+        reason:
+            'An App-Link filter with no path attribute claims every URL '
+            'on the host.',
+      );
+    });
+
     test('production host is wired (sanity check on collapsed manifest)', () {
       // Guards against the host being renamed/typo\'d anywhere in the manifest,
       // which would break every App-Link filter at once.
@@ -249,4 +335,18 @@ void main() {
       );
     });
   });
+}
+
+/// Whitespace-collapsed `<intent-filter>` blocks that are `autoVerify="true"`
+/// and target [host] — i.e. every App-Link the app claims on that host.
+List<String> _appLinkFilters(String manifest, String host) {
+  final RegExp autoVerify = RegExp(r'android:autoVerify\s*=\s*"true"');
+  final RegExp hostAttr = RegExp(
+    'android:host\\s*=\\s*"${RegExp.escape(host)}"',
+  );
+  return RegExp(r'<intent-filter\b[^>]*>.*?</intent-filter>', dotAll: true)
+      .allMatches(manifest)
+      .map((m) => m.group(0)!.replaceAll(RegExp(r'\s+'), ' '))
+      .where((c) => autoVerify.hasMatch(c) && hostAttr.hasMatch(c))
+      .toList();
 }

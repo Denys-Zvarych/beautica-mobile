@@ -91,6 +91,7 @@ import 'client_elapsed_booking_readonly_flow_test.dart'
 import 'client_booking_rating_visibility_flow_test.dart'
     as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
+import 'booking_review_app_link_flow_test.dart' as booking_review_app_link;
 import 'client_rebook_from_past_flow_test.dart' as client_rebook_from_past;
 import 'client_review_refreshes_master_surfaces_flow_test.dart'
     as client_review_refreshes_master_surfaces;
@@ -374,6 +375,7 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  group('booking_review_app_link_flow', booking_review_app_link.main);
   // CLIENT rebook-from-past journey (Phase 350, Step 2.7 Rule 3b) — Минулі →
   // a past booking's «Записатись знову» → the REAL Step 1 (ServiceSelector
   // Sheet) opens for the SAME master with that booking's service already
