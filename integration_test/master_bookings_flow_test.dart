@@ -114,6 +114,7 @@ import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 import 'support/kyiv_wall_clock.dart';
 import 'support/week_grid_driver.dart';
+import '../test/helpers/asset_star_finder.dart';
 
 /// The REAL rendered geometry of the [MasterBookingCard] keyed
 /// `timeline-card-<id>` — mirrors `bookings_timeline_grid_test.dart`'s own
@@ -290,7 +291,7 @@ void main() {
         reason: 'an unreviewed client reads «★ —»',
       );
       expect(
-        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        find.descendant(of: strip, matching: findAssetStar()),
         findsOneWidget,
       );
       expect(
@@ -310,7 +311,7 @@ void main() {
       final Finder strip = await openProviderDetail(tester, fb);
 
       expect(
-        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        find.descendant(of: strip, matching: findAssetStar()),
         findsNothing,
         reason: 'a guest has no account to be rated',
       );
@@ -595,10 +596,7 @@ void main() {
         reason: 'the client strip must show the review count off the wire',
       );
       expect(
-        find.descendant(
-          of: clientStrip,
-          matching: find.byIcon(Icons.star_rounded),
-        ),
+        find.descendant(of: clientStrip, matching: findAssetStar()),
         findsOneWidget,
       );
       expect(

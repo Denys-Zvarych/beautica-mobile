@@ -181,6 +181,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import 'helpers/golden_pump.dart';
+import 'helpers/photo_state_golden.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — deliberately the SAME values `slot_picker_test.dart` /
@@ -424,21 +425,10 @@ class _FailingAppointmentRepository implements AppointmentRepository {
   }) => throw UnimplementedError();
 
   @override
-  Future<void> cancelAppointment(String id, {String? note}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> completeAppointment(String id) => throw UnimplementedError();
-
-  @override
   Future<void> completeAppointmentService(
     String appointmentId,
     String bookingId,
   ) => throw UnimplementedError();
-
-  @override
-  Future<void> declineAppointment(String id, {String? comment}) =>
-      throw UnimplementedError();
 
   @override
   Future<void> declineAppointmentService(
@@ -477,6 +467,53 @@ List<Object> _slotTimeOverrides({
     ),
   ),
 ];
+
+// ── 2026-11-14 — PROVIDER reschedule client strip (`BookingClientStrip`):
+// a registered client (photo + ★ rating) and the walk-in fallback (initials,
+// guest qualifier, no rating), on both the confirm and the done screen.
+// Seeded exactly as `reschedule_navigation.dart` seeds a provider reschedule
+// (`hideMasterIdentity: true` + the client-strip fields).
+
+BookingConfirmArgs _confirmArgsProviderClient({required bool walkIn}) =>
+    BookingConfirmArgs(
+      masterId: _kMaster.id,
+      master: _kMaster,
+      services: _kSingle,
+      startAt: _kAfternoon,
+      idempotencyKey: _kIdemKey,
+      rescheduleBookingId: 'b-1',
+      hideMasterIdentity: true,
+      rescheduleTargetIsWalkIn: walkIn,
+      rescheduleClientName: walkIn ? 'Ірина Гуменюк' : 'Марта Дяченко',
+      rescheduleClientInitials: walkIn ? 'ІГ' : 'МД',
+      rescheduleClientAvatarUrl: walkIn ? null : kGoldenAllowedUrl,
+      rescheduleClientRating: walkIn ? null : 4.6,
+      rescheduleClientReviewCount: walkIn ? null : 7,
+    );
+
+BookingSuccessArgs _successArgsProviderClient({required bool walkIn}) =>
+    BookingSuccessArgs(
+      master: _kMaster,
+      services: _kSingle,
+      startAt: _kAfternoon,
+      isReschedule: true,
+      isWalkIn: walkIn,
+      isProviderViewer: true,
+      rescheduleClientName: walkIn ? 'Ірина Гуменюк' : 'Марта Дяченко',
+      rescheduleClientInitials: walkIn ? 'ІГ' : 'МД',
+      rescheduleClientAvatarUrl: walkIn ? null : kGoldenAllowedUrl,
+      rescheduleClientRating: walkIn ? null : 4.6,
+      rescheduleClientReviewCount: walkIn ? null : 7,
+    );
+
+/// Lets the fake-cache avatar finish its real-time decode (see
+/// `photo_state_golden.dart`'s `_pumpWithImages`).
+Future<void> _awaitAvatarDecode(WidgetTester tester) async {
+  await tester.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 150)),
+  );
+  await tester.pump();
+}
 
 List<Object> _confirmOverrides() => <Object>[
   ..._clock(),
@@ -746,8 +783,33 @@ List<_Cell> _cells() => <_Cell>[
 // Goldens
 // ---------------------------------------------------------------------------
 
-void main() {
-  for (final cell in _cells()) {
+List<_Cell> _providerClientCells() => <_Cell>[
+  for (final bool walkIn in <bool>[false, true]) ...<_Cell>[
+    (
+      name: 'confirm-reschedule-provider-${walkIn ? 'walkin' : 'client'}',
+      build: () => BookingConfirmScreen(
+        args: _confirmArgsProviderClient(walkIn: walkIn),
+      ),
+      overrides: _confirmOverrides(),
+      settle: true,
+      warmLottie: false,
+      drive: _awaitAvatarDecode,
+    ),
+    (
+      name: 'success-reschedule-provider-${walkIn ? 'walkin' : 'client'}',
+      build: () => BookingSuccessScreen(
+        args: _successArgsProviderClient(walkIn: walkIn),
+      ),
+      overrides: _clock(),
+      settle: true,
+      warmLottie: true,
+      drive: _awaitAvatarDecode,
+    ),
+  ],
+];
+
+void _registerCells(List<_Cell> cells) {
+  for (final cell in cells) {
     for (final width in kGoldenWidths) {
       for (final scale in kGoldenTextScales) {
         final String suffix = widthScaleSuffix(width, scale);
@@ -774,4 +836,14 @@ void main() {
       }
     }
   }
+}
+
+void main() {
+  _registerCells(_cells());
+  // ADDITIVE — its own group so the photo allow-list/fake cache setUp never
+  // touches the cells above (their baselines stay byte-identical).
+  group('provider reschedule client strip', () {
+    registerPhotoGoldenMedia();
+    _registerCells(_providerClientCells());
+  });
 }

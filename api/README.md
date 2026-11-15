@@ -65,16 +65,11 @@ All URIs are relative to *http://localhost:8080*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 [*AppConfigApi*](doc/AppConfigApi.md) | [**getConfig**](doc/AppConfigApi.md#getconfig) | **GET** /api/v1/app/config | Minimum and latest supported app builds
-[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointment**](doc/AppointmentControllerApi.md#cancelappointment) | **PATCH** /api/v1/appointments/{appointmentId}/cancel | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**cancelAppointmentItem**](doc/AppointmentControllerApi.md#cancelappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/cancel | Cancel one service line of a visit
-[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointment**](doc/AppointmentControllerApi.md#completeappointment) | **PATCH** /api/v1/appointments/{appointmentId}/complete | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**completeAppointmentItem**](doc/AppointmentControllerApi.md#completeappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/complete | Complete one service line of a visit
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**createAppointment**](doc/AppointmentControllerApi.md#createappointment) | **POST** /api/v1/appointments | 
-[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointment**](doc/AppointmentControllerApi.md#declineappointment) | **PATCH** /api/v1/appointments/{appointmentId}/decline | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**declineAppointmentItem**](doc/AppointmentControllerApi.md#declineappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/decline | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**getAppointment**](doc/AppointmentControllerApi.md#getappointment) | **GET** /api/v1/appointments/{appointmentId} | 
-[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**notCompleteAppointment**](doc/AppointmentControllerApi.md#notcompleteappointment) | **PATCH** /api/v1/appointments/{appointmentId}/not-complete | 
-[*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointment**](doc/AppointmentControllerApi.md#rescheduleappointment) | **PATCH** /api/v1/appointments/{appointmentId}/reschedule | 
 [*AppointmentControllerApi*](doc/AppointmentControllerApi.md) | [**rescheduleAppointmentItem**](doc/AppointmentControllerApi.md#rescheduleappointmentitem) | **PATCH** /api/v1/appointments/{appointmentId}/services/{bookingId}/reschedule | Reschedule one service line of a visit
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
@@ -104,7 +99,6 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookedDays**](doc/BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listSalonBookedDays**](doc/BookingControllerApi.md#listsalonbookeddays) | **GET** /api/v1/bookings/salon/{salonId}/booked-days | List the salon&#39;s booked days (owner/admin)
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**rescheduleBooking**](doc/BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
 [*BookingLinksApi*](doc/BookingLinksApi.md) | [**getMine**](doc/BookingLinksApi.md#getmine) | **GET** /api/v1/booking-links/mine | My shareable public booking links
 [*BookingLinksApi*](doc/BookingLinksApi.md) | [**regenerateMaster**](doc/BookingLinksApi.md#regeneratemaster) | **POST** /api/v1/booking-links/master/regenerate | Regenerate my master booking link
@@ -231,7 +225,7 @@ Class | Method | HTTP request | Description
 [*SettlementSearchControllerApi*](doc/SettlementSearchControllerApi.md) | [**searchSettlements**](doc/SettlementSearchControllerApi.md#searchsettlements) | **GET** /api/v1/settlements | 
 [*StaffBookingsApi*](doc/StaffBookingsApi.md) | [**createStaffBooking**](doc/StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
-[*UserControllerApi*](doc/UserControllerApi.md) | [**deleteMyAccount**](doc/UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | 
+[*UserControllerApi*](doc/UserControllerApi.md) | [**deleteMyAccount**](doc/UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | Delete the caller&#39;s own account
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMyRating**](doc/UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**requestChangePasswordOtp**](doc/UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 
@@ -323,12 +317,10 @@ Class | Method | HTTP request | Description
  - [ApiResponseVoid](doc/ApiResponseVoid.md)
  - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
  - [AppConfigResponse](doc/AppConfigResponse.md)
- - [AppointmentCancelRequest](doc/AppointmentCancelRequest.md)
  - [AppointmentDetailResponse](doc/AppointmentDetailResponse.md)
  - [AppointmentItemRescheduleRequest](doc/AppointmentItemRescheduleRequest.md)
  - [AppointmentItemResponse](doc/AppointmentItemResponse.md)
  - [AppointmentProviderNoteRequest](doc/AppointmentProviderNoteRequest.md)
- - [AppointmentRescheduleRequest](doc/AppointmentRescheduleRequest.md)
  - [ApprovedCategoryResponse](doc/ApprovedCategoryResponse.md)
  - [AssignServiceToMasterRequest](doc/AssignServiceToMasterRequest.md)
  - [AuthResponse](doc/AuthResponse.md)

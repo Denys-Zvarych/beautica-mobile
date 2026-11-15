@@ -1021,26 +1021,55 @@ final class ServiceUnassignBlockedFailure extends Failure {
 /// may already have attached).
 final class ClientBookingConflictFailure extends Failure {
   const ClientBookingConflictFailure({
-    required this.conflictingBookingId,
-    required this.serviceName,
-    required this.masterName,
+    this.conflictingBookingId,
+    this.serviceName,
+    this.masterName,
     required this.startsAt,
     required this.endsAt,
+    this.providerView = false,
     super.cause,
   });
+
+  /// ADDITIVE (2026-11-14): `true` when the failure is shown to a PROVIDER
+  /// rescheduling a client's booking — the clash is the CLIENT's, not the
+  /// viewer's, so [userMessage] switches to the third-person
+  /// `bookingErrClientConflictProvider` copy. Defaults to `false`, so every
+  /// existing producer (the repository mappers) keeps the client wording.
+  final bool providerView;
+
+  /// This same failure, re-addressed to a PROVIDER viewer (see
+  /// [providerView]). Every other field is carried over unchanged; the
+  /// provider copy reads only the window.
+  ClientBookingConflictFailure asProviderView() => ClientBookingConflictFailure(
+    conflictingBookingId: conflictingBookingId,
+    serviceName: serviceName,
+    masterName: masterName,
+    startsAt: startsAt,
+    endsAt: endsAt,
+    providerView: true,
+    cause: cause,
+  );
 
   /// Id of the client's own PENDING/CONFIRMED booking that clashes with the
   /// requested slot. Not navigated to anywhere yet — kept typed (rather than
   /// discarded) as the natural extension point for a future "View booking"
   /// deep link from the conflict dialog.
-  final String conflictingBookingId;
+  ///
+  /// [conflictingBookingId], [serviceName] and [masterName] are NULLABLE
+  /// (security HIGH, 2026-11-14): the backend omits all three for a
+  /// PROVIDER-initiated request — they describe the client's booking with
+  /// ANOTHER provider and must never reach this one. Only the window
+  /// ([startsAt]/[endsAt]) is guaranteed.
+  final String? conflictingBookingId;
 
   /// The clashing booking's service name, exactly as returned by the backend
-  /// (an untranslated catalogue/user value, not an l10n key).
-  final String serviceName;
+  /// (an untranslated catalogue/user value, not an l10n key). `null` on a
+  /// provider-initiated request — see [conflictingBookingId].
+  final String? serviceName;
 
-  /// The clashing booking's master (or salon-master) display name.
-  final String masterName;
+  /// The clashing booking's master (or salon-master) display name. `null` on
+  /// a provider-initiated request — see [conflictingBookingId].
+  final String? masterName;
 
   /// The clashing booking's window start.
   final DateTime startsAt;
@@ -1051,11 +1080,17 @@ final class ClientBookingConflictFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) {
     final l10n = AppLocalizations.of(ctx);
-    return l10n.bookingErrClientConflict(
-      serviceName,
-      masterName,
-      formatBookingWindow(startsAt, endsAt),
-    );
+    final String window = formatBookingWindow(startsAt, endsAt);
+    // PROVIDER copy is window-only BY CONSTRUCTION — it never reads
+    // [serviceName]/[masterName], even when a stale backend still sends them.
+    if (providerView) return l10n.bookingErrClientConflictProvider(window);
+    final String? service = serviceName;
+    final String? master = masterName;
+    // Client voice needs both names; an envelope without them (only ever a
+    // provider-initiated request) degrades to the generic conflict copy
+    // rather than rendering empty slots.
+    if (service == null || master == null) return l10n.errConflict;
+    return l10n.bookingErrClientConflict(service, master, window);
   }
 }
 

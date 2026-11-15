@@ -58,6 +58,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/overflow_guard.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 class _MockSearchRepository extends Mock implements SearchRepository {}
 
@@ -452,7 +453,7 @@ void main() {
       expect(find.text(l10n.searchResultPriceExact(600)), findsOneWidget);
       expect(find.text(l10n.searchPriceFrom(600)), findsNothing);
       // Star icon present (the rating row renders it only when reviews exist).
-      expect(find.byIcon(Icons.star_rounded), findsOneWidget);
+      expect(findAssetStar(), findsOneWidget);
     });
 
     testWidgets('master card shows «Без відгуків» when reviewCount is 0', (
@@ -484,7 +485,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(_l10n(tester).searchResultNoReviews), findsOneWidget);
-      expect(find.byIcon(Icons.star_rounded), findsNothing);
+      expect(findAssetStar(), findsNothing);
     });
 
     testWidgets('salon card shows a price RANGE and NEVER a star rating', (
@@ -518,7 +519,7 @@ void main() {
       final l10n = _l10n(tester);
       expect(find.text(l10n.searchResultPriceRange(400, 900)), findsOneWidget);
       // CONTRACT GAP: SalonSearchResult has no avgRating → no star ever.
-      expect(find.byIcon(Icons.star_rounded), findsNothing);
+      expect(findAssetStar(), findsNothing);
     });
 
     testWidgets('salon card shows an equal price band as a fixed price', (

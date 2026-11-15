@@ -63,7 +63,7 @@ part 'bookings_capability.g.dart';
 
 /// `true` when the current viewer may apply a STATUS TRANSITION to a booking
 /// they are looking at — «Завершити» (complete), «Скасувати» (decline),
-/// «Перенести» (reschedule) and not-complete.
+/// «Перенести» (reschedule).
 ///
 /// Generated provider name: `bookingTransitionsEnabledProvider`.
 ///

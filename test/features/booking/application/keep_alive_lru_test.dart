@@ -75,4 +75,54 @@ void main() {
     expect(lru, isA<KeepAliveLru<Object?>>());
     expect(lru.capacity, 3);
   });
+
+  group('forget', () {
+    test('with a non-identical link is a no-op', () {
+      final KeepAliveLru<String> lru = KeepAliveLru<String>(capacity: 3);
+      final _Link current = _Link();
+      lru.touch('a', current);
+
+      lru.forget('a', _Link());
+
+      expect(lru.contains('a'), isTrue);
+      expect(current.closed, isFalse);
+    });
+
+    test('drops the entry without closing the link', () {
+      final KeepAliveLru<String> lru = KeepAliveLru<String>(capacity: 3);
+      final _Link link = _Link();
+      lru.touch('a', link);
+
+      lru.forget('a', link);
+
+      expect(lru.contains('a'), isFalse);
+      expect(link.closed, isFalse);
+    });
+
+    test('an entry forgotten on dispose is not closed by a later touch', () {
+      final KeepAliveLru<String> lru = KeepAliveLru<String>(capacity: 3);
+      final _Link dead = _Link();
+      lru.touch('a', dead);
+      lru.forget('a', dead);
+
+      final _Link fresh = _Link();
+      lru.touch('a', fresh);
+
+      expect(dead.closed, isFalse);
+      expect(fresh.closed, isFalse);
+      expect(lru.liveQueries, <String>['a']);
+    });
+
+    test('after clear is a no-op and does not throw', () {
+      final KeepAliveLru<String> lru = KeepAliveLru<String>(capacity: 3);
+      final _Link link = _Link();
+      lru.touch('a', link);
+      lru.clear();
+
+      expect(() => lru.forget('a', link), returnsNormally);
+
+      expect(lru.contains('a'), isFalse);
+      expect(lru.liveQueries, isEmpty);
+    });
+  });
 }

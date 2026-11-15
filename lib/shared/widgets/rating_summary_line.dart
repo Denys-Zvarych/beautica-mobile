@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -55,7 +58,11 @@ class RatingSummaryLine extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        const Icon(Icons.star_rounded, size: 16, color: BrandColors.accentDeep),
+        const AppIcon(
+          BeauticaAssetIcons.star,
+          size: 16,
+          color: BrandColors.accentDeep,
+        ),
         const SizedBox(width: 4),
         Text(ratingLabel, key: ratingKey, style: _ratingInlineStyle),
         const SizedBox(width: 4),

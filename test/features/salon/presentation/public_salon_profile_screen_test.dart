@@ -69,6 +69,7 @@ import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/rendered_image_url.dart';
+import '../../../helpers/asset_star_finder.dart';
 
 // ---------------------------------------------------------------------------
 // Stub data
@@ -1726,7 +1727,7 @@ void main() {
         final Finder logoFinder = find.byType(SalonLogo);
         final Finder ratingIcon = find.descendant(
           of: heroCard,
-          matching: find.byIcon(Icons.star_rounded),
+          matching: findAssetStar(),
         );
         final Finder locationIcon = find.descendant(
           of: heroCard,

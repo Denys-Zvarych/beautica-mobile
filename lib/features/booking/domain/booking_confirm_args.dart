@@ -39,9 +39,8 @@
 // invalidate/refetch on success). The endpoint itself is dual-actor (the
 // visit's own CLIENT or an assigned PROVIDER); either footer of
 // `booking_detail_screen.dart`'s `_onReschedule` may set it. This supersedes
-// an earlier whole-VISIT reschedule flow (retired — the backend's own
-// whole-visit endpoint is untouched, only this mobile entry point to it was
-// removed) that used to populate [services] with the visit's FULL ordered
+// an earlier whole-VISIT reschedule flow (retired — the backend's
+// whole-visit route was removed, B475) that used to populate [services] with the visit's FULL ordered
 // selection.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
@@ -137,6 +136,17 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// the terminal done screen.
     String? rescheduleClientName,
     String? rescheduleClientPhone,
+
+    /// RESCHEDULE-ONLY (2026-11-14) — the rest of the client strip the
+    /// provider sees on «Деталі запису» (photo, monogram, ★ rating), read off
+    /// the SAME fresh `Booking` and populated under the SAME
+    /// `hideMasterIdentity` gate as [rescheduleClientName]; `null` on every
+    /// other path. [rescheduleClientRating] is already display-normalized
+    /// (`BookingDisplayX.clientDisplayRating`).
+    String? rescheduleClientAvatarUrl,
+    String? rescheduleClientInitials,
+    double? rescheduleClientRating,
+    int? rescheduleClientReviewCount,
 
     /// VENUE ADDRESS OVERRIDE (2026-09-18). Forwarded unchanged from
     /// [BookingSlotPickerArgs.venueStreet] / [BookingSlotPickerArgs

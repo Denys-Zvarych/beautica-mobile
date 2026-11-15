@@ -5509,6 +5509,20 @@ final class FakeBackend {
 
   bool _rescheduleClientOverlapConflict = false;
 
+  /// Opt-in (BOOK-75, 2026-11-14): when `true`, the
+  /// [rescheduleClientOverlapConflict] 409 envelope is the REDACTED
+  /// provider-initiated shape — `conflictingBookingId`, `serviceName` and
+  /// `masterName` are OMITTED, only the window is sent. Read per REQUEST
+  /// inside the reply callback (body content, not status), so no re-wire is
+  /// needed. Off by default so the client-actor flows keep the full envelope.
+  bool rescheduleClientOverlapRedacted = false;
+
+  /// The clashing booking's service/master names the FULL (client-actor)
+  /// [rescheduleClientOverlapConflict] envelope carries — exposed so a
+  /// provider flow can assert they never reach the screen.
+  static const String kRescheduleConflictServiceName = 'Стрижка';
+  static const String kRescheduleConflictMasterName = 'Ірина Бондар';
+
   /// Phase 431 — when `true`, `PATCH /bookings/{id}/reschedule` answers HTTP
   /// **409** with the `{ "data": { "code": "RESCHEDULE_LIMIT_REACHED" } }`
   /// envelope (`isRescheduleLimitReached`'s exact shape): the per-booking
@@ -5548,8 +5562,8 @@ final class FakeBackend {
   /// default (a plain single-service booking). A flow proving the
   /// appointment-child provider-write routing (`BookingDetailScreen`'s
   /// `_confirmDecline`/`_confirmComplete` routing to
-  /// `AppointmentRepository.completeAppointment`/`declineAppointment` instead
-  /// of the per-booking endpoints) sets this to a non-null id BEFORE booting
+  /// `AppointmentRepository.completeAppointmentService`/
+  /// `declineAppointmentService` instead of the per-booking endpoints) sets this to a non-null id BEFORE booting
   /// the harness, so `GET /bookings/booking-1` serves a booking whose
   /// `appointmentId` is non-null — mirroring how `bookingPriceMax` is seeded
   /// for the RANGE-price flow. The per-booking `/decline`/`/complete` ROUTES
@@ -5584,7 +5598,7 @@ final class FakeBackend {
   /// `booking-1` moves [bookingStatus], `booking-2` moves
   /// [siblingBookingStatus]. Because the per-service decline fix passes THIS
   /// child's own id (never the whole visit), declining `booking-1` here leaves
-  /// `booking-2` CONFIRMED. The old whole-visit `declineAppointment` would have
+  /// `booking-2` CONFIRMED. A whole-visit decline would have
   /// moved every child at once — this per-item routing is exactly what makes
   /// the sibling assertion a genuine regression guard.
   void declineChild(String bookingId) {
@@ -7412,9 +7426,11 @@ final class FakeBackend {
               'success': false,
               'data': <String, dynamic>{
                 'code': 'CLIENT_BOOKING_CONFLICT',
-                'conflictingBookingId': 'booking-existing',
-                'serviceName': 'Стрижка',
-                'masterName': 'Ірина Бондар',
+                if (!rescheduleClientOverlapRedacted) ...<String, dynamic>{
+                  'conflictingBookingId': 'booking-existing',
+                  'serviceName': kRescheduleConflictServiceName,
+                  'masterName': kRescheduleConflictMasterName,
+                },
                 'startsAt': bookingStartsAt,
                 'endsAt': bookingEndsAt,
               },

@@ -91,6 +91,7 @@ import 'client_elapsed_booking_readonly_flow_test.dart'
 import 'client_booking_rating_visibility_flow_test.dart'
     as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
+import 'booking_review_app_link_flow_test.dart' as booking_review_app_link;
 import 'client_rebook_from_past_flow_test.dart' as client_rebook_from_past;
 import 'client_review_refreshes_master_surfaces_flow_test.dart'
     as client_review_refreshes_master_surfaces;
@@ -147,6 +148,10 @@ import 'guest_phone_tap_to_call_flow_test.dart' as guest_phone_tap_to_call;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
 import 'master_bookings_week_flow_test.dart' as master_bookings_week;
+import 'master_bookings_week_reschedule_return_flow_test.dart'
+    as master_bookings_week_reschedule_return;
+import 'salon_board_reschedule_return_flow_test.dart'
+    as salon_board_reschedule_return;
 import 'master_bookings_week_entrance_flow_test.dart'
     as master_bookings_week_entrance;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
@@ -338,8 +343,8 @@ void main() {
   group('client_my_bookings_partition_flow', client_my_bookings_partition.main);
   // MO-5 — multi-service VISIT render/detail/cancel (Step 2.7 Rule 3b): a
   // visit's per-service `/bookings/me` rows collapse into ONE grouped card, its
-  // detail loads via getAppointment, and cancel routes to cancelAppointment
-  // (never the per-booking cancelBooking on a child).
+  // detail loads via getAppointment, and cancel routes per-booking (the
+  // whole-visit cancel route was removed, B475).
   group('client_visit_render_flow', client_visit_render.main);
   // Frozen RANGE price band end-to-end (Step 2.7 Rule 3b, mobile-qa) — a wire
   // `priceMaxAtBooking` surviving deserialization → BookingMapper →
@@ -374,6 +379,7 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  group('booking_review_app_link_flow', booking_review_app_link.main);
   // CLIENT rebook-from-past journey (Phase 350, Step 2.7 Rule 3b) — Минулі →
   // a past booking's «Записатись знову» → the REAL Step 1 (ServiceSelector
   // Sheet) opens for the SAME master with that booking's service already
@@ -549,6 +555,18 @@ void main() {
   // injected clock's week, a fling rests on a day boundary, the booking
   // detail round trip and «День» read the same week (one request).
   group('master_bookings_week_flow', master_bookings_week.main);
+  // Prod hotfix 1.9.0+12 — «Записи» week header after reschedule → home →
+  // back (KeepAliveLru dead-link closed-subscription crash).
+  group(
+    'master_bookings_week_reschedule_return_flow',
+    master_bookings_week_reschedule_return.main,
+  );
+  // Prod hotfix 1.9.0+12 — salon «Записи» DAY board after reschedule → home →
+  // back (DayKeepAliveLru closed-subscription twin of the week flow).
+  group(
+    'salon_board_reschedule_return_flow',
+    salon_board_reschedule_return.main,
+  );
   // Phase 486 — the week view's load moment: opening «Записи» plays the
   // entrance once (not on a week step or «День»); reduced motion: no frame
   // moves (Step 2.7 Rule 3b).

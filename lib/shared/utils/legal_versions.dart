@@ -13,8 +13,8 @@
 // (`termsAccepted: true` + both versions) — never partially.
 
 /// Version of «Умови використання» accepted at registration / invite accept.
-const String kTermsVersion = '2026-10-29';
+const String kTermsVersion = '2026-11-14';
 
 /// Version of «Політика конфіденційності» accepted at registration / invite
 /// accept.
-const String kPrivacyPolicyVersion = '2026-11-07';
+const String kPrivacyPolicyVersion = '2026-11-14';

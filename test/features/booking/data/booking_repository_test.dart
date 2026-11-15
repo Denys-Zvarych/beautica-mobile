@@ -479,6 +479,48 @@ void main() {
       ).thenThrow(_dioBadResponseWithBody(409, _createPath, body));
     }
 
+    // Security HIGH (2026-11-14) — the PROVIDER-initiated body is redacted
+    // to `code` + window: the other booking's id/service/master keys are
+    // ABSENT. It must still map to the typed failure (window only), so the
+    // provider sees «У клієнта вже є запис на цей час: {window}».
+    test('409 with a REDACTED (provider) CLIENT_BOOKING_CONFLICT body → '
+        'ClientBookingConflictFailure with the window only', () async {
+      final Map<String, dynamic> body = _clientBookingConflictBody();
+      (body['data'] as Map<String, dynamic>)
+        ..remove('conflictingBookingId')
+        ..remove('serviceName')
+        ..remove('masterName');
+      stub409(body);
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(
+          isA<ClientBookingConflictFailure>()
+              .having((f) => f.conflictingBookingId, 'id', isNull)
+              .having((f) => f.serviceName, 'serviceName', isNull)
+              .having((f) => f.masterName, 'masterName', isNull)
+              .having(
+                (f) => f.startsAt,
+                'startsAt',
+                DateTime.parse(
+                  (_clientBookingConflictBody()['data']
+                          as Map<String, dynamic>)['startsAt']
+                      as String,
+                ).toUtc(),
+              )
+              .having(
+                (f) => f.endsAt,
+                'endsAt',
+                DateTime.parse(
+                  (_clientBookingConflictBody()['data']
+                          as Map<String, dynamic>)['endsAt']
+                      as String,
+                ).toUtc(),
+              ),
+        ),
+      );
+    });
+
     test(
       '409 with a well-formed CLIENT_BOOKING_CONFLICT body → '
       'ClientBookingConflictFailure with every field decoded correctly',
@@ -562,13 +604,29 @@ void main() {
       );
     });
 
+    // Security HIGH (2026-11-14): the backend omits the other booking's
+    // id/service/master on a PROVIDER-initiated request, so those three are
+    // optional — the envelope still maps to the typed failure, names null.
     for (final String field in <String>[
       'conflictingBookingId',
       'serviceName',
       'masterName',
-      'startsAt',
-      'endsAt',
     ]) {
+      test('409 with a missing/null "$field" still maps to '
+          'ClientBookingConflictFailure (field null)', () async {
+        final Map<String, dynamic> body = _clientBookingConflictBody();
+        (body['data'] as Map<String, dynamic>).remove(field);
+        stub409(body);
+
+        await expectLater(
+          repository.createBooking(req),
+          throwsA(isA<ClientBookingConflictFailure>()),
+        );
+      });
+    }
+
+    // Only the window is required.
+    for (final String field in <String>['startsAt', 'endsAt']) {
       test('409 with a missing/null "$field" falls back to generic '
           'ConflictFailure instead of throwing', () async {
         final Map<String, dynamic> body = _clientBookingConflictBody();

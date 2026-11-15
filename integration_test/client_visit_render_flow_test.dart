@@ -5,7 +5,7 @@
 // Product decision (locked 2026-07-26): «Мої записи» no longer collapses a
 // multi-service visit's rows into one grouped card. This file used to prove
 // the OPPOSITE — that a visit's rows collapsed into one `VisitCard` and
-// cancelled as a whole via `AppointmentRepository.cancelAppointment` (the
+// cancelled as a whole via a whole-visit cancel route (the
 // backend 409'd a per-booking cancel on a visit child at the time). Both of
 // those are now false: `VisitCard`/`groupBookingsByAppointment` are DELETED
 // (see `my_bookings_screen.dart`'s file header), and the backend's
@@ -78,21 +78,11 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
-/// A call-counting stand-in for [AppointmentRepository] — every method throws
-/// except [cancelAppointment], which merely counts calls. This journey must
-/// NEVER reach ANY appointment-level endpoint (no real `/appointments` route
+/// A stand-in for [AppointmentRepository] — every method throws. This journey
+/// must NEVER reach ANY appointment-level endpoint (no real `/appointments` route
 /// exists on the fake Dio adapter — see the file header), so any accidental
 /// call surfaces loudly rather than silently 404ing.
 class _SpyAppointmentRepository implements AppointmentRepository {
-  int cancelCalls = 0;
-  String? lastCancelNote;
-
-  @override
-  Future<void> cancelAppointment(String id, {String? note}) async {
-    cancelCalls++;
-    lastCancelNote = note;
-  }
-
   @override
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
 
@@ -105,16 +95,10 @@ class _SpyAppointmentRepository implements AppointmentRepository {
   }) => throw UnimplementedError();
 
   @override
-  Future<void> completeAppointment(String id) => throw UnimplementedError();
-  @override
   Future<void> completeAppointmentService(
     String appointmentId,
     String bookingId,
   ) => throw UnimplementedError();
-
-  @override
-  Future<void> declineAppointment(String id, {String? comment}) =>
-      throw UnimplementedError();
 
   @override
   Future<void> declineAppointmentService(
@@ -312,12 +296,5 @@ void main() {
     expect(fb.lastCancelComment, 'Захворіла, вибачте.');
     // Never touched ANY appointment-level endpoint — the write acted on
     // this ONE service only.
-    expect(
-      spyAppt.cancelCalls,
-      0,
-      reason:
-          'a per-card cancel must route to the per-booking cancelBooking, '
-          'never AppointmentRepository.cancelAppointment',
-    );
   });
 }

@@ -20,6 +20,9 @@
 // a [SiblingSalonOption] into one).
 
 import 'package:flutter/material.dart';
+
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -281,8 +284,8 @@ class _PrimaryBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(
-            Icons.star_rounded,
+          AppIcon(
+            BeauticaAssetIcons.star,
             size: 12,
             color: BrandColors.white.withValues(alpha: 0.95),
           ),

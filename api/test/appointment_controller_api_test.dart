@@ -6,23 +6,8 @@ void main() {
   final instance = BeauticaApi().getAppointmentControllerApi();
 
   group(AppointmentControllerApi, () {
-    //Future cancelAppointment(String appointmentId, { AppointmentCancelRequest appointmentCancelRequest }) async
-    test('test cancelAppointment', () async {
-      // TODO
-    });
-
-    //Future completeAppointment(String appointmentId) async
-    test('test completeAppointment', () async {
-      // TODO
-    });
-
     //Future<ApiResponseAppointmentDetailResponse> createAppointment(CreateAppointmentRequest createAppointmentRequest, { String idempotencyKey }) async
     test('test createAppointment', () async {
-      // TODO
-    });
-
-    //Future declineAppointment(String appointmentId, { AppointmentProviderNoteRequest appointmentProviderNoteRequest }) async
-    test('test declineAppointment', () async {
       // TODO
     });
 
@@ -31,9 +16,5 @@ void main() {
       // TODO
     });
 
-    //Future notCompleteAppointment(String appointmentId, { AppointmentProviderNoteRequest appointmentProviderNoteRequest }) async
-    test('test notCompleteAppointment', () async {
-      // TODO
-    });
   });
 }

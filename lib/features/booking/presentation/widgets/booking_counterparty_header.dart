@@ -3,8 +3,9 @@
 // A booking has two sides. The detail screen shows the viewer the OTHER one:
 //   * a CLIENT viewer sees the master / salon  → the shipped `MasterStrip`
 //     (via `MasterStrip.fromBooking`, `_MasterStrip` below).
-//   * a PROVIDER viewer sees the CLIENT       → `_ClientStrip`, below, on the
-//     same `MasterStripShell` card (photo + name + ★ rating).
+//   * a PROVIDER viewer sees the CLIENT       → [BookingClientStrip]
+//     (`booking_client_strip.dart`, promoted from this file's `_ClientStrip`
+//     2026-11-14), on the same `MasterStripShell` card (photo + name + ★).
 //
 // This widget is the whole of the header half of locked decision D5's
 // "branch ONLY the counterparty header and the footer slot". It is a switch,
@@ -32,17 +33,13 @@ import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../../application/booking_viewer_role.dart';
 import '../../domain/booking.dart';
-import '../../domain/booking_display_x.dart';
 import '../../domain/booking_status.dart';
+import 'booking_client_strip.dart';
 import 'master_strip.dart';
-import 'master_strip_shell.dart';
 
 /// The other side of [booking], as seen by a [viewer].
 class BookingCounterpartyHeader extends StatelessWidget {
@@ -69,19 +66,19 @@ class BookingCounterpartyHeader extends StatelessWidget {
   final VoidCallback? onMore;
 
   /// Widget key of the client strip's «⋯» hit target.
-  static const Key clientMoreKey = Key('booking-detail-client-more');
+  static const Key clientMoreKey = BookingClientStrip.moreKey;
 
   @override
   Widget build(BuildContext context) {
     if (!viewer.isProvider) return _MasterStrip(booking: booking);
     if (!showPerformingMaster || booking.masterId.isEmpty) {
-      return _ClientStrip(booking: booking, onMore: onMore);
+      return BookingClientStrip.fromBooking(booking, onMore: onMore);
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _ClientStrip(booking: booking, onMore: onMore),
+        BookingClientStrip.fromBooking(booking, onMore: onMore),
         const SizedBox(height: VelvetSpacing.sm),
         _PerformingMasterStrip(booking: booking),
       ],
@@ -132,7 +129,7 @@ class _MasterStrip extends StatelessWidget {
 
     if (!isDead) return strip;
 
-    // Dimmed on a dead booking, matching `_ClientStrip`'s `Opacity` below.
+    // Dimmed on a dead booking, matching [BookingClientStrip]'s `Opacity`.
     //
     // Do NOT wrap this in a `RepaintBoundary` "to stop the splash repaint from
     // walking up into the `Opacity`". That was tried and reverted, and both
@@ -157,7 +154,7 @@ class _MasterStrip extends StatelessWidget {
 
 /// The master who PERFORMS the booking, as a salon owner/admin sees them —
 /// the shipped [MasterStrip] (label «Запис до майстра», role, ★), inert, dimmed on a
-/// dead booking like its [_ClientStrip] sibling.
+/// dead booking like its [BookingClientStrip] sibling.
 class _PerformingMasterStrip extends StatelessWidget {
   const _PerformingMasterStrip({required this.booking});
 
@@ -174,102 +171,6 @@ class _PerformingMasterStrip extends StatelessWidget {
       child: MasterStrip.fromBooking(
         booking,
         key: const Key('booking-detail-performing-master-strip'),
-      ),
-    );
-  }
-}
-
-/// The CLIENT as the provider sees them — the SAME [MasterStripShell] card the
-/// client viewer sees the master in: photo (monogram fallback), name, a muted
-/// «Запис за посиланням» qualifier on a guest booking, and the client's ★
-/// rating (em-dash when unreviewed; none at all for a guest, who has no
-/// account to be rated).
-///
-/// Reuses the shell directly rather than [MasterStrip]: that widget is
-/// master-shaped (a [MasterType] role sub-line, the «Запис до майстра» caption,
-/// master-worded semantics), whereas the shell is the data-agnostic frame the
-/// task needs. Everything it adds is additive and null-by-default.
-class _ClientStrip extends StatelessWidget {
-  const _ClientStrip({required this.booking, this.onMore});
-
-  final Booking booking;
-
-  /// See [BookingCounterpartyHeader.onMore].
-  final VoidCallback? onMore;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    final VoidCallback? more = onMore;
-
-    // A cancelled/declined booking's counterparty is dimmed — the same
-    // `Opacity(0.7)` treatment the master strip gets, so the two branches read
-    // as one screen.
-    final bool isDead =
-        booking.status == BookingStatus.cancelled ||
-        booking.status == BookingStatus.declined;
-
-    final String displayName =
-        booking.clientName ?? l10n.bookingDetailGuestClient;
-    // The guest marker is shown ONLY for an actual guest booking
-    // (`client_id IS NULL`) — never merely because a name is missing.
-    final bool isGuest = booking.isGuestBooking;
-    final double? rating = booking.clientDisplayRating;
-    final int reviewCount = booking.clientReviewCount ?? 0;
-    final String? qualifier = isGuest
-        ? l10n.bookingDetailGuestBookingLabel
-        : null;
-
-    final String semantics;
-    if (isGuest) {
-      semantics = <String>[
-        l10n.bookingDetailClientSemantics(displayName),
-        ?qualifier,
-      ].join(', ');
-    } else if (rating == null) {
-      // Unreviewed: spoken as plain "no reviews yet", never «Рейтинг —». The
-      // visible readout keeps its em-dash.
-      semantics = <String>[
-        l10n.bookingDetailClientSemantics(displayName),
-        l10n.masterReviewsEmpty,
-      ].join('. ');
-    } else {
-      semantics = l10n.bookingDetailClientRatedSemantics(
-        displayName,
-        rating.toStringAsFixed(1),
-        l10n.salonReviewCountLabel(reviewCount),
-      );
-    }
-
-    // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
-    return Opacity(
-      opacity: isDead ? 0.7 : 1,
-      child: MasterStripShell(
-        key: const Key('booking-detail-client-strip'),
-        semanticsLabel: semantics,
-        name: displayName,
-        avatarImageUrl: booking.clientAvatarUrl,
-        avatarInitials: booking.clientInitials,
-        avatarImageKey: const Key('booking-detail-client-avatar-photo'),
-        middleLine: qualifier == null
-            ? null
-            : Text(
-                qualifier,
-                style: VelvetText.feedbackMutedSm,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-        trailing: isGuest
-            ? null
-            : MasterRatingReadout(avgRating: rating, reviewCount: reviewCount),
-        action: more == null
-            ? null
-            : ReviewMoreButton(
-                tapKey: BookingCounterpartyHeader.clientMoreKey,
-                icon: Icons.more_horiz_rounded,
-                semanticLabel: l10n.clientMoreActions,
-                onTap: more,
-              ),
       ),
     );
   }

@@ -18,6 +18,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/rating_summary_line.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../helpers/asset_star_finder.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
   locale: const Locale('uk'),
@@ -91,7 +92,7 @@ void main() {
         _wrap(const RatingSummaryLine(rating: null, reviewCount: 0)),
       );
 
-      expect(find.byIcon(Icons.star_rounded), findsOneWidget);
+      expect(findAssetStar(), findsOneWidget);
     });
   });
 

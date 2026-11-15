@@ -65,7 +65,6 @@
 // admin case below asserts on the RESOLVED role's rendered slot, never on the
 // login credentials.
 
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -79,6 +78,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../test/helpers/asset_star_finder.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
@@ -391,17 +391,14 @@ void main() {
           findsOneWidget,
           reason: 'the review row renders the comment body',
         );
+        // Painted-colour count (shared pixel counter): `ReviewStarRow` tints
+        // the row once via a ShaderMask, so the glyphs carry no colour.
         expect(
-          find.descendant(
-            of: reviewRow,
-            matching: find.byWidgetPredicate(
-              (Widget w) =>
-                  w is Icon &&
-                  w.icon == Icons.star_rounded &&
-                  w.color == BrandColors.accentDeep,
-            ),
+          await countFilledAssetStars(
+            tester,
+            find.descendant(of: reviewRow, matching: findAssetStar()),
           ),
-          findsNWidgets(FakeBackend.kMasterReview1Rating),
+          FakeBackend.kMasterReview1Rating,
           reason: 'filled stars equal the fixture rating',
         );
         expect(

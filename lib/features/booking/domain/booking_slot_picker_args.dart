@@ -35,9 +35,8 @@
 // gap-closing; the visit may legally become non-contiguous afterwards). This
 // SUPERSEDES an earlier whole-VISIT reschedule flow that used to populate
 // [services] with the visit's FULL ordered selection and call
-// `PATCH /appointments/{id}/reschedule` — that mobile entry point was
-// retired (the backend endpoint itself is untouched) once the backend grew
-// the per-item route; see `BookingConfirmScreen._submit`, which checks
+// `PATCH /appointments/{id}/reschedule` — that route was removed (backend
+// B475) once the backend grew the per-item route; see `BookingConfirmScreen._submit`, which checks
 // [rescheduleAppointmentId] FIRST alongside [rescheduleBookingId].
 //
 // [returnSlotToCaller] (Phase 273) — when `true`, `SlotTimeScreen`'s confirm
@@ -164,6 +163,17 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// than dropped so a future phone field needs no new plumbing.
     String? rescheduleClientName,
     String? rescheduleClientPhone,
+
+    /// RESCHEDULE-ONLY (2026-11-14) — the rest of the client strip the
+    /// provider sees on «Деталі запису» (photo, monogram, ★ rating), read off
+    /// the SAME fresh `Booking` and populated under the SAME
+    /// `hideMasterIdentity` gate as [rescheduleClientName]; `null` on every
+    /// other path. [rescheduleClientRating] is already display-normalized
+    /// (`BookingDisplayX.clientDisplayRating`).
+    String? rescheduleClientAvatarUrl,
+    String? rescheduleClientInitials,
+    double? rescheduleClientRating,
+    int? rescheduleClientReviewCount,
 
     /// See the file header (phase-273 D2). Defaults to `false` so every
     /// existing call site is unaffected.

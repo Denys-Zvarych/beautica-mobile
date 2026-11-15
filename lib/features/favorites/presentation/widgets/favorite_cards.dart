@@ -56,6 +56,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -178,8 +181,8 @@ class RatingReadout extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(
-            Icons.star_rounded,
+          AppIcon(
+            BeauticaAssetIcons.star,
             size: 16,
             // Dimmed, but still a FILLED star. An OUTLINE star would read as
             // an empty star — "zero out of five" — which is the one meaning

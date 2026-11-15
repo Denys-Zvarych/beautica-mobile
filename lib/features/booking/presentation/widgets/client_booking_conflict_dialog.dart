@@ -159,10 +159,21 @@ class ClientBookingConflictDialog extends StatelessWidget {
                 LabelledRow(
                   key: const Key('client-booking-conflict-existing'),
                   label: l10n.salonBookingConflictExistingBookingLabel,
-                  value: conflict.serviceName,
-                  detail:
-                      '${conflict.masterName} · '
-                      '${formatBookingWindow(conflict.startsAt, conflict.endsAt)}',
+                  // Names are nullable since 2026-11-14 (omitted only for a
+                  // provider-initiated request, which never opens this
+                  // client-actor dialog) — degrade to the window alone.
+                  value:
+                      conflict.serviceName ??
+                      formatBookingWindow(conflict.startsAt, conflict.endsAt),
+                  detail: conflict.serviceName == null
+                      ? conflict.masterName
+                      : <String>[
+                          ?conflict.masterName,
+                          formatBookingWindow(
+                            conflict.startsAt,
+                            conflict.endsAt,
+                          ),
+                        ].join(' · '),
                   compactText: true,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

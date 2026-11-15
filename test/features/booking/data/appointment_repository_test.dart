@@ -39,7 +39,6 @@ const _createPath = '/api/v1/appointments';
 const _getPath = '/api/v1/appointments/appt-1';
 const _itemReschedulePath =
     '/api/v1/appointments/appt-1/services/b-1/reschedule';
-const _cancelPath = '/api/v1/appointments/appt-1/cancel';
 const _itemCompletePath = '/api/v1/appointments/appt-1/services/b-1/complete';
 
 AppointmentItemResponse _buildItem({
@@ -153,7 +152,6 @@ void main() {
           ..startsAt = DateTime.utc(2020, 1, 1),
       ),
     );
-    registerFallbackValue(AppointmentCancelRequest((b) => b));
     registerFallbackValue(
       AppointmentItemRescheduleRequest(
         (b) => b..newStartsAt = DateTime.utc(2020, 1, 1),
@@ -279,6 +277,44 @@ void main() {
         );
       },
     );
+
+    // Security HIGH (2026-11-14) — the PROVIDER-initiated body carries only
+    // `code` + window; the other booking's id/service/master keys are ABSENT.
+    // It must still map to the typed failure, window only.
+    test('409 REDACTED (provider) CLIENT_BOOKING_CONFLICT → '
+        'ClientBookingConflictFailure with the window only', () async {
+      final Map<String, dynamic> body = _clientBookingConflictBody();
+      (body['data'] as Map<String, dynamic>)
+        ..remove('conflictingBookingId')
+        ..remove('serviceName')
+        ..remove('masterName');
+      when(
+        () => appointmentApi.createAppointment(
+          createAppointmentRequest: any(named: 'createAppointmentRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(_dioBadResponseWithBody(409, _createPath, body));
+
+      await expectLater(
+        repository.createAppointment(req),
+        throwsA(
+          isA<ClientBookingConflictFailure>()
+              .having((f) => f.conflictingBookingId, 'id', isNull)
+              .having((f) => f.serviceName, 'service', isNull)
+              .having((f) => f.masterName, 'master', isNull)
+              .having(
+                (f) => f.startsAt,
+                'startsAt',
+                DateTime.parse('2026-07-15T14:00:00+03:00').toUtc(),
+              )
+              .having(
+                (f) => f.endsAt,
+                'endsAt',
+                DateTime.parse('2026-07-15T15:30:00+03:00').toUtc(),
+              ),
+        ),
+      );
+    });
 
     test(
       '409 BOOKING_UNAVAILABLE → BookingUnavailableFailure (phase 425)',
@@ -824,87 +860,6 @@ void main() {
         ),
       );
     });
-  });
-
-  group('cancelAppointment', () {
-    test('forwards a trimmed note as clientCancellationNote', () async {
-      when(
-        () => appointmentApi.cancelAppointment(
-          appointmentId: any(named: 'appointmentId'),
-          appointmentCancelRequest: any(named: 'appointmentCancelRequest'),
-        ),
-      ).thenAnswer(
-        (_) async => Response<void>(
-          requestOptions: RequestOptions(path: _cancelPath),
-          statusCode: 200,
-        ),
-      );
-
-      await repository.cancelAppointment('appt-1', note: '  changed my mind  ');
-
-      final captured = verify(
-        () => appointmentApi.cancelAppointment(
-          appointmentId: 'appt-1',
-          appointmentCancelRequest: captureAny(
-            named: 'appointmentCancelRequest',
-          ),
-        ),
-      ).captured;
-      final body = captured.single as AppointmentCancelRequest;
-      expect(body.clientCancellationNote, 'changed my mind');
-    });
-
-    test('blank note is sent as null', () async {
-      when(
-        () => appointmentApi.cancelAppointment(
-          appointmentId: any(named: 'appointmentId'),
-          appointmentCancelRequest: any(named: 'appointmentCancelRequest'),
-        ),
-      ).thenAnswer(
-        (_) async => Response<void>(
-          requestOptions: RequestOptions(path: _cancelPath),
-          statusCode: 200,
-        ),
-      );
-
-      await repository.cancelAppointment('appt-1', note: '   ');
-
-      final captured = verify(
-        () => appointmentApi.cancelAppointment(
-          appointmentId: 'appt-1',
-          appointmentCancelRequest: captureAny(
-            named: 'appointmentCancelRequest',
-          ),
-        ),
-      ).captured;
-      expect(
-        (captured.single as AppointmentCancelRequest).clientCancellationNote,
-        isNull,
-      );
-    });
-
-    test(
-      '409 BOOKING_ALREADY_ELAPSED → BookingAlreadyElapsedFailure',
-      () async {
-        when(
-          () => appointmentApi.cancelAppointment(
-            appointmentId: any(named: 'appointmentId'),
-            appointmentCancelRequest: any(named: 'appointmentCancelRequest'),
-          ),
-        ).thenThrow(
-          _dioBadResponseWithBody(
-            409,
-            _cancelPath,
-            _bookingAlreadyElapsedBody(),
-          ),
-        );
-
-        await expectLater(
-          repository.cancelAppointment('appt-1'),
-          throwsA(isA<BookingAlreadyElapsedFailure>()),
-        );
-      },
-    );
   });
 
   // ── 2026-08-17 CRITICAL regression — PER-SERVICE complete ─────────────────

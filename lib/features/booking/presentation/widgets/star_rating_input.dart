@@ -17,6 +17,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -141,8 +144,10 @@ class _StarRatingInputState extends State<StarRatingInput>
             mainAxisAlignment: MainAxisAlignment.center,
             children: List<Widget>.generate(_count, (int i) {
               final bool filled = i < rating;
-              final Icon icon = Icon(
-                filled ? Icons.star_rounded : Icons.star_border_rounded,
+              // Asset star (backlog HIGH 2026-08-28): the empty slot is the
+              // SAME glyph in `faint`, as `RatingStar`'s own empty base.
+              final Widget icon = AppIcon(
+                BeauticaAssetIcons.star,
                 size: 40,
                 color: filled ? BrandColors.accent : BrandColors.faint,
               );

@@ -16,6 +16,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -267,20 +270,44 @@ class ReviewStarRow extends StatelessWidget {
   final double size;
   final double gap;
 
+  static const int _count = 5;
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        for (int i = 0; i < 5; i++) ...<Widget>[
-          Icon(
-            Icons.star_rounded,
-            size: size,
-            color: i < rating ? BrandColors.accentDeep : BrandColors.faint,
-          ),
-          if (i < 4) SizedBox(width: gap),
+    // ONE tint pass for the whole row (mobile-perf, 2026-11-14) instead of a
+    // `ColorFilter` — and so a `saveLayer` — per star: the five glyphs are
+    // drawn untinted (`multicolor: true`, only their alpha matters) and a
+    // single `ShaderMask(srcIn)` paints them with a hard-stop gradient —
+    // [BrandColors.accentDeep] up to the middle of the gap after the last
+    // filled star, [BrandColors.faint] after it. The split falls inside a
+    // glyph-free gap, so every star is exactly one colour, as before.
+    final int filled = rating.clamp(0, _count);
+    final double width = _count * size + (_count - 1) * gap;
+    final double split = filled == 0
+        ? 0
+        : filled == _count
+        ? 1
+        : (filled * (size + gap) - gap / 2) / width;
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (Rect bounds) => LinearGradient(
+        colors: const <Color>[
+          BrandColors.accentDeep,
+          BrandColors.accentDeep,
+          BrandColors.faint,
+          BrandColors.faint,
         ],
-      ],
+        stops: <double>[0, split, split, 1],
+      ).createShader(bounds),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (int i = 0; i < _count; i++) ...<Widget>[
+            AppIcon(BeauticaAssetIcons.star, size: size, multicolor: true),
+            if (i < _count - 1) SizedBox(width: gap),
+          ],
+        ],
+      ),
     );
   }
 }
