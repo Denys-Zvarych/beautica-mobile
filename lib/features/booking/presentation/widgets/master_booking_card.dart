@@ -597,7 +597,7 @@ class MasterBookingCard extends StatefulWidget {
   ///
   /// WHY the two review directions are gated differently: the provider is
   /// the party who performs the CLOSING action on a booking
-  /// (complete/decline/not-complete). Letting them rate the client before
+  /// (complete/decline). Letting them rate the client before
   /// doing that lets them rate a visit whose outcome they haven't yet
   /// confirmed — «Виконано» is supposed to happen first, not after. The
   /// client has no equivalent control over the booking's lifecycle (only the

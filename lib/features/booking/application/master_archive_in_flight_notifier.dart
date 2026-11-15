@@ -4,7 +4,7 @@
 // Mirrors `BookingCancelInFlight` (`booking_cancel_in_flight_notifier.dart`)
 // exactly, and for the same reason: `MasterArchiveScreen`'s «Виконано» row
 // action opens `CompleteBookingDialog` and then writes
-// `completeBooking`/`completeAppointment`. Without a guard, a double-tap on a
+// `completeBooking`/`completeAppointmentService`. Without a guard, a double-tap on a
 // row fires two concurrent close flows.
 //
 // ## Deliberately ONE flag, not keyed per booking id
@@ -31,7 +31,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 part 'master_archive_in_flight_notifier.g.dart';
 
 /// Whether a master «Архів» close-visit write (dialog + `/complete` or
-/// `/appointments/{id}/complete`) is currently in flight. See file header for
+/// `/appointments/{id}/services/{bookingId}/complete`) is currently in flight. See file header for
 /// why this is ONE shared flag rather than a per-booking one.
 @riverpod
 class MasterArchiveInFlight extends _$MasterArchiveInFlight {

@@ -63,12 +63,12 @@
 // dialog is open (no frame keeps rescheduling) — that mechanism is
 // unchanged, only its consumer moved (and is currently absent).
 //
-// NOT for a multi-service VISIT (`Booking.appointmentId != null`) — that flow
-// lives in `visit_detail_screen.dart`'s own `_confirmCancel`, which cancels
-// the WHOLE visit via `AppointmentRepository.cancelAppointment`, a different
-// endpoint entirely. `BookingDetailScreen`'s CLIENT footer has never special-
-// cased that distinction for cancel (see its `_actions` doc), so neither does
-// this helper — it is a straight extraction, not a behavior change.
+// Cancel is per-booking only: there is no whole-visit cancel route (removed
+// by backend B475), so a multi-service VISIT child (`Booking.appointmentId !=
+// null`) is cancelled through this same helper, one service at a time.
+// `BookingDetailScreen`'s CLIENT footer does not special-case that distinction
+// (see its `_actions` doc) — this helper is a straight extraction, not a
+// behavior change.
 
 import 'dart:async';
 

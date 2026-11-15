@@ -20,8 +20,8 @@ class UserControllerApi {
 
   const UserControllerApi(this._dio, this._serializers);
 
-  /// deleteMyAccount
-  ///
+  /// Delete the caller&#39;s own account
+  /// Hard-deletes the caller&#39;s account and ends the session. A SALON_OWNER may delete the account only when none of its salons is active (SUP-11): with an active salon the call is refused 409 with &#x60;data.code&#x60; &#x3D; &#x60;OWNER_HAS_ACTIVE_SALONS&#x60; and nothing changes. The owner&#39;s deleted salons stay as ownerless history (SUP-67).
   ///
   /// Parameters:
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation

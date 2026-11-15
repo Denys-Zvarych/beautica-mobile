@@ -351,7 +351,7 @@ void main() {
 
   testWidgets(
     'CLIENT cancels ONE visit leg — routes to BookingRepository.cancelBooking '
-    '(the per-booking endpoint), never AppointmentRepository.cancelAppointment, '
+    '(the per-booking endpoint) '
     'and never touches the sibling leg\'s own id',
     (tester) async {
       final Booking leg = _b(id: 'v1', appointmentId: 'appt-1');
@@ -382,10 +382,6 @@ void main() {
       verify(
         () => repo.cancelBooking('v1', reason: 'Захворіла, вибачте.'),
       ).called(1);
-      verifyNever(
-        () =>
-            appointmentRepo.cancelAppointment(any(), note: any(named: 'note')),
-      );
       // The sibling leg ('v2') is never a party to this write — a per-card
       // cancel must act on exactly the ONE id it was opened for, proving the
       // visit's other service stays untouched (and, by extension, CONFIRMED).

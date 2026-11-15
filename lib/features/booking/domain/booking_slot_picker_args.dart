@@ -35,9 +35,8 @@
 // gap-closing; the visit may legally become non-contiguous afterwards). This
 // SUPERSEDES an earlier whole-VISIT reschedule flow that used to populate
 // [services] with the visit's FULL ordered selection and call
-// `PATCH /appointments/{id}/reschedule` — that mobile entry point was
-// retired (the backend endpoint itself is untouched) once the backend grew
-// the per-item route; see `BookingConfirmScreen._submit`, which checks
+// `PATCH /appointments/{id}/reschedule` — that route was removed (backend
+// B475) once the backend grew the per-item route; see `BookingConfirmScreen._submit`, which checks
 // [rescheduleAppointmentId] FIRST alongside [rescheduleBookingId].
 //
 // [returnSlotToCaller] (Phase 273) — when `true`, `SlotTimeScreen`'s confirm

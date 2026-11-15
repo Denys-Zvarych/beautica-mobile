@@ -21,7 +21,6 @@ Method | HTTP request | Description
 [**listMyBookedDays**](BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [**listSalonBookedDays**](BookingControllerApi.md#listsalonbookeddays) | **GET** /api/v1/bookings/salon/{salonId}/booked-days | List the salon&#39;s booked days (owner/admin)
-[**notCompleteBooking**](BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 [**rescheduleBooking**](BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
 
 
@@ -551,48 +550,6 @@ No authorization required
 
  - **Content-Type**: Not defined
  - **Accept**: */*
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **notCompleteBooking**
-> notCompleteBooking(bookingId, statusUpdateRequest)
-
-
-
-### Example
-```dart
-import 'package:beautica_api/api.dart';
-
-final api = BeauticaApi().getBookingControllerApi();
-final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final StatusUpdateRequest statusUpdateRequest = ; // StatusUpdateRequest | 
-
-try {
-    api.notCompleteBooking(bookingId, statusUpdateRequest);
-} catch on DioException (e) {
-    print('Exception when calling BookingControllerApi->notCompleteBooking: $e\n');
-}
-```
-
-### Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **bookingId** | **String**|  | 
- **statusUpdateRequest** | [**StatusUpdateRequest**](StatusUpdateRequest.md)|  | 
-
-### Return type
-
-void (empty response body)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: Not defined
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

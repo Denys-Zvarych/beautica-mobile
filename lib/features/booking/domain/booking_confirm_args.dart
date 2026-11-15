@@ -39,9 +39,8 @@
 // invalidate/refetch on success). The endpoint itself is dual-actor (the
 // visit's own CLIENT or an assigned PROVIDER); either footer of
 // `booking_detail_screen.dart`'s `_onReschedule` may set it. This supersedes
-// an earlier whole-VISIT reschedule flow (retired — the backend's own
-// whole-visit endpoint is untouched, only this mobile entry point to it was
-// removed) that used to populate [services] with the visit's FULL ordered
+// an earlier whole-VISIT reschedule flow (retired — the backend's
+// whole-visit route was removed, B475) that used to populate [services] with the visit's FULL ordered
 // selection.
 //
 // Pure Dart: no Flutter imports anywhere in this file.

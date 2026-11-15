@@ -20,10 +20,8 @@
 //     of a multi-service visit to a new time — siblings are untouched (no
 //     re-layout, no cascade). Dual-actor on the backend (the visit's own
 //     CLIENT or an assigned PROVIDER). Same idle/rethrow contract as
-//     [reschedule]. This replaces the retired whole-visit
-//     `rescheduleAppointment` method — the backend's own whole-visit
-//     endpoint is untouched, only this notifier's caller-facing method
-//     changed shape.
+//     [reschedule]. The whole-visit reschedule route no longer
+//     exists (backend B475).
 //
 // IDEMPOTENCY: [submitVisit] does NOT generate the key itself. The visit's
 // single `CreateAppointmentRequest.idempotencyKey` is minted ONCE per submit

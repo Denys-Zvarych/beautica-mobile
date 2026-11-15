@@ -11,10 +11,8 @@
 // (`PATCH /appointments/{id}/services/{bookingId}/complete`) and
 // `AppointmentRepository.declineAppointmentService(appointmentId, bookingId)`
 // (`PATCH /appointments/{id}/services/{bookingId}/decline`) — touching ONLY
-// the tapped service, NEVER the whole-visit `completeAppointment`/
-// `declineAppointment` (the CRITICAL bugs: each closed every service of the
-// visit at once, and complete additionally guarded only the VISIT's `startsAt`
-// so not-yet-started siblings were completed too) nor the per-booking
+// the tapped service, NEVER a whole-visit route (removed, B475) nor the
+// per-booking
 // `BookingRepository` methods — but it does all of that against MOCKED
 // repositories. This file closes the same gap
 // `master_booking_provider_actions_flow_test.dart` closes for the plain
@@ -70,9 +68,9 @@ import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 import 'support/reschedule_assertions.dart';
 
-/// The whole-visit provider write path, hand-faked (see the file header for
+/// The per-service provider write path, hand-faked (see the file header for
 /// why no real `/appointments` adapter route exists). Only
-/// [completeAppointment]/[declineAppointment] are exercised here — every
+/// [completeAppointmentService]/[declineAppointmentService] are exercised here — every
 /// other member throws [UnimplementedError], matching this suite's other
 /// appointment hand-fakes (`client_visit_render_flow_test.dart`'s
 /// `_FakeAppointmentRepository`).
@@ -80,14 +78,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   _FakeAppointmentRepository(this._fb);
 
   final FakeBackend _fb;
-
-  /// WHOLE-VISIT complete (`PATCH /appointments/{id}/complete`) — the OLD
-  /// routing the 2026-08-17 CRITICAL bug used, which completed EVERY service
-  /// of the visit at once and guarded only the VISIT's `startsAt`, so siblings
-  /// that had not started were closed too. The per-service fix must NEVER call
-  /// this, so it only records: the complete test below asserts [completeCalls]
-  /// stays 0.
-  int completeCalls = 0;
 
   /// PER-SERVICE complete (`PATCH /appointments/{id}/services/{bookingId}/
   /// complete`) — the FIXED routing. Records the exact
@@ -98,35 +88,15 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   String? lastCompleteServiceAppointmentId;
   String? lastCompleteServiceBookingId;
 
-  /// WHOLE-VISIT decline (`PATCH /appointments/{id}/decline`) — the OLD routing
-  /// the CRITICAL bug used, which declined EVERY service of the visit at once.
-  /// The per-service fix must NEVER call this, so it only records: every
-  /// decline test below asserts [declineCalls] stays 0.
-  int declineCalls = 0;
-
   /// PER-SERVICE decline (`PATCH /appointments/{id}/services/{bookingId}/
   /// decline`) — the FIXED routing. Records the exact (appointmentId, bookingId,
   /// comment) the screen passed and flips ONLY that child's status on the fake
   /// backend via [FakeBackend.declineChild], leaving the visit's siblings
   /// untouched.
   int declineServiceCalls = 0;
-  String? lastCompleteId;
-  String? lastDeclineId;
-  String? lastDeclineComment;
   String? lastDeclineServiceAppointmentId;
   String? lastDeclineServiceBookingId;
   String? lastDeclineServiceComment;
-
-  @override
-  Future<void> completeAppointment(String id) async {
-    completeCalls++;
-    lastCompleteId = id;
-    // Flips the REAL fake-backed booking to COMPLETED so the screen's own
-    // post-write `ref.invalidate(bookingDetailProvider(...))` re-fetches a
-    // terminal status through the real HTTP boundary, not a value this fake
-    // merely remembers.
-    _fb.bookingStatus = 'COMPLETED';
-  }
 
   @override
   Future<void> completeAppointmentService(
@@ -141,14 +111,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
     // `ref.invalidate(bookingDetailProvider(bookingId))` re-fetches a terminal
     // status for THIS child while any sibling child stays CONFIRMED.
     _fb.completeChild(bookingId);
-  }
-
-  @override
-  Future<void> declineAppointment(String id, {String? comment}) async {
-    declineCalls++;
-    lastDeclineId = id;
-    lastDeclineComment = comment;
-    _fb.bookingStatus = 'DECLINED';
   }
 
   @override
@@ -178,10 +140,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
     DateTime newStartAt, {
     bool allowClientOverlap = false,
   }) => throw UnimplementedError();
-
-  @override
-  Future<void> cancelAppointment(String id, {String? note}) =>
-      throw UnimplementedError();
 
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) =>
@@ -222,8 +180,8 @@ void main() {
   testWidgets(
     'PROVIDER declines an appointment-child (multi-service visit) booking → '
     'routes to AppointmentRepository.declineAppointmentService(appointmentId, '
-    'bookingId) — the PER-SERVICE endpoint — never the whole-visit '
-    'declineAppointment nor BookingRepository.declineBooking, and the status '
+    'bookingId) — the PER-SERVICE endpoint — never '
+    'BookingRepository.declineBooking, and the status '
     'persists as terminal across a real re-fetch',
     (tester) async {
       final fb = FakeBackend();
@@ -302,14 +260,6 @@ void main() {
         'Client rescheduled elsewhere.',
       );
       expect(
-        fakeAppt.declineCalls,
-        0,
-        reason:
-            'an appointment-child decline must never reach the WHOLE-VISIT '
-            'PATCH /appointments/{id}/decline endpoint — that cancelled every '
-            'service of the visit (the CRITICAL bug this fixes)',
-      );
-      expect(
         fb.declineBookingCalls,
         0,
         reason:
@@ -348,7 +298,7 @@ void main() {
     'PROVIDER completes an underway appointment-child (multi-service visit) '
     'booking → routes to '
     'AppointmentRepository.completeAppointmentService(appointmentId, '
-    'bookingId), never the whole-visit completeAppointment nor '
+    'bookingId), never '
     'BookingRepository.completeBooking, and the status persists as terminal '
     'across a real re-fetch',
     (tester) async {
@@ -411,14 +361,6 @@ void main() {
       expect(fakeAppt.lastCompleteServiceAppointmentId, 'appt-1');
       expect(fakeAppt.lastCompleteServiceBookingId, 'booking-1');
       expect(
-        fakeAppt.completeCalls,
-        0,
-        reason:
-            'the whole-visit PATCH /appointments/{id}/complete closes every '
-            'child in lockstep and guards only the VISIT startsAt — an '
-            'appointment-child complete must never reach it',
-      );
-      expect(
         fb.completeBookingCalls,
         0,
         reason:
@@ -443,7 +385,7 @@ void main() {
     'PROVIDER declines an underway (elapsed) appointment-child (multi-service '
     'visit) booking → still routes to '
     'AppointmentRepository.declineAppointmentService(appointmentId, bookingId), '
-    'never the whole-visit declineAppointment nor '
+    'never '
     'BookingRepository.declineBooking, and the status persists as terminal '
     'across a real re-fetch',
     (tester) async {
@@ -512,7 +454,6 @@ void main() {
         fakeAppt.lastDeclineServiceComment,
         'Client never arrived, could not reach them.',
       );
-      expect(fakeAppt.declineCalls, 0);
       expect(
         fb.declineBookingCalls,
         0,
@@ -564,13 +505,6 @@ void main() {
       expect(fakeAppt.declineServiceCalls, 1);
       expect(fakeAppt.lastDeclineServiceAppointmentId, 'appt-1');
       expect(fakeAppt.lastDeclineServiceBookingId, 'booking-1');
-      expect(
-        fakeAppt.declineCalls,
-        0,
-        reason:
-            'the whole-visit PATCH /appointments/{id}/decline must never be '
-            'called — it declined every sibling at once (the CRITICAL bug)',
-      );
       expect(fb.declineBookingCalls, 0);
 
       // ── `booking-1` is now terminal across a real re-fetch. ───────────────
