@@ -263,6 +263,15 @@ void main() {
       RouteNames.masterBookingsArchive,
     );
     expect(find.byType(MasterArchiveScreen), findsOneWidget);
+    // `settle` only proves the screen mounted: on a loaded CI emulator the
+    // fake `/bookings/me` page can land after `pumpAndSettle` returns, and an
+    // immediate card assertion then sees an empty list (shard 3 flake,
+    // 2026-11-15, scenario 8 line ~1321). Every scenario seeds `booking-1`,
+    // so wait for its row before any caller asserts on the list.
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('master-booking-card-booking-1')),
+    );
     return router;
   }
 
