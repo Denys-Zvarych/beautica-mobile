@@ -100,9 +100,7 @@ class BookingsWeekNotifier extends _$BookingsWeekNotifier {
     final KeepAliveLru<BookingsWeekQuery> lru = ref.read(
       weekKeepAliveLruProvider,
     );
-    final link = ref.keepAlive();
-    lru.touch(query, link);
-    ref.onDispose(() => lru.forget(query, link));
+    lru.touch(query, ref.keepAlive());
     ref.onAddListener(() => lru.markWatched(query));
     ref.onRemoveListener(() => lru.markUnwatched(query));
 

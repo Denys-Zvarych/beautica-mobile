@@ -136,16 +136,6 @@ class KeepAliveLru<K> {
   /// live subscriptions, not to the pin.
   void evict(K query) => _links.remove(query)?.close();
 
-  /// Drops [query]'s entry WITHOUT closing it, but only when the stored link
-  /// is [link] itself. Wired from the owning notifier's `ref.onDispose`: once
-  /// the element is gone its link is dead (an invalidate while covered
-  /// detaches it), and a later [touch] for the same key must not `close()` it
-  /// — Riverpod disposes by provider key, so that would dispose the NEW live
-  /// element. A no-op when the key now holds a different (newer) link.
-  void forget(K query, KeepAliveLink link) {
-    if (identical(_links[query], link)) _links.remove(query);
-  }
-
   /// Closes every held [KeepAliveLink] and forgets all tracked keys.
   ///
   /// Called from `AuthNotifier.logout` (mobile-security HIGH, 2026-07-19) as
