@@ -164,6 +164,32 @@ void main() {
       },
     );
 
+    // A1b ----------------------------------------------------------------------
+    testWidgets(
+      'A1b. tapping «Мова» shows the "more languages later" snack, not a '
+      'promise that a picker opens here',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(
+            router: router,
+            repo: FakeAuthRepository(),
+            storage: FakeSecureStorage(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-language')));
+        await tester.pump();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(find.text(l10n.accountLanguageSoon), findsOneWidget);
+        expect(l10n.accountLanguageSoon, "Інші мови з'являться згодом");
+      },
+    );
+
     // A8 -----------------------------------------------------------------------
     // The switch used to be a local-state placeholder (ON, tap flips). It now
     // mirrors the real Android notification permission — full coverage lives

@@ -2980,7 +2980,7 @@
   "@accountLanguageValue": {
     "description": "Account page language row current value (the active app language)."
   },
-  "accountLanguageSoon": "Language selection will open here",
+  "accountLanguageSoon": "More languages are coming later",
   "@accountLanguageSoon": {
     "description": "Placeholder snackbar shown when tapping the not-yet-functional language row."
   },
