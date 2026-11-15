@@ -380,9 +380,7 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
     // (`ref.invalidate`) re-touches the SAME query rather than minting a new
     // one.
     final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
-    final link = ref.keepAlive();
-    lru.touch(query, link);
-    ref.onDispose(() => lru.forget(query, link));
+    lru.touch(query, ref.keepAlive());
 
     // Real listener-presence tracking (mobile-debugger FIX, this track) —
     // see [DayKeepAliveLru]'s `_watched` doc. `onAddListener`/
