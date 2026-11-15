@@ -1,7 +1,7 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 2 of 2 (2026-07-01 split).
 //
 // See `all_tests_part1.dart` for the full rationale. This file carries the
-// remaining 85 of 155 flows (part 1 carries 70) so each `flutter test`
+// remaining 92 of 162 flows (part 1 carries 70) so each `flutter test`
 // process reports a bounded number of tests instead of aggregating all of
 // them into one long-lived run.
 
@@ -26,6 +26,10 @@ import 'guest_phone_tap_to_call_flow_test.dart' as guest_phone_tap_to_call;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
 import 'master_bookings_week_flow_test.dart' as master_bookings_week;
+import 'master_bookings_week_reschedule_return_flow_test.dart'
+    as master_bookings_week_reschedule_return;
+import 'salon_board_reschedule_return_flow_test.dart'
+    as salon_board_reschedule_return;
 import 'master_bookings_week_entrance_flow_test.dart'
     as master_bookings_week_entrance;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
@@ -184,6 +188,18 @@ void main() {
   // injected clock's week, a fling rests on a day boundary, the booking
   // detail round trip and «День» read the same week (one request).
   group('master_bookings_week_flow', master_bookings_week.main);
+  // Prod hotfix 1.9.0+12 — «Записи» week header after reschedule → home →
+  // back (KeepAliveLru dead-link closed-subscription crash).
+  group(
+    'master_bookings_week_reschedule_return_flow',
+    master_bookings_week_reschedule_return.main,
+  );
+  // Prod hotfix 1.9.0+12 — salon «Записи» DAY board after reschedule → home →
+  // back (DayKeepAliveLru closed-subscription twin of the week flow).
+  group(
+    'salon_board_reschedule_return_flow',
+    salon_board_reschedule_return.main,
+  );
   // Phase 486 — the week view's load moment: opening «Записи» plays the
   // entrance once (not on a week step or «День»); reduced motion: no frame
   // moves (Step 2.7 Rule 3b).
