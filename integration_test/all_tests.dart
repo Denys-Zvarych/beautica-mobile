@@ -339,8 +339,8 @@ void main() {
   group('client_my_bookings_partition_flow', client_my_bookings_partition.main);
   // MO-5 — multi-service VISIT render/detail/cancel (Step 2.7 Rule 3b): a
   // visit's per-service `/bookings/me` rows collapse into ONE grouped card, its
-  // detail loads via getAppointment, and cancel routes to cancelAppointment
-  // (never the per-booking cancelBooking on a child).
+  // detail loads via getAppointment, and cancel routes per-booking (the
+  // whole-visit cancel route was removed, B475).
   group('client_visit_render_flow', client_visit_render.main);
   // Frozen RANGE price band end-to-end (Step 2.7 Rule 3b, mobile-qa) — a wire
   // `priceMaxAtBooking` surviving deserialization → BookingMapper →

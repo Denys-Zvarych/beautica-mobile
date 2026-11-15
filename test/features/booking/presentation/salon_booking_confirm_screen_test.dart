@@ -433,13 +433,6 @@ class _RecordingAppointmentRepository implements AppointmentRepository {
   Future<Appointment> getAppointment(String id) => throw UnimplementedError();
 
   @override
-  Future<void> cancelAppointment(String id, {String? note}) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> completeAppointment(String id) => throw UnimplementedError();
-
-  @override
   Future<void> completeAppointmentService(
     String appointmentId,
     String bookingId,
@@ -452,10 +445,6 @@ class _RecordingAppointmentRepository implements AppointmentRepository {
     DateTime newStartAt, {
     bool allowClientOverlap = false,
   }) => throw UnimplementedError();
-
-  @override
-  Future<void> declineAppointment(String id, {String? comment}) =>
-      throw UnimplementedError();
 
   @override
   Future<void> declineAppointmentService(

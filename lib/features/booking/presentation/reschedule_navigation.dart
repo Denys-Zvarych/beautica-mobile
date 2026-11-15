@@ -48,8 +48,8 @@
 // deliberate DROP of the earlier whole-VISIT reschedule flow (which used to
 // live here as a separate `startAppointmentReschedule` function, seeding
 // every item in the visit and calling `PATCH /appointments/{id}/reschedule`)
-// — the backend's whole-visit endpoint is untouched, but the mobile entry
-// point to it was removed once the backend gained the per-item
+// — the backend's whole-visit route was removed (B475) once it gained the
+// per-item
 // `PATCH /appointments/{id}/services/{bookingId}/reschedule` (locked product
 // decision). `BookingConfirmScreen._submit` is what checks
 // [BookingSlotPickerArgs.rescheduleAppointmentId] (forwarded onto

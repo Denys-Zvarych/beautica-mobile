@@ -38,15 +38,10 @@
 //
 // WHAT MAKES THIS A GENUINE GUARD RATHER THAN A SELF-REFERENTIAL PASS
 // ------------------------------------------------------------------
-// The hand-faked `AppointmentRepository` below models BOTH endpoints against
-// the SAME seeded dataset the fake backend serves `/bookings/me` from:
-//   • `completeAppointmentService` (the fix) flips ONLY the named child.
-//   • `completeAppointment` (the bug) flips EVERY child of the visit — the
-//     real backend's lockstep semantics, faithfully reproduced.
-// So pointing `master_archive_screen.dart` back at `completeAppointment`
-// genuinely makes `svc-b` materialise in the refetched list and turns the
-// sibling assertion RED. If the whole-visit arm were a no-op recorder, this
-// test would pass with the bug reinstated and would be worthless.
+// The hand-faked `AppointmentRepository` below models the per-service
+// endpoint against the SAME seeded dataset the fake backend serves
+// `/bookings/me` from: `completeAppointmentService` flips ONLY the named
+// child, so a regression that closes a sibling turns the sibling assertion RED.
 //
 // `AppointmentRepository` stays hand-faked (no real `/appointments` adapter
 // route on `FakeBackend`) — the established precedent in
@@ -130,10 +125,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   String? lastCompleteServiceAppointmentId;
   String? lastCompleteServiceBookingId;
 
-  // ── WHOLE-VISIT complete (the BUG) ────────────────────────────────────────
-  int completeCalls = 0;
-  String? lastCompleteId;
-
   void _close(Map<String, dynamic> row) {
     row['status'] = 'COMPLETED';
     // A COMPLETED booking is no longer awaiting closure — the real backend's
@@ -157,26 +148,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
   }
 
   @override
-  Future<void> completeAppointment(String id) async {
-    completeCalls++;
-    lastCompleteId = id;
-    // THE BUG, FAITHFULLY MODELLED — the backend transitions EVERY child of
-    // the visit in lockstep, with the temporal guard evaluated only against
-    // the VISIT's `startsAt`. Reinstating the old call site in
-    // `master_archive_screen.dart` must therefore genuinely flip `svc-b` and
-    // turn this file's sibling assertions RED. Do NOT weaken this to a bare
-    // counter: a no-op here would make the mutation check pass and the whole
-    // suite worthless.
-    for (final Map<String, dynamic> row in _rows.values) {
-      if (row['appointmentId'] == id) _close(row);
-    }
-  }
-
-  @override
-  Future<void> declineAppointment(String id, {String? comment}) =>
-      throw UnimplementedError();
-
-  @override
   Future<void> declineAppointmentService(
     String appointmentId,
     String bookingId, {
@@ -193,10 +164,6 @@ class _FakeAppointmentRepository implements AppointmentRepository {
     DateTime newStartAt, {
     bool allowClientOverlap = false,
   }) => throw UnimplementedError();
-
-  @override
-  Future<void> cancelAppointment(String id, {String? note}) =>
-      throw UnimplementedError();
 
   @override
   Future<Appointment> createAppointment(CreateAppointmentRequest req) =>
@@ -360,7 +327,6 @@ void main() {
 
       final int fetchesBeforeWrite = fb.getMyBookingsCalls;
       expect(fb.completeBookingCalls, 0);
-      expect(fakeAppt.completeCalls, 0);
       expect(fakeAppt.completeServiceCalls, 0);
 
       // ── Close the elapsed service. ─────────────────────────────────────
@@ -414,14 +380,6 @@ void main() {
         reason:
             'the tapped ROW\'s own booking id — not the visit id, not a '
             'sibling\'s',
-      );
-      expect(
-        fakeAppt.completeCalls,
-        0,
-        reason:
-            'the whole-visit PATCH /appointments/{apptId}/complete closes '
-            'every child in lockstep and guards only the VISIT startsAt — an '
-            'archive row must never reach it',
       );
       expect(
         fb.completeBookingCalls,
@@ -540,7 +498,6 @@ void main() {
 
       // And nothing was written, because there was no affordance to write it.
       expect(fakeAppt.completeServiceCalls, 0);
-      expect(fakeAppt.completeCalls, 0);
       expect(fb.completeBookingCalls, 0);
       expect(rows[kElapsedServiceId]!['status'], 'CONFIRMED');
     },

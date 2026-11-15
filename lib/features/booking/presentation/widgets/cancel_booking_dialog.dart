@@ -50,14 +50,8 @@ import '../../domain/booking_display_x.dart';
 import 'labelled_row.dart';
 import 'section_rule.dart';
 
-// MO-5 — the multi-service VISIT cancel confirmation, kept in this library (a
-// `part`) so it reuses this dialog's private destructive chrome
-// (`_DestructiveBadge`, `_NoteField`, `_DestructiveButton`) verbatim while the
-// single-booking dialog's own render stays byte-for-byte unchanged.
-part 'cancel_visit_dialog.dart';
-
 // Track 27.x Wave A — the PROVIDER's decline confirmation, kept in this
-// library for the exact same reason as `cancel_visit_dialog.dart`: it reuses
+// library so it reuses
 // this dialog's private destructive chrome verbatim (relabelled copy only),
 // so the client-cancel and provider-decline confirmations read as one visual
 // language.
@@ -242,7 +236,7 @@ class _NoteField extends StatelessWidget {
   /// Overrides the field's caption. Defaults to [AppLocalizations
   /// .cancelBookingNoteLabel] (the CLIENT copy) when null — [
   /// DeclineBookingDialog] (track 27.x Wave A) passes the PROVIDER-facing
-  /// copy instead; `CancelBookingDialog`/`CancelVisitDialog` are unaffected.
+  /// copy instead; `CancelBookingDialog` is unaffected.
   final String? label;
 
   /// Overrides the field's hint text. Same default rule as [label].

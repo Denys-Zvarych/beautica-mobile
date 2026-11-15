@@ -2,7 +2,7 @@
 // confirmation, which also collects an OPTIONAL free-text comment.
 //
 // A `part of 'cancel_booking_dialog.dart'` (see that file's `part`
-// directive), mirroring `cancel_visit_dialog.dart`'s precedent: it reuses the
+// directive): it reuses the
 // single-booking dialog's private destructive chrome — the red
 // [_DestructiveBadge], the optional-note [_NoteField] (relabelled for the
 // provider via its new `label`/`hint` overrides), the saturated
@@ -34,40 +34,27 @@ part of 'cancel_booking_dialog.dart';
 ///
 /// Resolves to the provider's optional comment (possibly an EMPTY string —
 /// confirmed but wrote nothing) on confirm — forwarded to
-/// `BookingRepository.declineBooking` (or, when [isAppointment] is `true`,
-/// `AppointmentRepository.declineAppointment`) as the `comment`/
+/// `BookingRepository.declineBooking` (or `AppointmentRepository.
+/// declineAppointmentService` for a visit child) as the `comment`/
 /// `providerComment`, mutually visible to the client once the booking(s)
 /// read `DECLINED` (CLAUDE.md booking-notes rule). Resolves to `null` on
 /// every way of backing out, exactly like [showCancelBookingDialog] — `null`
 /// means *do nothing*.
-///
-/// [isAppointment] (`Booking.appointmentId != null`) swaps the title/subtitle
-/// to the whole-visit copy — the decline transitions EVERY service in the
-/// visit, not just [booking].
 Future<String?> showDeclineBookingDialog(
   BuildContext context,
-  Booking booking, {
-  bool isAppointment = false,
-}) {
+  Booking booking,
+) {
   return showDialogOnce<String>(
     context: context,
     barrierDismissible: true,
-    builder: (_) =>
-        DeclineBookingDialog(booking: booking, isAppointment: isAppointment),
+    builder: (_) => DeclineBookingDialog(booking: booking),
   );
 }
 
 class DeclineBookingDialog extends StatefulWidget {
-  const DeclineBookingDialog({
-    super.key,
-    required this.booking,
-    this.isAppointment = false,
-  });
+  const DeclineBookingDialog({super.key, required this.booking});
 
   final Booking booking;
-
-  /// See [showDeclineBookingDialog]'s doc.
-  final bool isAppointment;
 
   @override
   State<DeclineBookingDialog> createState() => _DeclineBookingDialogState();
@@ -116,17 +103,13 @@ class _DeclineBookingDialogState extends State<DeclineBookingDialog> {
                 const SizedBox(height: VelvetSpacing.md),
 
                 Text(
-                  widget.isAppointment
-                      ? l10n.declineAppointmentDialogTitle
-                      : l10n.declineBookingDialogTitle,
+                  l10n.declineBookingDialogTitle,
                   textAlign: TextAlign.center,
                   style: VelvetText.subheading(),
                 ),
                 const SizedBox(height: VelvetSpacing.xs),
                 Text(
-                  widget.isAppointment
-                      ? l10n.declineAppointmentDialogSubtitle
-                      : l10n.declineBookingDialogSubtitle,
+                  l10n.declineBookingDialogSubtitle,
                   textAlign: TextAlign.center,
                   style: VelvetText.bookSuccessSubline,
                 ),

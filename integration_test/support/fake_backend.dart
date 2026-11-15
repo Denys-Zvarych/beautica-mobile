@@ -5562,8 +5562,8 @@ final class FakeBackend {
   /// default (a plain single-service booking). A flow proving the
   /// appointment-child provider-write routing (`BookingDetailScreen`'s
   /// `_confirmDecline`/`_confirmComplete` routing to
-  /// `AppointmentRepository.completeAppointment`/`declineAppointment` instead
-  /// of the per-booking endpoints) sets this to a non-null id BEFORE booting
+  /// `AppointmentRepository.completeAppointmentService`/
+  /// `declineAppointmentService` instead of the per-booking endpoints) sets this to a non-null id BEFORE booting
   /// the harness, so `GET /bookings/booking-1` serves a booking whose
   /// `appointmentId` is non-null — mirroring how `bookingPriceMax` is seeded
   /// for the RANGE-price flow. The per-booking `/decline`/`/complete` ROUTES
@@ -5598,7 +5598,7 @@ final class FakeBackend {
   /// `booking-1` moves [bookingStatus], `booking-2` moves
   /// [siblingBookingStatus]. Because the per-service decline fix passes THIS
   /// child's own id (never the whole visit), declining `booking-1` here leaves
-  /// `booking-2` CONFIRMED. The old whole-visit `declineAppointment` would have
+  /// `booking-2` CONFIRMED. A whole-visit decline would have
   /// moved every child at once — this per-item routing is exactly what makes
   /// the sibling assertion a genuine regression guard.
   void declineChild(String bookingId) {

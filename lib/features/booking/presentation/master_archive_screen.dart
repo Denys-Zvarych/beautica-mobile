@@ -802,15 +802,9 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       try {
         final String? appointmentId = booking.appointmentId;
         if (appointmentId != null) {
-          // PER-ITEM, never whole-visit. This list renders ONE ROW PER
-          // SERVICE, so «Виконано» on a row must complete exactly that
-          // service and leave its siblings CONFIRMED. The whole-visit
-          // `completeAppointment` that used to be called here completed the
-          // visit in lockstep AND guarded only the visit's `startsAt` (the
-          // FIRST service), so tapping one row silently completed every other
-          // service of the same visit — including ones that had not started —
-          // and they then surfaced as fresh COMPLETED rows in this very
-          // archive. See `AppointmentRepository.completeAppointmentService`.
+          // PER-ITEM. This list renders ONE ROW PER SERVICE, so «Виконано» on
+          // a row must complete exactly that service and leave its siblings
+          // CONFIRMED. See `AppointmentRepository.completeAppointmentService`.
           await ref
               .read(appointmentRepositoryProvider)
               .completeAppointmentService(appointmentId, booking.id);
@@ -849,7 +843,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
           // whose `toString()` embeds the response body. That site is
           // deliberately left unchanged.
           log(
-            'completeBooking/completeAppointment failed: ${e.runtimeType}',
+            'completeBooking/completeAppointmentService failed: ${e.runtimeType}',
             name: _tag,
             stackTrace: st,
           );

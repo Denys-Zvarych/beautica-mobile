@@ -9,7 +9,7 @@ All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**deleteMyAccount**](UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | 
+[**deleteMyAccount**](UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | Delete the caller&#39;s own account
 [**getMe**](UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
 [**getMyRating**](UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
 [**requestChangePasswordOtp**](UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 
@@ -19,7 +19,9 @@ Method | HTTP request | Description
 # **deleteMyAccount**
 > deleteMyAccount()
 
+Delete the caller's own account
 
+Hard-deletes the caller's account and ends the session. A SALON_OWNER may delete the account only when none of its salons is active (SUP-11): with an active salon the call is refused 409 with `data.code` = `OWNER_HAS_ACTIVE_SALONS` and nothing changes. The owner's deleted salons stay as ownerless history (SUP-67).
 
 ### Example
 ```dart

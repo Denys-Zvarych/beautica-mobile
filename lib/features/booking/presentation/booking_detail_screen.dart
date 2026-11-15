@@ -262,9 +262,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// here must decline only THIS child and leave the visit's siblings
   /// CONFIRMED. The write therefore routes to
   /// `AppointmentRepository.declineAppointmentService(appointmentId, booking.id)`
-  /// (`PATCH /appointments/{id}/services/{bookingId}/decline`), NOT the
-  /// whole-visit `declineAppointment` (`PATCH /appointments/{id}/decline`),
-  /// which used to decline EVERY service at once — the bug this fixes. A
+  /// (`PATCH /appointments/{id}/services/{bookingId}/decline`); there is no
+  /// whole-visit decline route (removed by backend B475). A
   /// booking with a `null` `appointmentId` (a plain single-service booking) is
   /// UNCHANGED — same dialog, same `BookingRepository.declineBooking` call,
   /// same failure handling.
@@ -351,12 +350,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// The appointment arm is now PER-ITEM
   /// (`AppointmentRepository.completeAppointmentService`), matching decline
   /// (`declineAppointmentService`) and reschedule
-  /// (`rescheduleAppointmentItem`) — complete was the last transition left on
-  /// the whole-visit path. Each service of a visit opens its OWN detail
-  /// screen, so «Завершити» here must close exactly the booking on screen; the
-  /// whole-visit `completeAppointment` completed every sibling in lockstep and
-  /// guarded only the visit's `startsAt`, so a sibling starting hours later
-  /// was completed with no temporal guard at all.
+  /// (`rescheduleAppointmentItem`). Each service of a visit opens its OWN
+  /// detail screen, so «Завершити» here must close exactly the booking on
+  /// screen, guarded on that child's own `startsAt`.
   Future<void> _confirmComplete(BuildContext context, Booking booking) async {
     if (_completeInFlight) return;
     _completeInFlight = true;
@@ -1288,8 +1284,7 @@ class _DetailBody extends StatelessWidget {
   /// 409 guard would otherwise block. «Скасувати» (decline) routes to
   /// `AppointmentRepository.declineAppointmentService` (the per-service visit
   /// endpoint), declining ONLY this tapped service and leaving the visit's
-  /// siblings CONFIRMED — NOT the whole-visit `declineAppointment` (see
-  /// [_confirmDecline]).
+  /// siblings CONFIRMED (see [_confirmDecline]).
   ///
   /// GATING NOTE (track 7.x Wave B, superseded): the CTA used to be offered
   /// on every COMPLETED provider booking regardless of prior feedback,

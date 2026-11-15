@@ -129,12 +129,10 @@ export 'package:beautica_api/src/model/api_response_verify_password_reset_otp_re
 export 'package:beautica_api/src/model/api_response_void.dart';
 export 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
 export 'package:beautica_api/src/model/app_config_response.dart';
-export 'package:beautica_api/src/model/appointment_cancel_request.dart';
 export 'package:beautica_api/src/model/appointment_detail_response.dart';
 export 'package:beautica_api/src/model/appointment_item_reschedule_request.dart';
 export 'package:beautica_api/src/model/appointment_item_response.dart';
 export 'package:beautica_api/src/model/appointment_provider_note_request.dart';
-export 'package:beautica_api/src/model/appointment_reschedule_request.dart';
 export 'package:beautica_api/src/model/approved_category_response.dart';
 export 'package:beautica_api/src/model/assign_service_to_master_request.dart';
 export 'package:beautica_api/src/model/auth_response.dart';
