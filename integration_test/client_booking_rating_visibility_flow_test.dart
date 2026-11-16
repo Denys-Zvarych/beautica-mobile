@@ -34,12 +34,14 @@
 //     1. CLIENT logs in, opens Записи → Минулі, opens the COMPLETED booking.
 //     2. «Деталі запису» shows the master's ★ 4.9 (24) — read off the WIRE,
 //        through BookingMapper → Booking.masterDisplayRating → MasterStrip.
-//     3. Tapping the master strip PUSHES the master's public profile in
-//        booking context (MAS-39: no book CTA), whose «Відгуки» tab loads the
-//        real PUBLIC review endpoints for THAT master.
+//     3. Tapping the master strip PUSHES the master's public profile — from
+//        «Деталі запису» WITH the book CTA (MAS-39, 2026-11-16) — whose
+//        «Відгуки» tab loads the real PUBLIC review endpoints for THAT
+//        master; its visible back button returns to the detail.
 //     4. Back on the detail, «Залишити відгук» opens the leave-feedback screen,
 //        which shows the SAME rating…
-//     5. …and its master card taps through to the same profile.
+//     5. …and its master card taps through to the profile in booking
+//        context (no book CTA); back returns to the half-written review.
 //
 //   Test 3 — MAS-39 RESCHEDULE PATH (CONFIRMED booking)
 //     «Деталі запису» → «Перенести» → the slot picker's master strip on the
@@ -107,14 +109,15 @@ const Key _kDetailStrip = Key('booking-detail-master-strip');
 /// The master identity card on «Залишити відгук».
 const Key _kFeedbackCard = Key('leave-review-master-card');
 
-/// MAS-39 — the route the two cards must both reach: the master's PUBLIC
-/// PROFILE in booking context (`?fromBooking=1`, no book CTA), whose «Відгуки»
-/// tab carries the reviews. Exact string, not a prefix — the query IS the
-/// booking-context signal.
-final String _kProfileRoute = RouteNames.masterPublicProfile(
-  'master-aaa',
-  fromBooking: true,
-);
+/// MAS-39 — the master's PUBLIC PROFILE in booking context (`?fromBooking=1`,
+/// no book CTA), whose «Відгуки» tab carries the reviews. Exact fixed string
+/// (not the `RouteNames` helper, so a mutation inside it is red too) — the
+/// query IS the booking-context signal.
+const String _kProfileRoute = '/masters/master-aaa?fromBooking=1';
+
+/// MAS-39 (2026-11-16) — «Деталі запису» is the ONE booking entry that keeps
+/// the book CTA: the plain profile route, no query.
+const String _kDetailProfileRoute = '/masters/master-aaa';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -163,25 +166,32 @@ void main() {
     return router;
   }
 
-  /// MAS-39 landing: the booking-context public profile — no book CTA — and
-  /// the master's reviews one tab away (the content the Phase 240 bug was
-  /// about), loaded from the PUBLIC endpoints for THAT master.
+  /// MAS-39 landing: the master's public profile — the book CTA SHOWN when
+  /// [fromDetail] («Деталі запису»), HIDDEN from every other booking screen —
+  /// and the master's reviews one tab away (the content the Phase 240 bug
+  /// was about), loaded from the PUBLIC endpoints for THAT master.
   Future<void> expectBookingContextProfile(
     WidgetTester tester,
     GoRouter router,
-    FakeBackend fb,
-  ) async {
+    FakeBackend fb, {
+    bool fromDetail = false,
+  }) async {
     // `/masters/:masterId` is a TOP-LEVEL route (above the client shell), so
     // the plain resolver — not the nested-push one — is correct.
-    expect(AppHarness.location(router), _kProfileRoute);
+    expect(
+      AppHarness.location(router),
+      fromDetail ? _kDetailProfileRoute : _kProfileRoute,
+    );
     expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
     expect(find.byType(PublicMasterReviewsScreen), findsNothing);
     expect(
       find.byKey(const Key('public-master-book-cta')),
-      findsNothing,
-      reason:
-          'opened from a booking, the profile must not offer «Записатись до '
-          'майстра» (MAS-39)',
+      fromDetail ? findsOneWidget : findsNothing,
+      reason: fromDetail
+          ? 'from «Деталі запису» the profile keeps «Записатись до майстра» '
+                '(MAS-39, 2026-11-16)'
+          : 'opened from a booking screen, the profile must not offer '
+                '«Записатись до майстра» (MAS-39)',
     );
 
     final Finder reviewsTab = find.byKey(
@@ -210,6 +220,19 @@ void main() {
       0,
       reason: 'a CLIENT must never resolve the AUTHENTICATED-master self route',
     );
+  }
+
+  /// Taps the profile's own top-bar back chevron (MAS-39: every booking entry
+  /// must offer a visible way back, not only the system gesture).
+  Future<void> tapProfileBack(WidgetTester tester) async {
+    final Finder back = find.descendant(
+      of: find.byType(PublicMasterProfileScreen),
+      matching: find.byIcon(Icons.arrow_back_ios_new_rounded),
+    );
+    expect(back, findsOneWidget, reason: 'the profile shows a back button');
+    await tester.tap(back);
+    await AppHarness.settle(tester);
+    expect(find.byType(PublicMasterProfileScreen), findsNothing);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -275,11 +298,11 @@ void main() {
       // affordance, which is the entire fix.
       await tester.tap(strip);
       await AppHarness.settle(tester);
-      await expectBookingContextProfile(tester, router, fb);
+      await expectBookingContextProfile(tester, router, fb, fromDetail: true);
 
-      // ── 3. Back to the detail — `push`, so the state is intact. ─────────
-      router.pop();
-      await AppHarness.settle(tester);
+      // ── 3. Back to the detail via the profile's VISIBLE back button —
+      // `push`, so the state is intact. ───────────────────────────────────
+      await tapProfileBack(tester);
       expect(find.byType(BookingDetailScreen), findsOneWidget);
       AppHarness.expectNestedPushLocation(
         router,
@@ -311,10 +334,9 @@ void main() {
       await AppHarness.settle(tester);
       await expectBookingContextProfile(tester, router, fb);
 
-      // Popping returns to the half-written review, not to the detail — the
-      // reason this card uses `push` rather than `go`.
-      router.pop();
-      await AppHarness.settle(tester);
+      // The visible back button returns to the half-written review, not to
+      // the detail — the reason this card uses `push` rather than `go`.
+      await tapProfileBack(tester);
       expect(
         find.byType(LeaveReviewScreen),
         findsOneWidget,
@@ -516,10 +538,7 @@ void main() {
       unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
       await AppHarness.settle(tester);
 
-      expect(
-        AppHarness.location(router),
-        RouteNames.masterPublicProfile('master-aaa'),
-      );
+      expect(AppHarness.location(router), _kDetailProfileRoute);
       expect(
         find.byKey(const Key('public-master-profile-name')),
         findsOneWidget,

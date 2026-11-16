@@ -152,9 +152,9 @@ abstract final class RouteNames {
   /// Phase 4.x — public master reviews. CLIENT-guarded like
   /// [masterPublicProfile] (same `clientOnlyGuard` in `app_router.dart`).
   /// Kept (D7, Phase 351). Since MAS-39 (2026-11-16) no in-app surface
-  /// pushes it: the booking-card master taps (`booking_counterparty_header`,
-  /// `leave_review_screen`, `booking_confirm_screen`, the reschedule slot
-  /// picker) open [masterPublicProfile] `fromBooking: true` instead, and the
+  /// pushes it: the booking-screen master cards (`master_profile_tap.dart`)
+  /// open [masterPublicProfile] instead — `fromBooking: true` everywhere but
+  /// «Деталі запису», which keeps the book CTA — and the
   /// public master profile renders reviews inline in its «Відгуки» tab. The
   /// param-less own-master equivalent («Мої відгуки») was deleted in the
   /// same phase — its content now lives inline in the master's own profile

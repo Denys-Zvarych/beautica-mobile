@@ -128,6 +128,7 @@ import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/client_booking_conflict_dialog.dart';
 import 'widgets/guest_identity_card.dart';
+import 'widgets/master_profile_tap.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/reschedule_limit_dialog.dart';
 
@@ -988,14 +989,7 @@ class _ConfirmBody extends StatelessWidget {
                       // comment intact. MAS-39: the public profile in
                       // booking context (no book CTA; reviews in its tab).
                       // Empty id → inert (`/masters/` matches no route).
-                      onTap: master.id.isEmpty
-                          ? null
-                          : () => context.pushOnce(
-                              RouteNames.masterPublicProfile(
-                                master.id,
-                                fromBooking: true,
-                              ),
-                            ),
+                      onTap: masterProfileTap(context, master.id),
                     ),
                   ),
             showAddress: !hideMasterIdentity,

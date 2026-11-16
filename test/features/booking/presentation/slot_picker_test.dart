@@ -50,6 +50,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/dim_probe.dart';
+import '../../../../integration_test/support/app_harness.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -257,6 +258,25 @@ class _FakeSlotRepository implements SlotRepository {
 /// bookingSlots/time / bookingConfirm shape, with the confirm route rendering
 /// the received [BookingConfirmArgs] as plain text so tests can assert the
 /// exact extras that arrived.
+/// MAS-39 — taps [strip] (an inert, non-CLIENT strip) and asserts nothing
+/// was pushed: the router location is unchanged and no profile stub mounted.
+/// A real tap, not an `onTap == null` field check, so it pins behaviour.
+Future<void> _expectStripTapNavigatesNowhere(
+  WidgetTester tester,
+  Finder strip,
+) async {
+  final GoRouter router = GoRouter.of(tester.element(strip));
+  final String before = AppHarness.location(router);
+  await tester.tap(strip, warnIfMissed: false);
+  await tester.pumpAndSettle();
+  expect(
+    AppHarness.location(router),
+    before,
+    reason: 'a non-CLIENT viewer\'s strip is inert (MAS-39) — no push',
+  );
+  expect(find.textContaining('profile-stub:'), findsNothing);
+}
+
 GoRouter _router({required Widget dateScreen}) => GoRouter(
   initialLocation: RouteNames.bookingSlots,
   routes: <RouteBase>[
@@ -1151,24 +1171,20 @@ void main() {
 
         await tester.pumpRoutedApp(
           router,
-          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fake),
+            isClientProvider.overrideWith((ref) => false),
+          ],
         );
         await tester.pumpAndSettle();
 
         final Finder masterStrip = find.byType(MasterStrip);
         expect(masterStrip, findsOneWidget);
 
-        // Phase 240 tappability policy (LOCKED) — the INERT half. See the
-        // SlotTimeScreen assertion below for the full rationale: an in-flight
-        // wizard step must never offer a tap that abandons a half-made
-        // booking.
-        expect(
-          tester.widget<MasterStrip>(masterStrip).onTap,
-          isNull,
-          reason:
-              'SlotDateScreen is an IN-FLIGHT wizard step — the strip must '
-              'stay inert.',
-        );
+        // MAS-39 — a non-CLIENT viewer's strip is inert (the profile route is
+        // `clientOnlyGuard`ed); a CLIENT's opens the profile (tests below).
+        await _expectStripTapNavigatesNowhere(tester, masterStrip);
+        expect(find.byType(SlotDateScreen), findsOneWidget);
 
         final l10n = AppLocalizations.of(tester.element(masterStrip));
         final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
@@ -1332,17 +1348,35 @@ void main() {
         );
       });
 
-      testWidgets('should_keepMasterStripInert_when_clientNewBooking', (
+      // MAS-39 (widened 2026-11-16) — a NEW booking's date step opens the
+      // profile too; back returns to the date step with its pick intact
+      // («Далі» still advances to «Час» without re-picking the day).
+      testWidgets('should_pushBookingContextProfile_when_clientNewBooking', (
         tester,
       ) async {
         await pumpDateScreen(tester, args: _args(), isClient: true);
 
+        await tester.tapCalendarDay(kyivToday(DateTime.now).day);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byType(MasterStrip));
+        await tester.pumpAndSettle();
+        final Finder stub = find.text(
+          'profile-stub:/masters/master-1?fromBooking=1',
+        );
+        expect(stub, findsOneWidget);
+
+        GoRouter.of(tester.element(stub)).pop();
+        await tester.pumpAndSettle();
+        expect(stub, findsNothing);
+        expect(find.byType(SlotDateScreen), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
         expect(
-          tester.widget<MasterStrip>(find.byType(MasterStrip)).onTap,
-          isNull,
-          reason:
-              'the new-booking wizard stays inert (MasterStrip.onTap '
-              'policy) — only a reschedule is tappable',
+          find.byType(SlotTimeScreen),
+          findsOneWidget,
+          reason: 'the picked day survives the profile round-trip',
         );
       });
 
@@ -1355,13 +1389,9 @@ void main() {
           isClient: false,
         );
 
-        expect(
-          tester.widget<MasterStrip>(find.byType(MasterStrip)).onTap,
-          isNull,
-          reason:
-              'staff/owner views stay unchanged (the profile route is '
-              'clientOnlyGuard-ed)',
-        );
+        // Staff/owner views: the profile route is `clientOnlyGuard`ed.
+        await _expectStripTapNavigatesNowhere(tester, find.byType(MasterStrip));
+        expect(find.byType(SlotDateScreen), findsOneWidget);
       });
     });
   });
@@ -1508,18 +1538,14 @@ void main() {
     // this test now locks in BOTH halves of the current contract: MasterStrip
     // present and topmost, day-header text gone for good (not just
     // accidentally missing).
-    // MAS-39 — on a CLIENT reschedule the time step's strip is tappable too
-    // (the booking already exists; nothing is lost), into the booking-context
-    // profile. The new-booking INERT half is pinned by the test below.
+    // MAS-39 — the time step's strip opens the booking-context profile for a
+    // CLIENT (new booking and reschedule alike); the non-CLIENT inert half is
+    // pinned by the test below.
     testWidgets(
       'SlotTimeScreen master strip opens the booking-context profile on a '
-      'CLIENT reschedule (MAS-39)',
+      'CLIENT new booking (MAS-39)',
       (tester) async {
-        await pumpTimeScreen(
-          tester,
-          args: _args(rescheduleBookingId: 'booking-99'),
-          isClient: true,
-        );
+        await pumpTimeScreen(tester, args: _args(), isClient: true);
 
         final Finder strip = find.descendant(
           of: find.byType(SlotTimeScreen),
@@ -1539,7 +1565,7 @@ void main() {
       'shows MasterStrip as the sole top-of-screen card on SlotTimeScreen — '
       'the day header chip was intentionally removed, not merely absent',
       (tester) async {
-        await pumpTimeScreen(tester, args: _args());
+        await pumpTimeScreen(tester, args: _args(), isClient: false);
 
         final Finder timeScreen = find.byType(SlotTimeScreen);
         expect(timeScreen, findsOneWidget);
@@ -1558,22 +1584,11 @@ void main() {
 
         // ── Phase 240 tappability policy (LOCKED) — the INERT half ────────
         //
-        // The strip became tappable in Phase 240, but deliberately NOT on the
-        // three in-flight wizard steps: a stray tap here would yank the client
-        // out of a half-made booking to go read reviews. The policy is written
-        // down in `MasterStrip.onTap`'s doc and, until this assertion, was
-        // enforced by nothing — a refactor that threaded `onTap` through every
-        // call site uniformly would have silently broken it, and the resulting
-        // bug (losing a half-made booking to a mis-tap) is one users report as
-        // "the app randomly left my booking".
-        expect(
-          tester.widget<MasterStrip>(masterStrip).onTap,
-          isNull,
-          reason:
-              'SlotTimeScreen is an IN-FLIGHT wizard step — the strip must '
-              'stay inert. Tappability is for terminal/review-shaped screens '
-              '(confirm, «Деталі запису», «Залишити відгук») only.',
-        );
+        // MAS-39 (2026-11-16): the strip opens the master profile for a
+        // CLIENT on every step (tests above); a non-CLIENT viewer (the
+        // profile route is `clientOnlyGuard`ed) keeps it inert.
+        await _expectStripTapNavigatesNowhere(tester, masterStrip);
+        expect(timeScreen, findsOneWidget);
 
         // The master's name must render INSIDE MasterStrip itself, not just
         // somewhere on screen.

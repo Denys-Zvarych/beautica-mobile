@@ -45,6 +45,7 @@ import 'package:dio/dio.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -59,6 +60,7 @@ import 'package:beautica_mobile/features/booking/domain/create_master_booking_re
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -369,6 +371,13 @@ GoRouter _router({ValueChanged<SalonBookingSuccessArgs>? onReachedSuccess}) =>
             onReachedSuccess?.call(state.extra! as SalonBookingSuccessArgs);
             return const Scaffold(body: Text('salon-success-reached'));
           },
+        ),
+        // MAS-39 — stub profile that prints the URI it received, so the
+        // booking-context query is pinned as an exact string.
+        GoRoute(
+          path: '/masters/:masterId',
+          builder: (context, state) =>
+              Scaffold(body: Text('profile-stub:${state.uri}')),
         ),
       ],
     );
@@ -1450,5 +1459,90 @@ void main() {
         );
       },
     );
+  });
+
+  // ===========================================================================
+  // MAS-39 (2026-11-16) — each appointment card's master strip opens THAT
+  // master's public profile in booking context (`?fromBooking=1`, no book
+  // CTA) for a CLIENT; `push`, so back returns with the typed comment
+  // intact. A non-CLIENT viewer's strip is inert.
+  // ===========================================================================
+  group('MAS-39 master card → public profile', () {
+    Future<GoRouter> pumpConfirm(
+      WidgetTester tester, {
+      required bool isClient,
+    }) async {
+      await _pumpTall(tester);
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._baseOverrides(_FakeBookingRepository()),
+          isClientProvider.overrideWith((ref) => isClient),
+        ],
+      );
+      unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    Finder stripOf(String masterId) => find.descendant(
+      of: find.byKey(ValueKey<String>('salon-confirm-appt-$masterId')),
+      matching: find.byType(MasterStrip),
+    );
+
+    testWidgets('CLIENT: tapping a card\'s master strip pushes '
+        '/masters/<id>?fromBooking=1 for THAT master, and back keeps the '
+        'typed comment', (tester) async {
+      final GoRouter router = await pumpConfirm(tester, isClient: true);
+      final Finder m1Field = find.byKey(
+        const Key('salon-confirm-comment-field-m1'),
+      );
+      await tester.enterText(m1Field, 'без поспіху');
+      await tester.pumpAndSettle();
+
+      await tester.tap(stripOf('m1'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('profile-stub:/masters/m1?fromBooking=1'),
+        findsOneWidget,
+      );
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(of: m1Field, matching: find.byType(EditableText)),
+            )
+            .controller
+            .text,
+        'без поспіху',
+        reason: 'push, not go — the typed comment survives the round-trip',
+      );
+
+      // Page 1 — the strip is bound per appointment, not to page 0's master.
+      await tester.tap(find.byKey(const Key('appointment-pager-next')));
+      await tester.pumpAndSettle();
+      await tester.tap(stripOf('m2'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('profile-stub:/masters/m2?fromBooking=1'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('non-CLIENT: tapping the master strip navigates nowhere', (
+      tester,
+    ) async {
+      await pumpConfirm(tester, isClient: false);
+
+      await tester.tap(stripOf('m1'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('profile-stub:'), findsNothing);
+      expect(find.byType(SalonBookingConfirmScreen), findsOneWidget);
+    });
   });
 }

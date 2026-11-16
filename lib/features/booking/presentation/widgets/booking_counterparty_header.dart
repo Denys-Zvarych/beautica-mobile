@@ -31,14 +31,13 @@
 
 import 'package:flutter/material.dart';
 
-import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../../application/booking_viewer_role.dart';
 import '../../domain/booking.dart';
 import '../../domain/booking_status.dart';
 import 'booking_client_strip.dart';
+import 'master_profile_tap.dart';
 import 'master_strip.dart';
 
 /// The other side of [booking], as seen by a [viewer].
@@ -113,16 +112,17 @@ class _MasterStrip extends StatelessWidget {
     // know which master" — the honest affordance is an INERT strip, not a
     // button that breaks.
     final String masterId = booking.masterId;
-    final VoidCallback? openProfile = masterId.isEmpty
-        ? null
-        // TAPPABLE per the policy on `MasterStrip.onTap`: «Деталі запису» is a
-        // terminal screen, so leaving it costs the client nothing. `push` (not
-        // `go`) so the back gesture returns here with this screen's state
-        // intact. MAS-39: the public profile in booking context (no book CTA);
-        // reviews stay reachable from its own «Відгуки» tab.
-        : () => context.pushOnce(
-            RouteNames.masterPublicProfile(masterId, fromBooking: true),
-          );
+    // TAPPABLE per the policy on `MasterStrip.onTap`: «Деталі запису» is a
+    // terminal screen, so leaving it costs the client nothing. `push` (not
+    // `go`) so the back gesture returns here with this screen's state
+    // intact. MAS-39 (2026-11-16): the ONE booking entry that keeps the
+    // profile's book CTA — re-booking the same master from a past visit is
+    // exactly the intent here — so no `fromBooking`.
+    final VoidCallback? openProfile = masterProfileTap(
+      context,
+      masterId,
+      fromBooking: false,
+    );
 
     final Widget strip = MasterStrip.fromBooking(
       booking,

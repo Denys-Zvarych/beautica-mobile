@@ -56,6 +56,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
@@ -78,6 +79,7 @@ import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
 import 'widgets/labelled_row.dart';
+import 'widgets/master_profile_tap.dart';
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/section_rule.dart';
 
@@ -219,6 +221,9 @@ class _SalonBookingSuccessScreenState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final List<SalonBookingAppointment> appointments = widget.args.appointments;
+    // MAS-39 — watched HERE, in this State's own build, not inside the
+    // pager's lazy `pageBuilder` (which runs in another element's build).
+    final bool clientViewer = ref.watch(isClientProvider);
 
     // Secondary read — never blocks or errors the whole screen. Scoped via
     // `select` to just the resolved salon so a still-loading/resolving family
@@ -321,6 +326,10 @@ class _SalonBookingSuccessScreenState
             dense: true,
             showBorder: true,
             compactText: true,
+            // MAS-39 — the master card opens the profile (no book CTA).
+            onMasterTap: clientViewer
+                ? masterProfileTap(context, appointment.schedule.masterId)
+                : null,
             // ONE button for this master's WHOLE visit (every assigned
             // service, back-to-back) — see `_addToCalendar`'s doc. Keyed per
             // appointment index, mirroring `_calendarInFlight`'s guard key.

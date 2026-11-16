@@ -16,9 +16,11 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -225,6 +227,13 @@ GoRouter _router() => GoRouter(
       builder: (context, state) => SalonBookingSuccessScreen(
         args: state.extra! as SalonBookingSuccessArgs,
       ),
+    ),
+    // MAS-39 — stub profile that prints the URI it received, so the
+    // booking-context query is pinned as an exact string.
+    GoRoute(
+      path: '/masters/:masterId',
+      builder: (context, state) =>
+          Scaffold(body: Text('profile-stub:${state.uri}')),
     ),
   ],
 );
@@ -953,6 +962,76 @@ void main() {
             'cleared once the success screen is navigated away from',
       );
       expect(counting.acquireCount, counting.releaseCount);
+    });
+  });
+
+  // ===========================================================================
+  // MAS-39 (2026-11-16) — each recap card's master strip
+  // (`BookingSummaryCards.fromSchedule(onMasterTap:)`) opens THAT master's
+  // public profile in booking context (`?fromBooking=1`, no book CTA) for a
+  // CLIENT; back returns to the recap on the same page. Inert otherwise.
+  // ===========================================================================
+  group('MAS-39 master card → public profile', () {
+    Future<GoRouter> pumpSuccess(
+      WidgetTester tester, {
+      required bool isClient,
+    }) async {
+      await _pumpTall(tester);
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          publicSalonProfileProvider(
+            _kSalonId,
+          ).overrideWith((ref) => (_kSalon, const <SalonMasterSummary>[])),
+          isClientProvider.overrideWith((ref) => isClient),
+        ],
+      );
+      router.go(RouteNames.salonBookingSuccess, extra: _args());
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    Finder stripOf(String masterId) => find.descendant(
+      of: find.byKey(ValueKey<String>('salon-success-appt-$masterId')),
+      matching: find.byType(MasterStrip),
+    );
+
+    testWidgets('CLIENT: tapping a card\'s master strip pushes '
+        '/masters/<id>?fromBooking=1 for THAT master, and back returns to '
+        'the recap on the same page', (tester) async {
+      final GoRouter router = await pumpSuccess(tester, isClient: true);
+      await tester.tap(find.byKey(const Key('appointment-pager-next')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(stripOf('m2'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('profile-stub:/masters/m2?fromBooking=1'),
+        findsOneWidget,
+      );
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonBookingSuccessScreen), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('salon-success-appt-m2')),
+        findsOneWidget,
+        reason: 'push — the recap keeps its page across the round-trip',
+      );
+      expect(_locationOf(router), RouteNames.salonBookingSuccess);
+    });
+
+    testWidgets('non-CLIENT: tapping the master strip navigates nowhere', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpSuccess(tester, isClient: false);
+
+      await tester.tap(stripOf('m1'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('profile-stub:'), findsNothing);
+      expect(_locationOf(router), RouteNames.salonBookingSuccess);
     });
   });
 }

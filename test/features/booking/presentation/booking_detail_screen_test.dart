@@ -188,7 +188,9 @@ Future<void> _expectStripOpensBookingProfile(
   await tester.ensureVisible(strip);
   await tester.tap(strip);
   await tester.pumpAndSettle();
-  expect(find.text('profile-stub:/masters/m1?fromBooking=1'), findsOneWidget);
+  // MAS-39 (2026-11-16): «Деталі запису» is the ONE booking entry that keeps
+  // the profile's book CTA — no `?fromBooking=1`.
+  expect(find.text('profile-stub:/masters/m1'), findsOneWidget);
 
   router.pop();
   await tester.pumpAndSettle();
@@ -542,9 +544,8 @@ void main() {
     });
 
     testWidgets('a populated masterId: tapping the master strip pushes '
-        '/masters/<id>?fromBooking=1 and back returns to the detail (MAS-39)', (
-      tester,
-    ) async {
+        '/masters/<id> (no fromBooking — book CTA kept) and back returns to '
+        'the detail (MAS-39)', (tester) async {
       final GoRouter router = await _pumpDetailRouted(
         tester,
         _booking(status: BookingStatus.confirmed),

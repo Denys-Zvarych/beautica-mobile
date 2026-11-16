@@ -54,6 +54,7 @@ class SalonAppointmentCard extends StatelessWidget {
     required this.commentController,
     required this.commentFieldKey,
     this.maxComment = 500,
+    this.onMasterTap,
   });
 
   final SalonBookingAppointment appointment;
@@ -79,6 +80,11 @@ class SalonAppointmentCard extends StatelessWidget {
 
   final int maxComment;
 
+  /// MAS-39 (additive, default `null` = inert card, as before): tap handler
+  /// for the master card — the salon confirm screen passes
+  /// `masterProfileTap(...)` for a CLIENT viewer.
+  final VoidCallback? onMasterTap;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -97,6 +103,7 @@ class SalonAppointmentCard extends StatelessWidget {
           showRating: true,
           avatarGradient: avatarGradient,
           avatarBordered: true,
+          onTap: onMasterTap,
         ),
         const SizedBox(height: VelvetSpacing.sm),
         NeumorphicCard(

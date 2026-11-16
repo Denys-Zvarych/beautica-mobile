@@ -31,7 +31,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -39,7 +38,6 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
@@ -48,6 +46,7 @@ import '../application/leave_review_notifier.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import 'widgets/master_feedback_card.dart';
+import 'widgets/master_profile_tap.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/star_rating_input.dart';
 
@@ -280,14 +279,7 @@ class _Form extends StatelessWidget {
                   // its «Відгуки» tab) is a natural detour, and `push` brings
                   // the client back with the half-typed comment intact.
                   // MAS-39: booking context → no book CTA there.
-                  onTap: masterId.isEmpty
-                      ? null
-                      : () => context.pushOnce(
-                          RouteNames.masterPublicProfile(
-                            masterId,
-                            fromBooking: true,
-                          ),
-                        ),
+                  onTap: masterProfileTap(context, masterId),
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
                 _RatingCard(rating: rating, onChanged: onRatingChanged),

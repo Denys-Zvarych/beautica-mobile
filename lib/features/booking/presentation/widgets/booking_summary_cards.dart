@@ -189,6 +189,9 @@ class BookingSummaryCards extends StatelessWidget {
     // mounts ONE `CalendarButton` per master through this slot, replacing
     // the deleted `_SalonCalendarActionsCard`/`_CalendarActionRow`.
     Widget? trailingAction,
+    // MAS-39 (additive, default `null` = inert, as before) — the master
+    // card's tap handler (salon success screen → master profile).
+    VoidCallback? onMasterTap,
   }) {
     final List<BookingSelection> selections = schedule.services
         .map(BookingSelection.fromSalonCatalogService)
@@ -203,6 +206,7 @@ class BookingSummaryCards extends StatelessWidget {
               showRating: true,
               avatarGradient: avatarGradient,
               avatarBordered: true,
+              onTap: onMasterTap,
             )
           : null,
       showAddress: showAddress,
