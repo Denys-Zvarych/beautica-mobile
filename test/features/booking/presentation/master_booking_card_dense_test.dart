@@ -3,6 +3,7 @@
 // Non-dense behaviour is pinned by master_booking_card_test.dart and the
 // goldens, which this change must not move.
 
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -12,6 +13,10 @@ import 'package:flutter/rendering.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/widgets/price_tag.dart';
+
+import '../../../helpers/pixel_census.dart';
 import '../../../helpers/pump_app.dart';
 
 Booking _booking({
@@ -53,6 +58,15 @@ const String _kShortFull = '$_kShortFirst $_kShortLast';
 const String _kHugeFirst = 'Олександрарозалінданатальєвна';
 const String _kHugeLast = 'Пономаренко';
 const String _kService = 'Манікюр з покриттям';
+// The rendered PriceTag size for «1250» at masterCardPricePill — compact tier
+// (1dp vertical padding) and full tier (3dp), identical on both boards.
+const Size _kCompactPill = Size(50.6, 16);
+const Size _kFullPill = Size(50.6, 20);
+// BrandColors.base's channel sum, and how far the pill's inset shadow must
+// pull a pixel of its well below / above it (measured: about -90 / +28).
+const int _kBaseSum = 0xE6 + 0xDD + 0xD0;
+const int _kInsetDarkDelta = 40;
+const int _kInsetLightDelta = 10;
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -148,7 +162,13 @@ void main() {
 
           final Finder price = find.textContaining('1250');
           expect(price, findsOneWidget);
-          expect(tester.widget<Text>(price).style?.fontSize, 12);
+          // The same pill as the non-dense card (user 2026-11-16), checked on
+          // what RENDERS at this lane (the side-by-side parity test below only
+          // covers 148dp): the laid-out pill size of the non-dense card.
+          final Size pill = tester.getSize(find.byType(PriceTag));
+          final Size expected = full ? _kFullPill : _kCompactPill;
+          expect(pill.width, closeTo(expected.width, 0.1));
+          expect(pill.height, expected.height);
           // Not FittedBox-scaled down: the pill's text fills its box 1:1.
           final Finder box = find.ancestor(
             of: price,
@@ -387,7 +407,7 @@ void main() {
     });
   }
 
-  testWidgets('full @136dp: a price band is not shrunk below 12sp', (
+  testWidgets('full @136dp: a price band is not FittedBox-shrunk', (
     WidgetTester tester,
   ) async {
     await _pump(
@@ -431,7 +451,8 @@ void main() {
 
   // The master-mode «Записи» board (272dp lanes) is a NON-dense caller: it must
   // keep the standard layout — the time range in the compact row and the
-  // 10.2sp price token — while the dense layout drops the range and uses 12sp.
+  // 10.2sp price token with its natural line box — while the dense layout
+  // drops the range and pins the price line box to 14.4dp.
   for (final ({String name, double minHeight}) c
       in <({String name, double minHeight})>[
         (name: 'compact', minHeight: 56),
@@ -462,7 +483,10 @@ void main() {
         price.text.style?.fontSize,
         VelvetText.masterCardPricePill.fontSize,
       );
-      expect(price.text.style?.fontSize, isNot(12));
+      expect(
+        price.text.style?.height,
+        isNot(VelvetText.masterCardPricePillDense.height),
+      );
 
       final Booking b = _booking();
       if (c.name == 'compact') {
@@ -472,6 +496,113 @@ void main() {
           reason: 'the standard compact row keeps the time range',
         );
       }
+    });
+  }
+
+  // Regression (fix/review-stars-fill-and-salon-card-price, user 2026-11-16):
+  // the salon board's DENSE card must render the SAME price pill as the
+  // master's one-day (non-dense) card at the same tier. Both cards are pumped
+  // side by side and compared on what renders: the pill's laid-out size (pins
+  // padding + font + line box), the painted inset well, and the price
+  // paragraph's resolved style (size, weight, colour).
+  for (final ({String name, double dense, double standard, Size pill}) c
+      in <({String name, double dense, double standard, Size pill})>[
+        (name: 'compact', dense: 84, standard: 56, pill: _kCompactPill),
+        (name: 'full', dense: 126, standard: 126, pill: _kFullPill),
+      ]) {
+    testWidgets('${c.name}: the dense price pill renders identically to the '
+        'non-dense one', (WidgetTester tester) async {
+      await tester.pumpApp(
+        RepaintBoundary(
+          key: kCensusBoundary,
+          child: ColoredBox(
+            color: BrandColors.base,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                SizedBox(
+                  key: const Key('parity-dense'),
+                  width: 148,
+                  child: MasterBookingCard(
+                    booking: _booking(),
+                    onTap: () {},
+                    minHeight: c.dense,
+                    dense: true,
+                    laneWidth: 148,
+                  ),
+                ),
+                SizedBox(
+                  key: const Key('parity-standard'),
+                  width: 272,
+                  child: MasterBookingCard(
+                    booking: _booking(),
+                    onTap: () {},
+                    minHeight: c.standard,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        width: 400,
+        height: 600,
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      Finder pill(String card) => find.descendant(
+        of: find.byKey(Key(card)),
+        matching: find.byType(PriceTag),
+      );
+      TextStyle priceStyle(String card) => tester
+          .renderObject<RenderParagraph>(
+            find.descendant(
+              of: find.byKey(Key(card)),
+              matching: find.textContaining('1250'),
+            ),
+          )
+          .text
+          .style!;
+
+      final Raster raster = await rasterize(tester);
+
+      for (final String card in <String>['parity-dense', 'parity-standard']) {
+        final Size size = tester.getSize(pill(card));
+        expect(size.width, closeTo(c.pill.width, 0.1), reason: card);
+        expect(size.height, c.pill.height, reason: card);
+      }
+      // The pill's recessed well, read from pixels: its left padding strip
+      // (no glyphs) must carry BOTH halves of the inset shadow — a pixel well
+      // below and one above the base ground. The pill's FILL is base, the same
+      // as the card and host behind it, so a fill check could never fail.
+      for (final String card in <String>['parity-dense', 'parity-standard']) {
+        final Rect r = tester.getRect(pill(card));
+        final List<int> sums =
+            raster
+                .colorsIn(
+                  Rect.fromLTWH(r.left, r.top, VelvetSpacing.sm, r.height),
+                )
+                .map(((int, int, int) p) => p.$1 + p.$2 + p.$3)
+                .toList()
+              ..sort();
+        expect(
+          sums.first,
+          lessThan(_kBaseSum - _kInsetDarkDelta),
+          reason: '$card: the inset well paints its dark inner shadow',
+        );
+        expect(
+          sums.last,
+          greaterThan(_kBaseSum + _kInsetLightDelta),
+          reason: '$card: the inset well paints its light inner shadow',
+        );
+      }
+
+      final TextStyle dense = priceStyle('parity-dense');
+      final TextStyle standard = priceStyle('parity-standard');
+      expect(dense.fontSize, 10.2);
+      expect(standard.fontSize, 10.2);
+      expect(dense.fontWeight, standard.fontWeight);
+      expect(dense.color, standard.color);
     });
   }
 

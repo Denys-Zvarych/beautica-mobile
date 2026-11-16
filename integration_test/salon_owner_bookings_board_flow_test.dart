@@ -62,6 +62,8 @@
 // after the drill-in, not the location string, per this repo's
 // literal-before-dynamic go_router shadowing trap.
 
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/widgets/price_tag.dart';
@@ -89,6 +91,7 @@ import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pixel_census.dart';
 import '../test/helpers/rendered_image_url.dart';
 import 'support/app_harness.dart';
 import 'support/kyiv_wall_clock.dart';
@@ -271,6 +274,22 @@ Future<void> _landOnSalonBoard(
 // Fixture DATA (a registered client's name, a service name), not UI copy: the
 // long-name / long-service shape that was truncated on the 136-148dp salon
 // lanes (dense salon card fix, 2026-10-08).
+// The non-dense master card's price pill for this suite's «1250–2500» fixture
+// as RENDERED in THIS tier — FIXED values. Same pill geometry as `_kCompactPill`
+// / `_kFullPill` in test/features/booking/presentation/
+// master_booking_card_dense_test.dart (vertical padding 1dp compact / 3dp
+// full => +4dp between tiers; inset well on a base fill), but measured here:
+// this tier runs WITHOUT the bundled fonts, so the line box is 15dp (not
+// 14dp) and the width is the price RANGE's, not the single «1250».
+const Size _kDensePillCompact = Size(81.1, 17);
+const Size _kDensePillFull = Size(81.1, 21);
+// BrandColors.base's channel sum, and how far the pill's inset shadow must
+// pull a pixel of its well below / above it (measured: about -90 / +28) —
+// same thresholds as master_booking_card_dense_test.dart.
+const int _kBaseSum = 0xE6 + 0xDD + 0xD0;
+const int _kInsetDarkDelta = 40;
+const int _kInsetLightDelta = 10;
+
 const String _kDenseClientFirst = 'Олександра';
 const String _kDenseClientLast = 'Пономаренко';
 const String _kDenseClientFull = '$_kDenseClientFirst $_kDenseClientLast';
@@ -2190,14 +2209,16 @@ void main() {
   //
   // Bug: on the salon board's 136-148dp lanes a registered client's card lost
   // the surname (ellipsis), drew the price at an unreadable 10.2sp (shrunk
-  // further by a FittedBox) and squeezed the service name to 0dp. The widget
+  // further by a FittedBox) and squeezed the service name to 0dp. (2026-11-16:
+  // the price pill is now the non-dense card's own 10.2sp pill — un-shrunk,
+  // on a row of its own — after 12sp read too big.) The widget
   // tier (`master_booking_card_dense_test.dart`) pins the card in isolation;
   // only this tier proves the REAL board (TimelineDensity.salon -> denseCards
   // -> _LaneColumn -> MasterBookingCard.dense) actually wires it, at the real
   // lane width, from a real GET /bookings/salon/{id}.
   testWidgets(
     'dense salon board at 360dp: a 60-min and a 90-min card show the full '
-    'surname, the service and a >=12sp un-shrunk price',
+    'surname, the service and the un-shrunk non-dense price pill',
     (tester) async {
       // A real narrow phone: 2 columns per viewport => ~136-148dp lanes.
       tester.view.physicalSize = const Size(360, 800);
@@ -2323,8 +2344,9 @@ void main() {
             );
           }
 
-          // Price: >= 12sp as actually laid out, and not scaled down by the
-          // pill's FittedBox.
+          // Price: the non-dense card's own pill style as actually laid out
+          // (user 2026-11-16: 12sp read too big; the board must match the
+          // master's one-day board), not scaled down by the pill's FittedBox.
           final Finder priceTag = find.descendant(
             of: card,
             matching: find.byType(PriceTag),
@@ -2338,10 +2360,60 @@ void main() {
           final RenderParagraph price = tester.renderObject<RenderParagraph>(
             priceText,
           );
+          expect(price.text.style?.fontSize, isNotNull);
           expect(
-            price.text.style?.fontSize ?? 0,
-            greaterThanOrEqualTo(12),
-            reason: '${e.key}: the price must be >=12sp (was 10.2sp)',
+            tester.widget<Text>(priceText).style,
+            same(VelvetText.masterCardPricePill),
+            reason: '${e.key}: the price must use masterCardPricePill',
+          );
+          // ...and what that style RENDERS on the real board: the laid-out
+          // pill size and the painted pill fill, pinned to FIXED values of the
+          // non-dense master card's pill at the same tier.
+          final Size pillSize = tester.getSize(priceTag);
+          final Size expectedPill = e.key == 'dense-90'
+              ? _kDensePillFull
+              : _kDensePillCompact;
+          expect(
+            pillSize.width,
+            closeTo(expectedPill.width, 0.1),
+            reason: '${e.key}: pill width',
+          );
+          expect(
+            pillSize.height,
+            expectedPill.height,
+            reason: '${e.key}: pill height',
+          );
+          final Raster boardRaster = await rasterizeBoundary(
+            tester,
+            enclosingRepaintBoundary(tester.renderObject(priceTag)),
+          );
+          // The pill's FILL is base — the same as the card behind it, so a
+          // fill check could never fail. Its recessed well is what only the
+          // pill paints: the glyph-free left padding strip must carry both
+          // halves of the inset shadow.
+          final Rect pillRect = tester.getRect(priceTag);
+          final List<int> wellSums =
+              boardRaster
+                  .colorsIn(
+                    Rect.fromLTWH(
+                      pillRect.left,
+                      pillRect.top,
+                      VelvetSpacing.sm,
+                      pillRect.height,
+                    ),
+                  )
+                  .map(((int, int, int) p) => p.$1 + p.$2 + p.$3)
+                  .toList()
+                ..sort();
+          expect(
+            wellSums.first,
+            lessThan(_kBaseSum - _kInsetDarkDelta),
+            reason: '${e.key}: the pill well paints its dark inner shadow',
+          );
+          expect(
+            wellSums.last,
+            greaterThan(_kBaseSum + _kInsetLightDelta),
+            reason: '${e.key}: the pill well paints its light inner shadow',
           );
           final Finder fitted = find.descendant(
             of: priceTag,

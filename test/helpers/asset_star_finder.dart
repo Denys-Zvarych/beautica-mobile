@@ -3,9 +3,6 @@
 // `find.byIcon(Icons.star_rounded)` since the Material star sweep (backlog
 // HIGH, 2026-08-28; landed 2026-11-14).
 
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -47,13 +44,8 @@ Future<int> countFilledAssetStars(WidgetTester tester, Finder stars) async {
   int filled = 0;
   for (final Element star in stars.evaluate()) {
     final RenderBox box = star.renderObject as RenderBox;
-    RenderObject? node = box.parent;
-    while (node != null && node is! RenderRepaintBoundary) {
-      node = node.parent;
-    }
-    expect(node, isNotNull, reason: 'a star must sit under a repaint boundary');
-    final RenderRepaintBoundary boundary = node as RenderRepaintBoundary;
-    final Raster raster = rasters[boundary] ??= await _rasterizeBoundary(
+    final RenderRepaintBoundary boundary = enclosingRepaintBoundary(box);
+    final Raster raster = rasters[boundary] ??= await rasterizeBoundary(
       tester,
       boundary,
     );
@@ -72,29 +64,38 @@ Future<int> countFilledAssetStars(WidgetTester tester, Finder stars) async {
   return filled;
 }
 
-Future<Raster> _rasterizeBoundary(
+/// The dominant RENDERED colour of the 4x4dp square at the centre of each
+/// asset star matched by [stars], in finder order.
+///
+/// Read from pixels, never from `AppIcon.color`: the field stays correct even
+/// when the glyph itself is wrong (the outline `star.svg` painted only a ring,
+/// so a "filled" star's centre was the ground colour while its `color` field
+/// said accent — fix/review-stars-fill-and-salon-card-price). On the solid
+/// glyph a tinted star's centre IS its tint. Rasterises the nearest enclosing
+/// [RenderRepaintBoundary], so the host needs no extra wrapper.
+Future<List<(int, int, int)>> assetStarCentreColors(
   WidgetTester tester,
-  RenderRepaintBoundary boundary,
+  Finder stars,
 ) async {
-  Uint8List? px;
-  int w = 0;
-  int h = 0;
-  await tester.runAsync(() async {
-    final ui.Image image = await boundary.toImage();
-    w = image.width;
-    h = image.height;
-    final ByteData? raw = await image.toByteData(
-      format: ui.ImageByteFormat.rawRgba,
+  final Map<RenderRepaintBoundary, Raster> rasters =
+      <RenderRepaintBoundary, Raster>{};
+  final List<(int, int, int)> centres = <(int, int, int)>[];
+  for (final Element star in stars.evaluate()) {
+    final RenderBox box = star.renderObject as RenderBox;
+    final RenderRepaintBoundary boundary = enclosingRepaintBoundary(box);
+    final Raster raster = rasters[boundary] ??= await rasterizeBoundary(
+      tester,
+      boundary,
     );
-    px = raw?.buffer.asUint8List();
-    image.dispose();
-  });
-  final Uint8List? bytes = px;
-  expect(bytes, isNotNull, reason: 'the boundary must rasterize');
-  return Raster(
-    bytes ?? Uint8List(0),
-    w,
-    h,
-    boundary.localToGlobal(Offset.zero),
-  );
+    centres.add(
+      raster.dominantIn(
+        Rect.fromCenter(
+          center: box.localToGlobal(box.size.center(Offset.zero)),
+          width: 4,
+          height: 4,
+        ),
+      ),
+    );
+  }
+  return centres;
 }

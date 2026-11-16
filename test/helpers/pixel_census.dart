@@ -177,3 +177,44 @@ int channel8(double component) => (component * 255).round();
   int mix(double o, double u) => ((o * a + u * (1 - a)) * 255).round();
   return (mix(over.r, under.r), mix(over.g, under.g), mix(over.b, under.b));
 }
+
+/// The nearest [RenderRepaintBoundary] above [target]'s render object — the
+/// route's own boundary at worst — for rasterising a widget the test cannot
+/// wrap in a keyed [RepaintBoundary] (e.g. a card inside a real screen).
+RenderRepaintBoundary enclosingRepaintBoundary(RenderObject target) {
+  RenderObject? node = target.parent;
+  while (node != null && node is! RenderRepaintBoundary) {
+    node = node.parent;
+  }
+  expect(node, isNotNull, reason: 'the target must sit under a boundary');
+  return node as RenderRepaintBoundary;
+}
+
+/// Rasterises [boundary] (see [enclosingRepaintBoundary]) and returns its
+/// pixels, origin at the boundary's global top-left.
+Future<Raster> rasterizeBoundary(
+  WidgetTester tester,
+  RenderRepaintBoundary boundary,
+) async {
+  Uint8List? px;
+  int w = 0;
+  int h = 0;
+  await tester.runAsync(() async {
+    final ui.Image image = await boundary.toImage();
+    w = image.width;
+    h = image.height;
+    final ByteData? raw = await image.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    );
+    px = raw?.buffer.asUint8List();
+    image.dispose();
+  });
+  final Uint8List? bytes = px;
+  expect(bytes, isNotNull, reason: 'the boundary must rasterize');
+  return Raster(
+    bytes ?? Uint8List(0),
+    w,
+    h,
+    boundary.localToGlobal(Offset.zero),
+  );
+}

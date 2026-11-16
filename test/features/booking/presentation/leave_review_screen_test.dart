@@ -55,6 +55,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 import '../../../helpers/asset_star_finder.dart';
+import '../../../helpers/pixel_census.dart';
 
 const String _bookingId = 'b1';
 
@@ -413,14 +414,23 @@ void main() {
       // rating readout in the header card (`MasterRatingReadout`, M4), which
       // is a sixth `star_rounded` and has nothing to do with the value being
       // entered here. The unscoped count only ever worked by accident.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('leave-review-stars')),
-          matching: findAssetStar(color: BrandColors.accent),
-        ),
-        findsNWidgets(5),
+      //
+      // Read from PIXELS (the colour at each star's centre), never from the
+      // `AppIcon.color` field: the field said accent even while `star.svg`
+      // was the outline glyph and a "filled" star painted only a ring.
+      final Finder inputStars = find.descendant(
+        of: find.byKey(const Key('leave-review-stars')),
+        matching: findAssetStar(),
       );
-      expect(findAssetStar(color: BrandColors.faint), findsNothing);
+      expect(inputStars, findsNWidgets(5));
+      expect(
+        await assetStarCentreColors(tester, inputStars),
+        List<(int, int, int)>.filled(5, (
+          channel8(BrandColors.accent.r),
+          channel8(BrandColors.accent.g),
+          channel8(BrandColors.accent.b),
+        )),
+      );
       // The live readout crossfaded to the 5★ word.
       expect(find.text(_l10n(tester).reviewRatingLabel5), findsOneWidget);
     });
