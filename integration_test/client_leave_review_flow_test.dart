@@ -29,6 +29,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
@@ -36,6 +37,7 @@ import 'package:beautica_mobile/features/booking/presentation/leave_review_scree
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_tab_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/star_rating_input.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
@@ -44,8 +46,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/asset_star_finder.dart';
 import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pixel_census.dart';
 import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
@@ -66,6 +70,18 @@ void main() {
     MediaConfig.debugAllowedHosts = null;
     await AppHarness.tearDownHarness();
   });
+
+  // The rendered centre colour of the five input stars, in order — the shared
+  // pixel helper (fix/review-stars-fill: the old OUTLINE asset left a
+  // "filled" star's centre the ground colour).
+  Future<List<(int, int, int)>> starCentres(WidgetTester tester) =>
+      assetStarCentreColors(
+        tester,
+        find.descendant(
+          of: find.byType(StarRatingInput),
+          matching: findAssetStar(),
+        ),
+      );
 
   AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
       AppLocalizations.of(tester.element(find.byType(screen)));
@@ -141,7 +157,21 @@ void main() {
         find.byKey(const Key('leave-review-master-card')),
       );
 
-      // ── 5. Rate 5, write a comment, submit. ───────────────────────────────
+      // ── 5. Rate 4 → stars 1-4 PAINT solid, star 5 stays faint (regression:
+      // the outline star.svg rendered a "filled" star as a ring). Then rate 5,
+      // write a comment, submit. ─────────────────────────────────────────────
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
+      await AppHarness.settle(tester);
+      (int, int, int) rgb(Color c) =>
+          (channel8(c.r), channel8(c.g), channel8(c.b));
+      final (int, int, int) filled = rgb(BrandColors.accent);
+      final (int, int, int) empty = rgb(BrandColors.faint);
+      expect(
+        await starCentres(tester),
+        <(int, int, int)>[filled, filled, filled, filled, empty],
+        reason: 'after tapping the 4th star, stars 1-4 are painted solid',
+      );
+
       await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
       await AppHarness.settle(tester);
       // The live readout confirms the 5★ selection registered.

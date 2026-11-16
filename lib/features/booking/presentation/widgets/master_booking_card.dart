@@ -714,7 +714,10 @@ class MasterBookingCard extends StatefulWidget {
   ///    badge replaces both when the booking owes nothing). The time range is
   ///    dropped, as in compact: the ruler encodes it, and its row is what
   ///    keeps a 90-minute card (126dp floor) from outgrowing its band. Horizontal padding is 10dp, not 16.
-  ///  * The price uses [VelvetText.masterCardPricePillDense] (12 sp).
+  ///  * The price is the non-dense card's own pill — [PriceTag] with
+  ///    [VelvetText.masterCardPricePill] and the same vertical padding — so
+  ///    both boards render it identically. [VelvetText.masterCardPricePillDense]
+  ///    only sizes the fixed price ROW (14.4dp line box) the pill is centred in.
   ///  * MICRO is unchanged (it has no name or price by design).
   ///
   /// Heights: [denseCompactNaturalHeight] / [denseFullNaturalHeight] feed
@@ -1801,7 +1804,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// Row 1 gives the client name the whole width minus the status dot (the
   /// range label that used to compete for it is dropped: the board's ruler
   /// already says when); the hairline; the service on its own line; the price
-  /// pill on its own row at 12 sp so it is never FittedBox-shrunk.
+  /// pill on its own row so it is never FittedBox-shrunk.
   Widget _buildDenseCompactBody(Booking b, String clientName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1837,7 +1840,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
               ? PriceTag(
                   price: b.priceLabel,
                   verticalPadding: _kCompactPriceVPad,
-                  style: VelvetText.masterCardPricePillDense,
+                  // The SAME pill as the non-dense card (user 2026-11-16);
+                  // the dense token only sizes the fixed row around it.
+                  style: VelvetText.masterCardPricePill,
                 )
               : const SizedBox.shrink(),
         ),
@@ -1901,7 +1906,9 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
                   child: b.showsPrice
                       ? PriceTag(
                           price: b.priceLabel,
-                          style: VelvetText.masterCardPricePillDense,
+                          // The SAME pill as the non-dense card (user
+                          // 2026-11-16); the dense token only sizes the row.
+                          style: VelvetText.masterCardPricePill,
                         )
                       : TimelineStatusBadge(booking: b, verticalPadding: 3),
                 ),
