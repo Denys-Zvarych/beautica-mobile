@@ -34,11 +34,23 @@
 //     1. CLIENT logs in, opens Записи → Минулі, opens the COMPLETED booking.
 //     2. «Деталі запису» shows the master's ★ 4.9 (24) — read off the WIRE,
 //        through BookingMapper → Booking.masterDisplayRating → MasterStrip.
-//     3. Tapping the master strip PUSHES the master's public reviews list, and
-//        the real PUBLIC review endpoints fire for THAT master.
+//     3. Tapping the master strip PUSHES the master's public profile in
+//        booking context (MAS-39: no book CTA), whose «Відгуки» tab loads the
+//        real PUBLIC review endpoints for THAT master.
 //     4. Back on the detail, «Залишити відгук» opens the leave-feedback screen,
 //        which shows the SAME rating…
-//     5. …and its master card taps through to the same reviews list.
+//     5. …and its master card taps through to the same profile.
+//
+//   Test 3 — MAS-39 RESCHEDULE PATH (CONFIRMED booking)
+//     «Деталі запису» → «Перенести» → the slot picker's master strip on the
+//     DATE step, the TIME step and the RESCHEDULE confirm step each push the
+//     booking-context profile (exact `?fromBooking=1` location, no book CTA);
+//     back returns to the picker with its selection intact (the picked day
+//     still advances «Далі», the picked slot still advances «Підтвердити»).
+//
+//   Test 4 — MAS-39 NEGATIVE CONTROL: the SAME route WITHOUT the query (the
+//     search / favourites entry) still renders «Записатись до майстра» — pins
+//     `app_router.dart`'s query parse in the other direction.
 //
 //   Test 2 — THE STALE-ZERO NEGATIVE CONTROL (wire-level, unreachable elsewhere)
 //     A pre-240 payload carrying `masterAvgRating: 0` with NO count must read
@@ -63,22 +75,30 @@
 // NUMBER/em-dash glyph rather than localized copy, so `find.text` is the
 // correct finder for it; localized copy is asserted through l10n.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_review_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_tab_bar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
+import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
 
 /// The seeded booking's master strip on «Деталі запису».
@@ -87,8 +107,14 @@ const Key _kDetailStrip = Key('booking-detail-master-strip');
 /// The master identity card on «Залишити відгук».
 const Key _kFeedbackCard = Key('leave-review-master-card');
 
-/// The reviews route the two cards must both reach.
-const String _kReviewsRoute = '/masters/master-aaa/reviews';
+/// MAS-39 — the route the two cards must both reach: the master's PUBLIC
+/// PROFILE in booking context (`?fromBooking=1`, no book CTA), whose «Відгуки»
+/// tab carries the reviews. Exact string, not a prefix — the query IS the
+/// booking-context signal.
+final String _kProfileRoute = RouteNames.masterPublicProfile(
+  'master-aaa',
+  fromBooking: true,
+);
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -137,13 +163,62 @@ void main() {
     return router;
   }
 
+  /// MAS-39 landing: the booking-context public profile — no book CTA — and
+  /// the master's reviews one tab away (the content the Phase 240 bug was
+  /// about), loaded from the PUBLIC endpoints for THAT master.
+  Future<void> expectBookingContextProfile(
+    WidgetTester tester,
+    GoRouter router,
+    FakeBackend fb,
+  ) async {
+    // `/masters/:masterId` is a TOP-LEVEL route (above the client shell), so
+    // the plain resolver — not the nested-push one — is correct.
+    expect(AppHarness.location(router), _kProfileRoute);
+    expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+    expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+    expect(
+      find.byKey(const Key('public-master-book-cta')),
+      findsNothing,
+      reason:
+          'opened from a booking, the profile must not offer «Записатись до '
+          'майстра» (MAS-39)',
+    );
+
+    final Finder reviewsTab = find.byKey(
+      const Key('public-master-profile-tab-2'),
+    );
+    await tester.ensureVisible(reviewsTab);
+    await tester.tap(reviewsTab);
+    await AppHarness.settle(tester);
+    expect(
+      fb.getPublicMasterReviewsCalls,
+      greaterThanOrEqualTo(1),
+      reason:
+          'the PUBLIC GET /masters/master-aaa/reviews route must have fired',
+    );
+    // Landing on the ROUTE is not landing on the CONTENT: the list key is
+    // only mounted on the non-empty data branch.
+    expect(
+      find.byKey(const Key('master-reviews-list')),
+      findsOneWidget,
+      reason:
+          'the reported bug was reviews being unreachable — reaching an '
+          'empty or still-loading tab would not fix it.',
+    );
+    expect(
+      fb.getMasterReviewsCalls,
+      0,
+      reason: 'a CLIENT must never resolve the AUTHENTICATED-master self route',
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // Test 1 — the rating is visible, and BOTH booking surfaces route into the
-  // master's reviews.
+  // master's booking-context profile (reviews in its tab).
   // ═══════════════════════════════════════════════════════════════════════
   testWidgets(
     'CLIENT sees the master\'s rating on «Деталі запису» and on «Залишити '
-    'відгук», and EITHER card taps through to that master\'s public reviews',
+    'відгук», and EITHER card taps through to that master\'s profile (MAS-39)',
     (tester) async {
       final fb = FakeBackend()
         ..currentRole = UserRole.client
@@ -193,43 +268,14 @@ void main() {
         reason: 'a rated master must not fall through to the em-dash',
       );
 
-      // ── 2. Tapping the strip opens THAT master's public reviews. ────────
+      // ── 2. Tapping the strip opens THAT master's public profile. ────────
       //
       // Tapped on the REAL rendered card — not a `router.push` stand-in. A
       // `router.go`/`router.push` shortcut here would prove nothing about the
       // affordance, which is the entire fix.
       await tester.tap(strip);
       await AppHarness.settle(tester);
-
-      // `/masters/:masterId/reviews` is a TOP-LEVEL route (above the client
-      // shell), so the plain resolver — not the nested-push one — is correct.
-      AppHarness.expectLocation(router, _kReviewsRoute);
-      expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
-      expect(
-        fb.getPublicMasterReviewsCalls,
-        greaterThanOrEqualTo(1),
-        reason:
-            'the PUBLIC GET /masters/master-aaa/reviews route must have fired '
-            '— landing on the screen without loading the list would be a '
-            'half-fix.',
-      );
-      // Landing on the ROUTE is not landing on the CONTENT: the list key is
-      // only mounted on the non-empty data branch (the empty state uses
-      // `master-reviews-empty`), so this is the assertion that the client
-      // actually SEES the reviews that were invisible to them.
-      expect(
-        find.byKey(const Key('master-reviews-list')),
-        findsOneWidget,
-        reason:
-            'the reported bug was reviews being unreachable — reaching an '
-            'empty or still-loading screen would not fix it.',
-      );
-      expect(
-        fb.getMasterReviewsCalls,
-        0,
-        reason:
-            'a CLIENT must never resolve the AUTHENTICATED-master self route',
-      );
+      await expectBookingContextProfile(tester, router, fb);
 
       // ── 3. Back to the detail — `push`, so the state is intact. ─────────
       router.pop();
@@ -260,26 +306,10 @@ void main() {
         findsOneWidget,
       );
 
-      // ── 5. …and taps through to the same reviews list. ──────────────────
+      // ── 5. …and taps through to the same booking-context profile. ──────
       await tester.tap(feedbackCard);
       await AppHarness.settle(tester);
-
-      AppHarness.expectLocation(router, _kReviewsRoute);
-      expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
-      // Rendered CONTENT again, not the call count. Deliberately not
-      // `getPublicMasterReviewsCalls > before`: the reviews provider is cached
-      // and legitimately serves the second entry point without a re-fetch (it
-      // was measured at exactly 1 call across both landings). Asserting a
-      // second HTTP call would pin this test to a caching implementation
-      // detail and fail on correct code — the thing that matters, and the
-      // thing the bug was about, is that the client SEES the reviews.
-      expect(
-        find.byKey(const Key('master-reviews-list')),
-        findsOneWidget,
-        reason:
-            'the second entry point must reach the real, populated list — not '
-            'merely match a route string.',
-      );
+      await expectBookingContextProfile(tester, router, fb);
 
       // Popping returns to the half-written review, not to the detail — the
       // reason this card uses `push` rather than `go`.
@@ -357,6 +387,147 @@ void main() {
       expect(
         find.descendant(of: feedbackCard, matching: find.text('0.0')),
         findsNothing,
+      );
+    },
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Test 3 — MAS-39: the CLIENT reschedule path. Every master strip on the
+  // reschedule journey opens the booking-context profile, and back is a
+  // DETOUR (the picker keeps what the client already chose).
+  // ═══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'CLIENT reschedule: the master strip on the DATE, TIME and CONFIRM steps '
+    'opens the booking-context profile (no book CTA), and back returns to the '
+    'picker with the chosen day / slot intact (MAS-39)',
+    (tester) async {
+      // Default fixture: `booking-1` CONFIRMED → «Перенести» is offered.
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byType(BookingCard));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('booking-detail-reschedule')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
+      expect(find.byType(SlotDateScreen), findsOneWidget);
+
+      /// Taps the strip under [screen], asserts the booking-context profile,
+      /// pops, and asserts [screen] is back on top at [returnLocation].
+      Future<void> detourThroughStrip(
+        Type screen,
+        String returnLocation,
+      ) async {
+        final Finder strip = find.descendant(
+          of: find.byType(screen),
+          matching: find.byType(MasterStrip),
+        );
+        expect(strip, findsOneWidget);
+        await tester.ensureVisible(strip);
+        await tester.tap(strip);
+        await AppHarness.settle(tester);
+
+        expect(
+          AppHarness.location(router),
+          _kProfileRoute,
+          reason: 'the strip must push /masters/master-aaa?fromBooking=1',
+        );
+        expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('public-master-profile-name')),
+          findsOneWidget,
+          reason: 'positive control: the profile actually loaded',
+        );
+        expect(
+          find.byKey(const Key('public-master-book-cta')),
+          findsNothing,
+          reason: 'booking context — no «Записатись до майстра» (MAS-39)',
+        );
+
+        router.pop();
+        await AppHarness.settle(tester);
+        expect(find.byType(screen), findsOneWidget);
+        AppHarness.expectLocation(router, returnLocation);
+      }
+
+      // ── DATE step: pick today, detour, then «Далі» must still advance. ──
+      final DateTime today = kyivToday(() => kFixedNow);
+      await tester.tapCalendarDay(today.day);
+      await AppHarness.settle(tester);
+      await detourThroughStrip(SlotDateScreen, RouteNames.bookingSlots);
+
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await AppHarness.settle(tester);
+      expect(
+        find.byType(SlotTimeScreen),
+        findsOneWidget,
+        reason: 'the picked day survived the detour — «Далі» still advances',
+      );
+
+      // ── TIME step: pick a slot, detour, then «Підтвердити» must advance. ─
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      expect(availableChip, findsWidgets);
+      await tester.tap(availableChip.first);
+      await AppHarness.settle(tester);
+      await detourThroughStrip(SlotTimeScreen, RouteNames.bookingSlotsTime);
+
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
+      expect(
+        find.byType(BookingConfirmScreen),
+        findsOneWidget,
+        reason: 'the picked slot survived the detour — «Підтвердити» advances',
+      );
+
+      // ── CONFIRM step (reschedule mode): same detour, nothing submitted. ─
+      await detourThroughStrip(BookingConfirmScreen, RouteNames.bookingConfirm);
+      expect(
+        fb.rescheduleBookingCalls,
+        0,
+        reason: 'a profile detour must never submit the reschedule',
+      );
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Test 4 — MAS-39 negative control: WITHOUT `?fromBooking=1` (the
+  // search / favourites entry) the same route keeps the book CTA. Paired with
+  // Tests 1/3 so neither direction of `app_router.dart`'s parse can regress
+  // silently (an always-hide would pass Tests 1/3 and fail here).
+  // ═══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'the public master profile opened WITHOUT the booking query still offers '
+    '«Записатись до майстра» (MAS-39 negative control)',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      await AppHarness.settle(tester);
+
+      expect(
+        AppHarness.location(router),
+        RouteNames.masterPublicProfile('master-aaa'),
+      );
+      expect(
+        find.byKey(const Key('public-master-profile-name')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('public-master-book-cta')),
+        findsOneWidget,
+        reason: 'only a booking-context entry hides the CTA (MAS-39)',
       );
     },
   );

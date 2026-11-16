@@ -22,6 +22,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/booking/application/slot_picker_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -269,6 +270,14 @@ GoRouter _router({required Widget dateScreen}) => GoRouter(
               SlotTimeScreen(args: state.extra! as BookingSlotPickerArgs),
         ),
       ],
+    ),
+    // MAS-39 — the public master profile the CLIENT-reschedule master strip
+    // pushes; renders the received location so a test can assert the exact
+    // booking-context URI.
+    GoRoute(
+      path: '/masters/:masterId',
+      builder: (context, state) =>
+          Scaffold(body: Text('profile-stub:${state.uri}')),
     ),
     GoRoute(
       path: RouteNames.bookingConfirm,
@@ -1229,12 +1238,17 @@ void main() {
       Future<void> pumpDateScreen(
         WidgetTester tester, {
         required BookingSlotPickerArgs args,
+        bool? isClient,
       }) async {
         final fake = _FakeSlotRepository(const <BookingSlot>[]);
         final router = _router(dateScreen: SlotDateScreen(args: args));
         await tester.pumpRoutedApp(
           router,
-          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fake),
+            if (isClient != null)
+              isClientProvider.overrideWith((ref) => isClient),
+          ],
         );
         await tester.pumpAndSettle();
       }
@@ -1297,6 +1311,57 @@ void main() {
         );
 
         expect(find.byType(MasterStrip), findsOneWidget);
+      });
+
+      // ── MAS-39 — CLIENT reschedule: the strip opens the master profile ──
+      testWidgets('should_pushBookingContextProfile_when_clientReschedule', (
+        tester,
+      ) async {
+        await pumpDateScreen(
+          tester,
+          args: _args(rescheduleBookingId: 'booking-99'),
+          isClient: true,
+        );
+
+        await tester.tap(find.byType(MasterStrip));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('profile-stub:/masters/master-1?fromBooking=1'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('should_keepMasterStripInert_when_clientNewBooking', (
+        tester,
+      ) async {
+        await pumpDateScreen(tester, args: _args(), isClient: true);
+
+        expect(
+          tester.widget<MasterStrip>(find.byType(MasterStrip)).onTap,
+          isNull,
+          reason:
+              'the new-booking wizard stays inert (MasterStrip.onTap '
+              'policy) — only a reschedule is tappable',
+        );
+      });
+
+      testWidgets('should_keepMasterStripInert_when_nonClientReschedule', (
+        tester,
+      ) async {
+        await pumpDateScreen(
+          tester,
+          args: _args(rescheduleBookingId: 'booking-99'),
+          isClient: false,
+        );
+
+        expect(
+          tester.widget<MasterStrip>(find.byType(MasterStrip)).onTap,
+          isNull,
+          reason:
+              'staff/owner views stay unchanged (the profile route is '
+              'clientOnlyGuard-ed)',
+        );
       });
     });
   });
@@ -1401,13 +1466,18 @@ void main() {
     Future<GoRouter> pumpTimeScreen(
       WidgetTester tester, {
       required BookingSlotPickerArgs args,
+      bool? isClient,
     }) async {
       final fake = _FakeSlotRepository(<BookingSlot>[available, unavailable]);
       final router = _router(dateScreen: SlotDateScreen(args: args));
 
       await tester.pumpRoutedApp(
         router,
-        overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        overrides: <Object>[
+          slotRepositoryProvider.overrideWith((_) => fake),
+          if (isClient != null)
+            isClientProvider.overrideWith((ref) => isClient),
+        ],
       );
       await tester.pumpAndSettle();
 
@@ -1438,6 +1508,33 @@ void main() {
     // this test now locks in BOTH halves of the current contract: MasterStrip
     // present and topmost, day-header text gone for good (not just
     // accidentally missing).
+    // MAS-39 — on a CLIENT reschedule the time step's strip is tappable too
+    // (the booking already exists; nothing is lost), into the booking-context
+    // profile. The new-booking INERT half is pinned by the test below.
+    testWidgets(
+      'SlotTimeScreen master strip opens the booking-context profile on a '
+      'CLIENT reschedule (MAS-39)',
+      (tester) async {
+        await pumpTimeScreen(
+          tester,
+          args: _args(rescheduleBookingId: 'booking-99'),
+          isClient: true,
+        );
+
+        final Finder strip = find.descendant(
+          of: find.byType(SlotTimeScreen),
+          matching: find.byType(MasterStrip),
+        );
+        await tester.tap(strip);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('profile-stub:/masters/master-1?fromBooking=1'),
+          findsOneWidget,
+        );
+      },
+    );
+
     testWidgets(
       'shows MasterStrip as the sole top-of-screen card on SlotTimeScreen — '
       'the day header chip was intentionally removed, not merely absent',

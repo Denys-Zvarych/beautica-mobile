@@ -47,6 +47,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -76,6 +77,31 @@ import 'widgets/slot_chip.dart';
 /// "Оберіть дату" — a single-month calendar. Tapping a day fetches that day's
 /// slots (via [SlotPickerNotifier.loadSlots]) so they are ready by the time
 /// the client reaches [SlotTimeScreen]. "Далі" enables once a day is chosen.
+/// MAS-39 — the master strip on the date/time steps of a CLIENT's own
+/// reschedule (entered from «Деталі запису» via `reschedule_navigation.dart`)
+/// opens that master's public profile in booking context (no book CTA).
+/// `null` (inert, as before) on the new-booking wizard (policy on
+/// `MasterStrip.onTap`: a mid-wizard tap would cost the client their
+/// half-made booking), on every provider/staff viewer (`hideMasterIdentity`,
+/// or a non-CLIENT session — the profile route is `clientOnlyGuard`ed), and
+/// on an empty master id (`/masters/` matches no route).
+VoidCallback? _rescheduleMasterTap(
+  BuildContext context,
+  WidgetRef ref,
+  BookingSlotPickerArgs args,
+) {
+  final String masterId = args.master.id;
+  if (args.rescheduleBookingId == null ||
+      args.hideMasterIdentity ||
+      masterId.isEmpty ||
+      !ref.watch(isClientProvider)) {
+    return null;
+  }
+  return () => context.pushOnce(
+    RouteNames.masterPublicProfile(masterId, fromBooking: true),
+  );
+}
+
 class SlotDateScreen extends ConsumerStatefulWidget {
   const SlotDateScreen({super.key, required this.args});
 
@@ -467,14 +493,16 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
                 // at mismatched y-offsets the instant the push settles.
                 child: Hero(
                   tag: 'master-strip-${widget.args.master.id}',
-                  // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
-                  // an in-flight wizard step. It is also the Hero SOURCE of the
+                  // INERT on the new-booking wizard per the policy on
+                  // `MasterStrip.onTap`: an in-flight wizard step. It is also the Hero SOURCE of the
                   // flight into «Час» — a tap that pushed a third route
                   // mid-gesture would strand that flight.
                   child: MasterStrip.fromMaster(
                     widget.args.master,
                     showRole: true,
                     showRating: true,
+                    // MAS-39 — tappable on a CLIENT reschedule only.
+                    onTap: _rescheduleMasterTap(context, ref, widget.args),
                   ),
                 ),
               ),
@@ -870,14 +898,16 @@ class SlotTimeScreen extends ConsumerWidget {
                     if (!args.hideMasterIdentity) ...<Widget>[
                       Hero(
                         tag: 'master-strip-${args.master.id}',
-                        // INERT (no `onTap`) per the policy on
+                        // INERT on the new-booking wizard per the policy on
                         // `MasterStrip.onTap`: the last in-flight wizard step
                         // before «Підтвердження», where the strip becomes
-                        // tappable.
+                        // tappable. A CLIENT reschedule is tappable (MAS-39).
                         child: MasterStrip.fromMaster(
                           args.master,
                           showRole: true,
                           showRating: true,
+                          // MAS-39 — tappable on a CLIENT reschedule only.
+                          onTap: _rescheduleMasterTap(context, ref, args),
                         ),
                       ),
                       const SizedBox(height: VelvetSpacing.lg),

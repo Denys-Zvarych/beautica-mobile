@@ -276,13 +276,17 @@ class _Form extends StatelessWidget {
                   semanticsLabel:
                       '${l10n.bookingSummaryMasterSemantics(booking.masterName, roleLabel, ratingLabel, l10n.salonReviewCountLabel(reviewCount))}, $visitContext',
                   // TAPPABLE per the policy on `MasterStrip.onTap` — a
-                  // review-shaped screen; reading the master's existing
-                  // reviews is a natural detour, and `push` brings the client
-                  // back with the half-typed comment intact.
+                  // review-shaped screen; the master's profile (reviews in
+                  // its «Відгуки» tab) is a natural detour, and `push` brings
+                  // the client back with the half-typed comment intact.
+                  // MAS-39: booking context → no book CTA there.
                   onTap: masterId.isEmpty
                       ? null
                       : () => context.pushOnce(
-                          RouteNames.masterPublicReviews(masterId),
+                          RouteNames.masterPublicProfile(
+                            masterId,
+                            fromBooking: true,
+                          ),
                         ),
                 ),
                 const SizedBox(height: VelvetSpacing.lg),

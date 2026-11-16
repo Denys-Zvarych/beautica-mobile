@@ -47,6 +47,7 @@ import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
@@ -134,6 +135,65 @@ Future<_MockBookingRepository> _pumpDetail(
   );
   await tester.pumpAndSettle();
   return r;
+}
+
+/// MAS-39 — pumps the detail screen PUSHED onto a host route inside a real
+/// GoRouter, with a stub `/masters/:masterId` that renders the received URI,
+/// so a master-strip tap can be asserted by its EXACT pushed location and the
+/// back gesture by the detail screen coming back on top.
+Future<GoRouter> _pumpDetailRouted(WidgetTester tester, Booking booking) async {
+  final GoRouter router = GoRouter(
+    initialLocation: '/host',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/host',
+        builder: (BuildContext context, GoRouterState state) =>
+            const Scaffold(body: SizedBox.shrink()),
+      ),
+      GoRoute(
+        path: '/bookings/:bookingId',
+        builder: (BuildContext context, GoRouterState state) =>
+            BookingDetailScreen(bookingId: state.pathParameters['bookingId']!),
+      ),
+      GoRoute(
+        path: '/masters/:masterId',
+        builder: (BuildContext context, GoRouterState state) =>
+            Scaffold(body: Text('profile-stub:${state.uri}')),
+      ),
+    ],
+  );
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+      bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
+      bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
+    ],
+  );
+  unawaited(router.push('/bookings/${booking.id}'));
+  await tester.pumpAndSettle();
+  expect(find.byType(BookingDetailScreen), findsOneWidget);
+  return router;
+}
+
+/// Taps the «Деталі запису» master strip and asserts the EXACT booking-context
+/// profile location (fixed string — not the `RouteNames` helper, so a
+/// mutation inside the helper is red too), then that back restores the detail.
+Future<void> _expectStripOpensBookingProfile(
+  WidgetTester tester,
+  GoRouter router,
+) async {
+  final Finder strip = find.byKey(const Key('booking-detail-master-strip'));
+  expect(strip, findsOneWidget, reason: 'outside the status switch');
+  await tester.ensureVisible(strip);
+  await tester.tap(strip);
+  await tester.pumpAndSettle();
+  expect(find.text('profile-stub:/masters/m1?fromBooking=1'), findsOneWidget);
+
+  router.pop();
+  await tester.pumpAndSettle();
+  expect(find.byType(BookingDetailScreen), findsOneWidget);
+  expect(find.textContaining('profile-stub:'), findsNothing);
 }
 
 void main() {
@@ -393,151 +453,130 @@ void main() {
   // still render exactly the «Записатись знову» button and no CONFIRMED action.
   // -------------------------------------------------------------------------
 
-  group(
-    'terminal states rebook via shared _rebookActions (refactor guard)',
-    () {
-      for (final BookingStatus status in <BookingStatus>[
-        BookingStatus.completed,
-        BookingStatus.cancelled,
-        BookingStatus.declined,
-      ]) {
-        testWidgets('$status still shows «Записатись знову» and no CONFIRMED '
-            'actions', (tester) async {
-          await _pumpDetail(tester, _booking(status: status));
-          final l10n = _l10n(tester);
-
-          expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
-          expect(
-            find.byKey(const Key('booking-detail-reschedule')),
-            findsNothing,
-          );
-          expect(find.byKey(const Key('booking-detail-cancel')), findsNothing);
-        });
-      }
-
-      // Re-audit LOW — the third unguarded empty-`masterId` push site.
-      //
-      // `booking_mapper.dart:119` maps `masterId: dto.masterId ?? ''`, so a
-      // partial payload yields ''. `_onRebook` pushes `/masters/<id>`; with an
-      // empty id that is `/masters/`, which matches no route, and
-      // `app_router.dart` declares no `errorBuilder` — the tap would dump the
-      // client on go_router's "page not found". The CTA must be DISABLED, not
-      // merely a no-op, so the affordance is honest.
-      testWidgets('an empty masterId disables «Записатись знову» rather than '
-          'pushing a route that cannot match', (tester) async {
-        await _pumpDetail(
-          tester,
-          _booking(status: BookingStatus.completed, masterId: ''),
-        );
+  group('terminal states rebook via shared _rebookActions (refactor guard)', () {
+    for (final BookingStatus status in <BookingStatus>[
+      BookingStatus.completed,
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+    ]) {
+      testWidgets('$status still shows «Записатись знову» and no CONFIRMED '
+          'actions', (tester) async {
+        await _pumpDetail(tester, _booking(status: status));
         final l10n = _l10n(tester);
 
-        final Finder cta = find.widgetWithText(
-          NeumorphicButton,
-          l10n.bookingDetailRebookCta,
-        );
-        expect(cta, findsOneWidget);
-        expect(tester.widget<NeumorphicButton>(cta).onPressed, isNull);
-      });
-
-      // The same fixture with a real id keeps the CTA live — so the assertion
-      // above is pinned to the guard, not to the button being dead in general.
-      testWidgets('a populated masterId leaves «Записатись знову» enabled', (
-        tester,
-      ) async {
-        await _pumpDetail(tester, _booking(status: BookingStatus.completed));
-        final l10n = _l10n(tester);
-
-        final Finder cta = find.widgetWithText(
-          NeumorphicButton,
-          l10n.bookingDetailRebookCta,
-        );
-        expect(tester.widget<NeumorphicButton>(cta).onPressed, isNotNull);
-      });
-
-      // ── Phase 240 — the master strip, the FOURTH unguarded push site ─────
-      //
-      // The two tests above pin the empty-`masterId` guard on «Записатись
-      // знову». Phase 240 made the master STRIP a navigation target too, on
-      // every status at once (it renders outside the status switch), and that
-      // push site shipped with no test. Same failure mode: `/masters//reviews`
-      // matches no route and there is no `errorBuilder`, so the client lands
-      // on go_router's "page not found".
-      //
-      // Paired negative/positive per M14 — the inert assertion must be pinned
-      // to the guard, not to the strip being inert for some other reason.
-      testWidgets('an empty masterId leaves the master strip INERT rather '
-          'than pushing /masters//reviews', (tester) async {
-        await _pumpDetail(
-          tester,
-          _booking(status: BookingStatus.confirmed, masterId: ''),
-        );
-
-        final Finder strip = find.byKey(
-          const Key('booking-detail-master-strip'),
-        );
-        expect(strip, findsOneWidget);
+        expect(find.text(l10n.bookingDetailRebookCta), findsOneWidget);
         expect(
-          tester.widget<MasterStrip>(strip).onTap,
-          isNull,
-          reason:
-              'a blank id means "we do not know which master" — an inert '
-              'strip is the honest affordance.',
+          find.byKey(const Key('booking-detail-reschedule')),
+          findsNothing,
         );
+        expect(find.byKey(const Key('booking-detail-cancel')), findsNothing);
       });
+    }
 
-      testWidgets('a populated masterId makes the master strip tappable — the '
-          'client\'s route into the reviews they could not find', (
+    // Re-audit LOW — the third unguarded empty-`masterId` push site.
+    //
+    // `booking_mapper.dart:119` maps `masterId: dto.masterId ?? ''`, so a
+    // partial payload yields ''. `_onRebook` pushes `/masters/<id>`; with an
+    // empty id that is `/masters/`, which matches no route, and
+    // `app_router.dart` declares no `errorBuilder` — the tap would dump the
+    // client on go_router's "page not found". The CTA must be DISABLED, not
+    // merely a no-op, so the affordance is honest.
+    testWidgets('an empty masterId disables «Записатись знову» rather than '
+        'pushing a route that cannot match', (tester) async {
+      await _pumpDetail(
         tester,
-      ) async {
-        await _pumpDetail(tester, _booking(status: BookingStatus.confirmed));
+        _booking(status: BookingStatus.completed, masterId: ''),
+      );
+      final l10n = _l10n(tester);
 
-        expect(
-          tester
-              .widget<MasterStrip>(
-                find.byKey(const Key('booking-detail-master-strip')),
-              )
-              .onTap,
-          isNotNull,
-        );
-      });
+      final Finder cta = find.widgetWithText(
+        NeumorphicButton,
+        l10n.bookingDetailRebookCta,
+      );
+      expect(cta, findsOneWidget);
+      expect(tester.widget<NeumorphicButton>(cta).onPressed, isNull);
+    });
 
-      // The strip renders OUTSIDE «Деталі запису»'s status switch, so every
-      // status must get the route — including NOT_COMPLETED, whose action
-      // footer is deliberately empty and which therefore had NO route to the
-      // master at all before this change. That is the status most at risk of
-      // being missed by a future refactor that moves the strip inside the
-      // switch, so it is asserted per-status rather than once.
-      for (final BookingStatus status in <BookingStatus>[
-        BookingStatus.completed,
-        BookingStatus.cancelled,
-        BookingStatus.declined,
-        BookingStatus.notCompleted,
-      ]) {
-        testWidgets('$status still offers the tappable master strip', (
+    // The same fixture with a real id keeps the CTA live — so the assertion
+    // above is pinned to the guard, not to the button being dead in general.
+    testWidgets('a populated masterId leaves «Записатись знову» enabled', (
+      tester,
+    ) async {
+      await _pumpDetail(tester, _booking(status: BookingStatus.completed));
+      final l10n = _l10n(tester);
+
+      final Finder cta = find.widgetWithText(
+        NeumorphicButton,
+        l10n.bookingDetailRebookCta,
+      );
+      expect(tester.widget<NeumorphicButton>(cta).onPressed, isNotNull);
+    });
+
+    // ── Phase 240 — the master strip, the FOURTH unguarded push site ─────
+    //
+    // The two tests above pin the empty-`masterId` guard on «Записатись
+    // знову». Phase 240 made the master STRIP a navigation target too, on
+    // every status at once (it renders outside the status switch), and that
+    // push site shipped with no test. Same failure mode: `/masters/`
+    // (MAS-39: the profile route) matches no route and there is no `errorBuilder`, so the client lands
+    // on go_router's "page not found".
+    //
+    // Paired negative/positive per M14 — the inert assertion must be pinned
+    // to the guard, not to the strip being inert for some other reason.
+    testWidgets('an empty masterId leaves the master strip INERT rather '
+        'than pushing /masters/ (no route matches)', (tester) async {
+      await _pumpDetail(
+        tester,
+        _booking(status: BookingStatus.confirmed, masterId: ''),
+      );
+
+      final Finder strip = find.byKey(const Key('booking-detail-master-strip'));
+      expect(strip, findsOneWidget);
+      expect(
+        tester.widget<MasterStrip>(strip).onTap,
+        isNull,
+        reason:
+            'a blank id means "we do not know which master" — an inert '
+            'strip is the honest affordance.',
+      );
+    });
+
+    testWidgets('a populated masterId: tapping the master strip pushes '
+        '/masters/<id>?fromBooking=1 and back returns to the detail (MAS-39)', (
+      tester,
+    ) async {
+      final GoRouter router = await _pumpDetailRouted(
+        tester,
+        _booking(status: BookingStatus.confirmed),
+      );
+      await _expectStripOpensBookingProfile(tester, router);
+    });
+
+    // The strip renders OUTSIDE «Деталі запису»'s status switch, so every
+    // status must get the route — including NOT_COMPLETED, whose action
+    // footer is deliberately empty and which therefore had NO route to the
+    // master at all before this change. That is the status most at risk of
+    // being missed by a future refactor that moves the strip inside the
+    // switch, so it is asserted per-status rather than once.
+    for (final BookingStatus status in <BookingStatus>[
+      BookingStatus.completed,
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+      BookingStatus.notCompleted,
+    ]) {
+      testWidgets('$status still opens the booking-context master profile '
+          'from the strip', (tester) async {
+        // A dead or no-show booking is exactly when the client most wants to
+        // see the master (reviews in the profile tab), and NOT_COMPLETED has
+        // no other route to them.
+        final GoRouter router = await _pumpDetailRouted(
           tester,
-        ) async {
-          await _pumpDetail(tester, _booking(status: status));
-
-          final Finder strip = find.byKey(
-            const Key('booking-detail-master-strip'),
-          );
-          expect(
-            strip,
-            findsOneWidget,
-            reason: 'the strip renders outside the status switch',
-          );
-          expect(
-            tester.widget<MasterStrip>(strip).onTap,
-            isNotNull,
-            reason:
-                'a dead or no-show booking is exactly when the client most '
-                'wants to read the master\'s reviews, and NOT_COMPLETED has '
-                'no other route to them.',
-          );
-        });
-      }
-    },
-  );
+          _booking(status: status),
+        );
+        await _expectStripOpensBookingProfile(tester, router);
+      });
+    }
+  });
 
   // -------------------------------------------------------------------------
   // Cancel elapsed-race handling — stale screen / device-clock rollback.

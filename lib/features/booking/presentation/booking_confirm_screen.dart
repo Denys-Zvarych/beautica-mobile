@@ -982,13 +982,20 @@ class _ConfirmBody extends StatelessWidget {
                       showRating: true,
                       // TAPPABLE per the policy on `MasterStrip.onTap`: this
                       // is the last step, everything is already chosen, and
-                      // checking the master's reviews before committing is
+                      // checking the master before committing is
                       // exactly the doubt a client has here. `push` returns
                       // to this screen with the selections and the typed
-                      // comment intact.
-                      onTap: () => context.push(
-                        RouteNames.masterPublicReviews(master.id),
-                      ),
+                      // comment intact. MAS-39: the public profile in
+                      // booking context (no book CTA; reviews in its tab).
+                      // Empty id → inert (`/masters/` matches no route).
+                      onTap: master.id.isEmpty
+                          ? null
+                          : () => context.pushOnce(
+                              RouteNames.masterPublicProfile(
+                                master.id,
+                                fromBooking: true,
+                              ),
+                            ),
                     ),
                   ),
             showAddress: !hideMasterIdentity,

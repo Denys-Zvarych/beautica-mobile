@@ -134,15 +134,28 @@ abstract final class RouteNames {
   /// The screen itself ships in Phase 13.5; until then the route may not be
   /// registered, but the path constant is the single source of truth for the
   /// card's nav target. Pushed onto the search branch navigator.
-  static String masterPublicProfile(String masterId) =>
-      '/masters/${Uri.encodeComponent(masterId)}';
+  ///
+  /// [fromBooking] (MAS-39, additive, default `false`): appends
+  /// `?[kMasterProfileFromBookingQuery]=1` — the booking-context entry (a
+  /// CLIENT tapping the master on a booking-details / reschedule / review
+  /// card). `app_router.dart` parses it into
+  /// `PublicMasterProfileScreen.hideBookCta`. A query string never changes
+  /// which route matches (`/masters/:masterId` vs `/masters/:masterId/reviews`
+  /// is decided on the path alone), and `pushOnce`'s probe compares paths.
+  static String masterPublicProfile(
+    String masterId, {
+    bool fromBooking = false,
+  }) =>
+      '/masters/${Uri.encodeComponent(masterId)}'
+      '${fromBooking ? '?$kMasterProfileFromBookingQuery=1' : ''}';
 
   /// Phase 4.x — public master reviews. CLIENT-guarded like
   /// [masterPublicProfile] (same `clientOnlyGuard` in `app_router.dart`).
-  /// Kept (D7, Phase 351) for its other consumers
-  /// (`booking_counterparty_header.dart`, `leave_review_screen.dart`,
-  /// `booking_confirm_screen.dart`) — the public master profile itself no
-  /// longer pushes it (its own «Відгуки» tab renders inline instead). The
+  /// Kept (D7, Phase 351). Since MAS-39 (2026-11-16) no in-app surface
+  /// pushes it: the booking-card master taps (`booking_counterparty_header`,
+  /// `leave_review_screen`, `booking_confirm_screen`, the reschedule slot
+  /// picker) open [masterPublicProfile] `fromBooking: true` instead, and the
+  /// public master profile renders reviews inline in its «Відгуки» tab. The
   /// param-less own-master equivalent («Мої відгуки») was deleted in the
   /// same phase — its content now lives inline in the master's own profile
   /// tabs (`MasterProfileScreen` / `SalonMasterProfileScreen`).
@@ -1336,3 +1349,10 @@ const String kSalonShellTabTeam = 'team';
 
 /// Phase 391 — `?tab=reviews` opens the shell on «Відгуки».
 const String kSalonShellTabReviews = 'reviews';
+
+/// MAS-39 — query key [RouteNames.masterPublicProfile] appends when
+/// `fromBooking: true`; `app_router.dart` reads it into
+/// `PublicMasterProfileScreen.hideBookCta`. Top-level (not a `RouteNames`
+/// member) because it is a query KEY, not a route — `navigation_links_test`'s
+/// NL-R01 ledger checks every `RouteNames` member resolves to a GoRoute.
+const String kMasterProfileFromBookingQuery = 'fromBooking';

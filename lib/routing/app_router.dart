@@ -1059,15 +1059,23 @@ GoRouter appRouter(Ref ref) {
         // that route's comment for the full investigation). This route was
         // the sibling instance of the identical defect, deferred at the time
         // of the salon fix; this is that follow-up.
-        builder: (context, state) => pathIdsGuarded(state, <String>[
-          'masterId',
-        ], (ids) => PublicMasterProfileScreen(masterId: ids[0])),
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['masterId'],
+          (ids) => PublicMasterProfileScreen(
+            masterId: ids[0],
+            // MAS-39 — booking-context entry hides the book CTA; every other
+            // entry (no query) renders exactly as before.
+            hideBookCta:
+                state.uri.queryParameters[kMasterProfileFromBookingQuery] ==
+                '1',
+          ),
+        ),
       ),
       // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Kept
-      // (D7) for its OTHER consumers (`booking_counterparty_header.dart`,
-      // `leave_review_screen.dart`, `booking_confirm_screen.dart`) — the
-      // public master profile itself no longer pushes it (Phase 351: reviews
-      // render inline in its own «Відгуки» tab). Same lifecycle/guard as
+      // (D7); since MAS-39 no in-app surface pushes it (the booking-card
+      // master taps open `/masters/:masterId?fromBooking=1` instead, and the
+      // public master profile renders reviews inline in its «Відгуки» tab). Same lifecycle/guard as
       // `/masters/:masterId` above — CLIENT-guarded, in-app-push-only. This
       // route carries the target masterId as a path param — distinct from
       // the deleted param-less own-master reviews route (D11), which always

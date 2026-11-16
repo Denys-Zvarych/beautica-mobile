@@ -190,21 +190,24 @@ class MasterStrip extends StatelessWidget {
   /// ## Tappability policy (locked)
   ///
   /// The strip is mounted on nine screens and the answer is NOT the same on
-  /// all of them, because the tap always means "leave this screen and go read
-  /// the master's reviews":
+  /// all of them, because the tap always means "leave this screen and go see
+  /// the master" — the public master profile in booking context, no book CTA
+  /// (MAS-39):
   ///
   ///  * **INERT** on the three in-flight wizard steps — service selection,
   ///    date, time. A stray tap mid-wizard would yank the client out of a
   ///    half-made booking; the cost of an accidental tap there is losing
   ///    work, and the strip sits directly above the content the client is
   ///    reaching for.
+  ///    Exception: a CLIENT's own RESCHEDULE date/time steps are tappable
+  ///    (MAS-39) — the booking already exists, nothing is lost.
   ///  * **TAPPABLE** on confirm, «Деталі запису» and «Залишити відгук» —
   ///    terminal or review-shaped screens where leaving costs nothing and a
   ///    back-swipe restores the state exactly.
   ///  * The salon master PICKER passes its own selection callback instead:
   ///    there the tap CHOOSES the master, it does not navigate away.
   ///
-  /// Booking details is also the only route to a master's reviews for a
+  /// Booking details is also the only route to a master's profile for a
   /// `NOT_COMPLETED` booking, whose action footer is deliberately empty.
   final VoidCallback? onTap;
 
