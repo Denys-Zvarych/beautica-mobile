@@ -2,8 +2,13 @@ name: PR Validation
 
 # Cosmetic + load-bearing: an irrelevant-label (noop) event is titled `label-noop ...`
 # so ci-gate's mirror mode (tool/ci/mirror.sh) can exclude noop runs when it looks
-# up the real run for the same head SHA.
-run-name: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol' && format('label-noop PR {0}', github.event.pull_request.number) || '' }}
+# up the real run for the same head SHA. A workflow_dispatch run is titled
+# `dispatch:<reason>:<token>` so nightly.yml can find exactly the run it dispatched.
+# Every other event keeps GitHub's default title ('').
+run-name: >-
+  ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol' && format('label-noop PR {0}', github.event.pull_request.number)
+  || github.event_name == 'workflow_dispatch' && format('dispatch:{0}:{1}', inputs.reason, inputs.token)
+  || '' }}
 
 on:
   pull_request:
@@ -14,7 +19,7 @@ on:
     types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, dev]
-  # Phase 396: NO `schedule:` here; nightly.yml dispatches this workflow on dev.
+  # Phase 396: NO `schedule:` here; nightly.yml dispatches this workflow on main.
   # why: docs/ci/README.md#triggers-no-schedule
   workflow_dispatch:
     inputs:
@@ -23,6 +28,10 @@ on:
         type: choice
         options: [manual, nightly]
         default: manual
+      token:
+        description: 'Unique marker echoed into the run title so a dispatcher can find exactly this run (nightly.yml)'
+        required: false
+        default: ''
 
 # Least privilege by default: every job needs only to read the repo.
 permissions:
@@ -434,8 +443,9 @@ jobs:
         run: ./scripts/forbid_slash_in_patrol_test_name.sh
 
       # Phase 396 — pr-validate.yml must never regain a `schedule:` trigger (or a
-      # schedule-conditional checkout ref): schedule runs use main's workflow
-      # with dev's code and the skew broke patrol four nights running.
+      # schedule-conditional checkout ref): schedule runs used main's workflow
+      # with dev's code and the skew broke patrol four nights running. The
+      # nightly lives in nightly.yml and dispatches this workflow on main.
       - name: Forbid schedule coupling in pr-validate.yml
         shell: bash
         run: ./scripts/forbid_schedule_in_pr_validate.sh

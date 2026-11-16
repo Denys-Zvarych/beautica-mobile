@@ -78,11 +78,13 @@ Moved verbatim from `pr-validate.yml` comments, in file order.
 ### Triggers: no `schedule:` (phase 396)
 
 Phase 396 — NO `schedule:` here, deliberately. A `schedule` event always runs
-the workflow file from the DEFAULT branch (main) but the nightly wants to
-test dev's code; the resulting workflow/code skew broke the patrol job for
+the workflow file from the DEFAULT branch (main) while the nightly then
+tested dev's code; the resulting workflow/code skew broke the patrol job for
 four nights running. The nightly is now `.github/workflows/nightly.yml`,
-which dispatches THIS workflow on `dev` so workflow and code come from the
-same branch. Guarded by scripts/forbid_schedule_in_pr_validate.sh.
+which dispatches THIS workflow on `main` (retargeted from `dev` 2026-11-16)
+so workflow and code come from the same branch, then waits for the dispatched
+run (found by its `dispatch:nightly:<token>` run title) and fails when it
+fails. Guarded by scripts/forbid_schedule_in_pr_validate.sh.
 
 <a id="concurrency"></a>
 
