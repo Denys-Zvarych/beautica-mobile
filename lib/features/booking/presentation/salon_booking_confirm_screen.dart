@@ -96,6 +96,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -116,6 +117,7 @@ import 'widgets/booking_recap.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/client_booking_conflict_dialog.dart';
 import 'widgets/labelled_row.dart';
+import 'widgets/master_profile_tap.dart';
 import 'widgets/salon_appointment_card.dart';
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/section_rule.dart';
@@ -322,6 +324,9 @@ class _SalonBookingConfirmScreenState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // MAS-39 — watched HERE, in this State's own build, not inside the
+    // pager's lazy `pageBuilder` (which runs in another element's build).
+    final bool clientViewer = ref.watch(isClientProvider);
     final bool inFlight = ref.watch(
       appointmentSubmitProvider.select((AsyncValue<void> s) => s.isLoading),
     );
@@ -431,6 +436,14 @@ class _SalonBookingConfirmScreenState
                           .map(BookingSelection.fromSalonCatalogService)
                           .toList(),
                       avatarGradient: salonAvatarGradient(i),
+                      // MAS-39 — master card → profile (no book CTA);
+                      // `push` keeps the typed comments.
+                      onMasterTap: clientViewer
+                          ? masterProfileTap(
+                              context,
+                              appointments[i].schedule.masterId,
+                            )
+                          : null,
                       commentController: _commentFor(
                         appointments[i].schedule.masterId,
                       ),

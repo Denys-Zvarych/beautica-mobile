@@ -26,6 +26,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/salon_booking_schedule_notifier.dart';
@@ -37,6 +38,7 @@ import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart'
 import 'package:beautica_mobile/features/booking/domain/salon_booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
@@ -377,6 +379,13 @@ GoRouter _router({
         onReachedConfirm?.call(state.extra! as SalonBookingConfirmArgs);
         return const Scaffold(body: Text('confirm-reached'));
       },
+    ),
+    // MAS-39 — stub profile that prints the URI it received, so the
+    // booking-context query is pinned as an exact string.
+    GoRoute(
+      path: '/masters/:masterId',
+      builder: (context, state) =>
+          Scaffold(body: Text('profile-stub:${state.uri}')),
     ),
   ],
 );
@@ -2825,6 +2834,116 @@ void main() {
         reason:
             'if the real face was restyled, update the replica in test/helpers/dim_probe_replicas.dart',
       );
+    });
+  });
+
+  // ===========================================================================
+  // MAS-39 (2026-11-16) — the «Час» slide's master strip
+  // (`MasterSchedulePage` → `clientMasterProfileTap`) opens THAT master's
+  // public profile in booking context (`?fromBooking=1`, no book CTA) for a
+  // CLIENT; `push`, so back returns with the picked date + slot intact (the
+  // confirm hand-off still carries the slot). Inert for a non-CLIENT viewer.
+  // ===========================================================================
+  group('MAS-39 master card → public profile', () {
+    const SalonBookingTimeArgs args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+      },
+    );
+
+    Finder stripOfM1() => find.descendant(
+      of: find.byKey(const Key('salon-schedule-page-m1')),
+      matching: find.byType(MasterStrip),
+    );
+
+    testWidgets('CLIENT: tapping the slide\'s master strip pushes '
+        '/masters/m1?fromBooking=1, and back keeps the picked date + slot', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      final DateTime today = kyivToday(DateTime.now);
+      final DateTime slotStart = DateTime(
+        today.year,
+        today.month,
+        today.day,
+        9,
+      );
+      final fake = _FakeSlotRepository(<BookingSlot>[
+        BookingSlot(
+          startAt: slotStart,
+          endAt: DateTime(today.year, today.month, today.day, 10, 30),
+          available: true,
+        ),
+      ]);
+      SalonBookingConfirmArgs? capturedArgs;
+      final GoRouter router = _router(
+        args: args,
+        onReachedConfirm: (SalonBookingConfirmArgs a) => capturedArgs = a,
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._baseOverrides(
+            slotRepository: fake,
+            selectedServiceIds: const <String>['svc-1'],
+          ),
+          isClientProvider.overrideWith((ref) => true),
+        ],
+      );
+      await tester.pumpAndSettle();
+      await tester.tapCalendarDay(today.day);
+      await tester.pumpAndSettle();
+      await _tapNextCta(tester);
+      final Finder slotChip = find.byKey(
+        Key('salon-slot-chip-${slotStart.toIso8601String()}'),
+      );
+      await tester.tap(slotChip);
+      await tester.pumpAndSettle();
+
+      await tester.tap(stripOfM1());
+      await tester.pumpAndSettle();
+      expect(
+        find.text('profile-stub:/masters/m1?fromBooking=1'),
+        findsOneWidget,
+      );
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonTimeScreen), findsOneWidget);
+      expect(slotChip, findsOneWidget, reason: 'still on the TIME phase');
+
+      await tester.tap(find.byKey(const Key('schedule-confirm-cta')));
+      await tester.pumpAndSettle();
+      expect(find.text('confirm-reached'), findsOneWidget);
+      expect(
+        capturedArgs!.appointments.single.startAt,
+        slotStart,
+        reason: 'the picked slot survives the profile round-trip',
+      );
+    });
+
+    testWidgets('non-CLIENT: tapping the slide\'s master strip navigates '
+        'nowhere', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpRoutedApp(
+        _router(args: args),
+        overrides: <Object>[
+          ..._baseOverrides(
+            slotRepository: _FakeSlotRepository(const <BookingSlot>[]),
+            selectedServiceIds: const <String>['svc-1'],
+          ),
+          isClientProvider.overrideWith((ref) => false),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(stripOfM1(), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('profile-stub:'), findsNothing);
+      expect(find.byType(SalonTimeScreen), findsOneWidget);
     });
   });
 }

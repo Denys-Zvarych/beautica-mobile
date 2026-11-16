@@ -748,6 +748,13 @@ GoRouter _router() => GoRouter(
       builder: (context, state) =>
           BookingSuccessScreen(args: state.extra! as BookingSuccessArgs),
     ),
+    // MAS-39 — the booking-context public profile the master strip pushes;
+    // renders the received URI so a test can pin `?fromBooking=1` exactly.
+    GoRoute(
+      path: '/masters/:masterId',
+      builder: (context, state) =>
+          Scaffold(body: Text('profile-stub:${state.uri}')),
+    ),
     // Phase 431 — the reschedule-limit dialog's «Написати в підтримку» target.
     GoRoute(
       path: RouteNames.contactSupport,
@@ -866,6 +873,32 @@ void main() {
         expect(find.text('Підтвердження'), findsOneWidget);
       },
     );
+
+    // MAS-39 — the tap lands on the master's PUBLIC PROFILE in booking
+    // context (exact URI incl. `?fromBooking=1`, so dropping the flag is red),
+    // and back restores this screen.
+    testWidgets('should_pushBookingContextProfile_when_masterStripTapped', (
+      tester,
+    ) async {
+      final fake = _FakeAppointmentRepository(
+        appointmentToReturn: _appointmentFixture(),
+      );
+      final GoRouter router = await pump(tester, fake);
+
+      await tester.ensureVisible(find.byType(MasterStrip));
+      await tester.tap(find.byType(MasterStrip));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('profile-stub:/masters/master-1?fromBooking=1'),
+        findsOneWidget,
+      );
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      expect(locationOf(router), RouteNames.bookingConfirm);
+    });
 
     testWidgets(
       'shows the master\'s role label and ★rating(reviewCount) inside the '

@@ -104,10 +104,20 @@ import 'widgets/services_stat_tile.dart';
 
 /// CLIENT-facing read-only profile of the master identified by [masterId].
 class PublicMasterProfileScreen extends ConsumerStatefulWidget {
-  const PublicMasterProfileScreen({super.key, required this.masterId});
+  const PublicMasterProfileScreen({
+    super.key,
+    required this.masterId,
+    this.hideBookCta = false,
+  });
 
   /// Backend Master-row UUID of the profile being viewed.
   final String masterId;
+
+  /// MAS-39 (additive, default `false`): `true` when opened from a booking
+  /// context (`RouteNames.masterPublicProfile(id, fromBooking: true)`) — the
+  /// pinned «Записатись до майстра» shelf (this screen's only book entry) is
+  /// not built. Search / favourites / salon entries keep MAS-10.
+  final bool hideBookCta;
 
   /// Phase 425 — the top bar's «⋯» (report this profile).
   static const Key reportKey = Key('public-master-report');
@@ -322,10 +332,13 @@ class _PublicMasterProfileScreenState
       // (Phase 358 — restores the pre-351 behaviour; `RouteNames.bookingNew`
       // works end to end for a salon master, see the file header's Phase 358
       // note).
-      bottomNavBar: async.maybeWhen(
-        data: (_) => _BookingShelf(masterId: widget.masterId),
-        orElse: () => null,
-      ),
+      // MAS-39 — a booking-context entry builds no shelf at all.
+      bottomNavBar: widget.hideBookCta
+          ? null
+          : async.maybeWhen(
+              data: (_) => _BookingShelf(masterId: widget.masterId),
+              orElse: () => null,
+            ),
       child: async.when(
         loading: () => const _PublicProfileSkeleton(),
         error: (Object e, _) => ErrorState(

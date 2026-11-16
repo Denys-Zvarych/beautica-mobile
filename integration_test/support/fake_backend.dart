@@ -8917,6 +8917,43 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // MAS-39 (2026-11-16) — PUBLIC detail + services + portfolio for the
+    // salon-xyz roster master `master-ccc`, so `salon_booking_flow_test`'s
+    // master-card taps (salon «Час» / confirm / success) land on a RESOLVED
+    // public profile. The book CTA only renders once the profile resolves, so
+    // without these routes its "CTA hidden" assertion would pass vacuously on
+    // the error state. Exact-string routes: no other flow requests them, and
+    // `…/master-ccc/working-days` / `…/slots` are distinct exact paths.
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterCalls++;
+        lastGetPublicMasterId = 'master-ccc';
+        return _ok(<String, dynamic>{
+          'masterId': 'master-ccc',
+          'firstName': 'Марія',
+          'lastName': 'Гриценко',
+          'avatarUrl': 'https://media.test/avatars/master-ccc.png',
+          'avgRating': 4.6,
+          'reviewCount': 9,
+          'masterType': 'SALON_MASTER',
+          'isFavorite': false,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/services',
+      (server) => server.reply(200, _okList(const <dynamic>[])),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/portfolio',
+      (server) =>
+          server.reply(200, _portfolioPage(const <Map<String, dynamic>>[])),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // GET /api/v1/masters/master-aaa/services — PUBLIC active services for the
     // same master. Feeds the public profile's services-count stat tile.
     _adapter.onRoute(

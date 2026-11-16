@@ -840,6 +840,38 @@ void main() {
 
       expect(find.text('booking-stub'), findsOneWidget);
     });
+
+    // MAS-39 — opened from a booking card, the profile hides the book CTA.
+    // Same pump as above (paired: the default renders the CTA), so the
+    // `findsNothing` is pinned to `hideBookCta`, not to a missing shelf.
+    testWidgets('hideBookCta: true renders the loaded profile WITHOUT the '
+        '«Записатись» shelf (MAS-39)', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(
+          masterId: _kMasterId,
+          hideBookCta: true,
+        ),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('public-master-profile-name')),
+        findsOneWidget,
+        reason: 'the profile itself still renders',
+      );
+      expect(find.byKey(const Key('public-master-book-cta')), findsNothing);
+      // Reviews stay reachable from inside the profile.
+      expect(
+        find.byKey(const Key('public-master-profile-tab-2')),
+        findsOneWidget,
+      );
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────

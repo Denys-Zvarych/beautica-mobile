@@ -167,6 +167,13 @@ void main() {
                   bookingId: state.pathParameters['bookingId']!,
                 ),
           ),
+          // MAS-39 — the booking-context profile the master card pushes;
+          // renders the received URI so `?fromBooking=1` is pinned exactly.
+          GoRoute(
+            path: '/masters/:masterId',
+            builder: (BuildContext context, GoRouterState state) =>
+                Scaffold(body: Text('profile-stub:${state.uri}')),
+          ),
         ],
       );
 
@@ -287,6 +294,27 @@ void main() {
             'the negative test above must be pinned to the empty-id guard, '
             'not to the card being dead in general.',
       );
+    });
+
+    // MAS-39 — the tap opens the master's PUBLIC PROFILE in booking context
+    // (exact URI incl. `?fromBooking=1`), and back returns to the form.
+    testWidgets('tapping the master card pushes the booking-context profile '
+        'and back returns to the form (MAS-39)', (tester) async {
+      final (GoRouter router, _) = await pumpReview(
+        tester,
+        detail: (ref) async => _booking(canReview: true),
+      );
+
+      await tester.tap(find.byKey(const Key('leave-review-master-card')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('profile-stub:/masters/m1?fromBooking=1'),
+        findsOneWidget,
+      );
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(LeaveReviewScreen), findsOneWidget);
     });
 
     testWidgets('the master card renders the booking\'s rating, and folds an '
