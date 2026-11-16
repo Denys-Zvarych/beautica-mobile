@@ -73,6 +73,16 @@ points here with `# why: docs/ci/<topic>.md#<anchor>`.
 
 Moved verbatim from `pr-validate.yml` comments, in file order.
 
+<a id="run-name"></a>
+
+### `run-name`: load-bearing run titles
+
+Cosmetic + load-bearing: an irrelevant-label (noop) event is titled `label-noop ...`
+so ci-gate's mirror mode (tool/ci/mirror.sh) can exclude noop runs when it looks
+up the real run for the same head SHA. A workflow_dispatch run is titled
+`dispatch:<reason>:<token>` so nightly.yml can find exactly the run it dispatched.
+Every other event keeps GitHub's default title ('').
+
 <a id="triggers-no-schedule"></a>
 
 ### Triggers: no `schedule:` (phase 396)

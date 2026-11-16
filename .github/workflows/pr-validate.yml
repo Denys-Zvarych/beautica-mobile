@@ -1,10 +1,8 @@
 name: PR Validation
 
-# Cosmetic + load-bearing: an irrelevant-label (noop) event is titled `label-noop ...`
-# so ci-gate's mirror mode (tool/ci/mirror.sh) can exclude noop runs when it looks
-# up the real run for the same head SHA. A workflow_dispatch run is titled
-# `dispatch:<reason>:<token>` so nightly.yml can find exactly the run it dispatched.
-# Every other event keeps GitHub's default title ('').
+# Load-bearing run titles: `label-noop PR <n>` (ci-gate mirror skips it),
+# `dispatch:<reason>:<token>` (nightly.yml finds its run), else default ('').
+# why: docs/ci/README.md#run-name
 run-name: >-
   ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol' && format('label-noop PR {0}', github.event.pull_request.number)
   || github.event_name == 'workflow_dispatch' && format('dispatch:{0}:{1}', inputs.reason, inputs.token)
