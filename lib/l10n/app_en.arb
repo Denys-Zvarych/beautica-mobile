@@ -6148,6 +6148,16 @@
       }
     }
   },
+  "statTileOpenTabHint": "Open the «{tab}» tab",
+  "@statTileOpenTabHint": {
+    "description": "Screen-reader tap hint for a tappable profile StatTile (client-view master profile): announces which tab the tile switches to. Only tappable tiles carry it; display-only tiles on own profiles have no hint.",
+    "placeholders": {
+      "tab": {
+        "type": "String",
+        "example": "Reviews"
+      }
+    }
+  },
   "velvetSnackPrefixSuccess": "Done",
   "@velvetSnackPrefixSuccess": {
     "description": "VelvetSnack (shared/feedback) — screen-reader prefix spoken before the message on the success variant, so the register survives when colour and glyph do not."

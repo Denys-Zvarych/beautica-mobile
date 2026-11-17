@@ -381,6 +381,12 @@ class _ServiceTileState extends State<ServiceTile> {
 /// A single raised stat tile — icon → value → caption centred in a column.
 ///
 /// Used in the 4-up stats row (bookings/rating/services/reviews).
+///
+/// Display-only by default. Pass [onTap] to make it a button (client-view
+/// master profile: a tile switches to its tab) — it then gets button
+/// semantics plus the app's standard press-depress ([NeumorphicButton]'s
+/// `AnimatedScale(0.97)`); the card surface itself is unchanged. With
+/// [onTap] left `null` the widget tree is exactly the display-only one.
 class StatTile extends StatelessWidget {
   const StatTile({
     super.key,
@@ -390,6 +396,8 @@ class StatTile extends StatelessWidget {
     this.iconColor = BrandColors.accent,
     this.valueKey,
     this.iconWidget,
+    this.onTap,
+    this.tapHint,
   });
 
   final IconData icon;
@@ -404,6 +412,14 @@ class StatTile extends StatelessWidget {
   /// SVG [AppIcon] or a [RatingStar]). When non-null, [icon]/[iconColor] are
   /// ignored. Mirrors the location-marker swap pattern.
   final Widget? iconWidget;
+
+  /// `null` (default) → display-only: no gesture, no press state, no button
+  /// role — every own-profile caller. Non-null → tappable button.
+  final VoidCallback? onTap;
+
+  /// Spoken tap hint for a tappable tile (e.g. «Відкрити вкладку «Відгуки»»).
+  /// Ignored when [onTap] is `null`.
+  final String? tapHint;
 
   /// The em-dash a caller passes as [value] for a zero / unresolved state.
   ///
@@ -465,6 +481,20 @@ class StatTile extends StatelessWidget {
       ),
     );
 
+    final VoidCallback? tap = onTap;
+    if (tap != null) {
+      return Semantics(
+        button: true,
+        label: _semanticsLabel(context),
+        onTap: tap,
+        onTapHint: tapHint,
+        // Same descendant exclusion as the display-only branch below; the
+        // tap action is re-exposed on THIS node via `onTap`.
+        excludeSemantics: true,
+        child: _StatTilePress(onTap: tap, child: card),
+      );
+    }
+
     return Semantics(
       label: _semanticsLabel(context),
       // The value/caption [Text]s below otherwise MERGE into this node and get
@@ -475,6 +505,48 @@ class StatTile extends StatelessWidget {
       // the semantics tree ONLY — the rendered widget subtree is untouched.
       excludeSemantics: true,
       child: card,
+    );
+  }
+}
+
+/// Press-depress for a tappable [StatTile] — the [NeumorphicButton] pattern
+/// (`AnimatedScale(0.97)`, 120 ms, easeOut) around the unchanged card. The
+/// [GestureDetector] is the outermost widget so a tap on the tile's Key
+/// (placed on [StatTile] itself) always lands on it.
+class _StatTilePress extends StatefulWidget {
+  const _StatTilePress({required this.onTap, required this.child});
+
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  State<_StatTilePress> createState() => _StatTilePressState();
+}
+
+class _StatTilePressState extends State<_StatTilePress> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _setPressed(true),
+      onTapCancel: () => _setPressed(false),
+      onTapUp: (_) {
+        _setPressed(false);
+        widget.onTap();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
     );
   }
 }

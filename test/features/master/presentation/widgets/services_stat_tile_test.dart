@@ -239,5 +239,35 @@ void main() {
             'profile call site depends on this default',
       );
     });
+
+    testWidgets('onTap / tapHint default to null — inner StatTile is '
+        'display-only', (tester) async {
+      await _pumpTile(tester, count: 3);
+
+      final StatTile tile = tester.widget<StatTile>(find.byType(StatTile));
+      expect(tile.onTap, isNull);
+      expect(tile.tapHint, isNull);
+    });
+
+    testWidgets('onTap / tapHint are forwarded and a tap fires onTap', (
+      tester,
+    ) async {
+      int taps = 0;
+      await tester.pumpApp(
+        ServicesStatTile(
+          key: const Key('services-tile'),
+          count: 3,
+          valueKey: _kValueKey,
+          onTap: () => taps++,
+          tapHint: 'hint',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<StatTile>(find.byType(StatTile)).tapHint, 'hint');
+      await tester.tap(find.byKey(const Key('services-tile')));
+      await tester.pumpAndSettle();
+      expect(taps, 1);
+    });
   });
 }
