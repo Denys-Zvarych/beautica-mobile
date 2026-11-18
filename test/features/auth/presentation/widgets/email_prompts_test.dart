@@ -276,6 +276,50 @@ void main() {
       );
     });
 
+    // CI fix: with animations disabled a zero-duration AnimatedSize threw
+    // "A RenderAnimatedSize was mutated in its own performLayout" on any
+    // relayout (reveal, hide, width change). Reduced motion must not throw.
+    testWidgets('animations disabled: reveal, «Не зараз», resize — no throw', (
+      tester,
+    ) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 800);
+      addTearDown(tester.view.reset);
+
+      final _H h = _H(_master);
+      addTearDown(h.container.dispose);
+      await _pump(tester, h, const ProviderEmailPromptCard());
+      expect(tester.takeException(), isNull, reason: 'reveal');
+      expect(find.byKey(cardKey), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('auth_banner_secondary_action')),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull, reason: 'optimistic hide');
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'hide settled');
+      expect(find.byKey(cardKey), findsNothing);
+
+      h.now = h.now.add(const Duration(days: 30));
+      h.container.invalidate(providerEmailCardDueProvider('m1'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 're-reveal');
+      expect(find.byKey(cardKey), findsOneWidget);
+
+      tester.view.physicalSize = const Size(414, 800);
+      await tester.pump();
+      expect(tester.takeException(), isNull, reason: 'width change');
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'width change settled');
+      expect(find.byKey(cardKey), findsOneWidget);
+    });
+
     testWidgets('«Додати» hides it and opens the email entry', (tester) async {
       final _H h = _H(_master);
       addTearDown(h.container.dispose);

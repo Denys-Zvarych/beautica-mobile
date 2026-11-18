@@ -129,7 +129,9 @@ Future<bool> providerEmailCardDue(Ref ref, String userId) async {
 /// gap is ever reserved while it is not due — a zero-size child keeps the
 /// host's layout and pixels unchanged), and either tap hides it at once,
 /// before the store round trip, the gap then collapsing smoothly. Reduced
-/// motion ([MediaQuery.disableAnimationsOf]) snaps both.
+/// motion ([MediaQuery.disableAnimationsOf]) snaps both: the [AnimatedSize]
+/// is skipped entirely (a zero-duration one throws on relayout) and the fade
+/// runs at zero duration.
 class ProviderEmailPromptCard extends ConsumerStatefulWidget {
   const ProviderEmailPromptCard({super.key, this.padding = EdgeInsets.zero});
 
@@ -171,14 +173,16 @@ class _ProviderEmailPromptCardState
 
   @override
   Widget build(BuildContext context) {
-    final Duration duration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : _revealDuration;
+    // A zero-duration AnimatedSize throws ("mutated in its own
+    // performLayout") when it relayouts, so reduced motion skips the wrapper.
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return _content(context, Duration.zero);
+    }
     return AnimatedSize(
-      duration: duration,
+      duration: _revealDuration,
       curve: Curves.easeOutCubic,
       alignment: Alignment.topCenter,
-      child: _content(context, duration),
+      child: _content(context, _revealDuration),
     );
   }
 
