@@ -464,6 +464,61 @@ final class EmailAlreadyRegisteredFailure extends Failure {
       AppLocalizations.of(ctx).errEmailAlreadyRegistered;
 }
 
+/// M515 (AUTH-41 / AUTH-54) — the typed `data.code` rejections of the
+/// phone-first identity endpoints (registration phone OTP send / verify, the
+/// ticket-carrying register calls) and of every App Check-guarded SMS send.
+///
+/// Mapped by [ErrorMapperInterceptor] from the backend's
+/// `{success:false, data:{code}}` envelope (`IdentityException` /
+/// `VerificationException`); the mobile owns the copy, the server `message`
+/// is never shown. A 403 [PhoneIdentityErrorCode.appCheckFailed] is a plain
+/// typed failure — it never enters the 401-only refresh / logout path.
+final class PhoneIdentityFailure extends Failure {
+  const PhoneIdentityFailure({required this.code, super.cause});
+
+  final PhoneIdentityErrorCode code;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    return switch (code) {
+      PhoneIdentityErrorCode.phoneNotUaMobile => l10n.errPhoneNotUaMobile,
+      PhoneIdentityErrorCode.phoneAlreadyRegistered =>
+        l10n.errPhoneAlreadyRegistered,
+      PhoneIdentityErrorCode.invalidCode => l10n.errPhoneCodeInvalid,
+      PhoneIdentityErrorCode.registrationTicketInvalid =>
+        l10n.errRegistrationTicketInvalid,
+      PhoneIdentityErrorCode.rateLimited => l10n.errPhoneCodeRateLimited,
+      PhoneIdentityErrorCode.appCheckFailed => l10n.errAppCheckFailed,
+      PhoneIdentityErrorCode.appCheckUnavailable => l10n.errAppCheckUnavailable,
+    };
+  }
+}
+
+/// The backend codes [PhoneIdentityFailure] carries.
+enum PhoneIdentityErrorCode {
+  /// 400 `PHONE_NOT_UA_MOBILE` (AUTH-D15).
+  phoneNotUaMobile,
+
+  /// 409 `PHONE_ALREADY_REGISTERED` (AUTH-42).
+  phoneAlreadyRegistered,
+
+  /// 400 `INVALID_CODE` on `/auth/register/phone/otp/verify`.
+  invalidCode,
+
+  /// 400 `REGISTRATION_TICKET_INVALID` — unknown, used or expired ticket.
+  registrationTicketInvalid,
+
+  /// 429 on `/auth/register/phone/otp/send`.
+  rateLimited,
+
+  /// 403 `APP_CHECK_FAILED` (AUTH-54).
+  appCheckFailed,
+
+  /// 503 `APP_CHECK_UNAVAILABLE` (AUTH-54).
+  appCheckUnavailable,
+}
+
 /// Emitted when a provider role ([UserRole.independentMaster] or
 /// [UserRole.salonOwner]) reaches the post-OTP profile save step without a
 /// `cityId` in the registration draft.

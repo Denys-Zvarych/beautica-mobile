@@ -93,6 +93,8 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
         ).routerDelegate.currentConfiguration.fullPath;
         final stillInWizard =
             fullPath == RouteNames.register ||
+            fullPath == RouteNames.registerCode ||
+            fullPath == RouteNames.registerPassword ||
             fullPath == RouteNames.registerStep2 ||
             fullPath == RouteNames.registerStep3;
         if (!stillInWizard) return;
@@ -119,6 +121,10 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
   }
 }
 
+/// M515 (AUTH-D11) — dots of the phone-first registration wizard: phone ->
+/// SMS code -> password -> name (the address step continues dot 4).
+const int kPhoneFirstRegisterSteps = 4;
+
 // ---------------------------------------------------------------------------
 // WizardStepChrome — shared header chrome for each wizard step screen.
 // Each step screen embeds this at the top of its AuthScaffold content Column.
@@ -134,13 +140,19 @@ class WizardStepChrome extends ConsumerWidget {
     super.key,
     required this.step,
     required this.headline,
+    this.totalSteps = 2,
   });
 
-  /// The current wizard step (1 or 2). Step 3 passes 2 (maps to dot 2).
+  /// The current wizard step (1-based, at most [totalSteps]).
   final int step;
 
   /// The hero headline string for this step.
   final String headline;
+
+  /// ADDITIVE (PhoneFirstAuth / M515): the number of progress dots. Default 2
+  /// keeps every current caller unchanged; the phone-first wizard passes
+  /// [kPhoneFirstRegisterSteps] (phone -> code -> password -> name).
+  final int totalSteps;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -187,8 +199,8 @@ class WizardStepChrome extends ConsumerWidget {
           style: VelvetText.heading(),
         ),
         const SizedBox(height: VelvetSpacing.md),
-        // Two-dot step progress.
-        _StepProgress(currentStep: step, totalSteps: 2),
+        // Step progress dots.
+        _StepProgress(currentStep: step, totalSteps: totalSteps),
         const SizedBox(height: VelvetSpacing.lg),
       ],
     );

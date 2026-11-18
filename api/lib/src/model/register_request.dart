@@ -22,11 +22,12 @@ part 'register_request.g.dart';
 /// * [termsAccepted]
 /// * [termsVersion]
 /// * [privacyPolicyVersion]
+/// * [registrationTicket]
 @BuiltValue()
 abstract class RegisterRequest
     implements Built<RegisterRequest, RegisterRequestBuilder> {
   @BuiltValueField(wireName: r'email')
-  String get email;
+  String? get email;
 
   @BuiltValueField(wireName: r'password')
   String get password;
@@ -39,10 +40,10 @@ abstract class RegisterRequest
   String get firstName;
 
   @BuiltValueField(wireName: r'lastName')
-  String get lastName;
+  String? get lastName;
 
   @BuiltValueField(wireName: r'phoneNumber')
-  String get phoneNumber;
+  String? get phoneNumber;
 
   @BuiltValueField(wireName: r'businessName')
   String? get businessName;
@@ -55,6 +56,9 @@ abstract class RegisterRequest
 
   @BuiltValueField(wireName: r'privacyPolicyVersion')
   String? get privacyPolicyVersion;
+
+  @BuiltValueField(wireName: r'registrationTicket')
+  String? get registrationTicket;
 
   RegisterRequest._();
 
@@ -82,11 +86,13 @@ class _$RegisterRequestSerializer
     RegisterRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'email';
-    yield serializers.serialize(
-      object.email,
-      specifiedType: const FullType(String),
-    );
+    if (object.email != null) {
+      yield r'email';
+      yield serializers.serialize(
+        object.email,
+        specifiedType: const FullType(String),
+      );
+    }
     yield r'password';
     yield serializers.serialize(
       object.password,
@@ -102,16 +108,20 @@ class _$RegisterRequestSerializer
       object.firstName,
       specifiedType: const FullType(String),
     );
-    yield r'lastName';
-    yield serializers.serialize(
-      object.lastName,
-      specifiedType: const FullType(String),
-    );
-    yield r'phoneNumber';
-    yield serializers.serialize(
-      object.phoneNumber,
-      specifiedType: const FullType(String),
-    );
+    if (object.lastName != null) {
+      yield r'lastName';
+      yield serializers.serialize(
+        object.lastName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.phoneNumber != null) {
+      yield r'phoneNumber';
+      yield serializers.serialize(
+        object.phoneNumber,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.businessName != null) {
       yield r'businessName';
       yield serializers.serialize(
@@ -137,6 +147,13 @@ class _$RegisterRequestSerializer
       yield r'privacyPolicyVersion';
       yield serializers.serialize(
         object.privacyPolicyVersion,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.registrationTicket != null) {
+      yield r'registrationTicket';
+      yield serializers.serialize(
+        object.registrationTicket,
         specifiedType: const FullType(String),
       );
     }
@@ -234,6 +251,13 @@ class _$RegisterRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.privacyPolicyVersion = valueDes;
+          break;
+        case r'registrationTicket':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.registrationTicket = valueDes;
           break;
         default:
           unhandled.add(key);

@@ -1306,4 +1306,76 @@ void main() {
       expect(seconds('30'), 30);
     });
   });
+
+  // M515 (AUTH-41 / AUTH-54) — phone-first identity + App Check codes.
+  group('PhoneIdentityFailure mapping (M515)', () {
+    Map<String, dynamic> body(String code) => <String, dynamic>{
+      'success': false,
+      'data': <String, dynamic>{'code': code},
+    };
+    PhoneIdentityErrorCode? mapped(int status, String path, String? code) {
+      final Object? error = _captureRejected(
+        _httpError(status, path: path, body: code == null ? null : body(code)),
+      ).error;
+      return error is PhoneIdentityFailure ? error.code : null;
+    }
+
+    const String send = '/api/v1/auth/register/phone/otp/send';
+    const String verify = '/api/v1/auth/register/phone/otp/verify';
+
+    test('403 APP_CHECK_FAILED on any path → appCheckFailed', () {
+      expect(
+        mapped(403, send, 'APP_CHECK_FAILED'),
+        PhoneIdentityErrorCode.appCheckFailed,
+      );
+      expect(
+        mapped(403, '/api/v1/salons/s1/invite', 'APP_CHECK_FAILED'),
+        PhoneIdentityErrorCode.appCheckFailed,
+      );
+    });
+
+    test('503 APP_CHECK_UNAVAILABLE → appCheckUnavailable', () {
+      expect(
+        mapped(503, send, 'APP_CHECK_UNAVAILABLE'),
+        PhoneIdentityErrorCode.appCheckUnavailable,
+      );
+    });
+
+    test('400 PHONE_NOT_UA_MOBILE / REGISTRATION_TICKET_INVALID, '
+        '409 PHONE_ALREADY_REGISTERED', () {
+      expect(
+        mapped(400, send, 'PHONE_NOT_UA_MOBILE'),
+        PhoneIdentityErrorCode.phoneNotUaMobile,
+      );
+      expect(
+        mapped(400, '/api/v1/auth/register', 'REGISTRATION_TICKET_INVALID'),
+        PhoneIdentityErrorCode.registrationTicketInvalid,
+      );
+      expect(
+        mapped(409, verify, 'PHONE_ALREADY_REGISTERED'),
+        PhoneIdentityErrorCode.phoneAlreadyRegistered,
+      );
+    });
+
+    test('400 INVALID_CODE maps only on the registration verify path', () {
+      expect(
+        mapped(400, verify, 'INVALID_CODE'),
+        PhoneIdentityErrorCode.invalidCode,
+      );
+      expect(
+        mapped(400, '/api/v1/auth/verify-email', 'INVALID_CODE'),
+        isNull,
+        reason: 'verify-email keeps its VerificationFailure',
+      );
+    });
+
+    test('429 maps to rateLimited only on the registration send path', () {
+      expect(mapped(429, send, null), PhoneIdentityErrorCode.rateLimited);
+      expect(mapped(429, '/test', null), isNull);
+    });
+
+    test('a 403 without the App Check code is not a PhoneIdentityFailure', () {
+      expect(mapped(403, send, 'SOMETHING_ELSE'), isNull);
+    });
+  });
 }

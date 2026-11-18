@@ -79,6 +79,7 @@ import 'package:beautica_api/src/model/api_response_passport_response.dart';
 import 'package:beautica_api/src/model/api_response_pending_booking_actions_count_response.dart';
 import 'package:beautica_api/src/model/api_response_public_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_registration_response.dart';
+import 'package:beautica_api/src/model/api_response_registration_ticket_response.dart';
 import 'package:beautica_api/src/model/api_response_report_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
@@ -182,6 +183,7 @@ import 'package:beautica_api/src/model/master_summary_response.dart';
 import 'package:beautica_api/src/model/master_working_day_response.dart';
 import 'package:beautica_api/src/model/media_file_response.dart';
 import 'package:beautica_api/src/model/my_review_response.dart';
+import 'package:beautica_api/src/model/notification_email_verify_request.dart';
 import 'package:beautica_api/src/model/notification_params.dart';
 import 'package:beautica_api/src/model/notification_response.dart';
 import 'package:beautica_api/src/model/notification_target.dart';
@@ -207,6 +209,7 @@ import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/pageable_object.dart';
 import 'package:beautica_api/src/model/passport_response.dart';
 import 'package:beautica_api/src/model/pending_booking_actions_count_response.dart';
+import 'package:beautica_api/src/model/phone_change_verify_request.dart';
 import 'package:beautica_api/src/model/phone_otp_send_request.dart';
 import 'package:beautica_api/src/model/phone_otp_verify_request.dart';
 import 'package:beautica_api/src/model/platform_service_type_response.dart';
@@ -216,7 +219,10 @@ import 'package:beautica_api/src/model/refresh_request.dart';
 import 'package:beautica_api/src/model/register_device_token_request.dart';
 import 'package:beautica_api/src/model/register_independent_master_request.dart';
 import 'package:beautica_api/src/model/register_request.dart';
+import 'package:beautica_api/src/model/registration_otp_send_request.dart';
+import 'package:beautica_api/src/model/registration_otp_verify_request.dart';
 import 'package:beautica_api/src/model/registration_response.dart';
+import 'package:beautica_api/src/model/registration_ticket_response.dart';
 import 'package:beautica_api/src/model/report_response.dart';
 import 'package:beautica_api/src/model/reported_target_response.dart';
 import 'package:beautica_api/src/model/reschedule_booking_request.dart';
@@ -350,6 +356,7 @@ part 'serializers.g.dart';
   ApiResponsePendingBookingActionsCountResponse,
   ApiResponsePublicSalonResponse,
   ApiResponseRegistrationResponse,
+  ApiResponseRegistrationTicketResponse,
   ApiResponseReportResponse,
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
@@ -453,6 +460,7 @@ part 'serializers.g.dart';
   MasterWorkingDayResponse,
   MediaFileResponse,
   MyReviewResponse,
+  NotificationEmailVerifyRequest,
   NotificationParams,
   NotificationResponse,
   NotificationTarget,
@@ -478,6 +486,7 @@ part 'serializers.g.dart';
   PageableObject,
   PassportResponse,
   PendingBookingActionsCountResponse,
+  PhoneChangeVerifyRequest,
   PhoneOtpSendRequest,
   PhoneOtpVerifyRequest,
   PlatformServiceTypeResponse,
@@ -487,7 +496,10 @@ part 'serializers.g.dart';
   RegisterDeviceTokenRequest,
   RegisterIndependentMasterRequest,
   RegisterRequest,
+  RegistrationOtpSendRequest,
+  RegistrationOtpVerifyRequest,
   RegistrationResponse,
+  RegistrationTicketResponse,
   ReportResponse,
   ReportedTargetResponse,
   RescheduleBookingRequest,

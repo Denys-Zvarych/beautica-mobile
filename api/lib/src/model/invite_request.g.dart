@@ -89,7 +89,7 @@ class _$InviteRequestRoleEnumSerializer
 
 class _$InviteRequest extends InviteRequest {
   @override
-  final String email;
+  final String? phone;
   @override
   final InviteRequestRoleEnum? role;
   @override
@@ -98,8 +98,7 @@ class _$InviteRequest extends InviteRequest {
   factory _$InviteRequest([void Function(InviteRequestBuilder)? updates]) =>
       (InviteRequestBuilder()..update(updates))._build();
 
-  _$InviteRequest._({required this.email, this.role, this.roleAllowed})
-      : super._();
+  _$InviteRequest._({this.phone, this.role, this.roleAllowed}) : super._();
   @override
   InviteRequest rebuild(void Function(InviteRequestBuilder) updates) =>
       (toBuilder()..update(updates)).build();
@@ -111,7 +110,7 @@ class _$InviteRequest extends InviteRequest {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is InviteRequest &&
-        email == other.email &&
+        phone == other.phone &&
         role == other.role &&
         roleAllowed == other.roleAllowed;
   }
@@ -119,7 +118,7 @@ class _$InviteRequest extends InviteRequest {
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, email.hashCode);
+    _$hash = $jc(_$hash, phone.hashCode);
     _$hash = $jc(_$hash, role.hashCode);
     _$hash = $jc(_$hash, roleAllowed.hashCode);
     _$hash = $jf(_$hash);
@@ -129,7 +128,7 @@ class _$InviteRequest extends InviteRequest {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'InviteRequest')
-          ..add('email', email)
+          ..add('phone', phone)
           ..add('role', role)
           ..add('roleAllowed', roleAllowed))
         .toString();
@@ -140,9 +139,9 @@ class InviteRequestBuilder
     implements Builder<InviteRequest, InviteRequestBuilder> {
   _$InviteRequest? _$v;
 
-  String? _email;
-  String? get email => _$this._email;
-  set email(String? email) => _$this._email = email;
+  String? _phone;
+  String? get phone => _$this._phone;
+  set phone(String? phone) => _$this._phone = phone;
 
   InviteRequestRoleEnum? _role;
   InviteRequestRoleEnum? get role => _$this._role;
@@ -159,7 +158,7 @@ class InviteRequestBuilder
   InviteRequestBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _email = $v.email;
+      _phone = $v.phone;
       _role = $v.role;
       _roleAllowed = $v.roleAllowed;
       _$v = null;
@@ -183,8 +182,7 @@ class InviteRequestBuilder
   _$InviteRequest _build() {
     final _$result = _$v ??
         _$InviteRequest._(
-          email: BuiltValueNullFieldError.checkNotNull(
-              email, r'InviteRequest', 'email'),
+          phone: phone,
           role: role,
           roleAllowed: roleAllowed,
         );

@@ -15,6 +15,5 @@ void main() {
     test('test getAppointment', () async {
       // TODO
     });
-
   });
 }

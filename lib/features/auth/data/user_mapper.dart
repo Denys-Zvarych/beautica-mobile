@@ -43,7 +43,8 @@ abstract final class UserMapper {
   /// salon shell.
   static User fromAuthResponse(AuthResponse dto) => User(
     id: dto.userId!,
-    email: dto.email!,
+    // M515 (AUTH-D11) — a phone-registered account has no email.
+    email: dto.email,
     role: _roleOf(knownEnumName(dto.role)),
     salonId: dto.salonId,
   );
@@ -55,7 +56,8 @@ abstract final class UserMapper {
   /// parses it directly.
   static User fromProfileDto(UserProfileResponse dto) => User(
     id: dto.id!,
-    email: dto.email!,
+    // M515 (AUTH-D11) — a phone-registered account has no email.
+    email: dto.email,
     role: _roleOf(dto.role),
     firstName: dto.firstName,
     lastName: dto.lastName,

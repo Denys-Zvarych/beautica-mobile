@@ -44,8 +44,10 @@ abstract class User with _$User {
     /// Backend-assigned UUID for the user.
     required String id,
 
-    /// The user's email address (also used as login identifier).
-    required String email,
+    /// The user's email address, or `null` for a phone-registered account
+    /// (M515, AUTH-D11 — email is optional for every role; login accepts a
+    /// phone or an email, AUTH-08).
+    String? email,
 
     /// The role that governs which features this user can access.
     @_UserRoleConverter() required UserRole role,

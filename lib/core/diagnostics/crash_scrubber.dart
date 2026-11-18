@@ -37,7 +37,8 @@ import '../network/request_id_interceptor.dart' show normalisePath;
 final RegExp _email = RegExp(
   r'[A-Za-z0-9._%+\-]{1,64}(@|%40)[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+',
 );
-// `password: x`, `PIN: 482913`, `refresh=<opaque>`, `access_token=…`: the
+// `password: x`, `PIN: 482913`, `refresh=<opaque>`, `access_token=…`,
+// `registrationTicket=…`, `identifier=+380…` (M515 login identifier): the
 // key (plus any word suffix) is kept, the value dropped. Not preceded by a
 // letter, so `spinner:` / `mytoken=` style words inside text are left alone.
 // A quoted value is dropped whole, spaces included (`"password":"a b c"`);
@@ -45,7 +46,7 @@ final RegExp _email = RegExp(
 // suffix is bounded (`\w{0,32}`): an unbounded `\w*` re-scans a run like
 // `_pin_pin_pin…` from every keyword — quadratic (perf audit 2026-11-05).
 final RegExp _secretKv = RegExp(
-  r'''(?<![A-Za-z])((?:password|pin|token|refresh|secret)\w{0,32})["']?\s*[:=]\s*(?:"[^"]*"?|'[^']*'?|\S+)''',
+  r'''(?<![A-Za-z])((?:password|pin|token|refresh|secret|registration_?ticket|ticket|identifier)\w{0,32})["']?\s*[:=]\s*(?:"[^"]*"?|'[^']*'?|\S+)''',
   caseSensitive: false,
 );
 // `PIN 482913`: a bare pin keyword, whitespace, then 4+ digits.
@@ -100,9 +101,10 @@ final RegExp _otp = RegExp(
 );
 
 /// Backend 371 D4 key regex: a matching `extra`/`contexts`/`tags` key is
-/// dropped whole, whatever its value.
+/// dropped whole, whatever its value. M515 adds `ticket` (also covers
+/// `registrationTicket`) and `identifier` (login phone-or-email).
 final RegExp sensitiveKey = RegExp(
-  r'note|comment|passport|allerg|health|password|token|otp|phone|email|secret|key',
+  r'note|comment|passport|allerg|health|password|token|otp|phone|email|secret|key|ticket|identifier',
   caseSensitive: false,
 );
 

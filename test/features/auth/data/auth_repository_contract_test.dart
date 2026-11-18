@@ -128,7 +128,7 @@ void main() {
         );
 
         final (user, tokens) = await h.repo.login(
-          email: 'master@beautica.ua',
+          identifier: 'master@beautica.ua',
           password: 'pw',
         );
 
@@ -139,7 +139,7 @@ void main() {
       },
     );
 
-    test('POSITIVE: real wire body carries email + password', () async {
+    test('POSITIVE: real wire body carries identifier + password', () async {
       final h = _wire();
       Map<String, dynamic>? sentBody;
       h.dio.interceptors.add(
@@ -158,10 +158,11 @@ void main() {
         data: Matchers.any,
       );
 
-      await h.repo.login(email: 'master@beautica.ua', password: 'secret');
+      await h.repo.login(identifier: 'master@beautica.ua', password: 'secret');
 
       expect(sentBody, isNotNull);
-      expect(sentBody!['email'], 'master@beautica.ua');
+      expect(sentBody!['identifier'], 'master@beautica.ua');
+      expect(sentBody!.containsKey('email'), isFalse);
       expect(sentBody!['password'], 'secret');
     });
 
@@ -175,7 +176,7 @@ void main() {
       );
 
       await expectLater(
-        h.repo.login(email: 'master@beautica.ua', password: 'wrong'),
+        h.repo.login(identifier: 'master@beautica.ua', password: 'wrong'),
         throwsA(isA<InvalidCredentialsFailure>()),
       );
     });
@@ -194,7 +195,7 @@ void main() {
       );
 
       await expectLater(
-        h.repo.login(email: 'master@beautica.ua', password: 'pw'),
+        h.repo.login(identifier: 'master@beautica.ua', password: 'pw'),
         throwsA(
           isA<UnauthorizedFailure>().having(
             (f) => f.emailNotVerified,
@@ -219,7 +220,7 @@ void main() {
       );
 
       await expectLater(
-        h.repo.login(email: 'master@beautica.ua', password: 'pw'),
+        h.repo.login(identifier: 'master@beautica.ua', password: 'pw'),
         throwsA(
           isA<UnauthorizedFailure>().having(
             (f) => f.emailNotVerified,
@@ -242,7 +243,7 @@ void main() {
       );
 
       await expectLater(
-        h.repo.login(email: 'bad', password: 'pw'),
+        h.repo.login(identifier: 'bad', password: 'pw'),
         throwsA(isA<ValidationFailure>()),
       );
     });
@@ -256,7 +257,7 @@ void main() {
       );
 
       await expectLater(
-        h.repo.login(email: 'master@beautica.ua', password: 'pw'),
+        h.repo.login(identifier: 'master@beautica.ua', password: 'pw'),
         throwsA(
           isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 500),
         ),
@@ -278,7 +279,7 @@ void main() {
       );
 
       await expectLater(
-        h.repo.login(email: 'master@beautica.ua', password: 'pw'),
+        h.repo.login(identifier: 'master@beautica.ua', password: 'pw'),
         throwsA(isA<NetworkFailure>()),
       );
     });
@@ -295,7 +296,7 @@ void main() {
       // res.data!.data! on a null payload throws — the repository must surface a
       // failure rather than fabricate an empty AuthSession.
       await expectLater(
-        h.repo.login(email: 'master@beautica.ua', password: 'pw'),
+        h.repo.login(identifier: 'master@beautica.ua', password: 'pw'),
         throwsA(anything),
       );
     });

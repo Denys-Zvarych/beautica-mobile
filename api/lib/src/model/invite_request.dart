@@ -12,14 +12,14 @@ part 'invite_request.g.dart';
 /// InviteRequest
 ///
 /// Properties:
-/// * [email]
+/// * [phone]
 /// * [role]
 /// * [roleAllowed]
 @BuiltValue()
 abstract class InviteRequest
     implements Built<InviteRequest, InviteRequestBuilder> {
-  @BuiltValueField(wireName: r'email')
-  String get email;
+  @BuiltValueField(wireName: r'phone')
+  String? get phone;
 
   @BuiltValueField(wireName: r'role')
   InviteRequestRoleEnum? get role;
@@ -53,11 +53,13 @@ class _$InviteRequestSerializer implements PrimitiveSerializer<InviteRequest> {
     InviteRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'email';
-    yield serializers.serialize(
-      object.email,
-      specifiedType: const FullType(String),
-    );
+    if (object.phone != null) {
+      yield r'phone';
+      yield serializers.serialize(
+        object.phone,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.role != null) {
       yield r'role';
       yield serializers.serialize(
@@ -97,12 +99,12 @@ class _$InviteRequestSerializer implements PrimitiveSerializer<InviteRequest> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'email':
+        case r'phone':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.email = valueDes;
+          result.phone = valueDes;
           break;
         case r'role':
           final valueDes = serializers.deserialize(

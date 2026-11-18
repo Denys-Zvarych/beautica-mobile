@@ -204,6 +204,8 @@ class _$NotificationParams extends NotificationParams {
   final String? decisionReason;
   @override
   final NotificationParamsContentKindEnum? contentKind;
+  @override
+  final String? maskedContact;
 
   factory _$NotificationParams(
           [void Function(NotificationParamsBuilder)? updates]) =>
@@ -220,7 +222,8 @@ class _$NotificationParams extends NotificationParams {
       this.subjectRole,
       this.categoryName,
       this.decisionReason,
-      this.contentKind})
+      this.contentKind,
+      this.maskedContact})
       : super._();
   @override
   NotificationParams rebuild(
@@ -245,7 +248,8 @@ class _$NotificationParams extends NotificationParams {
         subjectRole == other.subjectRole &&
         categoryName == other.categoryName &&
         decisionReason == other.decisionReason &&
-        contentKind == other.contentKind;
+        contentKind == other.contentKind &&
+        maskedContact == other.maskedContact;
   }
 
   @override
@@ -262,6 +266,7 @@ class _$NotificationParams extends NotificationParams {
     _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, decisionReason.hashCode);
     _$hash = $jc(_$hash, contentKind.hashCode);
+    _$hash = $jc(_$hash, maskedContact.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -279,7 +284,8 @@ class _$NotificationParams extends NotificationParams {
           ..add('subjectRole', subjectRole)
           ..add('categoryName', categoryName)
           ..add('decisionReason', decisionReason)
-          ..add('contentKind', contentKind))
+          ..add('contentKind', contentKind)
+          ..add('maskedContact', maskedContact))
         .toString();
   }
 }
@@ -336,6 +342,11 @@ class NotificationParamsBuilder
   set contentKind(NotificationParamsContentKindEnum? contentKind) =>
       _$this._contentKind = contentKind;
 
+  String? _maskedContact;
+  String? get maskedContact => _$this._maskedContact;
+  set maskedContact(String? maskedContact) =>
+      _$this._maskedContact = maskedContact;
+
   NotificationParamsBuilder() {
     NotificationParams._defaults(this);
   }
@@ -354,6 +365,7 @@ class NotificationParamsBuilder
       _categoryName = $v.categoryName;
       _decisionReason = $v.decisionReason;
       _contentKind = $v.contentKind;
+      _maskedContact = $v.maskedContact;
       _$v = null;
     }
     return this;
@@ -386,6 +398,7 @@ class NotificationParamsBuilder
           categoryName: categoryName,
           decisionReason: decisionReason,
           contentKind: contentKind,
+          maskedContact: maskedContact,
         );
     replace(_$result);
     return _$result;

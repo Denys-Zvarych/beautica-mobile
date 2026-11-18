@@ -224,4 +224,36 @@ void main() {
       'prod': 'api.beautica.app',
     });
   });
+
+  // M515 (AUTH-D14) — an App Check debug token bypasses attestation.
+  group('APP_CHECK_DEBUG_TOKEN', () {
+    EnvCheckResult withToken(EnvBuildMode m, String token) =>
+        checkEnvConsistency(
+          flavor: 'staging',
+          env: 'staging',
+          baseUrl: _stagingUrl,
+          mode: m,
+          appCheckDebugToken: token,
+        );
+
+    for (final EnvBuildMode m in <EnvBuildMode>[
+      EnvBuildMode.release,
+      EnvBuildMode.profile,
+    ]) {
+      test('${m.name}: a debug token is refused and throws', () {
+        final r = withToken(m, 'uuid-1');
+        expect(r.ok, isFalse);
+        expect(r.errors.single, contains('APP_CHECK_DEBUG_TOKEN'));
+        expect(() => _run(r, m), throwsStateError);
+      });
+    }
+
+    test('debug: a debug token is allowed', () {
+      expect(withToken(EnvBuildMode.debug, 'uuid-1').ok, isTrue);
+    });
+
+    test('release without a token -> ok', () {
+      expect(withToken(EnvBuildMode.release, '').ok, isTrue);
+    });
+  });
 }

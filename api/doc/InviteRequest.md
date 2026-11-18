@@ -8,7 +8,7 @@ import 'package:beautica_api/api.dart';
 ## Properties
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**email** | **String** |  | 
+**phone** | **String** |  | [optional] 
 **role** | **String** |  | [optional] 
 **roleAllowed** | **bool** |  | [optional] 
 

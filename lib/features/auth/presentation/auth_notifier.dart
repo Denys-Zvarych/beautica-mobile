@@ -548,7 +548,10 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
-  /// Authenticates the user with [email] and [password].
+  /// Authenticates the user with [identifier] and [password].
+  ///
+  /// M515 (AUTH-08 / AUTH-46) — [identifier] is an email or a phone already
+  /// normalised to `+380…` by the login screen's classifier.
   ///
   /// On success, state becomes [AsyncData<Authenticated>] with the user profile
   /// and a fresh access token. On failure, state becomes [AsyncError] with the
@@ -561,12 +564,15 @@ class AuthNotifier extends _$AuthNotifier {
   /// does not leave a stale token in memory. This guarantees [firstName] and
   /// [lastName] are populated in the settled [Authenticated] session — callers
   /// such as the home screen and master-profile header see the real name.
-  Future<void> login(String email, String password) async {
+  Future<void> login(String identifier, String password) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       final repo = ref.read(authRepositoryProvider);
       final storage = ref.read(secureStorageProvider);
-      final (_, tokens) = await repo.login(email: email, password: password);
+      final (_, tokens) = await repo.login(
+        identifier: identifier,
+        password: password,
+      );
       await storage.writeRefreshToken(tokens.refreshToken);
       // HIGH-1 pattern: state is AsyncLoading while this guard runs; write the
       // access token to the sentinel so AuthInterceptor injects the Bearer
@@ -626,8 +632,14 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// [termsAccepted] (phase 443) — forwarded to the repository, which sends
   /// the full consent triple when `true` and none of it when `false`.
+  ///
+  /// M515 (AUTH-41 / AUTH-D11) — pass [registrationTicket] (from
+  /// [verifyRegistrationCode]) and no [email] for the phone-first shape: the
+  /// backend answers with a session, so this resolves to
+  /// [AuthenticatedRegisterResult] and loads the full profile (`GET
+  /// /users/me`) before settling, exactly like [login].
   Future<RegisterResult?> register({
-    required String email,
+    String? email,
     required String password,
     required String firstName,
     required String lastName,
@@ -636,6 +648,7 @@ class AuthNotifier extends _$AuthNotifier {
     String? address,
     String? phone,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     state = const AsyncLoading();
     // AsyncValue.guard fixes the [state] for screens that pattern-match on
@@ -655,6 +668,7 @@ class AuthNotifier extends _$AuthNotifier {
             address: address,
             phone: phone,
             termsAccepted: termsAccepted,
+            registrationTicket: registrationTicket,
           );
       result = outcome;
       switch (outcome) {
@@ -674,10 +688,38 @@ class AuthNotifier extends _$AuthNotifier {
           // see the identical reset in [login] for why this is needed on
           // every fresh-session establishment, not just [logout]'s own exits.
           _logoutInFlight = false;
-          return AuthSession.authenticated(
-            user: user,
+          // M515 — the phone-first session: load the full profile (names,
+          // phone) like [login] does. HIGH-1 sentinel so AuthInterceptor
+          // attaches the Bearer while state is still AsyncLoading. A failed
+          // profile load must not undo a created account — fall back to the
+          // register envelope's user.
+          if (registrationTicket == null) {
+            return AuthSession.authenticated(
+              user: user,
+              accessToken: tokens.accessToken,
+            );
+          }
+          coldStartAccessToken = tokens.accessToken;
+          User fullUser;
+          try {
+            fullUser = await ref.read(authRepositoryProvider).me();
+          } on Object catch (e) {
+            if (kDebugMode) {
+              log(
+                'Post-register profile load failed (${e.runtimeType}); '
+                'using the register envelope',
+                name: 'auth',
+                level: 900,
+              );
+            }
+            fullUser = user;
+          }
+          final session = AuthSession.authenticated(
+            user: fullUser,
             accessToken: tokens.accessToken,
           );
+          coldStartAccessToken = null;
+          return session;
         case VerificationRequired(:final email):
           if (kDebugMode) {
             log(
@@ -811,6 +853,21 @@ class AuthNotifier extends _$AuthNotifier {
       rethrow;
     }
   }
+
+  /// M515 (AUTH-41) — sends the registration SMS code to the normalised
+  /// [phone]. Does NOT mutate [state] (like [resendCode]); throws the typed
+  /// [Failure] (e.g. [PhoneIdentityFailure]) for the caller to render.
+  Future<void> sendRegistrationCode({required String phone}) =>
+      ref.read(authRepositoryProvider).sendRegistrationCode(phone: phone);
+
+  /// M515 (AUTH-41) — verifies the registration SMS [code] for [phone] and
+  /// returns the single-use registration ticket. Does NOT mutate [state].
+  Future<String> verifyRegistrationCode({
+    required String phone,
+    required String code,
+  }) => ref
+      .read(authRepositoryProvider)
+      .verifyRegistrationCode(phone: phone, code: code);
 
   /// Re-sends the verification code to [email].
   ///

@@ -12,10 +12,11 @@ Name | Type | Description | Notes
 **password** | **String** |  | 
 **firstName** | **String** |  | 
 **lastName** | **String** |  | 
-**phoneNumber** | **String** |  | 
+**phoneNumber** | **String** |  | [optional] 
 **termsAccepted** | **bool** |  | [optional] 
 **termsVersion** | **String** |  | [optional] 
 **privacyPolicyVersion** | **String** |  | [optional] 
+**registrationTicket** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

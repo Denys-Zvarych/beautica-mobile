@@ -36,7 +36,9 @@ import '../features/auth/presentation/forgot_password_request_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/reset_otp_verification_screen.dart';
 import '../features/auth/presentation/reset_password_screen.dart';
+import '../features/auth/presentation/register_code_screen.dart';
 import '../features/auth/presentation/register_flow_shell.dart';
+import '../features/auth/presentation/register_password_screen.dart';
 import '../features/auth/presentation/register_step_1_screen.dart';
 import '../features/auth/presentation/register_step_2_screen.dart';
 import '../features/auth/presentation/register_step_3_screen.dart';
@@ -699,7 +701,9 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.changePassword,
         builder: (context, state) {
           final session = ref.read(authProvider).value;
-          final email = session is Authenticated ? session.user.email : '';
+          final email = session is Authenticated
+              ? session.user.email ?? ''
+              : '';
           return ResetOtpVerificationScreen(
             displayEmail: email,
             fromChangePassword: true,
@@ -741,8 +745,29 @@ GoRouter appRouter(Ref ref) {
         routes: [
           GoRoute(
             path: RouteNames.register,
+            // M515 — the code step returns here with the 409
+            // PHONE_ALREADY_REGISTERED code as `extra` (never a query
+            // param: no phone / code / ticket in a URL).
+            pageBuilder: (context, state) => _instantPage(
+              state,
+              RegisterStep1Screen(
+                initialSendError: state.extra is PhoneIdentityErrorCode
+                    ? state.extra! as PhoneIdentityErrorCode
+                    : null,
+              ),
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.registerCode,
+            // M515 — SMS code for the phone (shared PhoneCodeStep).
             pageBuilder: (context, state) =>
-                _instantPage(state, const RegisterStep1Screen()),
+                _instantPage(state, const RegisterCodeScreen()),
+          ),
+          GoRoute(
+            path: RouteNames.registerPassword,
+            // M515 — password + confirmation.
+            pageBuilder: (context, state) =>
+                _instantPage(state, const RegisterPasswordScreen()),
           ),
           GoRoute(
             path: RouteNames.registerStep2,

@@ -108,6 +108,21 @@ void main() {
       expect(out, contains('refresh=[redacted]'));
     });
 
+    // M515 cleanup (INFO): the registration ticket and the login identifier
+    // (a phone or an email) are credentials / PII in free text too.
+    test('registrationTicket / ticket / identifier values are dropped', () {
+      final String out = redactText(
+        'bad request registrationTicket=rt-abc123 '
+        'ticket: tk-777 identifier=+380671234567',
+      );
+      expect(out, isNot(contains('rt-abc123')));
+      expect(out, isNot(contains('tk-777')));
+      expect(out, isNot(contains('0671234567')));
+      expect(out, contains('registrationTicket=[redacted]'));
+      expect(out, contains('ticket=[redacted]'));
+      expect(out, contains('identifier=[redacted]'));
+    });
+
     // Security audit 2026-11-05 (LOW): a quoted value is dropped whole.
     test('quoted secret values with spaces are dropped whole', () {
       final String json = redactText('{"password":"a b c","x":1}');
@@ -319,6 +334,26 @@ void main() {
     );
     expect(out.contexts.containsKey('patient_health'), isFalse);
     _expectClean('${out.contexts['flutter_error_details']}');
+  });
+
+  // M515 audit (security LOW) — the registration ticket and the login
+  // identifier (phone or email) are dropped whole, like a token.
+  test('extra registrationTicket / ticket / identifier are dropped', () {
+    final SentryEvent event = SentryEvent();
+    // ignore: deprecated_member_use — `extra` must still be scrubbed.
+    event.extra = <String, dynamic>{
+      'registrationTicket': 'rt-opaque-value',
+      'ticket': 'rt-opaque-value',
+      'identifier': 'olena',
+      'screen': 'register',
+    };
+
+    final SentryEvent out = scrubEvent(event, installId: 'f' * 32);
+
+    // ignore: deprecated_member_use — reading the scrubbed `extra`.
+    final Map<String, dynamic> extra = out.extra!;
+    expect(extra.keys, <String>['screen']);
+    expect('$extra', isNot(contains('rt-opaque-value')));
   });
 
   test('no install id -> no user at all', () {

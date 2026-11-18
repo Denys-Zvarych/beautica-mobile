@@ -36,6 +36,8 @@ class SettingsRow extends StatefulWidget {
     this.destructive = false,
     this.loading = false,
     this.enabled = true,
+    this.subtitle,
+    this.ellipsizeValue = false,
   });
 
   final IconData icon;
@@ -81,6 +83,16 @@ class SettingsRow extends StatefulWidget {
   /// Defaults to `true`, so every pre-existing [SettingsRow] call site
   /// renders and behaves EXACTLY as before this parameter existed.
   final bool enabled;
+
+  /// ADDITIVE (PhoneFirstAuth, M515 port for M517): an optional muted second
+  /// line under [label], styled like `SettingsToggleRow.subtitle`. `null`
+  /// keeps the row exactly as before.
+  final String? subtitle;
+
+  /// ADDITIVE (PhoneFirstAuth, M515 port for M517): when `true` a long
+  /// [value] (an email) shrinks and ellipsizes on one line. `false` (default)
+  /// keeps the value at its intrinsic width, exactly as before.
+  final bool ellipsizeValue;
 
   @override
   State<SettingsRow> createState() => _SettingsRowState();
@@ -138,13 +150,39 @@ class _SettingsRowState extends State<SettingsRow> {
           ),
           const SizedBox(width: VelvetSpacing.md),
           Expanded(
-            child: Text(
-              widget.label,
-              style: VelvetText.bodyStrong().copyWith(color: labelColor),
-            ),
+            child: widget.subtitle == null
+                ? Text(
+                    widget.label,
+                    style: VelvetText.bodyStrong().copyWith(color: labelColor),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        widget.label,
+                        style: VelvetText.bodyStrong().copyWith(
+                          color: labelColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(widget.subtitle!, style: VelvetText.body12),
+                    ],
+                  ),
           ),
           if (value != null) ...<Widget>[
-            Text(value, style: _valueStyle),
+            if (widget.ellipsizeValue)
+              Flexible(
+                child: Text(
+                  value,
+                  style: _valueStyle,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )
+            else
+              Text(value, style: _valueStyle),
             const SizedBox(width: VelvetSpacing.sm),
           ],
           if (loading)

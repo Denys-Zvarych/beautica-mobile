@@ -143,6 +143,10 @@ class _$UserProfileResponse extends UserProfileResponse {
   final String? cityHromadaNameUk;
   @override
   final String? avatarUrl;
+  @override
+  final bool? phoneVerified;
+  @override
+  final Date? phoneRequiredBy;
 
   factory _$UserProfileResponse(
           [void Function(UserProfileResponseBuilder)? updates]) =>
@@ -173,7 +177,9 @@ class _$UserProfileResponse extends UserProfileResponse {
       this.hasMasterProfile,
       this.citySettlementType,
       this.cityHromadaNameUk,
-      this.avatarUrl})
+      this.avatarUrl,
+      this.phoneVerified,
+      this.phoneRequiredBy})
       : super._();
   @override
   UserProfileResponse rebuild(
@@ -212,7 +218,9 @@ class _$UserProfileResponse extends UserProfileResponse {
         hasMasterProfile == other.hasMasterProfile &&
         citySettlementType == other.citySettlementType &&
         cityHromadaNameUk == other.cityHromadaNameUk &&
-        avatarUrl == other.avatarUrl;
+        avatarUrl == other.avatarUrl &&
+        phoneVerified == other.phoneVerified &&
+        phoneRequiredBy == other.phoneRequiredBy;
   }
 
   @override
@@ -243,6 +251,8 @@ class _$UserProfileResponse extends UserProfileResponse {
     _$hash = $jc(_$hash, citySettlementType.hashCode);
     _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
+    _$hash = $jc(_$hash, phoneVerified.hashCode);
+    _$hash = $jc(_$hash, phoneRequiredBy.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -274,7 +284,9 @@ class _$UserProfileResponse extends UserProfileResponse {
           ..add('hasMasterProfile', hasMasterProfile)
           ..add('citySettlementType', citySettlementType)
           ..add('cityHromadaNameUk', cityHromadaNameUk)
-          ..add('avatarUrl', avatarUrl))
+          ..add('avatarUrl', avatarUrl)
+          ..add('phoneVerified', phoneVerified)
+          ..add('phoneRequiredBy', phoneRequiredBy))
         .toString();
   }
 }
@@ -390,6 +402,16 @@ class UserProfileResponseBuilder
   String? get avatarUrl => _$this._avatarUrl;
   set avatarUrl(String? avatarUrl) => _$this._avatarUrl = avatarUrl;
 
+  bool? _phoneVerified;
+  bool? get phoneVerified => _$this._phoneVerified;
+  set phoneVerified(bool? phoneVerified) =>
+      _$this._phoneVerified = phoneVerified;
+
+  Date? _phoneRequiredBy;
+  Date? get phoneRequiredBy => _$this._phoneRequiredBy;
+  set phoneRequiredBy(Date? phoneRequiredBy) =>
+      _$this._phoneRequiredBy = phoneRequiredBy;
+
   UserProfileResponseBuilder() {
     UserProfileResponse._defaults(this);
   }
@@ -422,6 +444,8 @@ class UserProfileResponseBuilder
       _citySettlementType = $v.citySettlementType;
       _cityHromadaNameUk = $v.cityHromadaNameUk;
       _avatarUrl = $v.avatarUrl;
+      _phoneVerified = $v.phoneVerified;
+      _phoneRequiredBy = $v.phoneRequiredBy;
       _$v = null;
     }
     return this;
@@ -468,6 +492,8 @@ class UserProfileResponseBuilder
           citySettlementType: citySettlementType,
           cityHromadaNameUk: cityHromadaNameUk,
           avatarUrl: avatarUrl,
+          phoneVerified: phoneVerified,
+          phoneRequiredBy: phoneRequiredBy,
         );
     replace(_$result);
     return _$result;

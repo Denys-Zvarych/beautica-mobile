@@ -206,6 +206,38 @@ void main() {
       );
     });
 
+    // M515 (AUTH-41) — the phone-first register on /register/step-3 returns
+    // a session at once; the address step must stay mounted to save the
+    // locality and go to /done itself.
+    test('authenticated session at /register/step-3 stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.registerStep3,
+        ),
+        isNull,
+      );
+    });
+
+    test('unauthenticated session at /register/code and /register/password '
+        'stays; authenticated is sent to its role home', () {
+      for (final String route in <String>[
+        RouteNames.registerCode,
+        RouteNames.registerPassword,
+      ]) {
+        expect(
+          authRedirectForLocation(_unauthenticatedSession, route),
+          isNull,
+          reason: route,
+        );
+        expect(
+          authRedirectForLocation(_authenticatedSession, route),
+          RouteNames.masterProfile,
+          reason: route,
+        );
+      }
+    });
+
     test('loading session at /verification stays (null)', () {
       expect(
         authRedirectForLocation(_loadingSession, RouteNames.verification),

@@ -72,7 +72,9 @@
 
 import 'dart:convert';
 
+import 'package:beautica_mobile/core/config/app_check_config.dart';
 import 'package:beautica_mobile/core/config/app_config.dart';
+import 'package:beautica_mobile/core/network/app_check_interceptor.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -444,6 +446,10 @@ final class FakeBackend {
     this.loginEmailNotVerified = false,
     this.mediaAvatarUploadStatus,
     this.adminOwnerCatalogueErrorsAndDefinitionPatch403 = false,
+    this.registrationCodeSendFailure,
+    this.registrationCodeVerifyFailure,
+    this.registerFailure,
+    this.appCheckToken,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -465,6 +471,24 @@ final class FakeBackend {
     // 401, and RefreshInterceptor would need a live refresh endpoint + retry
     // queue that no flow exercises.
     dio.interceptors.add(ErrorMapperInterceptor());
+    // M515 QA — opt-in: the PRODUCTION [AppCheckInterceptor] with a fixed
+    // token, followed by a recorder of what reached the wire. Off by default,
+    // so every other flow's chain is unchanged.
+    final String? token = appCheckToken;
+    if (token != null) {
+      dio.interceptors.insertAll(0, <Interceptor>[
+        AppCheckInterceptor(() async => token),
+        InterceptorsWrapper(
+          onRequest: (RequestOptions o, RequestInterceptorHandler h) {
+            appCheckHeaderLog.add((
+              path: o.path,
+              header: o.headers[kAppCheckHeader] as String?,
+            ));
+            h.next(o);
+          },
+        ),
+      ]);
+    }
     _wire();
     _wireNotifications();
     _wireBookingLinks();
@@ -1390,6 +1414,10 @@ final class FakeBackend {
   // ── Call-count telemetry (for assertions in tests) ────────────────────────
 
   int loginCalls = 0;
+
+  /// M515 — the decoded body of the latest `POST /api/v1/auth/login`
+  /// (`identifier` + `password`).
+  Map<String, dynamic>? lastLoginBody;
   int logoutCalls = 0; // POST /api/v1/auth/logout counter
   int registerCalls = 0;
 
@@ -1398,6 +1426,18 @@ final class FakeBackend {
   /// flow prove the consent triple (`termsAccepted` + both versions) the
   /// wizard collected actually reached the wire.
   Map<String, dynamic>? lastRegisterBody;
+
+  /// M515 — `POST /api/v1/auth/register/phone/otp/send` calls and the phone
+  /// of the latest one.
+  int registrationCodeSendCalls = 0;
+  String? lastRegistrationCodePhone;
+
+  /// M515 — `POST /api/v1/auth/register/phone/otp/verify` calls; every code
+  /// mints [kFakeTicket] unless [registrationCodeVerifyFailure] is set.
+  int registrationCodeVerifyCalls = 0;
+
+  /// M515 — the registration ticket the fake mints and accepts.
+  static const String kFakeTicket = 'fake-registration-ticket';
   int verifyEmailCalls = 0;
 
   /// The `email` field of the most recent `POST /api/v1/auth/verify-email`.
@@ -1445,6 +1485,38 @@ final class FakeBackend {
   /// routes are wired once from the constructor, so pass it to `FakeBackend()`
   /// rather than mutating it after boot.
   final int? forgotPasswordFailureStatusCode;
+
+  /// M515 QA — `(status, data.code)` answered by `POST
+  /// /api/v1/auth/register/phone/otp/send` instead of 200 (e.g. `(403,
+  /// 'APP_CHECK_FAILED')`). Read at construction time.
+  final (int, String)? registrationCodeSendFailure;
+
+  /// M515 QA — `(status, data.code)` answered by `POST
+  /// /api/v1/auth/register/phone/otp/verify` instead of the ticket (e.g.
+  /// `(400, 'INVALID_CODE')`, `(409, 'PHONE_ALREADY_REGISTERED')`).
+  final (int, String)? registrationCodeVerifyFailure;
+
+  /// M515 QA — `(status, data.code)` answered by `POST /api/v1/auth/register`
+  /// (CLIENT / SALON_OWNER) instead of 200 (e.g. `(400,
+  /// 'REGISTRATION_TICKET_INVALID')`).
+  final (int, String)? registerFailure;
+
+  /// M515 QA — when non-null, the production [AppCheckInterceptor] is
+  /// installed with this token and every request is logged into
+  /// [appCheckHeaderLog].
+  final String? appCheckToken;
+
+  /// M515 QA — `(path, X-Firebase-AppCheck header)` per request, in order.
+  /// Empty unless [appCheckToken] is set.
+  final List<({String path, String? header})> appCheckHeaderLog =
+      <({String path, String? header})>[];
+
+  static Map<String, dynamic> _phoneIdentityError((int, String) f) =>
+      <String, dynamic>{
+        'success': false,
+        'message': 'FAKE-${f.$1}',
+        'data': <String, dynamic>{'code': f.$2},
+      };
 
   /// When `true`, `POST /api/v1/auth/login` answers with the REAL prod shape
   /// for an unverified account: HTTP **403**
@@ -8151,6 +8223,38 @@ final class FakeBackend {
     );
   }
 
+  /// M515 (B514) — the phone-first register answer: with a
+  /// `registrationTicket` the real backend creates a phone-only account (no
+  /// email) and returns `{message, email: null, auth: {…tokens…}}` at once.
+  /// `null` for the legacy email shape. Under [modelOwnerAccountLifecycle]
+  /// a SALON_OWNER re-registration after the delete gets the NEW identity
+  /// (the verify-email branch below did this for the email flow).
+  Map<String, dynamic>? _phoneRegistrationResponse(Map<String, dynamic> body) {
+    if (body['registrationTicket'] == null) return null;
+    final Map<String, dynamic> user;
+    if (modelOwnerAccountLifecycle &&
+        ownerAccountDeleted &&
+        body['role'] == 'SALON_OWNER') {
+      ownerFirstName = body['firstName'] as String? ?? '';
+      ownerLastName = body['lastName'] as String? ?? '';
+      user = <String, dynamic>{
+        'id': 'user-owner-2',
+        'email': null,
+        'role': 'SALON_OWNER',
+        'firstName': ownerFirstName,
+        'lastName': ownerLastName,
+        'phoneNumber': lastRegistrationCodePhone,
+      };
+      reRegisteredOwnerJson = user;
+    } else {
+      user = userJsonForRole(currentRole);
+    }
+    return _ok(<String, dynamic>{
+      'message': 'Registration successful.',
+      'auth': _authResponse(user)['data'],
+    });
+  }
+
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
     _adapter.onRoute(
@@ -8158,6 +8262,7 @@ final class FakeBackend {
       (server) =>
           server.replyCallback(loginEmailNotVerified ? 403 : 200, (req) {
             loginCalls++;
+            lastLoginBody = _decodeBody(req.data);
             if (loginEmailNotVerified) {
               return <String, dynamic>{
                 'success': false,
@@ -8237,9 +8342,15 @@ final class FakeBackend {
     // priority when the DioAdapter walks the list in insertion order.
     _adapter.onRoute(
       '/api/v1/auth/register',
-      (server) => server.replyCallback(200, (req) {
+      (server) => server.replyCallback(registerFailure?.$1 ?? 200, (req) {
         registerCalls++;
         lastRegisterBody = _decodeBody(req.data);
+        final (int, String)? failure = registerFailure;
+        if (failure != null) return _phoneIdentityError(failure);
+        final Map<String, dynamic>? signedIn = _phoneRegistrationResponse(
+          lastRegisterBody!,
+        );
+        if (signedIn != null) return signedIn;
         return _ok(<String, dynamic>{
           'verificationRequired': true,
           'email': modelOwnerAccountLifecycle
@@ -8256,11 +8367,44 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         registerCalls++;
         lastRegisterBody = _decodeBody(req.data);
+        final Map<String, dynamic>? signedIn = _phoneRegistrationResponse(
+          lastRegisterBody!,
+        );
+        if (signedIn != null) return signedIn;
         return _ok(<String, dynamic>{
           'verificationRequired': true,
           'email': 'new@beautica.ua',
         });
       }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M515 (B514) — POST /api/v1/auth/register/phone/otp/send: 200 for any
+    // number (the real backend never reveals whether it is registered).
+    _adapter.onRoute(
+      '/api/v1/auth/register/phone/otp/send',
+      (server) => server.replyCallback(registrationCodeSendFailure?.$1 ?? 200, (
+        req,
+      ) {
+        registrationCodeSendCalls++;
+        lastRegistrationCodePhone = _decodeBody(req.data)['phone'] as String?;
+        final (int, String)? failure = registrationCodeSendFailure;
+        if (failure != null) return _phoneIdentityError(failure);
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M515 (B514) — POST /api/v1/auth/register/phone/otp/verify.
+    _adapter.onRoute(
+      '/api/v1/auth/register/phone/otp/verify',
+      (server) =>
+          server.replyCallback(registrationCodeVerifyFailure?.$1 ?? 200, (req) {
+            registrationCodeVerifyCalls++;
+            final (int, String)? failure = registrationCodeVerifyFailure;
+            if (failure != null) return _phoneIdentityError(failure);
+            return _ok(<String, dynamic>{'registrationTicket': kFakeTicket});
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 

@@ -101,7 +101,7 @@ void main() {
     when(() => authRepo.me()).thenAnswer((_) async => meUser);
     when(() => authRepo.logout()).thenAnswer((_) async {});
     when(
-      () => authRepo.login(email: _clientB.email, password: 'pw-b'),
+      () => authRepo.login(identifier: _clientB.email!, password: 'pw-b'),
     ).thenAnswer((_) async => (_clientB, _tokensB));
 
     // A manual counter, not a second `verify(...).called(n)` — mocktail's
@@ -155,7 +155,7 @@ void main() {
     // TTL. The REAL `logout()`/`login()`, not a hand-rolled equivalent.
     await container.read(authProvider.notifier).logout();
     meUser = _clientB;
-    await container.read(authProvider.notifier).login(_clientB.email, 'pw-b');
+    await container.read(authProvider.notifier).login(_clientB.email!, 'pw-b');
     expect(
       container.read(authProvider).value,
       const AuthSession.authenticated(user: _clientB, accessToken: 'access-b'),

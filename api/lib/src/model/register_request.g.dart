@@ -69,7 +69,7 @@ class _$RegisterRequestRoleEnumSerializer
 
 class _$RegisterRequest extends RegisterRequest {
   @override
-  final String email;
+  final String? email;
   @override
   final String password;
   @override
@@ -77,9 +77,9 @@ class _$RegisterRequest extends RegisterRequest {
   @override
   final String firstName;
   @override
-  final String lastName;
+  final String? lastName;
   @override
-  final String phoneNumber;
+  final String? phoneNumber;
   @override
   final String? businessName;
   @override
@@ -88,21 +88,24 @@ class _$RegisterRequest extends RegisterRequest {
   final String? termsVersion;
   @override
   final String? privacyPolicyVersion;
+  @override
+  final String? registrationTicket;
 
   factory _$RegisterRequest([void Function(RegisterRequestBuilder)? updates]) =>
       (RegisterRequestBuilder()..update(updates))._build();
 
   _$RegisterRequest._(
-      {required this.email,
+      {this.email,
       required this.password,
       required this.role,
       required this.firstName,
-      required this.lastName,
-      required this.phoneNumber,
+      this.lastName,
+      this.phoneNumber,
       this.businessName,
       this.termsAccepted,
       this.termsVersion,
-      this.privacyPolicyVersion})
+      this.privacyPolicyVersion,
+      this.registrationTicket})
       : super._();
   @override
   RegisterRequest rebuild(void Function(RegisterRequestBuilder) updates) =>
@@ -124,7 +127,8 @@ class _$RegisterRequest extends RegisterRequest {
         businessName == other.businessName &&
         termsAccepted == other.termsAccepted &&
         termsVersion == other.termsVersion &&
-        privacyPolicyVersion == other.privacyPolicyVersion;
+        privacyPolicyVersion == other.privacyPolicyVersion &&
+        registrationTicket == other.registrationTicket;
   }
 
   @override
@@ -140,6 +144,7 @@ class _$RegisterRequest extends RegisterRequest {
     _$hash = $jc(_$hash, termsAccepted.hashCode);
     _$hash = $jc(_$hash, termsVersion.hashCode);
     _$hash = $jc(_$hash, privacyPolicyVersion.hashCode);
+    _$hash = $jc(_$hash, registrationTicket.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -156,7 +161,8 @@ class _$RegisterRequest extends RegisterRequest {
           ..add('businessName', businessName)
           ..add('termsAccepted', termsAccepted)
           ..add('termsVersion', termsVersion)
-          ..add('privacyPolicyVersion', privacyPolicyVersion))
+          ..add('privacyPolicyVersion', privacyPolicyVersion)
+          ..add('registrationTicket', registrationTicket))
         .toString();
   }
 }
@@ -207,6 +213,11 @@ class RegisterRequestBuilder
   set privacyPolicyVersion(String? privacyPolicyVersion) =>
       _$this._privacyPolicyVersion = privacyPolicyVersion;
 
+  String? _registrationTicket;
+  String? get registrationTicket => _$this._registrationTicket;
+  set registrationTicket(String? registrationTicket) =>
+      _$this._registrationTicket = registrationTicket;
+
   RegisterRequestBuilder() {
     RegisterRequest._defaults(this);
   }
@@ -224,6 +235,7 @@ class RegisterRequestBuilder
       _termsAccepted = $v.termsAccepted;
       _termsVersion = $v.termsVersion;
       _privacyPolicyVersion = $v.privacyPolicyVersion;
+      _registrationTicket = $v.registrationTicket;
       _$v = null;
     }
     return this;
@@ -245,22 +257,20 @@ class RegisterRequestBuilder
   _$RegisterRequest _build() {
     final _$result = _$v ??
         _$RegisterRequest._(
-          email: BuiltValueNullFieldError.checkNotNull(
-              email, r'RegisterRequest', 'email'),
+          email: email,
           password: BuiltValueNullFieldError.checkNotNull(
               password, r'RegisterRequest', 'password'),
           role: BuiltValueNullFieldError.checkNotNull(
               role, r'RegisterRequest', 'role'),
           firstName: BuiltValueNullFieldError.checkNotNull(
               firstName, r'RegisterRequest', 'firstName'),
-          lastName: BuiltValueNullFieldError.checkNotNull(
-              lastName, r'RegisterRequest', 'lastName'),
-          phoneNumber: BuiltValueNullFieldError.checkNotNull(
-              phoneNumber, r'RegisterRequest', 'phoneNumber'),
+          lastName: lastName,
+          phoneNumber: phoneNumber,
           businessName: businessName,
           termsAccepted: termsAccepted,
           termsVersion: termsVersion,
           privacyPolicyVersion: privacyPolicyVersion,
+          registrationTicket: registrationTicket,
         );
     replace(_$result);
     return _$result;

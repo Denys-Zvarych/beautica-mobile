@@ -166,9 +166,23 @@ final class FakeAuthRepository implements AuthRepository {
       String? businessName,
       String? address,
       String? phone,
+      String? registrationTicket,
     })
   >
   registerCalls = [];
+
+  /// M515 — captured `sendRegistrationCode` phones.
+  final List<String> sendRegistrationCodeCalls = [];
+
+  /// M515 — a [Failure] to throw from `sendRegistrationCode`; `null` = OK.
+  Failure? sendRegistrationCodeFailure;
+
+  /// M515 — captured `verifyRegistrationCode` calls.
+  final List<({String phone, String code})> verifyRegistrationCodeCalls = [];
+
+  /// M515 — `verifyRegistrationCode` result: a [Failure] to throw, else the
+  /// ticket string (default `ticket-1`).
+  Object verifyRegistrationCodeResult = 'ticket-1';
   int logoutCallCount = 0;
 
   /// Captured call count for [me] (cold-start profile load + [refreshUser]).
@@ -243,10 +257,10 @@ final class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<(User, AuthTokens)> login({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
-    loginCalls.add((email: email, password: password));
+    loginCalls.add((email: identifier, password: password));
     final result = loginResult;
     if (result is Failure) throw result;
     if (result is (User, AuthTokens)) return result;
@@ -255,7 +269,7 @@ final class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<RegisterResult> registerIndependentMaster({
-    required String email,
+    String? email,
     required String password,
     required String firstName,
     required String lastName,
@@ -264,10 +278,11 @@ final class FakeAuthRepository implements AuthRepository {
     String? address,
     String? phone,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     registerTermsAcceptedCalls.add(termsAccepted);
     registerCalls.add((
-      email: email,
+      email: email ?? '',
       password: password,
       firstName: firstName,
       lastName: lastName,
@@ -275,6 +290,7 @@ final class FakeAuthRepository implements AuthRepository {
       businessName: businessName,
       address: address,
       phone: phone,
+      registrationTicket: registrationTicket,
     ));
     final result = registerResult;
     if (result is Failure) throw result;
@@ -286,7 +302,25 @@ final class FakeAuthRepository implements AuthRepository {
       return RegisterResult.authenticated(user: user, tokens: tokens);
     }
     // Default: verification-required (matches the current backend default).
-    return RegisterResult.verificationRequired(email: email);
+    return RegisterResult.verificationRequired(email: email ?? '');
+  }
+
+  @override
+  Future<void> sendRegistrationCode({required String phone}) async {
+    sendRegistrationCodeCalls.add(phone);
+    final Failure? failure = sendRegistrationCodeFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<String> verifyRegistrationCode({
+    required String phone,
+    required String code,
+  }) async {
+    verifyRegistrationCodeCalls.add((phone: phone, code: code));
+    final Object result = verifyRegistrationCodeResult;
+    if (result is Failure) throw result;
+    return result as String;
   }
 
   @override

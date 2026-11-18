@@ -91,8 +91,15 @@ String? authRedirectForLocation(
   // who taps "Пропустити" on Step 3 from landing on /verification when register
   // auto-logs them in. These routes are therefore excluded from the
   // "authenticated → /home" rule below.
+  //
+  // M515 (AUTH-41) — /register/step-3 (address) joins them: the phone-first
+  // register call there returns a session at once, and the screen must stay
+  // mounted to save the locality / salon with that session and then go to
+  // /done. Bouncing the fresh session to its role home would drop the address.
   final isAtPostRegisterRoute =
-      location == RouteNames.verification || location == RouteNames.done;
+      location == RouteNames.verification ||
+      location == RouteNames.done ||
+      location == RouteNames.registerStep3;
 
   // Strict auth-only routes — valid only while unauthenticated. An authenticated
   // user sitting on any of these is bounced to /home.
@@ -118,8 +125,9 @@ String? authRedirectForLocation(
       location == RouteNames.login ||
       location == RouteNames.register ||
       location == RouteNames.registerRole ||
+      location == RouteNames.registerCode ||
+      location == RouteNames.registerPassword ||
       location == RouteNames.registerStep2 ||
-      location == RouteNames.registerStep3 ||
       location == RouteNames.forgotPassword ||
       location == RouteNames.resetOtpVerification ||
       location == RouteNames.acceptInvite;

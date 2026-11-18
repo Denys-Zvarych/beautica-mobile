@@ -562,7 +562,7 @@ void main() {
         await container.read(authProvider.future);
 
         when(
-          () => repo.login(email: 'test@example.com', password: 'pass123'),
+          () => repo.login(identifier: 'test@example.com', password: 'pass123'),
         ).thenAnswer((_) async => (testUser, testTokens));
         when(() => repo.me()).thenAnswer((_) async => testUser);
 
@@ -1952,6 +1952,91 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // M515 — phone-first register (ticket): the full profile is loaded with
+    // the new session (names on /done), and a failed profile load never
+    // undoes the created account.
+    // -----------------------------------------------------------------------
+    test('M515 register with a ticket → Authenticated with the /users/me '
+        'profile', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+      final fullUser = testUser.copyWith(firstName: 'Олена', email: null);
+
+      when(
+        () => repo.registerIndependentMaster(
+          password: 'Secret1234',
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          role: UserRole.client,
+          registrationTicket: 'ticket-1',
+        ),
+      ).thenAnswer(
+        (_) async => const RegisterResult.authenticated(
+          user: testUser,
+          tokens: testTokens,
+        ),
+      );
+      when(repo.me).thenAnswer((_) async => fullUser);
+
+      final result = await container
+          .read(authProvider.notifier)
+          .register(
+            password: 'Secret1234',
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            role: UserRole.client,
+            registrationTicket: 'ticket-1',
+          );
+
+      expect(result, isA<AuthenticatedRegisterResult>());
+      final session = container.read(authProvider).value;
+      expect(session, isA<Authenticated>());
+      expect((session! as Authenticated).user.firstName, 'Олена');
+      expect((session as Authenticated).user.email, isNull);
+      expect(await storage.readRefreshToken(), testTokens.refreshToken);
+    });
+
+    test('M515 register with a ticket → a failed /users/me falls back to the '
+        'register envelope user (still Authenticated)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      when(
+        () => repo.registerIndependentMaster(
+          password: 'Secret1234',
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          role: UserRole.client,
+          registrationTicket: 'ticket-1',
+        ),
+      ).thenAnswer(
+        (_) async => const RegisterResult.authenticated(
+          user: testUser,
+          tokens: testTokens,
+        ),
+      );
+      when(repo.me).thenThrow(const NetworkFailure());
+
+      await container
+          .read(authProvider.notifier)
+          .register(
+            password: 'Secret1234',
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            role: UserRole.client,
+            registrationTicket: 'ticket-1',
+          );
+
+      final session = container.read(authProvider).value;
+      expect(session, isA<Authenticated>());
+      expect((session! as Authenticated).user, testUser);
+    });
+
+    // -----------------------------------------------------------------------
     // Test 6 — register success
     // -----------------------------------------------------------------------
     test(
@@ -2121,7 +2206,7 @@ void main() {
 
         when(
           () => repo.login(
-            email: any(named: 'email'),
+            identifier: any(named: 'identifier'),
             password: any(named: 'password'),
           ),
         ).thenThrow(const UnauthorizedFailure());
@@ -2148,7 +2233,7 @@ void main() {
 
       when(
         () => repo.login(
-          email: any(named: 'email'),
+          identifier: any(named: 'identifier'),
           password: any(named: 'password'),
         ),
       ).thenThrow(const NetworkFailure());
@@ -4074,7 +4159,7 @@ void main() {
       await container.read(authProvider.future);
 
       when(
-        () => repo.login(email: 'test@example.com', password: 'pass123'),
+        () => repo.login(identifier: 'test@example.com', password: 'pass123'),
       ).thenAnswer((_) async => (partialUser, testTokens));
       // me() returns a DIFFERENT object with firstName populated.
       when(() => repo.me()).thenAnswer((_) async => fullUser);
@@ -4135,7 +4220,7 @@ void main() {
         await container.read(authProvider.future);
 
         when(
-          () => repo.login(email: 'test@example.com', password: 'pass123'),
+          () => repo.login(identifier: 'test@example.com', password: 'pass123'),
         ).thenAnswer((_) async => (partialUser, testTokens));
         // me() throws after the tokens have been written to storage.
         when(() => repo.me()).thenThrow(const UnauthorizedFailure());
@@ -4648,7 +4733,7 @@ void main() {
         final storage = FakeSecureStorage();
 
         when(
-          () => repo.login(email: 'test@example.com', password: 'pass123'),
+          () => repo.login(identifier: 'test@example.com', password: 'pass123'),
         ).thenAnswer((_) async => (testUser, testTokens));
         when(() => repo.me()).thenAnswer((_) async => testUser);
 

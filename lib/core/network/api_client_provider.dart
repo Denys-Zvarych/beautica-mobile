@@ -30,6 +30,11 @@ AuthControllerApi authApi(Ref ref) =>
 /// Provides the generated [UserControllerApi] singleton.
 ///
 /// Same Dio instance and serializers as [authApiProvider].
+/// M515 (B514) — `POST /auth/register/phone/otp/{send,verify}`.
+@Riverpod(keepAlive: true)
+RegistrationPhoneControllerApi registrationPhoneApi(Ref ref) =>
+    RegistrationPhoneControllerApi(ref.watch(dioProvider), standardSerializers);
+
 @Riverpod(keepAlive: true)
 UserControllerApi userApi(Ref ref) =>
     UserControllerApi(ref.watch(dioProvider), standardSerializers);

@@ -8,13 +8,15 @@ part of 'forgot_password_request.dart';
 
 class _$ForgotPasswordRequest extends ForgotPasswordRequest {
   @override
-  final String email;
+  final String? email;
+  @override
+  final String? identifier;
 
   factory _$ForgotPasswordRequest(
           [void Function(ForgotPasswordRequestBuilder)? updates]) =>
       (ForgotPasswordRequestBuilder()..update(updates))._build();
 
-  _$ForgotPasswordRequest._({required this.email}) : super._();
+  _$ForgotPasswordRequest._({this.email, this.identifier}) : super._();
   @override
   ForgotPasswordRequest rebuild(
           void Function(ForgotPasswordRequestBuilder) updates) =>
@@ -27,13 +29,16 @@ class _$ForgotPasswordRequest extends ForgotPasswordRequest {
   @override
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
-    return other is ForgotPasswordRequest && email == other.email;
+    return other is ForgotPasswordRequest &&
+        email == other.email &&
+        identifier == other.identifier;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, email.hashCode);
+    _$hash = $jc(_$hash, identifier.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -41,7 +46,8 @@ class _$ForgotPasswordRequest extends ForgotPasswordRequest {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ForgotPasswordRequest')
-          ..add('email', email))
+          ..add('email', email)
+          ..add('identifier', identifier))
         .toString();
   }
 }
@@ -54,6 +60,10 @@ class ForgotPasswordRequestBuilder
   String? get email => _$this._email;
   set email(String? email) => _$this._email = email;
 
+  String? _identifier;
+  String? get identifier => _$this._identifier;
+  set identifier(String? identifier) => _$this._identifier = identifier;
+
   ForgotPasswordRequestBuilder() {
     ForgotPasswordRequest._defaults(this);
   }
@@ -62,6 +72,7 @@ class ForgotPasswordRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _email = $v.email;
+      _identifier = $v.identifier;
       _$v = null;
     }
     return this;
@@ -83,8 +94,8 @@ class ForgotPasswordRequestBuilder
   _$ForgotPasswordRequest _build() {
     final _$result = _$v ??
         _$ForgotPasswordRequest._(
-          email: BuiltValueNullFieldError.checkNotNull(
-              email, r'ForgotPasswordRequest', 'email'),
+          email: email,
+          identifier: identifier,
         );
     replace(_$result);
     return _$result;

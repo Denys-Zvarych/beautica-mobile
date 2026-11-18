@@ -55,9 +55,7 @@ import 'master_own_profile_reviews_tab_flow_test.dart'
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
-import 'register_flow_test.dart' as register;
-import 'register_locality_persistence_flow_test.dart'
-    as register_locality_persistence;
+import 'phone_first_auth_flow_test.dart' as phone_first_auth;
 import 'salon_archive_flow_test.dart' as salon_archive;
 import 'salon_booking_coverage_retry_flow_test.dart'
     as salon_booking_coverage_retry;
@@ -300,11 +298,9 @@ void main() {
   );
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
-  group('register_flow', register.main);
-  group(
-    'register_locality_persistence_flow',
-    register_locality_persistence.main,
-  );
+  // M515 — phone-first login + 4-step registration (replaces the email
+  // wizard's register_flow + register_locality_persistence_flow).
+  group('phone_first_auth_flow', phone_first_auth.main);
   group('salon_booking_flow', salon_booking.main);
   // Phase 266 (mobile-qa, Step 2.7 Rule 3b) — the getBookableMasters
   // degraded/retry sibling of `salon_booking_flow`: one selected service's

@@ -12,7 +12,10 @@
 //
 // Business logic and navigation are unchanged:
 //   1. Validate fields locally; show errorText on each NeumorphicTextField.
-//   2. Call authProvider.notifier.login(email, password).
+//   2. Call authProvider.notifier.login(identifier, password). M515 (AUTH-46):
+//      one «Телефон або email» field — «@» → email, else normalised to
+//      `+380…`; a non-UA-mobile value is refused inline before any request.
+//      The field keeps its `login_email` key (49 test / E2E finders).
 //   3. On success → context.go(RouteNames.home).
 //   4. On EMAIL_NOT_VERIFIED → show inline AuthBanner; banner action navigates
 //      to /verification.
@@ -41,7 +44,7 @@ import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/widgets/prompt_link_text.dart';
-import '../../../shared/validators/email_validator.dart';
+import '../../../shared/validators/identifier_classifier.dart';
 import '../../../shared/validators/password_validator.dart';
 import '../state/login_notice_notifier.dart';
 import 'auth_notifier.dart';
@@ -185,7 +188,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final l10n = AppLocalizations.of(context);
 
     // Inline validation — sets errorText on each NeumorphicTextField.
-    final emailErr = validateEmail(_emailController.text, l10n);
+    final emailErr = validateIdentifier(_emailController.text, l10n);
     final passwordErr = validatePassword(_passwordController.text, l10n);
     if (emailErr != null || passwordErr != null) {
       setState(() {
@@ -202,7 +205,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (_showUnverified) _showUnverified = false;
     });
 
-    final email = _emailController.text.trim();
+    final email = normalizeIdentifier(_emailController.text);
     final password = _passwordController.text;
 
     await ref.read(authProvider.notifier).login(email, password);
@@ -329,17 +332,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                // ── Email field
+                // ── Identifier field — «Телефон або email» (M515, AUTH-46)
                 NeumorphicTextField(
                   key: const ValueKey<String>('login_email'),
-                  label: l10n.loginEmailLabel,
+                  label: l10n.loginIdentifierLabel,
                   controller: _emailController,
-                  hintText: l10n.loginEmailHint,
+                  hintText: l10n.loginIdentifierHint,
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
-                  prefixIcon: const Icon(Icons.alternate_email_rounded),
+                  maxLength: 255,
+                  prefixIcon: const Icon(Icons.person_outline_rounded),
                   autofillHints: const <String>[
                     AutofillHints.username,
+                    AutofillHints.telephoneNumber,
                     AutofillHints.email,
                   ],
                   errorText: _emailError,

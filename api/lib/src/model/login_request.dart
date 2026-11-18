@@ -11,16 +11,22 @@ part 'login_request.g.dart';
 /// LoginRequest
 ///
 /// Properties:
-/// * [email]
+/// * [email] - Pre-B514 field; use identifier.
 /// * [password]
+/// * [identifier] - Phone (+380…, 0…) or email. Required unless the legacy email field is sent.
 @BuiltValue()
 abstract class LoginRequest
     implements Built<LoginRequest, LoginRequestBuilder> {
+  /// Pre-B514 field; use identifier.
   @BuiltValueField(wireName: r'email')
-  String get email;
+  String? get email;
 
   @BuiltValueField(wireName: r'password')
   String get password;
+
+  /// Phone (+380…, 0…) or email. Required unless the legacy email field is sent.
+  @BuiltValueField(wireName: r'identifier')
+  String? get identifier;
 
   LoginRequest._();
 
@@ -45,16 +51,25 @@ class _$LoginRequestSerializer implements PrimitiveSerializer<LoginRequest> {
     LoginRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'email';
-    yield serializers.serialize(
-      object.email,
-      specifiedType: const FullType(String),
-    );
+    if (object.email != null) {
+      yield r'email';
+      yield serializers.serialize(
+        object.email,
+        specifiedType: const FullType(String),
+      );
+    }
     yield r'password';
     yield serializers.serialize(
       object.password,
       specifiedType: const FullType(String),
     );
+    if (object.identifier != null) {
+      yield r'identifier';
+      yield serializers.serialize(
+        object.identifier,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -93,6 +108,13 @@ class _$LoginRequestSerializer implements PrimitiveSerializer<LoginRequest> {
             specifiedType: const FullType(String),
           ) as String;
           result.password = valueDes;
+          break;
+        case r'identifier':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.identifier = valueDes;
           break;
         default:
           unhandled.add(key);

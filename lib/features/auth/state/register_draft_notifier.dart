@@ -51,12 +51,36 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
     );
   }
 
+  /// M515 — merges the phone step: the normalised [phone] (`+380…`) and the
+  /// consent tick. A different phone than the one already verified drops the
+  /// stale [RegisterDraft.registrationTicket].
+  void updatePhone({required String phone, required bool termsAccepted}) {
+    final current = state;
+    if (current == null) return;
+    state = current.copyWith(
+      phone: phone,
+      termsAccepted: termsAccepted,
+      registrationTicket: phone == current.phone
+          ? current.registrationTicket
+          : null,
+    );
+  }
+
+  /// M515 — stores the registration ticket minted by the SMS-code step
+  /// (`null` clears it, e.g. after the backend refused it as expired).
+  void setRegistrationTicket(String? ticket) {
+    final current = state;
+    if (current == null) return;
+    state = current.copyWith(registrationTicket: ticket);
+  }
+
   /// Merges the Step 2 (Profile) slice. [salonName] is OWNER-only — pass
-  /// the empty string for non-owner roles.
+  /// the empty string for non-owner roles. [phone] is optional since M515
+  /// (the phone step owns it); `null` keeps the current value.
   void updateStep2({
     required String firstName,
     required String lastName,
-    required String phone,
+    String? phone,
     String salonName = '',
   }) {
     final current = state;
@@ -64,7 +88,7 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
     state = current.copyWith(
       firstName: firstName,
       lastName: lastName,
-      phone: phone,
+      phone: phone ?? current.phone,
       salonName: salonName,
     );
   }
@@ -104,7 +128,11 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
   void clearCredentials() {
     final current = state;
     if (current == null) return;
-    state = current.copyWith(password: '', confirmPassword: '');
+    state = current.copyWith(
+      password: '',
+      confirmPassword: '',
+      registrationTicket: null,
+    );
   }
 
   /// Clears the draft. Called on `/done` arrival or on logout.

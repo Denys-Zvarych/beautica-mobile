@@ -106,6 +106,18 @@ final class ErrorMapperInterceptor extends Interceptor {
     final statusCode = err.response?.statusCode;
     final path = err.requestOptions.path;
     if (statusCode != null) {
+      // M515 (AUTH-41 / AUTH-54) — phone-first identity + App Check codes.
+      // Checked FIRST so a typed `data.code` wins over the generic 400 / 403 /
+      // 409 / 429 / 503 arms below. A 403 APP_CHECK_FAILED is a typed failure
+      // like any other: RefreshInterceptor acts on 401 only, so it never
+      // refreshes or logs out on it.
+      final PhoneIdentityFailure? identity = _phoneIdentityFailure(
+        err,
+        statusCode,
+        path,
+      );
+      if (identity != null) return identity;
+
       // Phase 2.11 — verify-email typed errors (backend Phase 1.5).
       // The backend returns 400 with envelope {success:false, data:{code:"..."}}
       // for INVALID_CODE / CODE_EXPIRED / ALREADY_VERIFIED. Surface as a
@@ -340,6 +352,52 @@ final class ErrorMapperInterceptor extends Interceptor {
     }
 
     return UnknownFailure(cause: err);
+  }
+
+  /// M515 — maps the phone-first identity / App Check envelope
+  /// `{success:false, data:{code}}` to a [PhoneIdentityFailure], or `null` when
+  /// the response is not one of them. The App Check and identity codes are
+  /// keyed on the body code + status (any path); `INVALID_CODE` and a bare 429
+  /// are scoped to the registration phone-OTP paths, whose siblings
+  /// (`/auth/verify-email`, the reset OTP) keep their own typed failures.
+  PhoneIdentityFailure? _phoneIdentityFailure(
+    DioException err,
+    int statusCode,
+    String path,
+  ) {
+    final String? code = _dataCode(err);
+    final PhoneIdentityErrorCode? mapped = switch ((statusCode, code)) {
+      (403, 'APP_CHECK_FAILED') => PhoneIdentityErrorCode.appCheckFailed,
+      (503, 'APP_CHECK_UNAVAILABLE') =>
+        PhoneIdentityErrorCode.appCheckUnavailable,
+      (400, 'PHONE_NOT_UA_MOBILE') => PhoneIdentityErrorCode.phoneNotUaMobile,
+      (409, 'PHONE_ALREADY_REGISTERED') =>
+        PhoneIdentityErrorCode.phoneAlreadyRegistered,
+      (400, 'REGISTRATION_TICKET_INVALID') =>
+        PhoneIdentityErrorCode.registrationTicketInvalid,
+      (400, 'INVALID_CODE') when path.endsWith(_kRegisterPhoneVerifyPath) =>
+        PhoneIdentityErrorCode.invalidCode,
+      (429, _) when path.endsWith(_kRegisterPhoneSendPath) =>
+        PhoneIdentityErrorCode.rateLimited,
+      _ => null,
+    };
+    return mapped == null
+        ? null
+        : PhoneIdentityFailure(code: mapped, cause: err);
+  }
+
+  static const String _kRegisterPhoneSendPath = '/auth/register/phone/otp/send';
+  static const String _kRegisterPhoneVerifyPath =
+      '/auth/register/phone/otp/verify';
+
+  /// `data.code` of the error envelope, or `null` for any other shape.
+  String? _dataCode(DioException err) {
+    final Object? body = err.response?.data;
+    if (body is! Map<String, dynamic>) return null;
+    final Object? data = body['data'];
+    if (data is! Map<String, dynamic>) return null;
+    final Object? code = data['code'];
+    return code is String ? code : null;
   }
 
   /// Returns `true` when the 409 response body contains the

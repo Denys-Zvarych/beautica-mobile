@@ -20,7 +20,10 @@ import '../domain/user_role.dart';
 /// [DioException]) must never escape — they are caught inside the
 /// implementation.
 abstract interface class AuthRepository {
-  /// Authenticates a user with [email] and [password].
+  /// Authenticates a user with [identifier] and [password].
+  ///
+  /// M515 (AUTH-08 / AUTH-46) — [identifier] is an email, or a phone the
+  /// caller already normalised to `+380…` (`identifier_classifier.dart`).
   ///
   /// Returns a tuple of the authenticated [User] and the issued [AuthTokens]
   /// on success.
@@ -31,7 +34,7 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
   Future<(User, AuthTokens)> login({
-    required String email,
+    required String identifier,
     required String password,
   });
 
@@ -62,8 +65,14 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error, including a 200 with
   ///   an unrecognised response shape.
+  ///
+  /// M515 (AUTH-41 / AUTH-D11) — phone-first shape: pass the
+  /// [registrationTicket] from [verifyRegistrationCode] and no [email]; the
+  /// backend stores the ticket's verified phone and answers with a session,
+  /// so the result is [AuthenticatedRegisterResult]. The legacy email shape
+  /// ([email], no ticket) is kept for the existing tests / old fixtures.
   Future<RegisterResult> registerIndependentMaster({
-    required String email,
+    String? email,
     required String password,
     required String firstName,
     required String lastName,
@@ -72,6 +81,32 @@ abstract interface class AuthRepository {
     String? address,
     String? phone,
     bool termsAccepted = false,
+    String? registrationTicket,
+  });
+
+  /// M515 (AUTH-41) — sends the registration SMS code to [phone] (already
+  /// normalised to `+380…`). Carries an App Check token (AUTH-54).
+  ///
+  /// The backend answers 200 for every Ukrainian mobile number, registered or
+  /// not (no account oracle).
+  ///
+  /// Throws:
+  /// - [PhoneIdentityFailure] — `PHONE_NOT_UA_MOBILE`, 429, `APP_CHECK_FAILED`,
+  ///   `APP_CHECK_UNAVAILABLE`.
+  /// - [NetworkFailure] / [ServerFailure] / [UnknownFailure].
+  Future<void> sendRegistrationCode({required String phone});
+
+  /// M515 (AUTH-41) — verifies the SMS [code] sent to [phone] and returns the
+  /// single-use, 15-minute registration ticket for [registerIndependentMaster].
+  ///
+  /// Throws:
+  /// - [PhoneIdentityFailure] — `INVALID_CODE` (wrong / expired code) or 409
+  ///   `PHONE_ALREADY_REGISTERED` (the code proved the phone, and a verified
+  ///   account already holds it).
+  /// - [NetworkFailure] / [ServerFailure] / [UnknownFailure].
+  Future<String> verifyRegistrationCode({
+    required String phone,
+    required String code,
   });
 
   /// Exchanges a valid [refreshToken] for a fresh token pair.

@@ -10,6 +10,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **inviteId** | **String** |  | [optional] 
 **recipientEmail** | **String** |  | [optional] 
+**recipientPhone** | **String** |  | [optional] 
 **role** | **String** |  | [optional] 
 **status** | **String** |  | [optional] 
 **createdAt** | [**DateTime**](DateTime.md) |  | [optional] 

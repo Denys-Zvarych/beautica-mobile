@@ -15,10 +15,18 @@ abstract final class RouteNames {
   /// `registerDraftProvider` before the user advances to `/register`.
   static const String registerRole = '/register/role';
 
-  /// Step 1 — credentials (email + password + confirm-password). Phase 2.16.
+  /// Step 1 — phone + terms consent (M515; was email + password until the
+  /// phone-first identity, AUTH-D11). Phase 2.16.
   static const String register = '/register';
 
-  /// Step 2 — profile (name + surname + phone + salonName). Phase 2.17.
+  /// M515 — step 2 of the phone-first wizard: the SMS code for the phone.
+  static const String registerCode = '/register/code';
+
+  /// M515 — step 3 of the phone-first wizard: password + confirmation.
+  static const String registerPassword = '/register/password';
+
+  /// Step 4 — profile (name + surname + salonName; the phone moved to step 1
+  /// in M515). Phase 2.17.
   static const String registerStep2 = '/register/step-2';
 
   /// Step 3 — address (oblast/city/district + street/building/note). Phase 2.19.

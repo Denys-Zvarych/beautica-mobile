@@ -86,7 +86,7 @@ void main() {
     when(() => authRepo.me()).thenAnswer((_) async => meUser);
     when(() => authRepo.logout()).thenAnswer((_) async {});
     when(
-      () => authRepo.login(email: _clientB.email, password: 'pw-b'),
+      () => authRepo.login(identifier: _clientB.email!, password: 'pw-b'),
     ).thenAnswer((_) async => (_clientB, _tokensB));
 
     // Manual counter — mocktail's `verify` CONSUMES matched interactions, so a
@@ -136,7 +136,7 @@ void main() {
     // ── 3. The REAL logout → login round trip, within the 5-minute TTL.
     await container.read(authProvider.notifier).logout();
     meUser = _clientB;
-    await container.read(authProvider.notifier).login(_clientB.email, 'pw-b');
+    await container.read(authProvider.notifier).login(_clientB.email!, 'pw-b');
     expect(
       container.read(authProvider).value,
       const AuthSession.authenticated(user: _clientB, accessToken: 'access-b'),

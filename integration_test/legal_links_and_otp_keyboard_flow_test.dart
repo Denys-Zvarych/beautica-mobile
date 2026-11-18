@@ -6,7 +6,7 @@
 //    the user stays on /settings.
 // 2. Registration step 1 → the inline «Умови використання» link: the launcher
 //    receives exactly `https://beautica.app/terms`; no in-app navigation.
-// 3. Registration wizard → /verification: the IME is hidden while the OTP
+// 3. Registration wizard → /register/code (M515 SMS-code step): the IME is hidden while the OTP
 //    field keeps focus (Android back / hide), a tap on a code cell re-shows it.
 //    This drives the framework's TestTextInput channel, not a real IME — a
 //    real-keyboard check needs Patrol (see the QA report).
@@ -37,7 +37,7 @@ class _MockUrlLauncher extends Mock
 
 final AppLocalizationsUk _l10n = AppLocalizationsUk();
 const ValueKey<String> _termsLine = ValueKey<String>('step1_terms_line');
-const ValueKey<String> _otpInput = ValueKey<String>('verify_code_input');
+const ValueKey<String> _otpInput = ValueKey<String>('phone_code_input');
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -125,22 +125,17 @@ void main() {
     AppHarness.expectLocation(router, RouteNames.register);
   });
 
-  testWidgets('/verification: a tap on a code cell re-shows the keyboard '
+  // M515 — the registration OTP surface is now the SMS-code step
+  // (`PhoneCodeStep`, same shared `OtpCodeField` the verification screen
+  // uses), reached by the phone step instead of the email wizard.
+  testWidgets('/register/code: a tap on a code cell re-shows the keyboard '
       'hidden while the OTP field kept focus', (tester) async {
     final fb = FakeBackend();
     final GoRouter router = await openStep1(tester, fb);
 
     await tester.enterText(
-      find.byKey(const ValueKey<String>('step1_email')),
-      'new@beautica.ua',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('step1_password')),
-      'Secret1234',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('step1_confirm')),
-      'Secret1234',
+      find.byKey(const ValueKey<String>('step1_phone')),
+      '0501111111',
     );
     await tester.pump();
     // Phase 443 — the required terms-consent box gates the submit.
@@ -153,24 +148,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('step2_first_name')),
-      'Тест',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('step2_last_name')),
-      'Клієнт',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('step2_phone')),
-      '+380501111111',
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('address_skip')));
-    await tester.pumpAndSettle();
-    AppHarness.expectLocation(router, RouteNames.verification);
+    AppHarness.expectLocation(router, RouteNames.registerCode);
 
     // Autofocus opened the IME on arrival.
     final EditableTextState editable = tester.state<EditableTextState>(

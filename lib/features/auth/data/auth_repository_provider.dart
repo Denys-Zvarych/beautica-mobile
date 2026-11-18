@@ -34,4 +34,5 @@ AuthRepository authRepository(Ref ref) => HttpAuthRepository(
   ref.watch(authApiProvider),
   ref.watch(userApiProvider),
   ref.watch(tokenRefreshLockProvider),
+  registrationPhoneApi: ref.watch(registrationPhoneApiProvider),
 );

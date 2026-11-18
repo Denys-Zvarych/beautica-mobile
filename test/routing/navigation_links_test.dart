@@ -274,6 +274,8 @@ void main() {
       'login': RouteNames.login,
       'registerRole': RouteNames.registerRole,
       'register': RouteNames.register,
+      'registerCode': RouteNames.registerCode,
+      'registerPassword': RouteNames.registerPassword,
       'registerStep2': RouteNames.registerStep2,
       'registerStep3': RouteNames.registerStep3,
       'forgotPassword': RouteNames.forgotPassword,
@@ -1124,7 +1126,8 @@ void main() {
   );
 
   // -------------------------------------------------------------------------
-  // NL-B01: /register/step-2 AuthScaffold back button navigates to /register
+  // NL-B01: /register/step-2 AuthScaffold back button navigates to the
+  // previous wizard step — /register/password since M515 (was /register).
   //
   // FIX: AuthScaffold gained an `onBack` callback parameter. RegisterStep2Screen
   // passes `onBack: () => context.go(RouteNames.register)` so the back affordance
@@ -1150,8 +1153,8 @@ void main() {
           redirect: (_, _) => null,
           routes: <RouteBase>[
             GoRoute(
-              path: RouteNames.register,
-              builder: (_, _) => const _Probe('step-1'),
+              path: RouteNames.registerPassword,
+              builder: (_, _) => const _Probe('password-step'),
             ),
             GoRoute(
               path: RouteNames.registerRole,
@@ -1202,11 +1205,11 @@ void main() {
 
         // After the fix, tapping back on step-2 must navigate to /register.
         expect(
-          find.text('step-1'),
+          find.text('password-step'),
           findsOneWidget,
           reason:
-              'NL-B01: tapping the NeumorphicIconButton back on step-2 must '
-              'navigate to /register via context.go(RouteNames.register). '
+              'NL-B01: tapping the NeumorphicIconButton back on the name step '
+              'must go to /register/password (M515 wizard order). '
               'AuthScaffold.onBack was wired to context.go() to fix the '
               'maybePop no-op bug.',
         );

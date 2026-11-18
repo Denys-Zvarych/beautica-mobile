@@ -862,8 +862,11 @@ final class HttpSalonRepository implements SalonRepository {
       await _salonApi.inviteMaster(
         salonId: salonId,
         inviteRequest: InviteRequest(
+          // B520 — invites go to a phone; the invite form's phone field is
+          // M521. Until it lands the entered value is sent as `phone` and the
+          // backend validates it (400 PHONE_NOT_UA_MOBILE for an email).
           (InviteRequestBuilder b) => b
-            ..email = email
+            ..phone = email
             ..role = _inviteRoleWireValue(role),
         ),
       );

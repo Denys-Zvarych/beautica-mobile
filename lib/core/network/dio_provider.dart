@@ -18,6 +18,8 @@
 //   5. ClockSkewWarningInterceptor — debug-only device/server clock-skew log
 //      (2026-08-02) — diagnostics only, see that file's header; no code path
 //      trusts or applies the value.
+//   5b. AppCheckInterceptor      — M515: `X-Firebase-AppCheck` on the
+//                                  SMS-sending paths only.
 //   6. RefreshInterceptor        — handles 401 retry with silent token refresh.
 //   7. ErrorMapperInterceptor    — converts DioException → typed Failure.
 //
@@ -125,12 +127,15 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../app_version/app_version_info.dart';
 import '../config/app_config.dart';
+import '../push/push_available_provider.dart';
+import 'app_check_interceptor.dart';
 import 'app_version_interceptor.dart';
 import 'auth_interceptor.dart';
 import 'clock_skew_warning_interceptor.dart';
@@ -244,6 +249,40 @@ bool _logRejectedCertificate(X509Certificate cert, String host, int port) {
 // Authenticated Dio provider
 // ---------------------------------------------------------------------------
 
+/// Upper bound on the WHOLE App Check token fetch (Firebase init wait +
+/// `getToken()`). An SMS-sending request must never hang on attestation: past
+/// this bound it goes out without the header and the backend decides.
+const Duration kAppCheckTokenTimeout = Duration(seconds: 5);
+
+/// M515 (AUTH-D14) — the production [AppCheckTokenSource]: `null` while
+/// Firebase is not initialised (push-less build), else the SDK-cached token.
+///
+/// The whole fetch is capped by [timeout]; a timeout or any error yields
+/// `null` (request proceeds without the header). [firebaseReady] and
+/// [getToken] are seams — production passes the push-available future and
+/// leaves [getToken] to the SDK.
+Future<String?> appCheckToken({
+  required Future<bool> Function() firebaseReady,
+  Future<String?> Function()? getToken,
+  Duration timeout = kAppCheckTokenTimeout,
+}) async {
+  Future<String?> fetch() async {
+    if (!await firebaseReady()) return null;
+    return (getToken ?? FirebaseAppCheck.instance.getToken)();
+  }
+
+  try {
+    return await fetch().timeout(timeout);
+  } on Object catch (e) {
+    log(
+      'App Check token fetch failed (${e.runtimeType}); sending without it',
+      name: 'core.appcheck',
+      level: 900,
+    );
+    return null;
+  }
+}
+
 /// Authenticated [Dio] client wired with the full interceptor chain.
 ///
 /// Kept alive for the lifetime of the app — a single instance is reused
@@ -287,6 +326,13 @@ Dio dio(Ref ref) {
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
     if (kDebugMode) ClockSkewWarningInterceptor(),
+    // M515 (AUTH-D14) — App Check token on the SMS-sending paths only. AFTER
+    // the debug logger so the token never reaches a log line.
+    AppCheckInterceptor(
+      () => appCheckToken(
+        firebaseReady: () => ref.read(pushAvailableProvider.future),
+      ),
+    ),
     // Order is load-bearing — see the header. RefreshInterceptor must run
     // BEFORE ErrorMapperInterceptor, whose `handler.reject` ends the error flow.
     RefreshInterceptor(ref, d),

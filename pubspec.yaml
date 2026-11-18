@@ -212,6 +212,7 @@ dependencies:
   flutter_cache_manager: ^3.4.1
   http: ^1.6.0
   package_info_plus: ^9.0.1
+  firebase_app_check: 0.4.8
 
 dev_dependencies:
   flutter_test:
