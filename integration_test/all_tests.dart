@@ -182,6 +182,7 @@ import 'public_salon_profile_flow_test.dart' as public_salon_profile;
 import 'phone_first_auth_flow_test.dart' as phone_first_auth;
 import 'existing_user_phone_capture_flow_test.dart'
     as existing_user_phone_capture;
+import 'staff_invite_by_phone_flow_test.dart' as staff_invite_by_phone;
 import 'salon_booking_coverage_retry_flow_test.dart'
     as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
@@ -667,6 +668,7 @@ void main() {
   // wizard's register_flow + register_locality_persistence_flow).
   group('phone_first_auth_flow', phone_first_auth.main);
   group('existing_user_phone_capture_flow', existing_user_phone_capture.main);
+  group('staff_invite_by_phone_flow', staff_invite_by_phone.main);
   group('salon_booking_flow', salon_booking.main);
   // Phase 266 (mobile-qa, Step 2.7 Rule 3b) — the getBookableMasters
   // degraded/retry sibling of `salon_booking_flow`: one selected service's
