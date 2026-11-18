@@ -123,6 +123,38 @@ void main() {
       expect(out, contains('identifier=[redacted]'));
     });
 
+    // M517 audit (LOW): camelCase keys — the old `(?<![A-Za-z])` lookbehind
+    // let `currentPassword` / `newPassword` through. Cycle 2: one key per
+    // suffix `_secretKvCamel` claims (Password, Token, Ticket, Pin,
+    // Identifier, Secret, Refresh, RegistrationTicket).
+    for (final String key in const <String>[
+      'currentPassword',
+      'newPassword',
+      'accessToken',
+      'resetTicket',
+      'newPin',
+      'loginIdentifier',
+      'clientSecret',
+      'silentRefresh',
+      'phoneRegistrationTicket',
+    ]) {
+      test('camelCase "$key: v" is redacted', () {
+        final String out = redactText('bad request $key: hunter2 done');
+        expect(out, isNot(contains('hunter2')));
+        expect(out, 'bad request $key=[redacted] done');
+      });
+
+      test('camelCase JSON "$key":"v" is redacted', () {
+        final String out = redactText('{"$key":"hunter 2","x":1}');
+        expect(out, isNot(contains('hunter')));
+        expect(out, contains('$key=[redacted]'));
+      });
+    }
+
+    test('camelCase rule leaves a lowercase "pin" inside a word alone', () {
+      expect(redactText('mySpinner: 1234'), 'mySpinner: 1234');
+    });
+
     // Security audit 2026-11-05 (LOW): a quoted value is dropped whole.
     test('quoted secret values with spaces are dropped whole', () {
       final String json = redactText('{"password":"a b c","x":1}');

@@ -92,6 +92,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:beautica_mobile/features/auth/presentation/widgets/email_prompts.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -471,6 +472,9 @@ class _SalonMasterProfileBody extends StatelessWidget {
             ),
           ),
         ),
+        // M517 (AUTH-D17 c) — the provider email card, under the identity card
+        // (zero-size unless due).
+        const ProviderEmailPromptCard(),
         const SizedBox(height: VelvetSpacing.xl),
 
         // 2 — stat cards: «Рейтинг» / «Відгуки» / «Послуги» (D9 — «Досвід»

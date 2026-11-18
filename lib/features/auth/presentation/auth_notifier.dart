@@ -910,20 +910,16 @@ class AuthNotifier extends _$AuthNotifier {
   /// while still showing the generic confirmation on success.
   ///
   /// Throws whatever [AuthRepository.requestPasswordReset] throws.
-  Future<void> requestPasswordReset(String email) async {
+  Future<void> requestPasswordReset(String identifier) async {
     try {
-      await ref.read(authRepositoryProvider).requestPasswordReset(email);
+      await ref.read(authRepositoryProvider).requestPasswordReset(identifier);
       if (kDebugMode) {
-        log(
-          'requestPasswordReset dispatched for ${maskEmail(email)}',
-          name: 'auth.reset',
-          level: 800,
-        );
+        log('requestPasswordReset dispatched', name: 'auth.reset', level: 800);
       }
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'requestPasswordReset failed for ${maskEmail(email)}',
+          'requestPasswordReset failed',
           name: 'auth.reset',
           level: 900,
           error: e,
@@ -980,25 +976,21 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// Throws whatever [AuthRepository.verifyPasswordResetOtp] throws.
   Future<String> verifyPasswordResetOtp({
-    required String email,
+    required String identifier,
     required String code,
   }) async {
     try {
       final ticket = await ref
           .read(authRepositoryProvider)
-          .verifyPasswordResetOtp(email: email, code: code);
+          .verifyPasswordResetOtp(identifier: identifier, code: code);
       if (kDebugMode) {
-        log(
-          'verifyPasswordResetOtp success for ${maskEmail(email)}',
-          name: 'auth.reset',
-          level: 800,
-        );
+        log('verifyPasswordResetOtp success', name: 'auth.reset', level: 800);
       }
       return ticket;
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'verifyPasswordResetOtp failed for ${maskEmail(email)}',
+          'verifyPasswordResetOtp failed',
           name: 'auth.reset',
           level: 900,
           error: e is Failure ? e.runtimeType.toString() : 'non-Failure error',
@@ -1329,6 +1321,73 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
   }
+
+  // ── M517 — phone add / change + notifications email ─────────────────────
+
+  /// M517 (AUTH-44) — sends the SMS code to the new [phone] (first add or
+  /// change). Does NOT mutate [state]; throws the typed [Failure].
+  Future<void> sendPhoneCode({required String phone}) =>
+      ref.read(authRepositoryProvider).sendPhoneCode(phone: phone);
+
+  /// M517 (AUTH-44, AUTH-D19) — confirms [phone] with [code] (plus the
+  /// [currentPassword] on a change). With [refreshSession] (the first add)
+  /// it then refreshes the session user, so the router drops the blocking
+  /// add-phone step (AUTH-D12). A CHANGE passes `false` and its caller
+  /// refreshes after leaving the pushed steps ([refreshUser]). Throws the
+  /// typed [Failure] on a rejected verify; a failed refresh is tolerated.
+  Future<void> verifyPhoneCode({
+    required String phone,
+    required String code,
+    String? currentPassword,
+    bool refreshSession = true,
+  }) async {
+    await ref
+        .read(authRepositoryProvider)
+        .verifyPhoneCode(
+          phone: phone,
+          code: code,
+          currentPassword: currentPassword,
+        );
+    if (refreshSession) await refreshUser();
+  }
+
+  /// M517 (AUTH-50) — emails a code to the new notifications [email]. Does
+  /// NOT mutate [state].
+  Future<void> requestNotificationEmailCode({required String email}) => ref
+      .read(authRepositoryProvider)
+      .requestNotificationEmailCode(email: email);
+
+  /// M517 (AUTH-50, AUTH-D19) — confirms the notifications [email] with
+  /// [code] + [currentPassword]; with [refreshSession] it then refreshes the
+  /// session user (the profile row and every email prompt read
+  /// `emailVerified` from it). The email step passes `false` and refreshes
+  /// after leaving (see [verifyPhoneCode]).
+  Future<void> verifyNotificationEmailCode({
+    required String email,
+    required String code,
+    required String currentPassword,
+    bool refreshSession = true,
+  }) async {
+    await ref
+        .read(authRepositoryProvider)
+        .verifyNotificationEmailCode(
+          email: email,
+          code: code,
+          currentPassword: currentPassword,
+        );
+    if (refreshSession) await refreshUser();
+  }
+
+  /// M517 (AUTH-D12) — the server phone gate answered 409
+  /// `PHONE_NOT_VERIFIED` to some write while the app is open. Re-reads the
+  /// profile (`GET /users/me` is never gated), whose `phoneRequiredBy` makes
+  /// the router redirect to the blocking add-phone step over the open
+  /// screen. Single-flight: a burst of gated 409s refreshes once.
+  Future<void> onPhoneNotVerified() =>
+      _phoneGateRefresh ??= refreshUser().whenComplete(() {
+        _phoneGateRefresh = null;
+      });
+  Future<void>? _phoneGateRefresh;
 
   /// Phase 367 — writes the user's own new avatar [url] (null = removed) into
   /// the settled session [User] in place, with no `GET /users/me` refetch.

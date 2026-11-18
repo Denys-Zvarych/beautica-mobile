@@ -38,6 +38,32 @@ abstract final class RouteNames {
   /// Step 1 — request a reset OTP by email (anti-enumeration confirmation).
   static const String forgotPassword = '/forgot-password';
 
+  /// M517 (AUTH-D12) — the BLOCKING «Додайте номер телефону» step for an
+  /// account without a verified phone (every role). The auth redirect sends
+  /// such a session here from ANY location (app open, or over an open app
+  /// after a 409 `PHONE_NOT_VERIFIED`) and keeps it here until the phone is
+  /// confirmed; «Вийти» is the only other action. Literal `/auth/...` paths —
+  /// no dynamic sibling can shadow them.
+  static const String addPhone = '/auth/add-phone';
+
+  /// M517 — the SMS-code step of [addPhone] (code only, no current password:
+  /// a first add, AUTH-D19). The phone rides in `extra`, never the URL.
+  static const String addPhoneVerify = '/auth/add-phone/verify';
+
+  /// M517 (AUTH-D13, AUTH-D19) — the SMS-code + current-password step of a
+  /// phone CHANGE, pushed from every «Контакти» screen. The new phone rides
+  /// in `extra` ([PhoneVerifyArgs]).
+  static const String phoneChangeVerify = '/account/phone/verify';
+
+  /// M517 (AUTH-D17) — «Email для сповіщень» entry (add / change), reached
+  /// from the profile row and the two email prompt cards. Every role.
+  static const String notificationEmail = '/account/notification-email';
+
+  /// M517 (AUTH-50, AUTH-D19) — the email-code + current-password step of
+  /// [notificationEmail]. The email rides in `extra`.
+  static const String notificationEmailVerify =
+      '/account/notification-email/verify';
+
   /// Step 2 — the generalized password-reset OTP screen
   /// ([ResetOtpVerificationScreen]) for the UNAUTHENTICATED forgot-password
   /// flow. Reached from [ForgotPasswordRequestScreen] with the submitted

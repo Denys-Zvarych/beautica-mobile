@@ -27,14 +27,20 @@ part 'api_client_provider.g.dart';
 AuthControllerApi authApi(Ref ref) =>
     AuthControllerApi(ref.watch(dioProvider), standardSerializers);
 
-/// Provides the generated [UserControllerApi] singleton.
-///
-/// Same Dio instance and serializers as [authApiProvider].
 /// M515 (B514) — `POST /auth/register/phone/otp/{send,verify}`.
 @Riverpod(keepAlive: true)
 RegistrationPhoneControllerApi registrationPhoneApi(Ref ref) =>
     RegistrationPhoneControllerApi(ref.watch(dioProvider), standardSerializers);
 
+/// M517 (B516) — `POST /users/me/phone/otp/{send,verify}` and
+/// `POST /users/me/email/{request-code,verify}`.
+@Riverpod(keepAlive: true)
+UserContactControllerApi userContactApi(Ref ref) =>
+    UserContactControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [UserControllerApi] singleton.
+///
+/// Same Dio instance and serializers as [authApiProvider].
 @Riverpod(keepAlive: true)
 UserControllerApi userApi(Ref ref) =>
     UserControllerApi(ref.watch(dioProvider), standardSerializers);

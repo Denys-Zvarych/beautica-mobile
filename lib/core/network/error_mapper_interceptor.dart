@@ -38,9 +38,18 @@ import '../errors/failures.dart';
 /// Must be the last interceptor in the chain (after LoggingInterceptor,
 /// before nothing) so that logging sees the raw error before it is wrapped.
 final class ErrorMapperInterceptor extends Interceptor {
+  /// [onPhoneNotVerified] — M517 (AUTH-D12): called once per 409
+  /// `PHONE_NOT_VERIFIED` (the server phone gate refused a write). The app
+  /// wires it to a session refresh so the router shows the blocking add-phone
+  /// step over whatever screen is open. `null` (every test stack) = no hook.
+  ErrorMapperInterceptor({this.onPhoneNotVerified});
+
+  final void Function()? onPhoneNotVerified;
+
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final failure = _mapError(err);
+    if (failure is PhoneNotVerifiedFailure) onPhoneNotVerified?.call();
 
     // A deliberate cancellation is not worth a WARNING line (security L1) —
     // see the same skip in `LoggingInterceptor.onError`.
@@ -118,6 +127,17 @@ final class ErrorMapperInterceptor extends Interceptor {
       );
       if (identity != null) return identity;
 
+      // M517 (AUTH-D19 / AUTH-45) — keyed on the body code (any path): a
+      // wrong current password on the phone-change / email verify step, and
+      // the server phone gate. Checked before the generic 400 / 409 arms.
+      final String? m517Code = _dataCode(err);
+      if (statusCode == 400 && m517Code == 'CURRENT_PASSWORD_INVALID') {
+        return CurrentPasswordInvalidFailure(cause: err);
+      }
+      if (statusCode == 409 && m517Code == 'PHONE_NOT_VERIFIED') {
+        return PhoneNotVerifiedFailure(cause: err);
+      }
+
       // Phase 2.11 — verify-email typed errors (backend Phase 1.5).
       // The backend returns 400 with envelope {success:false, data:{code:"..."}}
       // for INVALID_CODE / CODE_EXPIRED / ALREADY_VERIFIED. Surface as a
@@ -128,7 +148,11 @@ final class ErrorMapperInterceptor extends Interceptor {
       // AppConfig.baseUrl `/api/v1` prefix drift or generated-path change —
       // an exact-literal match silently misses and degrades the typed
       // VerificationFailure to a generic ValidationFailure (silent-submit bug).
-      if (statusCode == 400 && path.endsWith('/auth/verify-email')) {
+      // M517 (AUTH-50) — the notifications-email verify step reuses the
+      // same `INVALID_CODE` / `CODE_EXPIRED` envelope.
+      if (statusCode == 400 &&
+          (path.endsWith('/auth/verify-email') ||
+              path.endsWith(_kNotificationEmailVerifyPath))) {
         final code = _extractVerificationCode(err);
         if (code != null) {
           return VerificationFailure(code: code, cause: err);
@@ -138,7 +162,9 @@ final class ErrorMapperInterceptor extends Interceptor {
       // Phase 2.11 — resend-verification 429 throttle (backend Phase 1.6).
       // Envelope: {success:false, message:"...", data:{retryAfterSeconds:42}}.
       // Suffix match (see verify-email above) — immune to baseUrl prefix drift.
-      if (statusCode == 429 && path.endsWith('/auth/resend-verification')) {
+      if (statusCode == 429 &&
+          (path.endsWith('/auth/resend-verification') ||
+              path.endsWith(_kNotificationEmailRequestPath))) {
         return ResendThrottledFailure(
           retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
           cause: err,
@@ -375,9 +401,13 @@ final class ErrorMapperInterceptor extends Interceptor {
         PhoneIdentityErrorCode.phoneAlreadyRegistered,
       (400, 'REGISTRATION_TICKET_INVALID') =>
         PhoneIdentityErrorCode.registrationTicketInvalid,
-      (400, 'INVALID_CODE') when path.endsWith(_kRegisterPhoneVerifyPath) =>
+      (400, 'INVALID_CODE')
+          when path.endsWith(_kRegisterPhoneVerifyPath) ||
+              path.endsWith(_kUserPhoneVerifyPath) =>
         PhoneIdentityErrorCode.invalidCode,
-      (429, _) when path.endsWith(_kRegisterPhoneSendPath) =>
+      (429, _)
+          when path.endsWith(_kRegisterPhoneSendPath) ||
+              path.endsWith(_kUserPhoneSendPath) =>
         PhoneIdentityErrorCode.rateLimited,
       _ => null,
     };
@@ -387,6 +417,15 @@ final class ErrorMapperInterceptor extends Interceptor {
   }
 
   static const String _kRegisterPhoneSendPath = '/auth/register/phone/otp/send';
+
+  /// M517 (B516) — the signed-in phone add / change endpoints.
+  static const String _kUserPhoneSendPath = '/users/me/phone/otp/send';
+  static const String _kUserPhoneVerifyPath = '/users/me/phone/otp/verify';
+
+  /// M517 (B516) — the notifications-email endpoints.
+  static const String _kNotificationEmailRequestPath =
+      '/users/me/email/request-code';
+  static const String _kNotificationEmailVerifyPath = '/users/me/email/verify';
   static const String _kRegisterPhoneVerifyPath =
       '/auth/register/phone/otp/verify';
 

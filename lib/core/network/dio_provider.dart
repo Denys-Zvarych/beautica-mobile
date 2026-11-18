@@ -125,6 +125,7 @@
 import 'dart:developer';
 import 'dart:io';
 
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -336,7 +337,14 @@ Dio dio(Ref ref) {
     // Order is load-bearing — see the header. RefreshInterceptor must run
     // BEFORE ErrorMapperInterceptor, whose `handler.reject` ends the error flow.
     RefreshInterceptor(ref, d),
-    ErrorMapperInterceptor(),
+    // M517 (AUTH-D12) — a 409 PHONE_NOT_VERIFIED refreshes the session user
+    // (GET /users/me is not gated), whose `phoneRequiredBy` makes the router
+    // show the blocking add-phone step over the open screen. Read lazily,
+    // like RefreshInterceptor's logout, so there is no construction cycle.
+    ErrorMapperInterceptor(
+      onPhoneNotVerified: () =>
+          ref.read(authProvider.notifier).onPhoneNotVerified(),
+    ),
   ]);
 
   // Wire cert-pinning via IOHttpClientAdapter when the cached SecurityContext

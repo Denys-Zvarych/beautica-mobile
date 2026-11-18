@@ -25,9 +25,11 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/email_prompts.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/widgets/booking_links_settings_row.dart';
 import 'package:beautica_mobile/features/settings/presentation/logout_action.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -161,6 +163,12 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
   late final CurvedAnimation _anim6; // hairline
   late final CurvedAnimation _anim7; // logout
 
+  // M517 — the hub shows the full confirmed email in
+  // [NotificationEmailSettingsRow], so it holds the app-switcher guard like
+  // `contacts_edit_screen.dart`. Captured in initState so dispose() never
+  // touches `ref` (Riverpod 3.x throws there).
+  late final ScreenProtectionManager _screenProtection;
+
   static final Tween<Offset> _slideTween = Tween<Offset>(
     begin: const Offset(0, 0.035),
     end: Offset.zero,
@@ -169,6 +177,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
   @override
   void initState() {
     super.initState();
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -191,6 +200,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
 
   @override
   void dispose() {
+    _screenProtection.release();
     _anim0.dispose();
     _anim1.dispose();
     _anim2.dispose();
@@ -286,6 +296,13 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
                     ),
             ),
           ],
+          // M517 (AUTH-D17 a) — «Email для сповіщень», every provider role,
+          // always visible; reveals with the row above it.
+          const SizedBox(height: VelvetSpacing.md),
+          _reveal(
+            widget.showContacts ? _anim2 : _anim1,
+            const NotificationEmailSettingsRow(),
+          ),
           if (widget.showLocation) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),
             _reveal(

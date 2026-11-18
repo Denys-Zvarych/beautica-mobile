@@ -30,10 +30,13 @@ import 'package:beautica_mobile/core/diagnostics/crash_reporting.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../features/auth/presentation/accept_invite_screen.dart';
+import '../features/auth/presentation/add_phone_screen.dart';
 import '../features/auth/presentation/auth_notifier.dart';
+import '../features/auth/presentation/contact_verify_screen.dart';
 import '../features/auth/presentation/done_screen.dart';
 import '../features/auth/presentation/forgot_password_request_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
+import '../features/auth/presentation/notification_email_screen.dart';
 import '../features/auth/presentation/reset_otp_verification_screen.dart';
 import '../features/auth/presentation/reset_password_screen.dart';
 import '../features/auth/presentation/register_code_screen.dart';
@@ -46,6 +49,7 @@ import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
 import '../features/auth/domain/auth_session.dart';
+import '../features/auth/domain/contact_verify_args.dart';
 import '../features/auth/domain/reset_password_args.dart';
 import '../features/auth/domain/user_role.dart';
 import '../features/booking/domain/booking_confirm_args.dart';
@@ -194,6 +198,24 @@ final Animatable<Offset> _instantPageSecondaryParallax = Tween<Offset>(
 // untransformed and the instant-forward-paint is unchanged. No gesture detector
 // is added (the page above owns its own swipe-back); this is purely the revealed
 // page's reveal motion.
+/// M517 — the shared contact-code step for [kind], built from the route's
+/// [ContactVerifyArgs] `extra`. ALWAYS the same widget type: go_router
+/// re-parses the stack on every redirect-key auth change (`authRouterKey`;
+/// kept as defence in depth now that profile-only emissions no longer
+/// refresh the router) and a restored push loses its
+/// non-codec `extra`, so a placeholder (empty target) must rebuild the SAME
+/// [ContactVerifyScreen] — whose State keeps the args it was opened with —
+/// never swap the page for another screen. Opened with no target at all (a
+/// deep link), the step sends the user back to where the target is entered.
+Widget _contactVerifyFor(GoRouterState state, ContactVerifyKind kind) {
+  final Object? extra = state.extra;
+  return ContactVerifyScreen(
+    args: extra is ContactVerifyArgs && extra.kind == kind
+        ? extra
+        : ContactVerifyArgs(kind: kind, target: ''),
+  );
+}
+
 CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
     CustomTransitionPage<void>(
       key: state.pageKey,
@@ -275,8 +297,8 @@ GoRouter appRouter(Ref ref) {
   // wrong decision that a later re-evaluation cannot un-make, whereas an
   // admission is re-decided the moment the session settles, because
   // `refreshListenable` re-runs every redirect on each `authProvider`
-  // emission. But be precise about what backs the admission, because the two
-  // unresolved states are NOT equivalent:
+  // redirect-key change (`authRouterKey`). But be precise about what backs
+  // the admission, because the two unresolved states are NOT equivalent:
   //
   //   * `AsyncLoading` — [authRedirect] parks the visitor on `/splash` (or
   //     leaves them on an auth route) for the whole window, so nothing under
@@ -317,8 +339,9 @@ GoRouter appRouter(Ref ref) {
   // per-route role guard MORE permissive, inverting the fix. The staleness the
   // selectors fence is harmless on this side: an admission is re-decided the
   // moment the session settles, because `refreshListenable` re-runs every
-  // redirect on each `authProvider` emission (the trade-off spelled out
-  // immediately above). Leave this on the subtype check alone.
+  // redirect on each `authProvider` redirect-key change (`authRouterKey`;
+  // the trade-off spelled out immediately above). Leave this on the subtype
+  // check alone.
   AuthSession? resolvedSession() {
     final AsyncValue<AuthSession> auth = ref.read(authProvider);
     return auth is AsyncData<AuthSession> ? auth.value : null;
@@ -675,20 +698,54 @@ GoRouter appRouter(Ref ref) {
       // with an empty display email (masking degrades gracefully) rather
       // than crashing on a bad cast — mirrors the `/verification` route's
       // own missing-extra tolerance.
+      //
+      // M517 (AUTH-D18) — `extra` is the phone-or-email identifier as typed
+      // (normalised); the screen never shows it (neutral copy).
       GoRoute(
         path: RouteNames.resetOtpVerification,
         builder: (context, state) {
-          final email = (state.extra as String?) ?? '';
+          final identifier = (state.extra as String?) ?? '';
           return ResetOtpVerificationScreen(
-            displayEmail: email,
+            displayEmail: null,
             fromChangePassword: false,
-            onRequestOtp: () =>
-                ref.read(authProvider.notifier).requestPasswordReset(email),
+            onRequestOtp: () => ref
+                .read(authProvider.notifier)
+                .requestPasswordReset(identifier),
             onVerify: (code) => ref
                 .read(authProvider.notifier)
-                .verifyPasswordResetOtp(email: email, code: code),
+                .verifyPasswordResetOtp(identifier: identifier, code: code),
           );
         },
+      ),
+      // M517 (AUTH-D12) — the blocking add-phone step and its code step. Both
+      // are admitted ONLY for a `mustAddPhone` session (auth_redirect.dart);
+      // literal paths under a prefix with no dynamic sibling.
+      GoRoute(
+        path: RouteNames.addPhone,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const AddPhoneScreen()),
+      ),
+      GoRoute(
+        path: RouteNames.addPhoneVerify,
+        builder: (context, state) =>
+            _contactVerifyFor(state, ContactVerifyKind.phoneAdd),
+      ),
+      // M517 (AUTH-D13 / AUTH-D17) — every role's phone-change code step and
+      // the «Email для сповіщень» entry + code step. Missing / foreign
+      // `extra` (a deep link) falls back to the role home instead of a crash.
+      GoRoute(
+        path: RouteNames.phoneChangeVerify,
+        builder: (context, state) =>
+            _contactVerifyFor(state, ContactVerifyKind.phoneChange),
+      ),
+      GoRoute(
+        path: RouteNames.notificationEmail,
+        builder: (context, state) => const NotificationEmailScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.notificationEmailVerify,
+        builder: (context, state) =>
+            _contactVerifyFor(state, ContactVerifyKind.notificationEmail),
       ),
       // Beautica OTP task Phase B5 — the SAME generalized OTP screen,
       // authenticated (settings "change password") entry point. Pushed from
@@ -704,14 +761,21 @@ GoRouter appRouter(Ref ref) {
           final email = session is Authenticated
               ? session.user.email ?? ''
               : '';
+          // M517 — the backend resolves the account from `identifier`
+          // (email or phone); a phone-registered account has no email.
+          final String identifier = email.isNotEmpty
+              ? email
+              : (session is Authenticated
+                    ? session.user.phoneNumber ?? ''
+                    : '');
           return ResetOtpVerificationScreen(
-            displayEmail: email,
+            displayEmail: email.isEmpty ? null : email,
             fromChangePassword: true,
             onRequestOtp: () =>
                 ref.read(authProvider.notifier).requestChangePasswordOtp(),
             onVerify: (code) => ref
                 .read(authProvider.notifier)
-                .verifyPasswordResetOtp(email: email, code: code),
+                .verifyPasswordResetOtp(identifier: identifier, code: code),
           );
         },
       ),

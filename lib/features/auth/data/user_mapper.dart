@@ -87,6 +87,11 @@ abstract final class UserMapper {
     hasMasterProfile: dto.hasMasterProfile,
     // Phase 367 — own avatar, every role (backend 344). Null = no photo.
     avatarUrl: dto.avatarUrl,
+    // M517 (AUTH-45) — phone / email verification state. `phoneRequiredBy`
+    // is an ISO date carried verbatim (never compared with the device clock).
+    phoneVerified: dto.phoneVerified,
+    phoneRequiredBy: dto.phoneRequiredBy?.toString(),
+    emailVerified: dto.emailVerified,
   );
 
   /// Parses the wire role, turning an absent or unrecognised one — including

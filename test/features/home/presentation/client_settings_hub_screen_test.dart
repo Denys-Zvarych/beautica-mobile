@@ -15,6 +15,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/security/screen_protection.dart';
+
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -99,6 +101,14 @@ void main() {
 
       expect(find.byKey(const Key('row-personal')), findsOneWidget);
       expect(find.byKey(const Key('row-contacts')), findsOneWidget);
+      // M517 (AUTH-D17 a, CLI-D09) — always visible, after «Контакти».
+      expect(find.byKey(const Key('row-notification-email')), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byKey(const Key('row-notification-email'))).dy,
+        greaterThan(
+          tester.getTopLeft(find.byKey(const Key('row-contacts'))).dy,
+        ),
+      );
       expect(find.byKey(const Key('row-location')), findsOneWidget);
       expect(find.byKey(const Key('row-account')), findsOneWidget);
       expect(find.byKey(const Key('row-help')), findsOneWidget);
@@ -263,6 +273,31 @@ void main() {
       tester.getTopLeft(find.text(fakeAppVersionText())).dy,
       greaterThan(tester.getBottomLeft(find.byKey(const Key('row-logout'))).dy),
       reason: 'the version line must sit at the very bottom, under «Вийти»',
+    );
+  });
+
+  // M517 — the hub shows the full confirmed email
+  // (NotificationEmailSettingsRow), so it holds the app-switcher guard while
+  // mounted and releases it on dispose (contacts_edit_screen pattern).
+  testWidgets('holds screen protection while mounted, releases on dispose', (
+    tester,
+  ) async {
+    final ScreenProtectionManager manager = ScreenProtectionManager();
+    final router = _hubRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpRoutedApp(
+      router,
+      overrides: <Object>[screenProtectionProvider.overrideWithValue(manager)],
+    );
+    await tester.pumpAndSettle();
+    expect(manager.acquirerCount, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(
+      manager.acquirerCount,
+      0,
+      reason: 'disposing the hub must release its reference',
     );
   });
 }

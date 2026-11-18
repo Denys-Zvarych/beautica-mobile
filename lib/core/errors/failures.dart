@@ -495,6 +495,32 @@ final class PhoneIdentityFailure extends Failure {
   }
 }
 
+/// M517 (AUTH-D19) — 400 `CURRENT_PASSWORD_INVALID` on the verify step of a
+/// phone CHANGE or an email add / change (`/users/me/phone/otp/verify`,
+/// `/users/me/email/verify`). Never 401, so it never enters the refresh /
+/// logout path. The backend answers the SAME code while the per-account
+/// lockout is active, so the wire cannot tell "wrong" from "locked" — the code
+/// step tracks the lockout window itself (see `CurrentPasswordLockout`).
+final class CurrentPasswordInvalidFailure extends Failure {
+  const CurrentPasswordInvalidFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errCurrentPasswordInvalid;
+}
+
+/// M517 (AUTH-45, AUTH-D12) — 409 `PHONE_NOT_VERIFIED`: the server phone gate
+/// refused a write because the account has no verified phone. The app answers
+/// it by routing to the blocking add-phone step (see `ErrorMapperInterceptor`
+/// `onPhoneNotVerified`); this copy only shows if a screen renders it first.
+final class PhoneNotVerifiedFailure extends Failure {
+  const PhoneNotVerifiedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errPhoneNotVerified;
+}
+
 /// The backend codes [PhoneIdentityFailure] carries.
 enum PhoneIdentityErrorCode {
   /// 400 `PHONE_NOT_UA_MOBILE` (AUTH-D15).

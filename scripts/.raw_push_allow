@@ -9,7 +9,7 @@
 # use context.pushOnce / runOnce.
 #
 # _submitting flag set before the request, held across the push.
-lib/features/auth/presentation/forgot_password_request_screen.dart:129:context.push(RouteNames.resetOtpVerification
+lib/features/auth/presentation/forgot_password_request_screen.dart:139:context.push(RouteNames.resetOtpVerification
 # bookingRescheduleInFlightProvider guards the whole fetch-then-push.
 lib/features/booking/presentation/reschedule_navigation.dart:260:context.push(
 # NotificationsScreen._opening guards every feed-row tap; push-tap dispatch is not a user tap.

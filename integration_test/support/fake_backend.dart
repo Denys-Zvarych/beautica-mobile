@@ -242,6 +242,14 @@ const Map<String, dynamic> _salonMasterUserJson = <String, dynamic>{
 /// is a top-level function).
 String? adminSalonIdOverride;
 
+/// Mirror of the backend's `ContactMask.invitePhone` (B520, AUTH-21 D3):
+/// `+380663334455` → `+380 •• ••• •• 55` — only the last two digits stay
+/// visible. Anything but `+380` + 9 digits → `null`, exactly as the backend.
+String? _invitePhoneMask(String? e164) {
+  if (e164 == null || !RegExp(r'^\+380\d{9}$').hasMatch(e164)) return null;
+  return '+380 •• ••• •• ${e164.substring(e164.length - 2)}';
+}
+
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
@@ -450,6 +458,7 @@ final class FakeBackend {
     this.registrationCodeVerifyFailure,
     this.registerFailure,
     this.appCheckToken,
+    this.checkCurrentPassword = false,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -470,7 +479,84 @@ final class FakeBackend {
     // are deliberately omitted: FakeBackend accepts any token and never replies
     // 401, and RefreshInterceptor would need a live refresh endpoint + retry
     // queue that no flow exercises.
-    dio.interceptors.add(ErrorMapperInterceptor());
+    //
+    // M517 (AUTH-D12) — with the SAME `onPhoneNotVerified` hook `dioProvider`
+    // passes (lib/core/network/dio_provider.dart), forwarded to
+    // [onPhoneNotVerified], which the E2E boot (`e2eProviderOverrides`) binds
+    // lazily to `authProvider.notifier.onPhoneNotVerified` — so the
+    // integration tier exercises the real 409 PHONE_NOT_VERIFIED wiring.
+    dio.interceptors.add(
+      ErrorMapperInterceptor(
+        onPhoneNotVerified: () => onPhoneNotVerified?.call(),
+      ),
+    );
+    // M517 QA — opt-in: the AUTH-D19 current-password check on the phone
+    // CHANGE / email verify steps, answered with the REAL 400
+    // CURRENT_PASSWORD_INVALID envelope through the production mapper. Off by
+    // default, so every other flow's chain is unchanged.
+    if (checkCurrentPassword) {
+      dio.interceptors.insert(
+        0,
+        InterceptorsWrapper(
+          onRequest: (RequestOptions options, RequestInterceptorHandler h) {
+            // A fresh code restarts its 5-try budget (AUTH-03 / AUTH-D19).
+            if (options.path.endsWith('/users/me/phone/otp/send')) {
+              _phoneCodeTries = 0;
+            } else if (options.path.endsWith('/users/me/email/request-code')) {
+              _emailCodeTries = 0;
+            }
+            final bool phoneChange =
+                options.path.endsWith('/users/me/phone/otp/verify') &&
+                mePhoneVerified == true;
+            final bool email = options.path.endsWith('/users/me/email/verify');
+            if (!phoneChange && !email) return h.next(options);
+            final Map<String, dynamic> body = _decodeBody(options.data);
+            void reject(Map<String, dynamic> data) {
+              (email ? notificationEmailVerifyBodies : userPhoneVerifyBodies)
+                  .add(body);
+              h.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response<Map<String, dynamic>>(
+                    requestOptions: options,
+                    statusCode: 400,
+                    data: data,
+                  ),
+                ),
+                true,
+              );
+            }
+
+            // The server's 5 tries per code (AUTH-D19): a wrong password
+            // counts as a failed try; once spent the code is gone — the phone
+            // path answers INVALID_CODE, the email path CODE_EXPIRED, whatever
+            // the password, until a new code is sent.
+            final int tries = email ? _emailCodeTries : _phoneCodeTries;
+            if (tries >= kCodeMaxTries) {
+              reject(<String, dynamic>{
+                'success': false,
+                'message': 'FAKE-400',
+                'data': <String, dynamic>{
+                  'code': email ? 'CODE_EXPIRED' : 'INVALID_CODE',
+                },
+              });
+              return;
+            }
+            if (body['currentPassword'] != kCurrentPassword) {
+              if (email) {
+                _emailCodeTries++;
+              } else {
+                _phoneCodeTries++;
+              }
+              reject(_currentPasswordInvalid());
+              return;
+            }
+            h.next(options);
+          },
+        ),
+      );
+    }
     // M515 QA — opt-in: the PRODUCTION [AppCheckInterceptor] with a fixed
     // token, followed by a recorder of what reached the wire. Off by default,
     // so every other flow's chain is unchanged.
@@ -1530,8 +1616,77 @@ final class FakeBackend {
   final bool loginEmailNotVerified;
 
   /// `POST /api/v1/auth/forgot-password` call count + the last requested email.
+  /// M517 — holds the `identifier` (phone or email as typed) when the app sent
+  /// one, else the legacy `email`.
   int forgotPasswordCalls = 0;
   String? lastForgotPasswordEmail;
+
+  // ── M517 (B516) — existing-user phone + notifications email ─────────────
+
+  /// Merged into EVERY `GET /api/v1/users/me` body when non-null (all `null`
+  /// by default, so every pre-M517 flow's body is byte-identical).
+  /// `mePhoneRequiredBy` + `mePhoneVerified: false` = a legacy account the
+  /// app must hold on the blocking add-phone step (AUTH-D12).
+  bool? mePhoneVerified;
+  String? mePhoneRequiredBy;
+  bool? meEmailVerified;
+
+  /// The confirmed notifications email, served as `email` once set.
+  String? meConfirmedEmail;
+
+  /// M517 QA — installs the AUTH-D19 current-password check (see the
+  /// constructor). Read at construction time.
+  final bool checkCurrentPassword;
+
+  /// The production `onPhoneNotVerified` hook of [dio]'s
+  /// [ErrorMapperInterceptor], bound by the E2E boot to
+  /// `authProvider.notifier.onPhoneNotVerified` (as `dioProvider` does).
+  void Function()? onPhoneNotVerified;
+
+  /// Tries one code allows (AUTH-03 / AUTH-D19), modelled by the opt-in
+  /// [checkCurrentPassword] check.
+  static const int kCodeMaxTries = 5;
+
+  /// Failed tries on the live phone-change / email code ([kCodeMaxTries]);
+  /// reset by a new `phone/otp/send` / `email/request-code`.
+  int _phoneCodeTries = 0;
+  int _emailCodeTries = 0;
+
+  /// The current password the phone-change / email verify steps accept
+  /// (AUTH-D19); anything else is 400 CURRENT_PASSWORD_INVALID.
+  static const String kCurrentPassword = 'Secret1234';
+
+  /// `POST /api/v1/users/me/phone/otp/send` phones, in order.
+  final List<String> userPhoneSendCalls = <String>[];
+
+  /// `POST /api/v1/users/me/phone/otp/verify` bodies, in order.
+  final List<Map<String, dynamic>> userPhoneVerifyBodies =
+      <Map<String, dynamic>>[];
+
+  /// `POST /api/v1/users/me/email/request-code` emails, in order.
+  final List<String> notificationEmailRequestCalls = <String>[];
+
+  /// `POST /api/v1/users/me/email/verify` bodies, in order.
+  final List<Map<String, dynamic>> notificationEmailVerifyBodies =
+      <Map<String, dynamic>>[];
+
+  /// The phone confirmed by the last successful phone verify.
+  String? lastConfirmedPhone;
+
+  static Map<String, dynamic> _currentPasswordInvalid() => <String, dynamic>{
+    'success': false,
+    'message': 'FAKE-400',
+    'data': <String, dynamic>{'code': 'CURRENT_PASSWORD_INVALID'},
+  };
+
+  /// The M517 fields merged into `GET /users/me` (see [mePhoneVerified]).
+  Map<String, dynamic> _m517MeFields() => <String, dynamic>{
+    'phoneVerified': ?mePhoneVerified,
+    'phoneRequiredBy': ?mePhoneRequiredBy,
+    'emailVerified': ?meEmailVerified,
+    'email': ?meConfirmedEmail,
+    'phoneNumber': ?lastConfirmedPhone,
+  };
 
   /// `POST /api/v1/auth/verify-password-reset-otp` call count + the last
   /// email/code submitted. Always succeeds with [resetTicketToIssue] unless
@@ -8290,9 +8445,13 @@ final class FakeBackend {
     // dropped-`salonId` regression could only ever be caught by hand.
     //
     // Branches on [currentRole] exactly like login/accept do, so the invited
-    // email the preview shows and the persona the accept envelope returns are
-    // the SAME account — an E2E that showed one address and signed in as
+    // phone the preview shows and the persona the accept envelope returns are
+    // the SAME account — an E2E that showed one number and signed in as
     // another would be pinning nothing.
+    //
+    // B520 (`InvitePreviewResponse`) replaced `invitedEmail` with
+    // `phoneMasked`, masked by the backend's `ContactMask.invitePhone`
+    // (see [_invitePhoneMask]).
     //
     // `expiresAt` is anchored to [kFixedNow], NOT `DateTime.now()`: the screen
     // renders `expiresInHoursFrom(ref.watch(clockProvider)())`, and the harness
@@ -8308,7 +8467,7 @@ final class FakeBackend {
         );
         final user = userJsonForRole(currentRole);
         return _ok(<String, dynamic>{
-          'invitedEmail': user['email'],
+          'phoneMasked': _invitePhoneMask(user['phoneNumber'] as String?),
           'role': user['role'],
           'expiresAt': kFixedNow
               .add(const Duration(hours: 48))
@@ -8481,7 +8640,9 @@ final class FakeBackend {
       (server) =>
           server.replyCallback(forgotPasswordFailureStatusCode ?? 200, (req) {
             forgotPasswordCalls++;
-            lastForgotPasswordEmail = _decodeBody(req.data)['email'] as String?;
+            final Map<String, dynamic> forgotBody = _decodeBody(req.data);
+            lastForgotPasswordEmail =
+                (forgotBody['identifier'] ?? forgotBody['email']) as String?;
             if (forgotPasswordFailureStatusCode != null) {
               // The rate-limit FILTER's own body — deliberately NOT the
               // `{success,message,data}` envelope the controllers use.
@@ -8499,7 +8660,8 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         verifyPasswordResetOtpCalls++;
         final body = _decodeBody(req.data);
-        lastVerifyPasswordResetOtpEmail = body['email'] as String?;
+        lastVerifyPasswordResetOtpEmail =
+            (body['identifier'] ?? body['email']) as String?;
         lastVerifyPasswordResetOtpCode = body['code'] as String?;
         return _ok(<String, dynamic>{'resetTicket': resetTicketToIssue});
       }),
@@ -8616,7 +8778,7 @@ final class FakeBackend {
         // last successful `/media/avatar` write; OMITTED while none happened,
         // so every pre-existing flow's body is byte-identical.
         final String? avatar = mediaAvatarUrl;
-        return switch (currentRole) {
+        final Map<String, dynamic> reply = switch (currentRole) {
           UserRole.client => _ok(<String, dynamic>{
             ..._clientProfileBody(),
             'avatarUrl': ?avatar,
@@ -8648,8 +8810,76 @@ final class FakeBackend {
             'avatarUrl': ?avatar,
           }),
         };
+        // M517 — phone / email verification state (empty by default).
+        final Object? data = reply['data'];
+        if (data is Map<String, dynamic>) data.addAll(_m517MeFields());
+        return reply;
       }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/phone/otp/send: 200 for any number.
+    _adapter.onRoute(
+      '/api/v1/users/me/phone/otp/send',
+      (server) => server.replyCallback(200, (req) {
+        userPhoneSendCalls.add(_decodeBody(req.data)['phone'] as String? ?? '');
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/phone/otp/verify. Success marks the
+    // phone verified and clears `phoneRequiredBy` on the next /users/me. The
+    // current-password check (AUTH-D19) is the opt-in [checkCurrentPassword]
+    // interceptor — a reply callback cannot choose its status.
+    _adapter.onRoute(
+      '/api/v1/users/me/phone/otp/verify',
+      (server) => server.replyCallback(200, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        userPhoneVerifyBodies.add(body);
+        lastConfirmedPhone = body['phone'] as String?;
+        // The confirmed number replaces the account's phone (B516 — the
+        // only write path for a different number), so the next profile read
+        // of the signed-in role returns it.
+        switch (currentRole) {
+          case UserRole.client:
+            clientPhone = lastConfirmedPhone;
+          case UserRole.salonAdmin:
+            adminPhone = lastConfirmedPhone;
+          default:
+            masterPhone = lastConfirmedPhone;
+        }
+        mePhoneVerified = true;
+        mePhoneRequiredBy = null;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/email/request-code.
+    _adapter.onRoute(
+      '/api/v1/users/me/email/request-code',
+      (server) => server.replyCallback(200, (req) {
+        notificationEmailRequestCalls.add(
+          _decodeBody(req.data)['email'] as String? ?? '',
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/email/verify: success stores the
+    // email (password check: [checkCurrentPassword]).
+    _adapter.onRoute(
+      '/api/v1/users/me/email/verify',
+      (server) => server.replyCallback(200, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        notificationEmailVerifyBodies.add(body);
+        meConfirmedEmail = body['email'] as String?;
+        meEmailVerified = true;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
     // GET /api/v1/salons/mine — Phase 21.1 My Salons Hub (the SALON_OWNER

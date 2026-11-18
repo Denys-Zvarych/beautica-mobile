@@ -81,6 +81,20 @@ abstract final class StorageKeys {
   /// means ON (the decided default). Per-DEVICE: survives logout.
   static const String diagnosticsEnabled = 'diagnostics.enabled';
 
+  /// M517 (AUTH-D17) — the email-prompt state, JSON `{userId: {...}}`: per
+  /// user id, whether the client booking-success card was shown and when the
+  /// provider home card was hidden. Device-local by design (B516 D7) and
+  /// per-DEVICE: survives logout ([deviceScoped]) so «shown once» holds across
+  /// a re-login. Opaque user ids + an instant, no contact data.
+  static const String emailPrompts = 'BEAUTICA_EMAIL_PROMPTS';
+
+  /// M517 (AUTH-D19) — the client-side current-password lockout tally, JSON
+  /// `{userId: {failures, lastFailureAt}}`: per user id, so a second account
+  /// never inherits it. Per-DEVICE ([deviceScoped]), like [emailPrompts]: a
+  /// logout + re-login inside the 15-minute window must not reset it. Opaque
+  /// user ids + a count + an instant, no credential or contact data.
+  static const String passwordLockout = 'BEAUTICA_PASSWORD_LOCKOUT';
+
   /// Keys that belong to the DEVICE, not the account: [SecureStorage.deleteAll]
   /// restores them after the wipe. ONE mechanism for every such flag.
   static const List<String> deviceScoped = <String>[
@@ -88,5 +102,7 @@ abstract final class StorageKeys {
     pushRevokePending,
     diagnosticsInstallId,
     diagnosticsEnabled,
+    emailPrompts,
+    passwordLockout,
   ];
 }

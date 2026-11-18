@@ -1378,4 +1378,95 @@ void main() {
       expect(mapped(403, send, 'SOMETHING_ELSE'), isNull);
     });
   });
+
+  // M517 (B516) — signed-in phone add / change, notifications email, the
+  // current-password check and the server phone gate.
+  group('M517 contact + phone-gate mapping', () {
+    Map<String, dynamic> body(String code) => <String, dynamic>{
+      'success': false,
+      'data': <String, dynamic>{'code': code},
+    };
+    Object? mapped(int status, String path, String? code) => _captureRejected(
+      _httpError(status, path: path, body: code == null ? null : body(code)),
+    ).error;
+
+    const String phoneSend = '/api/v1/users/me/phone/otp/send';
+    const String phoneVerify = '/api/v1/users/me/phone/otp/verify';
+    const String emailRequest = '/api/v1/users/me/email/request-code';
+    const String emailVerify = '/api/v1/users/me/email/verify';
+
+    test('400 CURRENT_PASSWORD_INVALID → CurrentPasswordInvalidFailure on '
+        'both verify paths (never 401 → never a refresh / logout)', () {
+      expect(
+        mapped(400, phoneVerify, 'CURRENT_PASSWORD_INVALID'),
+        isA<CurrentPasswordInvalidFailure>(),
+      );
+      expect(
+        mapped(400, emailVerify, 'CURRENT_PASSWORD_INVALID'),
+        isA<CurrentPasswordInvalidFailure>(),
+      );
+    });
+
+    test(
+      'phone verify INVALID_CODE + send 429 map to PhoneIdentityFailure',
+      () {
+        final Object? code = mapped(400, phoneVerify, 'INVALID_CODE');
+        expect(
+          code is PhoneIdentityFailure ? code.code : null,
+          PhoneIdentityErrorCode.invalidCode,
+        );
+        final Object? limited = mapped(429, phoneSend, null);
+        expect(
+          limited is PhoneIdentityFailure ? limited.code : null,
+          PhoneIdentityErrorCode.rateLimited,
+        );
+      },
+    );
+
+    test('email verify INVALID_CODE / CODE_EXPIRED → VerificationFailure; '
+        'email request 429 → ResendThrottledFailure', () {
+      final Object? invalid = mapped(400, emailVerify, 'INVALID_CODE');
+      expect(
+        invalid is VerificationFailure ? invalid.code : null,
+        VerificationErrorCode.invalidCode,
+      );
+      final Object? expired = mapped(400, emailVerify, 'CODE_EXPIRED');
+      expect(
+        expired is VerificationFailure ? expired.code : null,
+        VerificationErrorCode.codeExpired,
+      );
+      expect(mapped(429, emailRequest, null), isA<ResendThrottledFailure>());
+    });
+
+    test('409 PHONE_NOT_VERIFIED → PhoneNotVerifiedFailure and fires the '
+        'gate hook exactly once; other 409s do not', () {
+      int calls = 0;
+      final List<DioException> rejected = <DioException>[];
+      final handler = _MockErrorInterceptorHandler();
+      when(() => handler.reject(any())).thenAnswer((inv) {
+        rejected.add(inv.positionalArguments.first as DioException);
+      });
+      final ErrorMapperInterceptor mapper = ErrorMapperInterceptor(
+        onPhoneNotVerified: () => calls++,
+      );
+
+      mapper.onError(
+        _httpError(
+          409,
+          path: '/api/v1/appointments',
+          body: body('PHONE_NOT_VERIFIED'),
+        ),
+        handler,
+      );
+      expect(rejected.single.error, isA<PhoneNotVerifiedFailure>());
+      expect(calls, 1);
+
+      mapper.onError(
+        _httpError(409, path: '/api/v1/appointments', body: body('SLOT_TAKEN')),
+        handler,
+      );
+      expect(rejected.last.error, isNot(isA<PhoneNotVerifiedFailure>()));
+      expect(calls, 1);
+    });
+  });
 }

@@ -57,6 +57,7 @@ import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/theme/app_theme.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/notifications/presentation/push_tap_dispatcher.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
@@ -262,7 +263,13 @@ List<Object> e2eProviderOverrides({
   DiagnosticsStore? diagnostics,
 }) {
   return <Object>[
-    dioProvider.overrideWithValue(fakeBackend.dio),
+    // Bound like `dioProvider`'s ErrorMapperInterceptor hook (M517 AUTH-D12):
+    // read lazily, so there is no construction cycle.
+    dioProvider.overrideWith((Ref ref) {
+      fakeBackend.onPhoneNotVerified = () =>
+          ref.read(authProvider.notifier).onPhoneNotVerified();
+      return fakeBackend.dio;
+    }),
     secureStorageProvider.overrideWithValue(storage),
     clockProvider.overrideWithValue(clock ?? () => kFixedNow),
     diagnosticsStoreProvider.overrideWithValue(

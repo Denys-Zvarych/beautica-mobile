@@ -57,6 +57,7 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/email_prompts.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
@@ -128,7 +129,15 @@ class _SalonBookingSuccessScreenState
     // PRODUCT DECISION on `PublicSalonProfileScreen` — do not remove in a
     // future audit pass.
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    // M517 (AUTH-D17 b, CLI-D09) — the once-ever email card after a CLIENT's
+    // booking (this flow is client-only).
+    claimClientEmailPrompt(ref).then((bool show) {
+      if (show && mounted) setState(() => _showEmailCard = true);
+    });
   }
+
+  /// M517 — whether the email card is in the recap (see [initState]).
+  bool _showEmailCard = false;
 
   @override
   void dispose() {
@@ -301,6 +310,10 @@ class _SalonBookingSuccessScreenState
             ],
           ),
         ),
+        if (_showEmailCard)
+          ClientEmailPromptCard(
+            onDismiss: () => setState(() => _showEmailCard = false),
+          ),
       ],
       // PAGED — one master's confirmed recap, with its OWN «Додати в
       // календар» button mounted INSIDE the shared card via

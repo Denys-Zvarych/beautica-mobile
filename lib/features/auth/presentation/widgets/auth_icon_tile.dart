@@ -2,9 +2,10 @@
 // wizard step inlined as a byte-identical `Center > Container` (register steps
 // 1 / 2, verification, reset OTP). One widget, so a fix lands on every step.
 //
-// Rewired now: the phone-first wizard steps (phone, code, password, name).
-// The verification / reset-OTP screens keep their inline copy until M517
-// touches them (no golden covers them yet to prove the swap pixel-identical).
+// Rewired: the phone-first wizard steps (phone, code, password, name) in M515;
+// the verification + reset-OTP screens and the M517 add-phone step in M517
+// (their inline copies were byte-identical: same 72 dp box, radius, shadow,
+// 30 dp camel glyph).
 
 import 'package:flutter/material.dart';
 

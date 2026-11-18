@@ -75,17 +75,11 @@ final class AuthApiProvider
 
 String _$authApiHash() => r'0f810d973d538c31f9fd0faa2d3b6bda20423c1b';
 
-/// Provides the generated [UserControllerApi] singleton.
-///
-/// Same Dio instance and serializers as [authApiProvider].
 /// M515 (B514) — `POST /auth/register/phone/otp/{send,verify}`.
 
 @ProviderFor(registrationPhoneApi)
 final registrationPhoneApiProvider = RegistrationPhoneApiProvider._();
 
-/// Provides the generated [UserControllerApi] singleton.
-///
-/// Same Dio instance and serializers as [authApiProvider].
 /// M515 (B514) — `POST /auth/register/phone/otp/{send,verify}`.
 
 final class RegistrationPhoneApiProvider
@@ -96,9 +90,6 @@ final class RegistrationPhoneApiProvider
           RegistrationPhoneControllerApi
         >
     with $Provider<RegistrationPhoneControllerApi> {
-  /// Provides the generated [UserControllerApi] singleton.
-  ///
-  /// Same Dio instance and serializers as [authApiProvider].
   /// M515 (B514) — `POST /auth/register/phone/otp/{send,verify}`.
   RegistrationPhoneApiProvider._()
     : super(
@@ -139,8 +130,71 @@ final class RegistrationPhoneApiProvider
 String _$registrationPhoneApiHash() =>
     r'60f5dcd4a59d52be0fde3a6d5baa1e7dcc99308c';
 
+/// M517 (B516) — `POST /users/me/phone/otp/{send,verify}` and
+/// `POST /users/me/email/{request-code,verify}`.
+
+@ProviderFor(userContactApi)
+final userContactApiProvider = UserContactApiProvider._();
+
+/// M517 (B516) — `POST /users/me/phone/otp/{send,verify}` and
+/// `POST /users/me/email/{request-code,verify}`.
+
+final class UserContactApiProvider
+    extends
+        $FunctionalProvider<
+          UserContactControllerApi,
+          UserContactControllerApi,
+          UserContactControllerApi
+        >
+    with $Provider<UserContactControllerApi> {
+  /// M517 (B516) — `POST /users/me/phone/otp/{send,verify}` and
+  /// `POST /users/me/email/{request-code,verify}`.
+  UserContactApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'userContactApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$userContactApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<UserContactControllerApi> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  UserContactControllerApi create(Ref ref) {
+    return userContactApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(UserContactControllerApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<UserContactControllerApi>(value),
+    );
+  }
+}
+
+String _$userContactApiHash() => r'737728d0302a4cc5c6b9d3b8837309ae9b0dd42c';
+
+/// Provides the generated [UserControllerApi] singleton.
+///
+/// Same Dio instance and serializers as [authApiProvider].
+
 @ProviderFor(userApi)
 final userApiProvider = UserApiProvider._();
+
+/// Provides the generated [UserControllerApi] singleton.
+///
+/// Same Dio instance and serializers as [authApiProvider].
 
 final class UserApiProvider
     extends
@@ -150,6 +204,9 @@ final class UserApiProvider
           UserControllerApi
         >
     with $Provider<UserControllerApi> {
+  /// Provides the generated [UserControllerApi] singleton.
+  ///
+  /// Same Dio instance and serializers as [authApiProvider].
   UserApiProvider._()
     : super(
         from: null,

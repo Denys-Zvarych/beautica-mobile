@@ -49,6 +49,15 @@ final RegExp _secretKv = RegExp(
   r'''(?<![A-Za-z])((?:password|pin|token|refresh|secret|registration_?ticket|ticket|identifier)\w{0,32})["']?\s*[:=]\s*(?:"[^"]*"?|'[^']*'?|\S+)''',
   caseSensitive: false,
 );
+// camelCase keys (`currentPassword: x`, `"newPassword":"x"`,
+// `refreshToken=…`): a lowercase word prefix, then the keyword starting with
+// an UPPERCASE letter (the camel hump), in Title or UPPER case. A separate,
+// case-SENSITIVE regex because [_secretKv] is case-insensitive and Dart has no
+// inline `(?-i)`: folding a `[a-z]+` prefix into it would also redact
+// `spinner: 1234`. Prefix and suffix bounded (linear, see [_secretKv]).
+final RegExp _secretKvCamel = RegExp(
+  r'''(?<![A-Za-z])([a-z][a-z0-9]{0,31}(?:Password|PASSWORD|Pin|PIN|Token|TOKEN|Refresh|REFRESH|Secret|SECRET|RegistrationTicket|REGISTRATION_?TICKET|Ticket|TICKET|Identifier|IDENTIFIER)\w{0,32})["']?\s*[:=]\s*(?:"[^"]*"?|'[^']*'?|\S+)''',
+);
 // `PIN 482913`: a bare pin keyword, whitespace, then 4+ digits.
 final RegExp _pinSpaced = RegExp(
   r'(?<![A-Za-z])(pin)\s+\d{4,}',
@@ -117,6 +126,7 @@ String redactText(String input) {
   s = s.replaceAll(_bearer, 'Bearer [redacted]');
   s = _redactPaths(s);
   s = s.replaceAllMapped(_secretKv, (Match m) => '${m[1]}=[redacted]');
+  s = s.replaceAllMapped(_secretKvCamel, (Match m) => '${m[1]}=[redacted]');
   s = s.replaceAllMapped(_pinSpaced, (Match m) => '${m[1]} [redacted]');
   s = s.replaceAll(_email, '[email]');
   s = s.replaceAllMapped(_otp, (Match m) => '${m[1]}${m[2]}[otp]');

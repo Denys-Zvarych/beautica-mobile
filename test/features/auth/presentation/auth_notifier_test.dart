@@ -2678,6 +2678,86 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // M517 — a confirmed phone refreshes the session (drops the add-phone
+    //        gate); a burst of 409 PHONE_NOT_VERIFIED refreshes ONCE.
+    // -----------------------------------------------------------------------
+    test('M517 verifyPhoneCode refreshes the session user', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final User gated = testUser.copyWith(
+        phoneVerified: false,
+        phoneRequiredBy: '2026-11-18',
+      );
+      final User confirmed = gated.copyWith(
+        phoneNumber: '+380931112233',
+        phoneVerified: true,
+        phoneRequiredBy: null,
+      );
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      var meCalls = 0;
+      when(() => repo.me()).thenAnswer((_) async {
+        meCalls++;
+        return meCalls == 1 ? gated : confirmed;
+      });
+      when(
+        () => repo.verifyPhoneCode(
+          phone: any(named: 'phone'),
+          code: any(named: 'code'),
+          currentPassword: any(named: 'currentPassword'),
+        ),
+      ).thenAnswer((_) async {});
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+      expect(
+        (container.read(authProvider).value as Authenticated).user.mustAddPhone,
+        isTrue,
+      );
+
+      await container
+          .read(authProvider.notifier)
+          .verifyPhoneCode(phone: '+380931112233', code: '123456');
+
+      final session = container.read(authProvider).value as Authenticated;
+      expect(session.user.mustAddPhone, isFalse);
+      verify(
+        () => repo.verifyPhoneCode(
+          phone: '+380931112233',
+          code: '123456',
+          currentPassword: null,
+        ),
+      ).called(1);
+    });
+
+    test('M517 onPhoneNotVerified is single-flight over a 409 burst', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+      clearInteractions(repo);
+
+      final AuthNotifier n = container.read(authProvider.notifier);
+      await Future.wait(<Future<void>>[
+        n.onPhoneNotVerified(),
+        n.onPhoneNotVerified(),
+        n.onPhoneNotVerified(),
+      ]);
+      verify(() => repo.me()).called(1);
+
+      await n.onPhoneNotVerified();
+      verify(() => repo.me()).called(1);
+    });
+
+    // -----------------------------------------------------------------------
     // Test 14 — register passes businessName through to the repository
     // -----------------------------------------------------------------------
     test(
@@ -3347,7 +3427,7 @@ void main() {
 
         when(
           () => repo.verifyPasswordResetOtp(
-            email: any(named: 'email'),
+            identifier: any(named: 'identifier'),
             code: any(named: 'code'),
           ),
         ).thenAnswer((_) async => 'ticket-xyz');
@@ -3358,14 +3438,17 @@ void main() {
 
         final ticket = await container
             .read(authProvider.notifier)
-            .verifyPasswordResetOtp(email: 'anya@example.com', code: '123456');
+            .verifyPasswordResetOtp(
+              identifier: 'anya@example.com',
+              code: '123456',
+            );
 
         expect(ticket, 'ticket-xyz');
         // Pure request/response — no session side-effect (unlike verifyEmail).
         expect(container.read(authProvider).value, equals(stateBefore));
         verify(
           () => repo.verifyPasswordResetOtp(
-            email: 'anya@example.com',
+            identifier: 'anya@example.com',
             code: '123456',
           ),
         ).called(1);
@@ -3378,7 +3461,7 @@ void main() {
 
       when(
         () => repo.verifyPasswordResetOtp(
-          email: any(named: 'email'),
+          identifier: any(named: 'identifier'),
           code: any(named: 'code'),
         ),
       ).thenThrow(
@@ -3393,7 +3476,10 @@ void main() {
       await expectLater(
         () => container
             .read(authProvider.notifier)
-            .verifyPasswordResetOtp(email: 'anya@example.com', code: '000000'),
+            .verifyPasswordResetOtp(
+              identifier: 'anya@example.com',
+              code: '000000',
+            ),
         throwsA(isA<PasswordResetOtpFailure>()),
       );
     });

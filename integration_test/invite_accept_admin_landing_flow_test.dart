@@ -87,10 +87,12 @@ import 'support/app_harness.dart';
 /// resolve off the session alone, never off `mySalonsProvider`.
 const String _kAdminSalonId = 'salon-admin-1';
 
-/// `_adminUserJson.email` — the address the fake reports as the INVITEE and the
-/// address the accept envelope signs in as. Asserted on-screen by value so a
-/// preview wired to the wrong `InvitePreviewResponse` key cannot pass.
-const String _kInvitedEmail = 'admin@beautica.ua';
+/// `_adminUserJson.phoneNumber` (`+380663334455`) masked the way the backend's
+/// `ContactMask.invitePhone` masks it (B520 `InvitePreviewResponse.phoneMasked`)
+/// — the INVITEE the preview shows; the accept envelope signs in as the same
+/// persona. Asserted on-screen by value so a preview wired to the wrong
+/// `InvitePreviewResponse` key cannot pass.
+const String _kInvitedPhoneMasked = '+380 •• ••• •• 55';
 
 /// The single-use token the deep link carries. Asserted to have reached the
 /// wire — a screen reading the wrong query key would still render a normal form
@@ -159,9 +161,9 @@ void main() {
           tester.element(find.byType(AcceptInviteScreen)),
         );
         expect(
-          find.text(_kInvitedEmail),
+          find.text(_kInvitedPhoneMasked),
           findsOneWidget,
-          reason: 'the invited address the user reported seeing, by VALUE',
+          reason: 'the masked invitee phone (B520 phoneMasked), by VALUE',
         );
         expect(
           find.text(UserRole.salonAdmin.label(l10n)),

@@ -265,6 +265,9 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // statements about the request (wrong code, used ticket, failed
   // attestation), never re-issued blindly.
   PhoneIdentityFailure() => false,
+  // M517 — wrong current password / unverified-phone gate: deterministic.
+  CurrentPasswordInvalidFailure() => false,
+  PhoneNotVerifiedFailure() => false,
   ProviderMissingCityFailure() => false,
   CategoryAlreadyExistsFailure() => false,
   SupportAttachmentTooLargeFailure() => false,

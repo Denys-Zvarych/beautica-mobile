@@ -74,6 +74,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/email_prompts.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/booking_links_provider.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
@@ -639,6 +640,11 @@ class _LoadedBody extends StatelessWidget {
                 embedded: embedded,
                 onOpenSettings: onOpenSettings,
                 canEditMedia: canEditMedia,
+              ),
+              // M517 (AUTH-D17 c) — the provider email card, under the salon
+              // header card (zero-size unless due).
+              const ProviderEmailPromptCard(
+                padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
               ),
               const SizedBox(height: VelvetSpacing.lg),
               Padding(

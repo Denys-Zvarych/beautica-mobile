@@ -48,8 +48,8 @@
 // only fires on the 0↔1 boundary).
 //
 // PII screens call `ref.read(screenProtectionProvider).acquire()` in initState
-// and `.release()` in dispose. Non-PII screens (settings hub, account page)
-// must NOT acquire.
+// and `.release()` in dispose. Non-PII screens (account page) must NOT
+// acquire. The settings hubs acquire since M517 — they show the confirmed email.
 
 import 'dart:developer';
 

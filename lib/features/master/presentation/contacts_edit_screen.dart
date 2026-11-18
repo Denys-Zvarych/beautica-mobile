@@ -35,12 +35,14 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
+import 'package:beautica_mobile/features/auth/presentation/phone_change_flow.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
+import 'package:beautica_mobile/shared/validators/identifier_classifier.dart';
 
 import 'master_profile_notifier.dart';
 import 'master_role_routes.dart';
@@ -279,41 +281,63 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
       return;
     }
 
+    // M517 (AUTH-D13 / AUTH-D19) — a DIFFERENT number goes through the SMS
+    // code + current password step (a profile PATCH may no longer change it,
+    // B516); the old number stays until the new one is confirmed. Only a
+    // Ukrainian mobile is accepted (AUTH-D15).
+    // An untouched field (even a legacy non-UA value) is not re-validated.
+    final String typedPhone = _phone.text.trim();
+    final String? newPhone = normalizeUaMobile(typedPhone);
+    if (typedPhone != _origPhone && newPhone == null) {
+      setState(
+        () => _errPhone = AppLocalizations.of(context).errPhoneNotUaMobile,
+      );
+      return;
+    }
+    final bool phoneChanged =
+        newPhone != null &&
+        typedPhone != _origPhone &&
+        newPhone != normalizeUaMobile(_origPhone);
+    final bool instagramChanged =
+        widget.showInstagram && _instagram.text.trim() != _origInstagram;
+
     setState(() => _saving = true);
 
     try {
-      // CRITICAL: merge phone + instagram onto the cached name + bio so the
-      // PATCH never clears the firstName/lastName/bio fields this page does not
-      // edit. When [ContactsEditScreen.showInstagram] is false the Instagram
-      // field is never rendered/edited — send the cached value verbatim so a
-      // SALON_MASTER's phone-only save never clears it.
-      //
-      // `masterType: cached.type` also picks the endpoint that actually
-      // admits the caller's role — see [HttpMasterRepository.updateMyProfile]'s
-      // doc. Without it, this shared screen sent every SALON_MASTER save to
-      // the INDEPENDENT_MASTER-only endpoint, which 403'd.
-      await ref
-          .read(masterRepositoryProvider)
-          .updateMyProfile(
-            MasterUpdate(
-              firstName: cached.firstName,
-              lastName: cached.lastName,
-              bio: cached.bio ?? '',
-              contactPhone: _phone.text.trim(),
-              instagram: widget.showInstagram
-                  ? _instagram.text.trim()
-                  : (cached.instagram ?? ''),
-              // Preserve the cached professional title — this page does not
-              // edit it; passing '' would clear it server-side.
-              professionalTitle: cached.professionalTitle ?? '',
-              masterType: cached.type,
-            ),
-          );
+      // Instagram (or a re-spelled same number) still saves through the
+      // profile PATCH — with the ORIGINAL phone when the number changes, so
+      // the PATCH never asks the server to swap it.
+      if (!phoneChanged || instagramChanged) {
+        await _patchProfile(
+          cached,
+          phone: phoneChanged ? _origPhone : _phone.text.trim(),
+        );
+        if (!mounted) return;
+        _origInstagram = _instagram.text.trim();
+      }
+      if (phoneChanged) {
+        final bool changed = await runPhoneChangeFlow(
+          context,
+          ref,
+          normalizedPhone: newPhone,
+        );
+        if (!mounted) return;
+        if (!changed) {
+          // Backed out of the code step: an Instagram edit above is saved,
+          // the number is not.
+          if (instagramChanged) ref.invalidate(masterProfileProvider);
+          _dirty.value = _isDirty;
+          return;
+        }
+      }
 
       if (!mounted) return;
       ref.invalidate(masterProfileProvider);
       showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
       context.go(masterHomeRouteFor(cached.type));
+    } on PhoneIdentityFailure catch (f) {
+      if (!mounted) return;
+      setState(() => _errPhone = f.userMessage(context));
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -348,6 +372,36 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
     } finally {
       if (mounted && _saving) setState(() => _saving = false);
     }
+  }
+
+  Future<void> _patchProfile(Master cached, {required String phone}) {
+    // CRITICAL: merge phone + instagram onto the cached name + bio so the
+    // PATCH never clears the firstName/lastName/bio fields this page does not
+    // edit. When [ContactsEditScreen.showInstagram] is false the Instagram
+    // field is never rendered/edited — send the cached value verbatim so a
+    // SALON_MASTER's phone-only save never clears it.
+    //
+    // `masterType: cached.type` also picks the endpoint that actually
+    // admits the caller's role — see [HttpMasterRepository.updateMyProfile]'s
+    // doc. Without it, this shared screen sent every SALON_MASTER save to
+    // the INDEPENDENT_MASTER-only endpoint, which 403'd.
+    return ref
+        .read(masterRepositoryProvider)
+        .updateMyProfile(
+          MasterUpdate(
+            firstName: cached.firstName,
+            lastName: cached.lastName,
+            bio: cached.bio ?? '',
+            contactPhone: phone,
+            instagram: widget.showInstagram
+                ? _instagram.text.trim()
+                : (cached.instagram ?? ''),
+            // Preserve the cached professional title — this page does not
+            // edit it; passing '' would clear it server-side.
+            professionalTitle: cached.professionalTitle ?? '',
+            masterType: cached.type,
+          ),
+        );
   }
 
   @override
@@ -422,7 +476,13 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
                     ],
                     hint: '+380 __ ___ __ __',
                     errorText: _errPhone,
-                    helperText: l10n.phonePrivacyNote,
+                    // M517 — the new number is confirmed by SMS; the
+                    // current one stays in force until then.
+                    helperText: _origPhone.isEmpty
+                        ? l10n.registerPhoneHelper
+                        : l10n.contactsPhoneChangeHelper(
+                            UaPhoneInputFormatter.display(_origPhone),
+                          ),
                     onChanged: (v) {
                       _clearServerError('phoneNumber');
                       field.didChange(v);

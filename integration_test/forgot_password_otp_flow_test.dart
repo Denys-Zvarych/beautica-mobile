@@ -50,7 +50,7 @@ void main() {
 
       // ── Step 2 — submit email → POST /auth/forgot-password ───────────────
       await tester.enterText(
-        find.byKey(const ValueKey<String>('forgot_email')),
+        find.byKey(const ValueKey<String>('forgot_identifier')),
         _kEmail,
       );
       await tester.pump();

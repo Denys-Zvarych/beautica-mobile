@@ -28,8 +28,15 @@
 // still holds: the backend always returns a generic 200 regardless of
 // whether the account exists, so navigation itself reveals nothing).
 //
+// M517 (AUTH-D18) — ONE «Телефон або email» identifier field, like login
+// (preview docs/signup-designs/PhoneFirstAuth/lib/screens/
+// forgot_password_screen.dart): «@» = email rules, anything else = the
+// Ukrainian-mobile rule; the normalised identifier goes to
+// `POST /auth/forgot-password` as `identifier`. The next screen never names
+// the channel. No email hint (removed at design review 2026-11-18).
+//
 // Widget keys (ValueKey<String>):
-//   'forgot_email'         — email NeumorphicTextField
+//   'forgot_identifier'    — phone-or-email NeumorphicTextField
 //   'forgot_submit'        — send CTA
 //   'auth_scaffold_back'   — top-left back button (AuthScaffold)
 
@@ -47,7 +54,7 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
-import '../../../shared/validators/email_validator.dart';
+import '../../../shared/validators/identifier_classifier.dart';
 import 'auth_notifier.dart';
 import 'widgets/auth_scaffold.dart';
 
@@ -70,7 +77,7 @@ class ForgotPasswordRequestScreen extends ConsumerStatefulWidget {
 
 class _ForgotPasswordRequestScreenState
     extends ConsumerState<ForgotPasswordRequestScreen> {
-  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _identifierController = TextEditingController();
 
   /// True while a forgot-password request is in flight.
   bool _submitting = false;
@@ -94,7 +101,7 @@ class _ForgotPasswordRequestScreenState
   @override
   void dispose() {
     _screenProtection.release();
-    _emailController.dispose();
+    _identifierController.dispose();
     super.dispose();
   }
 
@@ -104,20 +111,23 @@ class _ForgotPasswordRequestScreenState
     if (_submitting) return;
 
     final l10n = AppLocalizations.of(context);
-    final emailError = validateEmail(_emailController.text.trim(), l10n);
-    if (emailError != null) {
-      setState(() => _inlineError = emailError);
+    final identifierError = validateIdentifier(
+      _identifierController.text,
+      l10n,
+    );
+    if (identifierError != null) {
+      setState(() => _inlineError = identifierError);
       return;
     }
 
-    final email = _emailController.text.trim();
+    final identifier = normalizeIdentifier(_identifierController.text);
     setState(() {
       _submitting = true;
       _inlineError = null;
     });
 
     try {
-      await ref.read(authProvider.notifier).requestPasswordReset(email);
+      await ref.read(authProvider.notifier).requestPasswordReset(identifier);
       if (!mounted) return;
       if (kDebugMode) {
         log(
@@ -126,7 +136,7 @@ class _ForgotPasswordRequestScreenState
           level: 800,
         );
       }
-      await context.push(RouteNames.resetOtpVerification, extra: email);
+      await context.push(RouteNames.resetOtpVerification, extra: identifier);
       // Reset the in-flight flag on return (e.g. the user swipes back to
       // this screen) so a second submit is not silently disabled.
       if (mounted) setState(() => _submitting = false);
@@ -168,9 +178,9 @@ class _ForgotPasswordRequestScreenState
       onBack: _backToLogin,
       bottomBar: NeumorphicButton(
         key: const ValueKey<String>('forgot_submit'),
-        label: l10n.forgotPasswordSubmit,
+        label: l10n.registerSendCode,
         loading: _submitting,
-        onPressed: (_submitting || _emailController.text.trim().isEmpty)
+        onPressed: (_submitting || _identifierController.text.trim().isEmpty)
             ? null
             : _submit,
       ),
@@ -180,18 +190,21 @@ class _ForgotPasswordRequestScreenState
           const VelvetHeader(),
           Text(l10n.forgotPasswordHeadline, style: VelvetText.heading()),
           const SizedBox(height: VelvetSpacing.sm),
-          Text(l10n.forgotPasswordSubText, style: VelvetText.body()),
+          Text(l10n.forgotPasswordIdentifierSubText, style: VelvetText.body()),
           const SizedBox(height: VelvetSpacing.xl),
           NeumorphicTextField(
-            key: const ValueKey<String>('forgot_email'),
-            label: l10n.forgotPasswordEmailLabel,
-            controller: _emailController,
-            hintText: l10n.forgotPasswordEmailPlaceholder,
+            key: const ValueKey<String>('forgot_identifier'),
+            label: l10n.loginIdentifierLabel,
+            controller: _identifierController,
+            hintText: l10n.loginIdentifierHint,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.done,
             maxLength: 255,
-            prefixIcon: const Icon(Icons.alternate_email_rounded),
-            autofillHints: const <String>[AutofillHints.email],
+            prefixIcon: const Icon(Icons.person_outline_rounded),
+            autofillHints: const <String>[
+              AutofillHints.username,
+              AutofillHints.email,
+            ],
             errorText: _inlineError,
             onChanged: (_) {
               // Single setState coalesces the error clear + CTA enabled-state

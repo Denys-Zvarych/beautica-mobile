@@ -175,7 +175,11 @@ abstract interface class AuthRepository {
   /// still surfaces so the screen can offer a retry.
   ///
   /// Also used to RESEND the OTP — the forgot-password OTP screen's resend
-  /// action calls this again with the same [email].
+  /// action calls this again with the same [identifier].
+  ///
+  /// M517 (AUTH-D18) — [identifier] is a phone or an email exactly as typed
+  /// (sent as `identifier`); the backend picks the channel (email first) and
+  /// never names it.
   ///
   /// Throws:
   /// - [NetworkFailure] — connectivity issues.
@@ -183,7 +187,7 @@ abstract interface class AuthRepository {
   /// - [ValidationFailure] — 400 bean-validation (e.g. blank/invalid email),
   ///   though the client validates the email locally first.
   /// - [UnknownFailure] — any other unexpected error.
-  Future<void> requestPasswordReset(String email);
+  Future<void> requestPasswordReset(String identifier);
 
   /// Requests a password-reset OTP for the AUTHENTICATED caller (backend
   /// Phase A3 — the "change password from settings" entry point).
@@ -203,7 +207,9 @@ abstract interface class AuthRepository {
   /// - [UnknownFailure] — any other unexpected error.
   Future<void> requestChangePasswordOtp();
 
-  /// Verifies the 6-digit [code] emailed to [email] by [requestPasswordReset]
+  /// Verifies the 6-digit [code] sent for [identifier] (the phone or email
+  /// given to forgot-password, or the account email on the settings path —
+  /// sent as `identifier`, M517) by [requestPasswordReset]
   /// or [requestChangePasswordOtp], and returns the single-use reset ticket
   /// the caller must submit to [confirmPasswordReset] (backend Phase A3).
   ///
@@ -217,8 +223,40 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
   Future<String> verifyPasswordResetOtp({
+    required String identifier,
+    required String code,
+  });
+
+  /// M517 (AUTH-44) — sends an SMS code to the new [phone] for a first add or
+  /// a change (`POST /users/me/phone/otp/send`, App Check header). Throws
+  /// [PhoneIdentityFailure] (non-UA mobile, 429, App Check) and the usual
+  /// transport failures.
+  Future<void> sendPhoneCode({required String phone});
+
+  /// M517 (AUTH-44, AUTH-D19) — confirms [phone] with [code]
+  /// (`POST /users/me/phone/otp/verify`). [currentPassword] is required for a
+  /// CHANGE and omitted (`null`) for a first add. Throws
+  /// [CurrentPasswordInvalidFailure], [PhoneIdentityFailure] (`INVALID_CODE`,
+  /// 409 `PHONE_ALREADY_REGISTERED`, non-UA mobile).
+  Future<void> verifyPhoneCode({
+    required String phone,
+    required String code,
+    String? currentPassword,
+  });
+
+  /// M517 (AUTH-50) — emails a code to the new notifications [email]
+  /// (`POST /users/me/email/request-code`). Throws [ResendThrottledFailure]
+  /// inside the 60 s cooldown.
+  Future<void> requestNotificationEmailCode({required String email});
+
+  /// M517 (AUTH-50, AUTH-D19) — confirms the notifications [email] with
+  /// [code] and the [currentPassword] (add and change both need it). Throws
+  /// [CurrentPasswordInvalidFailure], [VerificationFailure] (`INVALID_CODE` /
+  /// `CODE_EXPIRED`), [EmailAlreadyRegisteredFailure].
+  Future<void> verifyNotificationEmailCode({
     required String email,
     required String code,
+    required String currentPassword,
   });
 
   /// Confirms a password reset with the single-use [resetTicket] minted by

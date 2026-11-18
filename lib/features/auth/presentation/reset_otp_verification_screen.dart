@@ -37,6 +37,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/util/mask_email.dart';
 import '../domain/reset_password_args.dart';
+import 'widgets/auth_icon_tile.dart';
 import 'widgets/auth_scaffold.dart';
 import 'widgets/otp_code_field.dart';
 import 'widgets/otp_resend_row.dart';
@@ -90,7 +91,12 @@ class ResetOtpVerificationScreen extends ConsumerStatefulWidget {
 
   /// Email shown (masked) on screen. Display-only for the change-password
   /// entry point — the backend never reads it for that call.
-  final String displayEmail;
+  ///
+  /// M517 (AUTH-D18) — `null` = neutral copy with no target: the
+  /// forgot-password flow never names the channel (the backend picks email
+  /// first, SMS without one), so it shows «Якщо акаунт існує, ми надіслали
+  /// код».
+  final String? displayEmail;
 
   /// `true` when reached from the settings change-password row. Forwarded to
   /// [ResetPasswordArgs] so `ResetPasswordScreen` knows whether to run its
@@ -239,7 +245,10 @@ class _ResetOtpVerificationScreenState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final maskedEmail = maskEmail(widget.displayEmail);
+    final String? displayEmail = widget.displayEmail;
+    final String? maskedEmail = displayEmail == null
+        ? null
+        : maskEmail(displayEmail);
 
     return AuthScaffold(
       showBack: true,
@@ -261,24 +270,8 @@ class _ResetOtpVerificationScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Center(
-            child: Container(
-              height: 72,
-              width: 72,
-              decoration: const BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.all(
-                  Radius.circular(VelvetRadii.logoTile),
-                ),
-                boxShadow: VelvetShadows.extrudedSmall,
-              ),
-              child: const Icon(
-                Icons.mark_email_read_outlined,
-                color: BrandColors.accent,
-                size: 30,
-              ),
-            ),
-          ),
+          // M517 — the shared M515 tile (was a byte-identical inline copy).
+          const AuthIconTile(icon: Icons.mark_email_read_outlined),
           const SizedBox(height: VelvetSpacing.lg),
           Text(
             l10n.resetOtpHeadline,
@@ -290,8 +283,12 @@ class _ResetOtpVerificationScreenState
             TextSpan(
               style: VelvetText.body(),
               children: <InlineSpan>[
-                TextSpan(text: '${l10n.resetOtpCardDesc}\n'),
-                TextSpan(text: maskedEmail, style: VelvetText.bodyStrong()),
+                if (maskedEmail == null)
+                  TextSpan(text: l10n.resetCodeSentNeutral)
+                else ...<InlineSpan>[
+                  TextSpan(text: '${l10n.resetOtpCardDesc}\n'),
+                  TextSpan(text: maskedEmail, style: VelvetText.bodyStrong()),
+                ],
               ],
             ),
             textAlign: TextAlign.center,

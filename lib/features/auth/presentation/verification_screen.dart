@@ -40,6 +40,7 @@ import '../state/pending_locality_store.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'registration_locality_save.dart';
+import 'widgets/auth_icon_tile.dart';
 import 'widgets/auth_scaffold.dart';
 import 'widgets/otp_code_field.dart';
 import 'widgets/otp_resend_row.dart';
@@ -485,24 +486,8 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           // ── Email icon tile ───────────────────────────────────────────────
-          Center(
-            child: Container(
-              height: 72,
-              width: 72,
-              decoration: const BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.all(
-                  Radius.circular(VelvetRadii.logoTile),
-                ),
-                boxShadow: VelvetShadows.extrudedSmall,
-              ),
-              child: const Icon(
-                Icons.mark_email_read_outlined,
-                color: BrandColors.accent,
-                size: 30,
-              ),
-            ),
-          ),
+          // M517 — the shared M515 tile (was a byte-identical inline copy).
+          const AuthIconTile(icon: Icons.mark_email_read_outlined),
           const SizedBox(height: VelvetSpacing.lg),
           // ── Heading ───────────────────────────────────────────────────────
           Text(
