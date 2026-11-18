@@ -1113,8 +1113,10 @@ class AuthNotifier extends _$AuthNotifier {
   /// See the invite-accept post-success design (2026-09-01), Q3, for why
   /// each case below is one of the three unrecoverable outcomes: the
   /// response arrived but was unusable, the response never arrived after the
-  /// request was fully sent, or the server says the invite/email is already
-  /// spent.
+  /// request was fully sent, or the server says the invite / phone is already
+  /// spent or the salon is inactive.
+  static const String _kInviteSalonInactiveCode = 'INVITE_SALON_INACTIVE';
+
   InviteHandoffReason? _inviteHandoffReason(Failure f) => switch (f) {
     ResponseUnusableFailure() => InviteHandoffReason.accountReady,
     NetworkFailure(:final mayHaveReachedServer) when mayHaveReachedServer =>
@@ -1125,10 +1127,16 @@ class AuthNotifier extends _$AuthNotifier {
     // `errors` map, so an empty map here is unambiguous.
     ValidationFailure(:final fieldErrors) when fieldErrors.isEmpty =>
       InviteHandoffReason.inviteNoLongerValid,
+    // M521 (AUTH-17, AUTH-E03) — each 409 code gets its own copy; a 409
+    // `PHONE_ALREADY_REGISTERED` never reaches here (it is a
+    // [PhoneIdentityFailure] the screen sends back to the phone step).
+    ServerFailure(statusCode: 409, :final errorCode)
+        when errorCode == _kInviteSalonInactiveCode =>
+      InviteHandoffReason.salonInactive,
     ServerFailure(statusCode: 409) =>
-      InviteHandoffReason.emailAlreadyRegistered,
+      InviteHandoffReason.phoneAlreadyRegistered,
     EmailAlreadyRegisteredFailure() =>
-      InviteHandoffReason.emailAlreadyRegistered,
+      InviteHandoffReason.phoneAlreadyRegistered,
     _ => null,
   };
 
@@ -1156,6 +1164,7 @@ class AuthNotifier extends _$AuthNotifier {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
@@ -1170,6 +1179,7 @@ class AuthNotifier extends _$AuthNotifier {
               lastName: lastName,
               phoneNumber: phoneNumber,
               termsAccepted: termsAccepted,
+              registrationTicket: registrationTicket,
             );
       } on Failure catch (f) {
         final reason = _inviteHandoffReason(f);

@@ -1377,6 +1377,25 @@ void main() {
     test('a 403 without the App Check code is not a PhoneIdentityFailure', () {
       expect(mapped(403, send, 'SOMETHING_ELSE'), isNull);
     });
+
+    // M521 (B520, AUTH-52) — without these the invite accept's mismatch fell
+    // into the empty-fieldErrors ValidationFailure arm and handed off to
+    // /login as «invite no longer valid».
+    test('400 INVITE_PHONE_MISMATCH on accept → invitePhoneMismatch', () {
+      expect(
+        mapped(400, '/api/v1/auth/invite/accept', 'INVITE_PHONE_MISMATCH'),
+        PhoneIdentityErrorCode.invitePhoneMismatch,
+      );
+    });
+
+    test('429 INVITE_SMS_LIMIT on invite create → inviteSmsLimit; a bare 429 '
+        'there stays unmapped', () {
+      expect(
+        mapped(429, '/api/v1/salons/s1/invite', 'INVITE_SMS_LIMIT'),
+        PhoneIdentityErrorCode.inviteSmsLimit,
+      );
+      expect(mapped(429, '/api/v1/salons/s1/invite', null), isNull);
+    });
   });
 
   // M517 (B516) — signed-in phone add / change, notifications email, the

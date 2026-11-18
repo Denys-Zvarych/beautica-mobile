@@ -401,6 +401,11 @@ final class ErrorMapperInterceptor extends Interceptor {
         PhoneIdentityErrorCode.phoneAlreadyRegistered,
       (400, 'REGISTRATION_TICKET_INVALID') =>
         PhoneIdentityErrorCode.registrationTicketInvalid,
+      // M521 (B520, AUTH-52) — keyed on the body code (any path), like the
+      // identity codes above: both are unique to the phone-invite endpoints.
+      (400, 'INVITE_PHONE_MISMATCH') =>
+        PhoneIdentityErrorCode.invitePhoneMismatch,
+      (429, 'INVITE_SMS_LIMIT') => PhoneIdentityErrorCode.inviteSmsLimit,
       (400, 'INVALID_CODE')
           when path.endsWith(_kRegisterPhoneVerifyPath) ||
               path.endsWith(_kUserPhoneVerifyPath) =>

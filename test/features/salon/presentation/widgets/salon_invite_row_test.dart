@@ -36,8 +36,10 @@
 //
 // MUTATION-PROBED 2026-09-02, both halves independently:
 //   * email:   `maxLines: 2` -> `maxLines: 1` in `salon_invite_row.dart:215`
-//              turns `email fits without truncation` RED
-//              (`didExceedMaxLines: true`).
+//              turned the 42-char-email probe RED (`didExceedMaxLines:
+//              true`). M521: the row now shows a fixed-length formatted
+//              phone, so that probe is a plain no-clip check — this half of
+//              the mutation no longer applies.
 //   * caption: restoring the PRE-FIX layout — role chip + `_SentAgoCaption`
 //              back on ONE `Row` with the caption the only `Flexible`, the
 //              exact shape the header describes — turns `caption fits without
@@ -71,11 +73,12 @@ import '../../../../helpers/pump_app.dart';
 
 const String _kInviteId = 'inv-row-1';
 
-/// A 42-character address — long enough that the pre-fix single-line email
-/// could not fit beside the «Скасувати» action at 320dp.
-const String _kLongEmail = 'nadiya.oleksandrivna.kovalenko@beautica.ua';
-
-const String _kShortEmail = 'anna@beautica.ua';
+/// M521 (SAL-48) — the row shows the invited PHONE. [_kPhone] is the wire /
+/// domain value; [_kPhoneShown] the input-mask form the row renders.
+const String _kPhone = '+380671234545';
+const String _kPhoneShown = '+380 67 123 45 45';
+const String _kOtherPhone = '+380501112233';
+const String _kOtherPhoneShown = '+380 50 111 22 33';
 
 /// Host-clock fixture — see the header on clock coherence. Three days back
 /// keeps `formatRelativeDate` in a stable bucket for the whole test run.
@@ -84,11 +87,11 @@ final DateTime _kExpiresAt = _kSentAt.add(const Duration(hours: 48));
 
 SalonInvite _invite({
   required InviteStatus status,
-  String email = _kShortEmail,
+  String phone = _kPhone,
   SalonStaffRole role = SalonStaffRole.master,
 }) => SalonInvite(
   inviteId: _kInviteId,
-  recipientEmail: email,
+  recipientPhone: phone,
   role: role,
   status: status,
   createdAt: _kSentAt,
@@ -161,12 +164,12 @@ Finder get _cancel => find.byKey(salonInviteCancelKey(_kInviteId));
 /// A `RegExp`, not an exact string, because `_CancelAction`'s
 /// `Semantics(label: …)` node MERGES its child «Скасувати» `Text` label into
 /// its own — the compiled node reads
-/// `"Скасувати запрошення для <email>\nСкасувати"`. Verified by dumping the
+/// `"Скасувати запрошення для <phone>\nСкасувати"`. Verified by dumping the
 /// live semantics tree (2026-09-02); an exact-string finder silently matched
 /// nothing, which would have made every `findsNothing` below vacuous.
-Finder _cancelSemantics(AppLocalizations l10n, String email) =>
+Finder _cancelSemantics(AppLocalizations l10n, String phone) =>
     find.bySemanticsLabel(
-      RegExp(RegExp.escape(l10n.salonPendingInvitesCancelSemanticLabel(email))),
+      RegExp(RegExp.escape(l10n.salonPendingInvitesCancelSemanticLabel(phone))),
     );
 
 /// The render-layer truth about whether [finder]'s paragraph was clipped.
@@ -183,9 +186,21 @@ List<String> _allStatusLabels(AppLocalizations l10n) => <String>[
 ];
 
 void main() {
+  group('M521 — recipient phone (SAL-48)', () {
+    testWidgets('renders the stored +380 phone in the input mask, never the '
+        'raw wire value', (tester) async {
+      await _pumpRow(
+        tester,
+        _invite(status: InviteStatus.pending, phone: _kOtherPhone),
+      );
+      expect(find.text(_kOtherPhoneShown), findsOneWidget);
+      expect(find.text(_kOtherPhone), findsNothing);
+    });
+  });
+
   group('truncation guard (the reported «text is cut» fix)', () {
     semanticsWidgetTest(
-      'a 42-char address wraps instead of being clipped, and the '
+      'the formatted phone is not clipped beside «Скасувати», and the '
       '«надіслано …» caption is NOT truncated — narrowest phone, longest '
       'role label, cancel action present',
       (tester) async {
@@ -195,18 +210,18 @@ void main() {
           tester,
           _invite(
             status: InviteStatus.pending,
-            email: _kLongEmail,
+            phone: _kPhone,
             role: SalonStaffRole.admin,
           ),
         );
         final AppLocalizations l10n = _l10n(tester);
 
-        // The cancel action really IS on screen — without this the email would
+        // The cancel action really IS on screen — without this the phone would
         // have the full width and the assertion below would be trivially true.
         expect(_cancel, findsOneWidget);
 
         expect(
-          _overflowed(tester, find.text(_kLongEmail)),
+          _overflowed(tester, find.text(_kPhoneShown)),
           isFalse,
           reason:
               'the address must wrap to a second line, not ellipsise — '
@@ -233,12 +248,12 @@ void main() {
       (tester) async {
         // The worst case for the CHIP RUN: «Адміністратор» + «Термін минув».
         // A terminal status, so no cancel action competes for width — this
-        // probes the `Wrap`, not the email line.
+        // probes the `Wrap`, not the phone line.
         await _pumpRow(
           tester,
           _invite(
             status: InviteStatus.expired,
-            email: _kLongEmail,
+            phone: _kPhone,
             role: SalonStaffRole.admin,
           ),
         );
@@ -254,7 +269,7 @@ void main() {
           _overflowed(tester, find.text(l10n.salonInvitesStatusExpired)),
           isFalse,
         );
-        expect(_overflowed(tester, find.text(_kLongEmail)), isFalse);
+        expect(_overflowed(tester, find.text(_kPhoneShown)), isFalse);
         final String caption = l10n.salonPendingInvitesSentAgo(
           formatRelativeDate(l10n, _kSentAt),
         );
@@ -306,7 +321,7 @@ void main() {
           // semantics tree.
           expect(_cancel, findsNothing);
           expect(
-            _cancelSemantics(l10n, _kShortEmail),
+            _cancelSemantics(l10n, _kPhoneShown),
             findsNothing,
             reason:
                 'a disabled-but-present Semantics(button:) node would still be '
@@ -345,7 +360,7 @@ void main() {
       );
 
       expect(_cancel, findsNothing);
-      expect(_cancelSemantics(l10n, _kShortEmail), findsNothing);
+      expect(_cancelSemantics(l10n, _kPhoneShown), findsNothing);
     });
   });
 
@@ -363,7 +378,7 @@ void main() {
         final AppLocalizations l10n = _l10n(tester);
 
         expect(_cancel, findsOneWidget);
-        expect(_cancelSemantics(l10n, _kShortEmail), findsOneWidget);
+        expect(_cancelSemantics(l10n, _kPhoneShown), findsOneWidget);
         expect(find.text(l10n.salonInvitesStatusPending), findsOneWidget);
         expect(find.byType(RoleChip), findsNWidgets(2));
 

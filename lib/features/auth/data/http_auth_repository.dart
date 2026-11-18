@@ -718,11 +718,10 @@ final class HttpAuthRepository implements AuthRepository {
       } catch (_) {
         throw const UnknownFailure(cause: 'invite validate: unknown role');
       }
-      // B520 replaced `invitedEmail` with `phoneMasked`; M521 reworks the
-      // accept screen around the phone. Until then the masked phone is the
-      // invite's display identity.
+      // B520 (AUTH-21) — masked phone + salon name; no email branch remains.
       return InviteDetails(
-        email: dto.phoneMasked ?? '',
+        phoneMasked: dto.phoneMasked ?? '',
+        salonName: dto.salonName ?? '',
         role: role,
         expiresAt: dto.expiresAt!,
       );
@@ -761,9 +760,12 @@ final class HttpAuthRepository implements AuthRepository {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     try {
       final trimmedPhone = phoneNumber?.trim() ?? '';
+      // M521 (B520) — the ticket proves the phone; the number is not resent.
+      final bool phoneShape = registrationTicket != null;
       final res = await _authApi.acceptInvite(
         inviteAcceptRequest: InviteAcceptRequest(
           (b) => b
@@ -771,7 +773,8 @@ final class HttpAuthRepository implements AuthRepository {
             ..password = password
             ..firstName = firstName
             ..lastName = lastName
-            ..phoneNumber = trimmedPhone
+            ..phoneNumber = phoneShape ? null : trimmedPhone
+            ..registrationTicket = registrationTicket
             // Phase 443 — consent triple, all-or-nothing.
             ..termsAccepted = termsAccepted ? true : null
             ..termsVersion = termsAccepted ? kTermsVersion : null

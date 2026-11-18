@@ -44,8 +44,9 @@ abstract class SalonInvite with _$SalonInvite {
     /// parameter, and this entry's stable list key. Never the invite secret.
     required String inviteId,
 
-    /// The address the invitation was sent to.
-    required String recipientEmail,
+    /// The phone the invitation SMS went to (B520, SAL-48), as the backend
+    /// stores it (`+380XXXXXXXXX`); the row formats it for display.
+    required String recipientPhone,
 
     /// SALON_ADMIN or SALON_MASTER — the role the invitee will hold.
     required SalonStaffRole role,

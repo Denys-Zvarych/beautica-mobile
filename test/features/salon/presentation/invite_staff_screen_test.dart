@@ -11,9 +11,9 @@
 // Covers:
 //   1. Role toggle defaults to Майстер (SALON_MASTER) and switching to
 //      Адміністратор flips the alignment + swaps the description copy.
-//   2. Invalid/empty email blocks submit — never reaches the repository,
-//      surfaces the inline field error + the validation-summary snack.
-//   3. A valid submit sends the CORRECT (salonId, email, role) tuple to the
+//   2. An empty / non-UA-mobile phone blocks submit (M521) — never reaches
+//      the repository, surfaces the inline field error + the summary snack.
+//   3. A valid submit sends the CORRECT (salonId, +380 phone, role) tuple to the
 //      repository for BOTH roles, shows the success snack, and pops.
 //   4. 403 / 429 / generic (NetworkFailure + an unmapped ServerFailure)
 //      failures each surface their OWN distinct localized copy and do NOT
@@ -62,6 +62,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:dio/dio.dart';
@@ -103,7 +104,7 @@ class _BlockingInviteStaff extends InviteStaff {
   @override
   Future<Failure?> submit({
     required String salonId,
-    required String email,
+    required String phone,
     required UserRole role,
   }) {
     calls++;
@@ -141,7 +142,7 @@ Future<GoRouter> _pumpInvite(
   return router;
 }
 
-Finder get _emailField => find.byKey(const ValueKey<String>('invite_email'));
+Finder get _phoneField => find.byKey(const ValueKey<String>('invite_phone'));
 Finder get _submitCta => find.byKey(const Key('send_invite'));
 Finder get _adminIcon => find.byIcon(Icons.admin_panel_settings_outlined);
 Finder get _masterIcon => find.byIcon(Icons.brush_outlined);
@@ -185,7 +186,7 @@ final DateTime _kInviteSentAt = DateTime.now().subtract(
 
 SalonInvite _inviteFixture(String id, InviteStatus status) => SalonInvite(
   inviteId: id,
-  recipientEmail: '$id@beautica.ua',
+  recipientPhone: '+380671112233',
   role: SalonStaffRole.master,
   status: status,
   createdAt: _kInviteSentAt,
@@ -329,7 +330,7 @@ void main() {
     // Both finders are scoped off `find.byType(AnimatedAlign)` (proven
     // unique on this screen by the two tests above) rather than `.first`,
     // because the screen also renders a SECOND `NeumorphicInset` (inside
-    // `NeumorphicTextField` for the email field) with its own matching
+    // `NeumorphicTextField` for the phone field) with its own matching
     // `CustomPaint` — an unscoped predicate would be ambiguous, and an
     // ambiguous finder that happens to resolve correctly today is exactly
     // the kind of assertion that rots.
@@ -344,7 +345,7 @@ void main() {
         );
 
         // `NeumorphicInset`'s own shadow `CustomPaint` — the one that is an
-        // ANCESTOR of `_RoleToggle`'s `AnimatedAlign` (excludes the email
+        // ANCESTOR of `_RoleToggle`'s `AnimatedAlign` (excludes the phone
         // field's own matching `CustomPaint`, which is not on that path).
         final Finder shadowCustomPaint = find.ancestor(
           of: find.byType(AnimatedAlign),
@@ -400,7 +401,7 @@ void main() {
     );
   });
 
-  group('email validation', () {
+  group('phone validation (M521, M515 classifier)', () {
     testWidgets(
       'an empty submit blocks — never reaches the repository, surfaces the '
       'inline error + the validation-summary snack',
@@ -416,7 +417,7 @@ void main() {
         await pumpVelvetSnackIn(tester);
 
         expect(repo.inviteRequests, isEmpty);
-        expect(find.text(l10n.errEmailRequired), findsOneWidget);
+        expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
         expectVelvetSnack(
           l10n.editValidationSummary,
           variant: VelvetSnackVariant.error,
@@ -426,8 +427,8 @@ void main() {
     );
 
     testWidgets(
-      'a malformed email blocks submit with the format-specific inline '
-      'error',
+      'a Kyiv landline (044) blocks submit with the Ukrainian-mobile inline '
+      'error, and the helper text gives way to it',
       (tester) async {
         final repo = FakeSalonRepository(salon: _kSalon);
         await _pumpInvite(
@@ -435,14 +436,16 @@ void main() {
           overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
         );
         final l10n = await _l10n();
+        expect(find.text(l10n.inviteStaffPhoneHelper), findsOneWidget);
 
-        await tester.enterText(_emailField, 'not-an-email');
+        await tester.enterText(_phoneField, '0441234567');
         await tester.pump();
         await tester.tap(_submitCta);
         await pumpVelvetSnackIn(tester);
 
         expect(repo.inviteRequests, isEmpty);
-        expect(find.text(l10n.errEmailInvalid), findsOneWidget);
+        expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
+        expect(find.text(l10n.inviteStaffPhoneHelper), findsNothing);
         await pumpPastVelvetSnack(tester);
       },
     );
@@ -450,7 +453,7 @@ void main() {
 
   group('submit — success', () {
     testWidgets(
-      'a valid email with the DEFAULT (Майстер) role sends the correct '
+      'a valid UA mobile with the DEFAULT (Майстер) role sends the correct '
       'tuple, shows the success snack, and pops back to the caller',
       (tester) async {
         final repo = FakeSalonRepository(salon: _kSalon);
@@ -460,7 +463,7 @@ void main() {
         );
         final l10n = await _l10n();
 
-        await tester.enterText(_emailField, 'master@beautica.ua');
+        await tester.enterText(_phoneField, '0671234545');
         await tester.pump();
         await tester.tap(_submitCta);
         await tester.pump();
@@ -469,7 +472,7 @@ void main() {
         expect(repo.inviteRequests, hasLength(1));
         final sent = repo.inviteRequests.single;
         expect(sent.salonId, _kSalonId);
-        expect(sent.email, 'master@beautica.ua');
+        expect(sent.phone, '+380671234545');
         expect(sent.role, UserRole.salonMaster);
 
         expectVelvetSnack(
@@ -496,7 +499,7 @@ void main() {
 
         await tester.tap(_adminIcon);
         await tester.pumpAndSettle();
-        await tester.enterText(_emailField, 'admin@beautica.ua');
+        await tester.enterText(_phoneField, '+380 50 111 22 33');
         await tester.pump();
         await tester.tap(_submitCta);
         await tester.pump();
@@ -504,7 +507,7 @@ void main() {
 
         expect(repo.inviteRequests, hasLength(1));
         final sent = repo.inviteRequests.single;
-        expect(sent.email, 'admin@beautica.ua');
+        expect(sent.phone, '+380501112233');
         expect(sent.role, UserRole.salonAdmin);
         await pumpPastVelvetSnack(tester);
       },
@@ -524,7 +527,7 @@ void main() {
       );
       final l10n = await _l10n();
 
-      await tester.enterText(_emailField, 'someone@beautica.ua');
+      await tester.enterText(_phoneField, '0671234545');
       await tester.pump();
       await tester.tap(_submitCta);
       await tester.pump();
@@ -629,137 +632,144 @@ void main() {
     );
   });
 
-  // Phase 303 — EmailAlreadyRegisteredFailure is a FIELD-level problem, so it
-  // must render inline on `_errEmail` rather than only the generic snack
-  // every other failure gets via `_errorMessage`/`submitAndExpectError`
-  // above. This group is deliberately separate from 'submit — failure copy'
-  // because the assertion shape differs (inline errorText, not just a
-  // snack).
-  group('submit — EMAIL_ALREADY_REGISTERED (Phase 303)', () {
+  // M521 (B520, AUTH-18 / AUTH-52) — typed phone-invite failures. The
+  // FIELD-level ones render inline on the phone field (plus the summary
+  // snack); the SMS cap is the in-form banner; App Check is the M515 copy.
+  group('submit — B520 typed failures', () {
+    Future<(FakeSalonRepository, AppLocalizations)> submitWith(
+      WidgetTester tester,
+      Failure error,
+    ) async {
+      final repo = FakeSalonRepository(salon: _kSalon)..inviteError = error;
+      await _pumpInvite(
+        tester,
+        overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+      );
+      final l10n = await _l10n();
+      await tester.enterText(_phoneField, '0671234545');
+      await tester.pump();
+      await tester.tap(_submitCta);
+      await tester.pump();
+      await pumpVelvetSnackIn(tester);
+      expect(repo.inviteRequests, hasLength(1));
+      return (repo, l10n);
+    }
+
     testWidgets(
-      'renders the dedicated copy on the email field itself (rendered '
-      'errorText, not a constructor field) AND still emits the '
-      'validation-summary snack — matching the local-validation branch',
+      '409 PHONE_ALREADY_REGISTERED renders the dedicated copy on the phone '
+      'field itself AND the validation-summary snack; never pops',
       (tester) async {
-        final repo = FakeSalonRepository(salon: _kSalon)
-          ..inviteError = const EmailAlreadyRegisteredFailure();
-        await _pumpInvite(
+        final (_, l10n) = await submitWith(
           tester,
-          overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+          const PhoneIdentityFailure(
+            code: PhoneIdentityErrorCode.phoneAlreadyRegistered,
+          ),
         );
-        final l10n = await _l10n();
 
-        await tester.enterText(_emailField, 'taken@beautica.ua');
-        await tester.pump();
-        await tester.tap(_submitCta);
-        await tester.pump();
-        await pumpVelvetSnackIn(tester);
-
-        expect(repo.inviteRequests, hasLength(1));
-
-        // The RENDERED errorText — `NeumorphicTextField` paints `errorText`
-        // as its own `Text(widget.errorText!, ...)` below the well, so a
-        // `find.text` hit here proves the string actually reached the
-        // screen, not merely that a constructor field was set.
         expect(
-          find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+          find.text(l10n.inviteStaffErrorPhoneAlreadyRegistered),
           findsOneWidget,
-          reason:
-              'the email field must show the dedicated Phase 303 copy, not '
-              'the generic inviteStaffErrorGeneric fallback',
         );
-        // NOT only a snack — the generic error snack copy must be ABSENT so
-        // this genuinely proves the inline branch, not the fallback path
-        // that also happens to satisfy a snack assertion.
         expect(find.text(l10n.inviteStaffErrorGeneric), findsNothing);
-
-        // The existing editValidationSummary snack, per the local-validation
-        // branch's own established pattern (this file's 'email validation'
-        // group above) — the email field can scroll out of view, so the
-        // inline error alone could go unseen.
         expectVelvetSnack(
           l10n.editValidationSummary,
           variant: VelvetSnackVariant.error,
         );
-
-        // Never popped on failure.
         expect(find.byKey(const Key('manage-marker')), findsNothing);
         expect(find.byType(InviteStaffScreen), findsOneWidget);
         await pumpPastVelvetSnack(tester);
       },
     );
 
-    testWidgets('_errEmail clears once the owner edits the address', (
+    testWidgets('the inline error clears once the owner edits the number', (
       tester,
     ) async {
-      final repo = FakeSalonRepository(salon: _kSalon)
-        ..inviteError = const EmailAlreadyRegisteredFailure();
-      await _pumpInvite(
+      final (_, l10n) = await submitWith(
         tester,
-        overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
-      );
-      final l10n = await _l10n();
-
-      await tester.enterText(_emailField, 'taken@beautica.ua');
-      await tester.pump();
-      await tester.tap(_submitCta);
-      await tester.pump();
-      await pumpVelvetSnackIn(tester);
-      expect(
-        find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
-        findsOneWidget,
+        const PhoneIdentityFailure(
+          code: PhoneIdentityErrorCode.phoneAlreadyRegistered,
+        ),
       );
       await pumpPastVelvetSnack(tester);
 
-      // Editing the address — same `onChanged` path the pre-existing
-      // validation-error clearing already uses (`invite_staff_screen.dart`
-      // `:341`-ish) — must clear the SERVER-sourced error the same way.
-      await tester.enterText(_emailField, 'taken@beautica.ua2');
+      await tester.enterText(_phoneField, '067123454');
       await tester.pump();
 
       expect(
-        find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+        find.text(l10n.inviteStaffErrorPhoneAlreadyRegistered),
         findsNothing,
-        reason:
-            'the server-sourced inline error must not stick after the '
-            'owner edits the field',
       );
     });
 
-    // Regression pin — a plain 409 with NO `data.code` (the shape
-    // `ErrorMapperInterceptor` produces for any OTHER 409 body) must still
-    // fall through to the generic copy. Proves the new branch keys on the
-    // TYPED failure (`is EmailAlreadyRegisteredFailure`), not the bare
-    // status code — a status-code-only check would misfire on every
-    // resource-conflict 409 this app has, not just this one.
+    testWidgets('400 PHONE_NOT_UA_MOBILE from the server renders the M515 '
+        'inline copy', (tester) async {
+      final (_, l10n) = await submitWith(
+        tester,
+        const PhoneIdentityFailure(
+          code: PhoneIdentityErrorCode.phoneNotUaMobile,
+        ),
+      );
+      expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('429 INVITE_SMS_LIMIT shows the in-form banner (no snack) and '
+        'the banner clears on edit', (tester) async {
+      final (_, l10n) = await submitWith(
+        tester,
+        const PhoneIdentityFailure(code: PhoneIdentityErrorCode.inviteSmsLimit),
+      );
+      final Finder banner = find.byKey(
+        const ValueKey<String>('invite_staff_error'),
+      );
+      expect(banner, findsOneWidget);
+      expect(
+        find.descendant(
+          of: banner,
+          matching: find.text(l10n.errInviteSmsLimit),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.inviteStaffErrorRateLimited), findsNothing);
+
+      await tester.enterText(_phoneField, '067123454');
+      await tester.pump();
+      expect(banner, findsNothing);
+    });
+
+    testWidgets('403 APP_CHECK_FAILED shows the M515 App Check copy, not the '
+        'forbidden copy', (tester) async {
+      final (_, l10n) = await submitWith(
+        tester,
+        const PhoneIdentityFailure(code: PhoneIdentityErrorCode.appCheckFailed),
+      );
+      expectVelvetSnack(
+        l10n.errAppCheckFailed,
+        variant: VelvetSnackVariant.error,
+      );
+      expect(find.text(l10n.inviteStaffErrorForbidden), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    // Regression pin — a plain 409 with NO `data.code` must still fall
+    // through to the generic copy: the inline branch keys on the TYPED
+    // failure, not the bare status code.
     testWidgets(
       'a bare 409 ServerFailure (no data.code) still falls through to the '
-      'generic message, NOT the email-already-registered copy',
+      'generic message, NOT the phone-already-registered copy',
       (tester) async {
-        final repo = FakeSalonRepository(salon: _kSalon)
-          ..inviteError = const ServerFailure(statusCode: 409);
-        await _pumpInvite(
+        final (_, l10n) = await submitWith(
           tester,
-          overrides: <Object>[salonRepositoryProvider.overrideWithValue(repo)],
+          const ServerFailure(statusCode: 409),
         );
-        final l10n = await _l10n();
-
-        await tester.enterText(_emailField, 'someone@beautica.ua');
-        await tester.pump();
-        await tester.tap(_submitCta);
-        await tester.pump();
-        await pumpVelvetSnackIn(tester);
-
-        expect(repo.inviteRequests, hasLength(1));
         expectVelvetSnack(
           l10n.inviteStaffErrorGeneric,
           variant: VelvetSnackVariant.error,
         );
         expect(
-          find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+          find.text(l10n.inviteStaffErrorPhoneAlreadyRegistered),
           findsNothing,
         );
-        expect(find.byKey(const Key('manage-marker')), findsNothing);
         expect(find.byType(InviteStaffScreen), findsOneWidget);
         await pumpPastVelvetSnack(tester);
       },
@@ -785,7 +795,7 @@ void main() {
         ],
       );
 
-      await tester.enterText(_emailField, 'guard@beautica.ua');
+      await tester.enterText(_phoneField, '0671234545');
       await tester.pump();
 
       // NO pump between the two taps: the first tap's onTapUp runs
@@ -831,7 +841,7 @@ void main() {
       );
       final l10n = await _l10n();
 
-      await tester.enterText(_emailField, 'pending@beautica.ua');
+      await tester.enterText(_phoneField, '0671234545');
       await tester.pump();
       await tester.tap(_submitCta);
       await tester.pump();
@@ -845,9 +855,9 @@ void main() {
             'in flight',
       );
       expect(
-        tester.widget<NeumorphicTextField>(_emailField).enabled,
+        tester.widget<NeumorphicTextField>(_phoneField).enabled,
         isFalse,
-        reason: 'the email field must be disabled while submitting',
+        reason: 'the phone field must be disabled while submitting',
       );
 
       // System back (PopScope.canPop reads the ALREADY-REBUILT frame from
@@ -1029,6 +1039,38 @@ void main() {
       expect(find.byKey(salonInviteRowKey('inv-pending-1')), findsNothing);
       expect(find.byKey(salonInviteRowKey('inv-pending-2')), findsOneWidget);
       expect(find.byType(SalonInviteRow), findsOneWidget);
+    });
+  });
+
+  group('screen protection (M521 SEC LOW — full invitee phones)', () {
+    testWidgets('holds the guard while mounted and releases it on dispose', (
+      tester,
+    ) async {
+      final ScreenProtectionManager manager = ScreenProtectionManager();
+      final repo = FakeSalonRepository(
+        salon: _kSalon,
+        salonInvites: _mixedInvites(),
+      );
+      final GoRouter router = await _pumpInvite(
+        tester,
+        overrides: <Object>[
+          salonRepositoryProvider.overrideWithValue(repo),
+          screenProtectionProvider.overrideWithValue(manager),
+        ],
+      );
+
+      expect(find.byType(InviteStaffScreen), findsOneWidget);
+      expect(manager.acquirerCount, 1);
+
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(InviteStaffScreen), findsNothing);
+      expect(
+        manager.acquirerCount,
+        0,
+        reason: 'a popped invite form must not latch the app-switcher guard',
+      );
     });
   });
 }

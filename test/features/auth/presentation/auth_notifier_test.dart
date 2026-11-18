@@ -4072,8 +4072,8 @@ void main() {
     // -----------------------------------------------------------------------
     // item 12 — ServerFailure(409) vs ServerFailure(500)
     // -----------------------------------------------------------------------
-    test('item 12a: ServerFailure(statusCode: 409) → '
-        'InviteHandoffFailure(reason: emailAlreadyRegistered)', () async {
+    test('item 12a: ServerFailure(statusCode: 409) without a known code → '
+        'InviteHandoffFailure(reason: phoneAlreadyRegistered)', () async {
       final repo = MockAuthRepository();
       final storage = FakeSecureStorage();
 
@@ -4105,7 +4105,7 @@ void main() {
         isA<InviteHandoffFailure>().having(
           (f) => f.reason,
           'reason',
-          InviteHandoffReason.emailAlreadyRegistered,
+          InviteHandoffReason.phoneAlreadyRegistered,
         ),
       );
     });
@@ -4151,13 +4151,13 @@ void main() {
     // -----------------------------------------------------------------------
     // item 12c — EmailAlreadyRegisteredFailure() is a SEPARATE switch arm
     // from ServerFailure(statusCode: 409) that reaches the same
-    // emailAlreadyRegistered reason. Adjacency in the same exhaustive switch
+    // phoneAlreadyRegistered reason. Adjacency in the same exhaustive switch
     // is exactly how one arm can rot while its sibling (12a) keeps a test
     // green — this pins the EmailAlreadyRegisteredFailure() arm on its own
     // so deleting it independently is caught.
     // -----------------------------------------------------------------------
     test('item 12c: EmailAlreadyRegisteredFailure() → '
-        'InviteHandoffFailure(reason: emailAlreadyRegistered) — a SEPARATE '
+        'InviteHandoffFailure(reason: phoneAlreadyRegistered) — a SEPARATE '
         'switch arm from ServerFailure(409) (item 12a), reaching the same '
         'reason via a different Failure type', () async {
       final repo = MockAuthRepository();
@@ -4192,10 +4192,78 @@ void main() {
         isA<InviteHandoffFailure>().having(
           (f) => f.reason,
           'reason',
-          InviteHandoffReason.emailAlreadyRegistered,
+          InviteHandoffReason.phoneAlreadyRegistered,
         ),
       );
     });
+
+    // -----------------------------------------------------------------------
+    // M521 (AUTH-17, AUTH-E03) — 409 INVITE_SALON_INACTIVE gets its OWN
+    // reason, never the account-exists copy.
+    // -----------------------------------------------------------------------
+    test(
+      'item 12d: ServerFailure(409) carrying data.code '
+      'INVITE_SALON_INACTIVE → InviteHandoffFailure(reason: salonInactive)',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        final RequestOptions options = RequestOptions(
+          path: '/auth/invite/accept',
+        );
+
+        when(
+          () => repo.acceptInvite(
+            token: any(named: 'token'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+            phoneNumber: any(named: 'phoneNumber'),
+            termsAccepted: any(named: 'termsAccepted'),
+            registrationTicket: any(named: 'registrationTicket'),
+          ),
+        ).thenThrow(
+          ServerFailure(
+            statusCode: 409,
+            cause: DioException(
+              requestOptions: options,
+              response: Response<Object?>(
+                requestOptions: options,
+                statusCode: 409,
+                data: <String, dynamic>{
+                  'success': false,
+                  'data': <String, dynamic>{'code': 'INVITE_SALON_INACTIVE'},
+                  'message': 'This salon is no longer active',
+                },
+              ),
+            ),
+          ),
+        );
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 't',
+              password: 'p',
+              firstName: 'f',
+              lastName: 'l',
+              termsAccepted: true,
+              registrationTicket: 'ticket-1',
+            );
+
+        final value = container.read(authProvider);
+        expect(
+          value.error,
+          isA<InviteHandoffFailure>().having(
+            (f) => f.reason,
+            'reason',
+            InviteHandoffReason.salonInactive,
+          ),
+        );
+      },
+    );
   });
 
   // =========================================================================

@@ -271,9 +271,12 @@ abstract interface class SalonRepository {
   /// does not own/administer this salon) and 429 (backend's per-IP
   /// `salonInviteBuckets`, 15 requests/60s) — the CALLER maps those
   /// [ServerFailure.statusCode] values to distinct copy, not this method.
+  ///
+  /// M521 (B520) — [phone] is the invitee's Ukrainian mobile number,
+  /// normalised to `+380XXXXXXXXX`; the backend sends the join link by SMS.
   Future<void> inviteStaff({
     required String salonId,
-    required String email,
+    required String phone,
     required UserRole role,
   });
 
@@ -301,7 +304,7 @@ abstract interface class SalonRepository {
   /// NORMAL state, not an error.
   ///
   /// The response DTO carries no token material — `inviteId`,
-  /// `recipientEmail`, `role`, `status`, `createdAt`, `expiresAt` only.
+  /// `recipientPhone` (B520), `role`, `status`, `createdAt`, `expiresAt` only.
   ///
   /// ORDER IS THE SERVER'S (`createdAt DESC, id DESC`) and is preserved
   /// verbatim; see [SalonInviteMapper.fromDtoList]. The server caps the page
@@ -855,18 +858,16 @@ final class HttpSalonRepository implements SalonRepository {
   @override
   Future<void> inviteStaff({
     required String salonId,
-    required String email,
+    required String phone,
     required UserRole role,
   }) async {
     try {
       await _salonApi.inviteMaster(
         salonId: salonId,
         inviteRequest: InviteRequest(
-          // B520 — invites go to a phone; the invite form's phone field is
-          // M521. Until it lands the entered value is sent as `phone` and the
-          // backend validates it (400 PHONE_NOT_UA_MOBILE for an email).
+          // B520 — invites go to a phone (M521 invite form).
           (InviteRequestBuilder b) => b
-            ..phone = email
+            ..phone = phone
             ..role = _inviteRoleWireValue(role),
         ),
       );

@@ -4,7 +4,7 @@
 // Covers:
 //   1. The resolved list renders one [SalonInviteRow] per invitation, in
 //      backend order, with the header count matching — and each row carries
-//      its OWN invite's email, so a mis-keyed row (all three rendering the
+//      its OWN invite's phone (M521), so a mis-keyed row (all three rendering the
 //      same invite) cannot pass.
 //   2. Cancel: the tapped row's `DELETE` receives THAT row's `(salonId,
 //      inviteId)`, that row FLIPS to «Скасовано» IN PLACE, and the siblings
@@ -28,6 +28,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/invite_status.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
@@ -36,6 +37,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_pending_invites_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_invite_row.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:flutter/material.dart';
@@ -72,7 +74,7 @@ final DateTime _kExpiresAt = _kSentAt.add(const Duration(hours: 48));
 List<SalonInvite> _invites() => <SalonInvite>[
   SalonInvite(
     inviteId: 'inv-a',
-    recipientEmail: 'anna@example.com',
+    recipientPhone: '+380671110001',
     role: SalonStaffRole.master,
     status: InviteStatus.pending,
     createdAt: _kSentAt,
@@ -80,7 +82,7 @@ List<SalonInvite> _invites() => <SalonInvite>[
   ),
   SalonInvite(
     inviteId: 'inv-b',
-    recipientEmail: 'borys@example.com',
+    recipientPhone: '+380671110002',
     role: SalonStaffRole.admin,
     status: InviteStatus.pending,
     createdAt: _kSentAt,
@@ -88,7 +90,7 @@ List<SalonInvite> _invites() => <SalonInvite>[
   ),
   SalonInvite(
     inviteId: 'inv-c',
-    recipientEmail: 'chrystyna@example.com',
+    recipientPhone: '+380671110003',
     role: SalonStaffRole.master,
     status: InviteStatus.pending,
     createdAt: _kSentAt,
@@ -100,12 +102,12 @@ List<SalonInvite> _invites() => <SalonInvite>[
 /// (`createdAt DESC`) — the shape of a real history page.
 ///
 /// The ids ASCEND while the intended display order is exactly this sequence,
-/// so a client-side re-sort by id, email or status would produce a visibly
+/// so a client-side re-sort by id, phone or status would produce a visibly
 /// different order rather than landing on the same one by luck.
 List<SalonInvite> _mixedInvites() => <SalonInvite>[
   SalonInvite(
     inviteId: 'inv-1-pending',
-    recipientEmail: 'pending@beautica.ua',
+    recipientPhone: '+380501110011',
     role: SalonStaffRole.master,
     status: InviteStatus.pending,
     createdAt: _kSentAt,
@@ -113,7 +115,7 @@ List<SalonInvite> _mixedInvites() => <SalonInvite>[
   ),
   SalonInvite(
     inviteId: 'inv-2-cancelled',
-    recipientEmail: 'cancelled@beautica.ua',
+    recipientPhone: '+380501110012',
     role: SalonStaffRole.admin,
     status: InviteStatus.cancelled,
     createdAt: _kSentAt.subtract(const Duration(days: 1)),
@@ -121,7 +123,7 @@ List<SalonInvite> _mixedInvites() => <SalonInvite>[
   ),
   SalonInvite(
     inviteId: 'inv-3-expired',
-    recipientEmail: 'expired@beautica.ua',
+    recipientPhone: '+380501110013',
     role: SalonStaffRole.master,
     status: InviteStatus.expired,
     createdAt: _kSentAt.subtract(const Duration(days: 2)),
@@ -129,7 +131,7 @@ List<SalonInvite> _mixedInvites() => <SalonInvite>[
   ),
   SalonInvite(
     inviteId: 'inv-4-accepted',
-    recipientEmail: 'accepted@beautica.ua',
+    recipientPhone: '+380501110014',
     role: SalonStaffRole.admin,
     status: InviteStatus.accepted,
     createdAt: _kSentAt.subtract(const Duration(days: 3)),
@@ -187,38 +189,41 @@ Finder _cancelOf(String inviteId) => find.byKey(salonInviteCancelKey(inviteId));
 
 void main() {
   group('list rendering', () {
-    testWidgets('renders one row per invitation, each with its own email', (
-      tester,
-    ) async {
-      final repo = FakeSalonRepository(
-        salon: _kSalon,
-        salonInvites: _invites(),
-      );
-      await _pump(tester, repo);
+    testWidgets(
+      'renders one row per invitation, each with its own formatted phone',
+      (tester) async {
+        final repo = FakeSalonRepository(
+          salon: _kSalon,
+          salonInvites: _invites(),
+        );
+        await _pump(tester, repo);
 
-      expect(find.byType(SalonInviteRow), findsNWidgets(3));
-      // Per-row identity: a row keyed to the wrong invite, or three copies of
-      // one invite, fails here even though the count above would pass.
-      for (final SalonInvite invite in _invites()) {
+        expect(find.byType(SalonInviteRow), findsNWidgets(3));
+        // Per-row identity: a row keyed to the wrong invite, or three copies of
+        // one invite, fails here even though the count above would pass.
+        for (final SalonInvite invite in _invites()) {
+          expect(
+            find.descendant(
+              of: find.byKey(salonInviteRowKey(invite.inviteId)),
+              matching: find.text(
+                UaPhoneInputFormatter.display(invite.recipientPhone),
+              ),
+            ),
+            findsOneWidget,
+            reason: 'row ${invite.inviteId} must show its own recipient',
+          );
+        }
+        // The header carries the count.
         expect(
           find.descendant(
-            of: find.byKey(salonInviteRowKey(invite.inviteId)),
-            matching: find.text(invite.recipientEmail),
+            of: find.byKey(const Key('pending-invites-header')),
+            matching: find.text('3'),
           ),
           findsOneWidget,
-          reason: 'row ${invite.inviteId} must show its own recipient',
         );
-      }
-      // The header carries the count.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('pending-invites-header')),
-          matching: find.text('3'),
-        ),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('pending-invites-empty')), findsNothing);
-    });
+        expect(find.byKey(const Key('pending-invites-empty')), findsNothing);
+      },
+    );
 
     testWidgets('an admin invite and a master invite carry DIFFERENT role '
         'chips', (tester) async {
@@ -625,6 +630,42 @@ void main() {
       expect(find.text(l10n.salonInvitesTruncatedNote), findsNothing);
       // The list itself is unaffected.
       expect(find.byType(SalonInviteRow), findsNWidgets(4));
+    });
+  });
+
+  group('screen protection (M521 SEC LOW — full invitee phones)', () {
+    testWidgets('holds the guard while mounted and releases it on dispose', (
+      tester,
+    ) async {
+      final ScreenProtectionManager manager = ScreenProtectionManager();
+      final repo = FakeSalonRepository(
+        salon: _kSalon,
+        salonInvites: _invites(),
+      );
+      final GoRouter router = _router();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          salonRepositoryProvider.overrideWithValue(repo),
+          screenProtectionProvider.overrideWithValue(manager),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonPendingInvitesScreen), findsOneWidget);
+      expect(manager.acquirerCount, 1);
+
+      // `go` replaces the stack — the list screen is disposed.
+      router.go('/salons/$_kSalonId/manage/invite');
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonPendingInvitesScreen), findsNothing);
+      expect(
+        manager.acquirerCount,
+        0,
+        reason: 'a left invites list must not latch the app-switcher guard',
+      );
     });
   });
 }

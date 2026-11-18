@@ -103,11 +103,12 @@ const String _kPassword = 'StrongPassword12';
 const String _kFirstName = 'Ірина';
 const String _kLastName = 'Адміністратор';
 
-/// Typed raw; `UaPhoneInputFormatter` rewrites it in the field, so the value
-/// asserted on the wire below is the FORMATTED one — that difference is what
-/// makes the wire assertion prove the real field was driven.
+/// Typed raw on the M521 phone step; the classifier normalises it, so the
+/// value asserted on the SMS-send wire below is the `+380` one — that
+/// difference is what makes the wire assertion prove the real field was
+/// driven.
 const String _kPhoneTyped = '0663334455';
-const String _kPhoneOnWire = '+380 66 333 44 55';
+const String _kPhoneOnWire = '+380663334455';
 
 Future<void> _fill(WidgetTester tester, String fieldKey, String value) async {
   final Finder field = find.byKey(ValueKey<String>(fieldKey));
@@ -195,11 +196,30 @@ void main() {
         final String incompleteCopy = l10n.errSessionIncomplete;
         final String genericCopy = l10n.errUnknown;
 
-        // 3 ── Fill the form the user filled, and submit.
+        // 3 ── M521: confirm the invited phone by SMS code first (B514 ticket,
+        //      B520 accept), then fill the form the user filled, and submit.
+        await _fill(tester, 'invite_phone', _kPhoneTyped);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('invite_send_code')),
+        );
+        await AppHarness.settle(tester);
+        expect(fb.registrationCodeSendCalls, 1);
+        expect(fb.lastRegistrationCodePhone, _kPhoneOnWire);
+        await _fill(tester, 'phone_code_input', '123456');
+        await tester.tap(
+          find.byKey(const ValueKey<String>('phone_code_submit')),
+        );
+        await AppHarness.settle(tester);
+        expect(fb.registrationCodeVerifyCalls, 1);
+        expect(
+          find.text(_kInvitedPhoneMasked),
+          findsOneWidget,
+          reason: 'the details step keeps the same invite card',
+        );
+
         await _fill(tester, 'invite_password', _kPassword);
         await _fill(tester, 'invite_first_name', _kFirstName);
         await _fill(tester, 'invite_last_name', _kLastName);
-        await _fill(tester, 'invite_phone', _kPhoneTyped);
 
         // Phase 443 D3 — every field is valid, yet the CTA is DISABLED until
         // the consent box is ticked, and a tap reaches nothing on the wire.
@@ -249,13 +269,13 @@ void main() {
         expect(sent['firstName'], _kFirstName);
         expect(sent['lastName'], _kLastName);
         expect(
-          sent['phoneNumber'],
-          _kPhoneOnWire,
+          sent['registrationTicket'],
+          FakeBackend.kFakeTicket,
           reason:
-              'the FORMATTED value — proves the real field (with its '
-              'UaPhoneInputFormatter) was driven, not a controller poked '
-              'directly',
+              'B520 (AUTH-52) — the ticket the code step minted proves the '
+              'invited phone; the number itself is not resent',
         );
+        expect(sent['phoneNumber'], isNull);
         // Phase 443 D5 — the FULL consent triple, versions = app constants.
         expect(sent['termsAccepted'], isTrue);
         expect(sent['termsVersion'], kTermsVersion);
@@ -343,17 +363,19 @@ void main() {
     },
   );
 
-  // mobile-qa (2026-10-19) — fix/invite-phone-required. The phone is REQUIRED
-  // (backend InviteAcceptRequest.phoneNumber is @NotBlank) but is no longer in
-  // the CTA gate: an empty phone must be rejected AT SUBMIT with sign-up's
-  // inline `registerPhoneRequired`, never reach the wire, and keep the invitee
-  // on the form; filling it in must then complete the same accept → landing.
+  // M521 (B520, AUTH-52) — the phone is no longer a form field: it is the
+  // first step, confirmed by SMS code. An empty number never sends an SMS;
+  // a server 400 INVITE_PHONE_MISMATCH on accept returns the invitee to the
+  // phone step with «Номер не збігається з номером у запрошенні», creates no
+  // session, and never hands off to /login.
   testWidgets(
-    'an invitee submitting with an EMPTY phone sees the required error, '
-    'stays on the invite form with nothing sent, then joins after entering it',
+    'an empty phone sends no SMS; a phone the server rejects as not the '
+    'invited one returns to the phone step with the mismatch copy',
     (tester) async {
       await mockNetworkImagesFor(() async {
-        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        final fb = FakeBackend(
+          acceptInviteFailure: (400, 'INVITE_PHONE_MISMATCH'),
+        )..currentRole = UserRole.salonAdmin;
         final GoRouter router = await AppHarness.boot(tester, fb);
 
         router.go('${RouteNames.acceptInvite}?token=$_kToken');
@@ -362,12 +384,34 @@ void main() {
         final AppLocalizations l10n = AppLocalizations.of(
           tester.element(find.byType(AcceptInviteScreen)),
         );
+        final Finder phone = find.byKey(const ValueKey<String>('invite_phone'));
+        final Finder sendCode = find.byKey(
+          const ValueKey<String>('invite_send_code'),
+        );
+
+        await tester.tap(sendCode);
+        await AppHarness.settle(tester);
+        expect(fb.registrationCodeSendCalls, 0);
+        expect(
+          find.descendant(
+            of: phone,
+            matching: find.text(l10n.errPhoneNotUaMobile),
+          ),
+          findsOneWidget,
+        );
+
+        await _fill(tester, 'invite_phone', _kPhoneTyped);
+        await tester.tap(sendCode);
+        await AppHarness.settle(tester);
+        await _fill(tester, 'phone_code_input', '123456');
+        await tester.tap(
+          find.byKey(const ValueKey<String>('phone_code_submit')),
+        );
+        await AppHarness.settle(tester);
 
         await _fill(tester, 'invite_password', _kPassword);
         await _fill(tester, 'invite_first_name', _kFirstName);
         await _fill(tester, 'invite_last_name', _kLastName);
-
-        // Phase 443 — the required terms-consent box gates the submit.
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('invite_terms_checkbox')),
         );
@@ -380,50 +424,26 @@ void main() {
         await tester.tap(cta);
         await AppHarness.settle(tester);
 
+        expect(fb.acceptInviteCalls, 1);
         expect(
-          fb.acceptInviteCalls,
-          0,
-          reason: 'an empty phone must never reach POST /auth/invite/accept',
+          fb.lastAcceptInviteBody!['registrationTicket'],
+          FakeBackend.kFakeTicket,
         );
-        expect(
-          find.byType(AcceptInviteScreen),
-          findsOneWidget,
-          reason: 'the invitee stays on the form',
-        );
+        expect(find.byType(AcceptInviteScreen), findsOneWidget);
         expect(
           AppHarness.location(router),
           startsWith(RouteNames.acceptInvite),
+          reason: 'a mismatch is not a spent invite — no /login hand-off',
         );
         expect(
           find.descendant(
-            of: find.byKey(const ValueKey<String>('invite_phone')),
-            matching: find.text(l10n.registerPhoneRequired),
+            of: phone,
+            matching: find.text(l10n.errInvitePhoneMismatch),
           ),
           findsOneWidget,
-          reason:
-              'the REQUIRED copy under the phone field (same as sign-up) — '
-              'not the format error, not a silently dead CTA',
         );
-        expect(find.text(l10n.errPhoneInvalid), findsNothing);
-
-        await _fill(tester, 'invite_phone', _kPhoneTyped);
-        expect(
-          find.text(l10n.registerPhoneRequired),
-          findsNothing,
-          reason: 'the error clears live once the phone is entered',
-        );
-
-        await tester.ensureVisible(cta);
-        await tester.tap(cta);
-        await AppHarness.settle(tester);
-
-        expect(fb.acceptInviteCalls, 1);
-        expect(fb.lastAcceptInviteBody!['phoneNumber'], _kPhoneOnWire);
-        expect(find.byType(SalonShellScreen), findsOneWidget);
-        expect(
-          AppHarness.location(router),
-          equals(RouteNames.salonShell(_kAdminSalonId)),
-        );
+        expect(cta, findsNothing, reason: 'back on the phone step');
+        expect(find.byType(SalonShellScreen), findsNothing);
       });
     },
   );

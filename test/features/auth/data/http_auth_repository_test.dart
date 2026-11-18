@@ -963,6 +963,38 @@ void main() {
     }
   });
 
+  // M521 (B520, AUTH-52) — the phone invite accept.
+  group('acceptInvite — registration ticket', () {
+    test('a ticket is sent and phoneNumber is NOT (the ticket proves the '
+        'invited phone)', () async {
+      when(
+        () => mockAuthApi.acceptInvite(
+          inviteAcceptRequest: any(named: 'inviteAcceptRequest'),
+        ),
+      ).thenAnswer((_) async => _authResponse());
+
+      await repository.acceptInvite(
+        token: 'invite-token-123',
+        password: 'P@ssw0rd!',
+        firstName: 'Іванна',
+        lastName: 'Коваль',
+        termsAccepted: true,
+        registrationTicket: 'ticket-1',
+      );
+
+      final InviteAcceptRequest body =
+          verify(
+                () => mockAuthApi.acceptInvite(
+                  inviteAcceptRequest: captureAny(named: 'inviteAcceptRequest'),
+                ),
+              ).captured.single
+              as InviteAcceptRequest;
+      expect(body.registrationTicket, 'ticket-1');
+      expect(body.phoneNumber, isNull);
+      expect(body.token, 'invite-token-123');
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Group 9 — validateInvite
   // -------------------------------------------------------------------------
@@ -971,7 +1003,8 @@ void main() {
     test('success → returns InviteDetails with typed role', () async {
       final dto = InvitePreviewResponse(
         (b) => b
-          ..phoneMasked = 'admin@salon.test'
+          ..phoneMasked = '+380 •• ••• •• 45'
+          ..salonName = 'Salon Lumière'
           ..role = InvitePreviewResponseRoleEnum.SALON_ADMIN
           ..expiresAt = DateTime.utc(2030),
       );
@@ -992,7 +1025,8 @@ void main() {
 
       final details = await repository.validateInvite(token: 'valid-token');
 
-      expect(details.email, 'admin@salon.test');
+      expect(details.phoneMasked, '+380 •• ••• •• 45');
+      expect(details.salonName, 'Salon Lumière');
       expect(details.role, UserRole.salonAdmin);
       expect(details.expiresAt, DateTime.utc(2030));
     });

@@ -281,8 +281,8 @@ abstract interface class AuthRepository {
   /// Validates an invite token and returns the pre-filled [InviteDetails].
   ///
   /// `GET /auth/invite/validate?token=<token>`. Called immediately on screen
-  /// arrival to pre-populate the read-only invite preview (email, role, expiry)
-  /// before the user fills in their profile.
+  /// arrival to pre-populate the read-only invite preview (masked phone, salon,
+  /// role, expiry) before the invitee confirms the phone (M521).
   ///
   /// Throws:
   /// - [ValidationFailure] — the token is invalid or expired (400/404).
@@ -292,6 +292,11 @@ abstract interface class AuthRepository {
 
   /// Accepts an invite by completing account setup with [password], [firstName],
   /// [lastName] and optional [phoneNumber].
+  ///
+  /// M521 (B520, AUTH-52) — a phone invite needs [registrationTicket] (from
+  /// [verifyRegistrationCode]) proving the INVITED phone; when it is sent,
+  /// [phoneNumber] is not. 400 `INVITE_PHONE_MISMATCH` →
+  /// [PhoneIdentityFailure] ([PhoneIdentityErrorCode.invitePhoneMismatch]).
   ///
   /// [termsAccepted] (phase 443) — same all-or-nothing consent triple as
   /// [registerIndependentMaster].
@@ -312,5 +317,6 @@ abstract interface class AuthRepository {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   });
 }

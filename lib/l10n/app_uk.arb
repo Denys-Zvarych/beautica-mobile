@@ -1253,13 +1253,33 @@
   "@inviteHeading": {
     "description": "Main heading on the accept-invite screen."
   },
-  "inviteSubtitle": "Завершіть налаштування акаунту, щоб приєднатися до команди салону.",
+  "inviteSubtitle": "Підтвердіть номер, на який прийшло запрошення, щоб приєднатися до команди салону.",
   "@inviteSubtitle": {
     "description": "Sub-heading on the accept-invite screen."
   },
-  "inviteEmailLabel": "Запрошена пошта",
-  "@inviteEmailLabel": {
-    "description": "Read-only label for the invited email row in the invite preview card."
+  "invitePhoneMaskedLabel": "Запрошений номер",
+  "@invitePhoneMaskedLabel": {
+    "description": "M521 (AUTH-21) — invite preview row label for the masked invited phone."
+  },
+  "inviteSalonLabel": "Салон",
+  "@inviteSalonLabel": {
+    "description": "M521 (AUTH-21) — invite preview row label for the inviting salon name."
+  },
+  "inviteCodeSubtitle": "Введіть код із SMS, щоб підтвердити номер.",
+  "@inviteCodeSubtitle": {
+    "description": "M521 — accept-invite SMS code step subtitle."
+  },
+  "inviteDetailsSubtitle": "Номер підтверджено. Задайте пароль і вкажіть імʼя.",
+  "@inviteDetailsSubtitle": {
+    "description": "M521 — accept-invite password + name step subtitle (after the phone is confirmed)."
+  },
+  "invitePhoneHelper": "Той самий номер, на який прийшло запрошення",
+  "@invitePhoneHelper": {
+    "description": "M521 — helper under the accept-invite phone field."
+  },
+  "errInvitePhoneMismatch": "Номер не збігається з номером у запрошенні",
+  "@errInvitePhoneMismatch": {
+    "description": "M521 (AUTH-52) — 400 INVITE_PHONE_MISMATCH: the confirmed phone is not the invited one."
   },
   "inviteRoleLabel": "Роль",
   "@inviteRoleLabel": {
@@ -1311,7 +1331,7 @@
   "@inviteSuccessSnackbar": {
     "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   },
-  "inviteHandoffAccountReady": "Ваш акаунт створено. Увійдіть, використавши свою пошту та пароль, який ви щойно задали.",
+  "inviteHandoffAccountReady": "Ваш акаунт створено. Увійдіть за номером телефону та паролем, який ви щойно задали.",
   "@inviteHandoffAccountReady": {
     "description": "Login hand-off banner shown when accept-invite got a 2xx response the client could not parse (ResponseUnusableFailure) — the account was created server-side; invite-accept post-success design, 2026-09-01."
   },
@@ -1323,9 +1343,13 @@
   "@inviteHandoffNoLongerValid": {
     "description": "Login hand-off banner shown when the invite token was already used/expired/not found (400 with no field-error map) — invite-accept post-success design, 2026-09-01."
   },
-  "inviteHandoffEmailAlreadyRegistered": "Ця електронна пошта вже зареєстрована. Увійдіть у наявний акаунт або попросіть салон надіслати запрошення на іншу адресу.",
-  "@inviteHandoffEmailAlreadyRegistered": {
-    "description": "Login hand-off banner shown when accept-invite returned 409 (email already registered) — invite-accept post-success design, 2026-09-01."
+  "inviteHandoffPhoneAlreadyRegistered": "Цей номер уже зареєстровано. Увійдіть у наявний акаунт або попросіть салон надіслати запрошення на інший номер.",
+  "@inviteHandoffPhoneAlreadyRegistered": {
+    "description": "Login hand-off banner shown when accept-invite returned a 409 meaning the account already exists (EmailAlreadyRegisteredFailure / an un-coded 409). M521: invites go by phone (B520), so the copy names the number, never an email."
+  },
+  "inviteHandoffSalonInactive": "Цей салон більше не активний, тож запрошення прийняти не вийде. Якщо у вас уже є акаунт, увійдіть.",
+  "@inviteHandoffSalonInactive": {
+    "description": "M521 (AUTH-17, AUTH-E03) — login hand-off banner shown when accept-invite returned 409 INVITE_SALON_INACTIVE (the inviting salon was deactivated)."
   },
 
   "roleSelectHeadline": "Welcome to premium\nBeauty Service",
@@ -6346,7 +6370,7 @@
   "@inviteStaffTitle": {
     "description": "Phase 21.4 — SectionScaffold title for InviteStaffScreen, the SALON_OWNER/SALON_ADMIN's «Запросити персонал» form."
   },
-  "inviteStaffSubtitle": "Надішліть запрошення приєднатися до вашого салону. Людина отримає лист із посиланням для входу.",
+  "inviteStaffSubtitle": "Надішліть запрошення приєднатися до вашого салону. Людина отримає SMS із посиланням.",
   "@inviteStaffSubtitle": {
     "description": "Phase 21.4 — subheading under the title on InviteStaffScreen. Generic (does not interpolate the salon name) — InviteStaffScreen is reached with only `salonId`, mirroring the route's own `state.pathParameters['salonId']` builder; the approved preview's own salon-name interpolation was dropped for this production port."
   },
@@ -6370,23 +6394,15 @@
   "@inviteStaffRoleMasterDescription": {
     "description": "Phase 21.4 — one-line description shown beneath the role toggle when Майстер is selected."
   },
-  "inviteStaffEmailLabel": "Електронна пошта",
-  "@inviteStaffEmailLabel": {
-    "description": "Phase 21.4 — label for InviteStaffScreen's email NeumorphicTextField."
-  },
-  "inviteStaffEmailHint": "name@example.com",
-  "@inviteStaffEmailHint": {
-    "description": "Phase 21.4 — placeholder hint for InviteStaffScreen's email field."
-  },
-  "inviteStaffEmailHelper": "Запрошення дійсне 48 годин.",
-  "@inviteStaffEmailHelper": {
-    "description": "Phase 21.4 — helper text under InviteStaffScreen's email field."
+  "inviteStaffPhoneHelper": "Запрошення дійсне 48 годин.",
+  "@inviteStaffPhoneHelper": {
+    "description": "M521 — helper text under InviteStaffScreen's phone field."
   },
   "inviteStaffSubmitCta": "Надіслати запрошення",
   "@inviteStaffSubmitCta": {
     "description": "Phase 21.4 — InviteStaffScreen's primary submit CTA label."
   },
-  "inviteStaffSuccess": "Запрошення надіслано",
+  "inviteStaffSuccess": "SMS із запрошенням надіслано",
   "@inviteStaffSuccess": {
     "description": "Phase 21.4 — success VelvetSnack shown after POST /salons/{salonId}/invite succeeds on InviteStaffScreen, immediately before context.pop()."
   },
@@ -6402,9 +6418,13 @@
   "@inviteStaffErrorGeneric": {
     "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite fails for any other reason (network, 5xx, unknown)."
   },
-  "inviteStaffErrorEmailAlreadyRegistered": "Ця пошта вже зареєстрована в Beautica. Запросити можна лише нову адресу.",
-  "@inviteStaffErrorEmailAlreadyRegistered": {
-    "description": "Phase 303 — inline error on the email field when POST /salons/{salonId}/invite returns HTTP 409 EMAIL_ALREADY_REGISTERED (backend Phase 287): the invited address already has an account."
+  "inviteStaffErrorPhoneAlreadyRegistered": "Користувач із таким номером уже зареєстрований",
+  "@inviteStaffErrorPhoneAlreadyRegistered": {
+    "description": "M521 (AUTH-18) — inline error on the invite phone field for 409 PHONE_ALREADY_REGISTERED."
+  },
+  "errInviteSmsLimit": "Ліміт SMS-запрошень на сьогодні вичерпано. Спробуйте завтра.",
+  "@errInviteSmsLimit": {
+    "description": "M521 (AUTH-52) — banner for 429 INVITE_SMS_LIMIT on invite create."
   },
   "inviteStaffBackSemanticLabel": "Назад",
   "@inviteStaffBackSemanticLabel": {

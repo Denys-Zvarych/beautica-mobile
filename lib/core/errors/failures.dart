@@ -147,8 +147,14 @@ enum InviteHandoffReason {
   /// map.
   inviteNoLongerValid,
 
-  /// The invited email already has an account (409).
-  emailAlreadyRegistered,
+  /// The account already exists (409 — [EmailAlreadyRegisteredFailure] or a
+  /// 409 without a recognised code). M521: invites go by phone (B520), so the
+  /// copy names the number, never an email.
+  phoneAlreadyRegistered,
+
+  /// The inviting salon was deactivated — 409 `INVITE_SALON_INACTIVE`
+  /// (AUTH-17, AUTH-E03). The invite can never be accepted.
+  salonInactive,
 }
 
 /// Terminal, non-retryable outcome of an invite-accept (or equivalent
@@ -178,9 +184,12 @@ final class InviteHandoffFailure extends Failure {
     InviteHandoffReason.inviteNoLongerValid => AppLocalizations.of(
       ctx,
     ).inviteHandoffNoLongerValid,
-    InviteHandoffReason.emailAlreadyRegistered => AppLocalizations.of(
+    InviteHandoffReason.phoneAlreadyRegistered => AppLocalizations.of(
       ctx,
-    ).inviteHandoffEmailAlreadyRegistered,
+    ).inviteHandoffPhoneAlreadyRegistered,
+    InviteHandoffReason.salonInactive => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffSalonInactive,
   };
 }
 
@@ -309,6 +318,21 @@ final class ServerFailure extends Failure {
 
   /// The HTTP status code that triggered this failure, if available.
   final int? statusCode;
+
+  /// The backend's structured `data.code` discriminator (e.g.
+  /// `INVITE_SALON_INACTIVE`), read from the [cause] `DioException`'s
+  /// `{success:false, data:{code}}` envelope; `null` when absent. Never the
+  /// human `message` — only the stable machine code.
+  String? get errorCode {
+    final Object? c = cause;
+    if (c is! DioException) return null;
+    final Object? body = c.response?.data;
+    if (body is! Map<String, dynamic>) return null;
+    final Object? data = body['data'];
+    if (data is! Map<String, dynamic>) return null;
+    final Object? code = data['code'];
+    return code is String ? code : null;
+  }
 
   @override
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errServer;
@@ -491,6 +515,8 @@ final class PhoneIdentityFailure extends Failure {
       PhoneIdentityErrorCode.rateLimited => l10n.errPhoneCodeRateLimited,
       PhoneIdentityErrorCode.appCheckFailed => l10n.errAppCheckFailed,
       PhoneIdentityErrorCode.appCheckUnavailable => l10n.errAppCheckUnavailable,
+      PhoneIdentityErrorCode.invitePhoneMismatch => l10n.errInvitePhoneMismatch,
+      PhoneIdentityErrorCode.inviteSmsLimit => l10n.errInviteSmsLimit,
     };
   }
 }
@@ -543,6 +569,14 @@ enum PhoneIdentityErrorCode {
 
   /// 503 `APP_CHECK_UNAVAILABLE` (AUTH-54).
   appCheckUnavailable,
+
+  /// M521 (AUTH-52) — 400 `INVITE_PHONE_MISMATCH` on `/auth/invite/accept`:
+  /// the ticket's phone is not the invited one; no account is created.
+  invitePhoneMismatch,
+
+  /// M521 (AUTH-52) — 429 `INVITE_SMS_LIMIT` on invite create (per-inviter /
+  /// per-salon / per-phone SMS caps, or the 409-probe budget).
+  inviteSmsLimit,
 }
 
 /// Emitted when a provider role ([UserRole.independentMaster] or

@@ -457,6 +457,7 @@ final class FakeBackend {
     this.registrationCodeSendFailure,
     this.registrationCodeVerifyFailure,
     this.registerFailure,
+    this.acceptInviteFailure,
     this.appCheckToken,
     this.checkCurrentPassword = false,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
@@ -1587,6 +1588,14 @@ final class FakeBackend {
   /// 'REGISTRATION_TICKET_INVALID')`).
   final (int, String)? registerFailure;
 
+  /// M521 (B520) — `(status, data.code)` answered by `POST
+  /// /api/v1/auth/invite/accept` instead of the session (e.g. `(400,
+  /// 'INVITE_PHONE_MISMATCH')`). Read at construction time.
+  final (int, String)? acceptInviteFailure;
+
+  /// M521 — the salon name `GET /auth/invite/validate` returns (B520).
+  static const String kInviteSalonName = 'Студія Краси «Камелія»';
+
   /// M515 QA — when non-null, the production [AppCheckInterceptor] is
   /// installed with this token and every request is logged into
   /// [appCheckHeaderLog].
@@ -2502,7 +2511,7 @@ final class FakeBackend {
   final String deleteMyAccountFailureMessage;
 
   /// Phase 21.4 — `POST /api/v1/salons/{salonId}/invite` call count + the
-  /// exact last decoded wire body (email/role), so a flow can assert the
+  /// exact last decoded wire body (phone/role, B520), so a flow can assert the
   /// REAL serialized request reached the network — mirrors
   /// [updateSalonCalls]/[lastUpdateSalonBody]'s shape exactly.
   int inviteStaffCalls = 0;
@@ -2532,8 +2541,8 @@ final class FakeBackend {
   /// /invite` fail with [statusCode]. Call again with `null` to restore the
   /// default 200 success. [errorCode], when given, is nested as
   /// `data: {"code": errorCode}` in the failure envelope — pass
-  /// `'EMAIL_ALREADY_REGISTERED'` with `statusCode: 409` to drive
-  /// [EmailAlreadyRegisteredFailure] end-to-end.
+  /// `'PHONE_ALREADY_REGISTERED'` with `statusCode: 409` (B520) to drive
+  /// [PhoneIdentityFailure] end-to-end.
   void forceInviteStaffFailure(int? statusCode, {String? errorCode}) {
     _inviteStaffFailureStatusCode = statusCode;
     _inviteStaffFailureErrorCode = errorCode;
@@ -2562,7 +2571,7 @@ final class FakeBackend {
   // `formatRelativeDate`, whose `now` defaults to the HOST clock rather than
   // `clockProvider` (pre-existing, app-wide — `ReviewCard` does the same), so
   // that ONE caption is host-relative regardless of what is seeded here. No
-  // flow asserts on it; the assertions are on the invitee email, which is
+  // flow asserts on it; the assertions are on the invitee phone, which is
   // clock-free.
 
   /// Two ready-made PENDING invitation rows — a MASTER and an ADMIN, so a
@@ -2576,7 +2585,7 @@ final class FakeBackend {
       <Map<String, dynamic>>[
         <String, dynamic>{
           'inviteId': 'invite-seed-a',
-          'recipientEmail': 'anna.master@beautica.ua',
+          'recipientPhone': '+380671112201',
           'role': 'SALON_MASTER',
           'status': 'PENDING',
           'createdAt': '2026-06-12T09:00:00Z',
@@ -2584,7 +2593,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-seed-b',
-          'recipientEmail': 'borys.admin@beautica.ua',
+          'recipientPhone': '+380671112202',
           'role': 'SALON_ADMIN',
           'status': 'PENDING',
           'createdAt': '2026-06-13T09:00:00Z',
@@ -2603,7 +2612,7 @@ final class FakeBackend {
       <Map<String, dynamic>>[
         <String, dynamic>{
           'inviteId': 'invite-hist-1',
-          'recipientEmail': 'pending.master@beautica.ua',
+          'recipientPhone': '+380671112211',
           'role': 'SALON_MASTER',
           'status': 'PENDING',
           'createdAt': '2026-06-20T09:00:00Z',
@@ -2611,7 +2620,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-hist-2',
-          'recipientEmail': 'cancelled.admin@beautica.ua',
+          'recipientPhone': '+380671112212',
           'role': 'SALON_ADMIN',
           'status': 'CANCELLED',
           'createdAt': '2026-06-18T09:00:00Z',
@@ -2619,7 +2628,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-hist-3',
-          'recipientEmail': 'expired.master@beautica.ua',
+          'recipientPhone': '+380671112213',
           'role': 'SALON_MASTER',
           'status': 'EXPIRED',
           'createdAt': '2026-06-14T09:00:00Z',
@@ -2627,7 +2636,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-hist-4',
-          'recipientEmail': 'accepted.admin@beautica.ua',
+          'recipientPhone': '+380671112214',
           'role': 'SALON_ADMIN',
           'status': 'ACCEPTED',
           'createdAt': '2026-06-10T09:00:00Z',
@@ -7706,10 +7715,9 @@ final class FakeBackend {
 
   /// (Re-)registers `POST /api/v1/salons/salon-xyz/invite`.
   /// See [forceInviteStaffFailure]. The fake just records the decoded body
-  /// (email/role) and counts the call, mirroring the PATCH/DELETE salon
-  /// handlers above; a real `InviteResponse` only carries
-  /// `invitedEmail`/`expiresAt`, both nullable, so an empty data object is a
-  /// valid success envelope.
+  /// (B520: phone/role) and counts the call, mirroring the PATCH/DELETE salon
+  /// handlers above; a real `InviteResponse` carries `invitedPhone` /
+  /// `expiresAt`, both nullable.
   void _wireInviteStaff() {
     final int? failStatus = _inviteStaffFailureStatusCode;
     _adapter.onRoute(
@@ -7739,7 +7747,7 @@ final class FakeBackend {
         // and a freshly minted invitation is the newest row there is.
         pendingInvites.insert(0, <String, dynamic>{
           'inviteId': 'invite-minted-${++_mintedInviteSeq}',
-          'recipientEmail': body['email'],
+          'recipientPhone': body['phone'],
           'role': body['role'],
           'status': 'PENDING',
           'createdAt': kFixedNow.toUtc().toIso8601String(),
@@ -7749,7 +7757,7 @@ final class FakeBackend {
               .toIso8601String(),
         });
         return _ok(<String, dynamic>{
-          'invitedEmail': body['email'],
+          'invitedPhone': body['phone'],
           'expiresAt': null,
         });
       }),
@@ -8469,6 +8477,7 @@ final class FakeBackend {
         return _ok(<String, dynamic>{
           'phoneMasked': _invitePhoneMask(user['phoneNumber'] as String?),
           'role': user['role'],
+          'salonName': kInviteSalonName,
           'expiresAt': kFixedNow
               .add(const Duration(hours: 48))
               .toUtc()
@@ -8488,9 +8497,11 @@ final class FakeBackend {
     // only source for that binding.
     _adapter.onRoute(
       '/api/v1/auth/invite/accept',
-      (server) => server.replyCallback(200, (req) {
+      (server) => server.replyCallback(acceptInviteFailure?.$1 ?? 200, (req) {
         acceptInviteCalls++;
         lastAcceptInviteBody = _decodeBody(req.data);
+        final (int, String)? failure = acceptInviteFailure;
+        if (failure != null) return _phoneIdentityError(failure);
         return _authResponse(userJsonForRole(currentRole));
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

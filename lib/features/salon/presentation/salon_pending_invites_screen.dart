@@ -55,6 +55,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -71,11 +72,39 @@ import '../domain/salon_invite.dart';
 import 'widgets/salon_invite_row.dart';
 
 /// The owner/admin's history of sent staff invitations for [salonId].
-class SalonPendingInvitesScreen extends ConsumerWidget {
+class SalonPendingInvitesScreen extends ConsumerStatefulWidget {
   const SalonPendingInvitesScreen({super.key, required this.salonId});
 
   /// Backend Salon-row UUID whose invitations are listed.
   final String salonId;
+
+  @override
+  ConsumerState<SalonPendingInvitesScreen> createState() =>
+      _SalonPendingInvitesScreenState();
+}
+
+class _SalonPendingInvitesScreenState
+    extends ConsumerState<SalonPendingInvitesScreen> {
+  String get salonId => widget.salonId;
+
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on `ref` in dispose) — same lifecycle as `AcceptInviteScreen`.
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC LOW (M521 audit) — every row shows the FULL invitee phone: hold the
+    // ref-counted app-switcher / data-leakage guard while mounted
+    // (internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
+  @override
+  void dispose() {
+    _screenProtection.release();
+    super.dispose();
+  }
 
   void _openInvite(BuildContext context) {
     context.pushOnce(RouteNames.salonInviteStaff(salonId));
@@ -90,7 +119,7 @@ class SalonPendingInvitesScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     // NARROWED, never a bare whole-state watch (mobile-perf MEDIUM; the
     // guidance backlog row 335 records for the schedule hub applies verbatim

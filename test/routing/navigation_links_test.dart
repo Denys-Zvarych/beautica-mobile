@@ -695,7 +695,7 @@ void main() {
         const kToken = 'valid-invite-token';
 
         final validInvite = InviteDetails(
-          email: 'masha@salon.ua',
+          phoneMasked: '+380 •• ••• •• 45',
           role: UserRole.salonMaster,
           expiresAt: DateTime.now().add(const Duration(hours: 48)),
         );
@@ -784,6 +784,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Fill password (shared 8-char minimum — same policy as register/reset).
+        await _walkInvitePhoneAndCode(tester);
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_password')),
           'StrongPass12',
@@ -808,15 +809,6 @@ void main() {
         );
         await tester.pump();
 
-        // Phone is REQUIRED (InviteAcceptRequest.phoneNumber is @NotBlank) —
-        // without it _formValid stays false and the CTA never enables.
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_phone')),
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
-        );
         await tester.pump();
 
         // Tap the accept CTA.
@@ -885,12 +877,12 @@ void main() {
     'NL-23: /invite/accept post-success failure → /login hand-off via router',
     () {
       testWidgets('NL-23a: ResponseUnusableFailure → router lands on /login, '
-          'loginNoticeProvider holds accountReady + the invited email', (
+          'loginNoticeProvider holds accountReady + the confirmed phone', (
         tester,
       ) async {
         const kToken = 'valid-invite-token';
         final validInvite = InviteDetails(
-          email: 'masha@salon.ua',
+          phoneMasked: '+380 •• ••• •• 45',
           role: UserRole.salonMaster,
           expiresAt: DateTime.now().add(const Duration(hours: 48)),
         );
@@ -949,6 +941,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 50));
         await tester.pumpAndSettle();
 
+        await _walkInvitePhoneAndCode(tester);
+
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_password')),
           'StrongPass12',
@@ -960,10 +954,6 @@ void main() {
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_last_name')),
           'Бондар',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
         );
         await tester.pump();
 
@@ -1001,7 +991,7 @@ void main() {
         final notice = container.read(loginNoticeProvider);
         expect(notice, isNotNull);
         expect(notice!.reason, InviteHandoffReason.accountReady);
-        expect(notice.email, validInvite.email);
+        expect(notice.email, '+380671234545');
 
         // State-consistency check: the failed accept must NOT have
         // transitioned the session to Authenticated (this is a genuine
@@ -1022,7 +1012,7 @@ void main() {
         (tester) async {
           const kToken = 'valid-invite-token';
           final validInvite = InviteDetails(
-            email: 'masha@salon.ua',
+            phoneMasked: '+380 •• ••• •• 45',
             role: UserRole.salonMaster,
             expiresAt: DateTime.now().add(const Duration(hours: 48)),
           );
@@ -1083,6 +1073,8 @@ void main() {
           await tester.pump(const Duration(milliseconds: 50));
           await tester.pumpAndSettle();
 
+          await _walkInvitePhoneAndCode(tester);
+
           await tester.enterText(
             find.byKey(const ValueKey<String>('invite_password')),
             'StrongPass12',
@@ -1094,10 +1086,6 @@ void main() {
           await tester.enterText(
             find.byKey(const ValueKey<String>('invite_last_name')),
             'Бондар',
-          );
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_phone')),
-            '0671234567',
           );
           await tester.pump();
 
@@ -1498,4 +1486,24 @@ class _SyncInviteNotifier extends AcceptInviteNotifier {
 
   @override
   FutureOr<InviteDetails> build(String token) => _invite;
+}
+
+/// M521 — the accept screen's phone → SMS-code steps (FakeAuthRepository
+/// sends 200 and mints `ticket-1`); the phone's tail matches the fixture's
+/// masked invite phone (`… 45`).
+Future<void> _walkInvitePhoneAndCode(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('invite_phone')),
+    '0671234545',
+  );
+  await tester.pump();
+  await tester.tap(find.byKey(const ValueKey<String>('invite_send_code')));
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('phone_code_input')),
+    '123456',
+  );
+  await tester.pump();
+  await tester.tap(find.byKey(const ValueKey<String>('phone_code_submit')));
+  await tester.pumpAndSettle();
 }

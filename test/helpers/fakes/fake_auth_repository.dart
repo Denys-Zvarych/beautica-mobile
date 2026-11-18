@@ -256,12 +256,17 @@ final class FakeAuthRepository implements AuthRepository {
   /// (index-aligned with [acceptInviteCalls]).
   final List<bool> acceptInviteTermsAcceptedCalls = [];
 
+  /// M521 — `registrationTicket` captured per [acceptInvite] call
+  /// (index-aligned with [acceptInviteCalls]).
+  final List<String?> acceptInviteTicketCalls = [];
+
   // ---------------------------------------------------------------------------
   // AuthRepository
   // ---------------------------------------------------------------------------
 
   static final _defaultInvite = InviteDetails(
-    email: 'invited@salon.ua',
+    phoneMasked: '+380 •• ••• •• 45',
+    salonName: 'Salon Lumière',
     role: UserRole.salonMaster,
     expiresAt: DateTime.now().add(const Duration(hours: 48)),
   );
@@ -502,8 +507,10 @@ final class FakeAuthRepository implements AuthRepository {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     acceptInviteTermsAcceptedCalls.add(termsAccepted);
+    acceptInviteTicketCalls.add(registrationTicket);
     acceptInviteCalls.add((
       token: token,
       password: password,
