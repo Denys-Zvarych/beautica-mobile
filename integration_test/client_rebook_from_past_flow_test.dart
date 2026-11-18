@@ -45,7 +45,12 @@
 // Raw Ukrainian text appears only in CONTENT assertions (fixture data, never
 // app copy).
 
+import 'package:beautica_mobile/core/network/refresh_dio_provider.dart';
+import 'package:beautica_mobile/core/network/refresh_interceptor.dart';
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
@@ -65,9 +70,12 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
@@ -235,6 +243,93 @@ Future<GoRouter> _openPastBookingAndRebook(
   expect(find.byType(BookingDetailScreen), findsNothing);
 
   return router;
+}
+
+/// Step 1 (pre-checked) → date → time → first free slot → confirm → submit,
+/// landing on `BookingSuccessScreen` — Test 5's path, without its list checks.
+Future<void> _driveRebookToSuccess(WidgetTester tester, GoRouter router) async {
+  expect(_checkedFace(_tile('pub-assign-1')), findsOneWidget);
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
+  await AppHarness.settle(tester);
+  AppHarness.expectLocation(router, RouteNames.bookingSlots);
+
+  await tester.tapCalendarDay(kyivToday(() => kFixedNow).day);
+  await AppHarness.settle(tester);
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
+  await AppHarness.settle(tester);
+  AppHarness.expectLocation(router, RouteNames.bookingSlotsTime);
+
+  final Finder availableChip = find
+      .byWidgetPredicate((Widget w) => w is SlotChip && w.available)
+      .first;
+  await tester.ensureVisible(availableChip);
+  await AppHarness.settle(tester);
+  await tester.tap(availableChip);
+  await AppHarness.settle(tester);
+  await tester.tap(find.byKey(const Key('booking-summary-cta')));
+  await AppHarness.settle(tester);
+  AppHarness.expectLocation(router, RouteNames.bookingConfirm);
+
+  await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+  await AppHarness.settle(tester);
+  AppHarness.expectLocation(router, RouteNames.bookingSuccess);
+  expect(find.byType(BookingSuccessScreen), findsOneWidget);
+}
+
+/// Fails the FIRST request after [arm] with a 401, the way an expired access
+/// token does; every later request — including `RefreshInterceptor`'s replay
+/// — passes through untouched.
+class _ExpireAccessTokenOnce extends Interceptor {
+  bool _armed = false;
+  int fired = 0;
+
+  void arm() => _armed = true;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (!_armed) return handler.next(options);
+    _armed = false;
+    fired++;
+    handler.reject(
+      DioException(
+        requestOptions: options,
+        response: Response<dynamic>(requestOptions: options, statusCode: 401),
+        type: DioExceptionType.badResponse,
+      ),
+      true,
+    );
+  }
+}
+
+/// A `POST /api/v1/auth/refresh` that rotates BOTH tokens — FakeBackend's own
+/// stub returns the login token unchanged, which would make the refresh a
+/// no-op `AuthSession` and prove nothing.
+class _RotatingRefreshEndpoint {
+  _RotatingRefreshEndpoint()
+    : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
+    final DioAdapter adapter = DioAdapter(dio: dio);
+    dio.httpClientAdapter = adapter;
+    adapter.onPost(
+      '/api/v1/auth/refresh',
+      (server) => server.replyCallback(200, (_) {
+        calls++;
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': <String, dynamic>{
+            'accessToken': rotatedAccessToken,
+            'refreshToken': 'rotated-refresh-token',
+          },
+        };
+      }),
+      data: Matchers.any,
+    );
+  }
+
+  static const String rotatedAccessToken = 'rotated-access-token';
+
+  final Dio dio;
+  int calls = 0;
 }
 
 void main() {
@@ -655,5 +750,129 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     },
+  );
+
+  // =========================================================================
+  // Test 7 — Sentry 162160464 (prod 1.9.1+13) REGRESSION: a silent token
+  // refresh on the success screen must not rebuild the route stack.
+  //
+  // In prod the client finished a rebook, an expired access token 401'd the
+  // next request, `RefreshInterceptor` refreshed it and called
+  // `AuthNotifier.setAccessToken` — a new `authProvider` value. The router
+  // refreshed on EVERY auth emission, re-parsed the reported stack, dropped
+  // every non-JSON `extra` (`BookingEntryArgs`, slot / success args) and the
+  // `/booking/new` builder crashed on `extra!`. The fix refreshes the router
+  // on `authRouterKey` only (a token is not a key field).
+  //
+  // REAL PATH: the production `RefreshInterceptor` is installed on
+  // FakeBackend's Dio (which otherwise omits it — see its own comment), ahead
+  // of `ErrorMapperInterceptor` exactly as `dio_provider.dart` orders it, and
+  // `refreshDioProvider` points at a fake `/auth/refresh` that rotates BOTH
+  // tokens. A one-shot interceptor makes the next request 401 the way an
+  // expired token does; everything after that is production code.
+  //
+  // The pops at the end are a STACK PROBE (the success screen itself blocks
+  // back): they prove each page under it still holds its typed args — the
+  // time and date steps, and Step 1 with the rebooked service pre-checked.
+  //
+  // FALSIFIED (2026-11-18): with `AuthRefreshNotifier` back on
+  // `ref.listen(authProvider, …)` the stack is torn down (RED on the
+  // location/success-screen asserts); with the `extra!` builders also back,
+  // RED on the null-check crash.
+  // =========================================================================
+  testWidgets(
+    'CLIENT on the rebook success screen survives a 401 → silent token '
+    'refresh: no crash, the typed stack is kept, and popping back reaches '
+    'Step 1 with the service still pre-checked (Sentry 162160464)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        // A slot after `kFixedNow` on the same Kyiv day — see Test 5.
+        ..availableSlotUtcStarts = const <(int, int)>[(13, 0)];
+      final _RotatingRefreshEndpoint refresh = _RotatingRefreshEndpoint();
+      final GoRouter router = await _openPastBookingAndRebook(
+        tester,
+        fb,
+        extraOverrides: <Object>[
+          appointmentRepositoryProvider.overrideWithValue(
+            _FakeRebookAppointmentRepository(),
+          ),
+          refreshDioProvider.overrideWithValue(refresh.dio),
+        ],
+      );
+      await _driveRebookToSuccess(tester, router);
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingSuccessScreen)),
+      );
+      final _ExpireAccessTokenOnce expire = _ExpireAccessTokenOnce();
+      final Provider<RefreshInterceptor> refreshInterceptorProvider =
+          Provider<RefreshInterceptor>(
+            (ref) => RefreshInterceptor(ref, fb.dio),
+          );
+      fb.dio.interceptors
+        ..insert(0, container.read(refreshInterceptorProvider))
+        ..insert(0, expire);
+      expect(
+        await container.read(secureStorageProvider).readRefreshToken(),
+        'fake-refresh-token',
+        reason: 'login must have stored the refresh token the refresh uses',
+      );
+      final int getMeBefore = fb.getMeCalls;
+
+      // The next authenticated request 401s → silent refresh → replay.
+      expire.arm();
+      final Future<Response<dynamic>> request = fb.dio.get<dynamic>(
+        '/api/v1/users/me',
+      );
+      await AppHarness.settle(tester);
+      final Response<dynamic> response = await request;
+      await AppHarness.settle(tester);
+
+      // The refresh really happened, through production code.
+      expect(expire.fired, 1);
+      expect(refresh.calls, 1);
+      expect(response.statusCode, 200, reason: 'the replay must succeed');
+      expect(fb.getMeCalls, getMeBefore + 1, reason: 'one replayed GET');
+      final AuthSession? session = container.read(authProvider).value;
+      expect(session, isA<Authenticated>());
+      expect(
+        (session! as Authenticated).accessToken,
+        _RotatingRefreshEndpoint.rotatedAccessToken,
+      );
+
+      // No crash, and the stack — with its typed args — is untouched.
+      expect(tester.takeException(), isNull);
+      AppHarness.expectLocation(router, RouteNames.bookingSuccess);
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('route_missing_extra_fallback')),
+        findsNothing,
+      );
+
+      // Stack probe: success → time → date → /booking/new.
+      router.pop();
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingSlotsTime);
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+      router.pop();
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
+      expect(find.byType(SlotDateScreen), findsOneWidget);
+      router.pop();
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingNew);
+      expect(find.byType(ServiceSelectorSheet), findsOneWidget);
+      expect(
+        _checkedFace(_tile('pub-assign-1')),
+        findsOneWidget,
+        reason:
+            'Step 1 must still hold its BookingEntryArgs — the rebooked '
+            'service stays pre-checked after the refresh',
+      );
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
   );
 }
