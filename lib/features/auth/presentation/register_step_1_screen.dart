@@ -25,6 +25,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/network/app_check_prefetch.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -68,6 +69,8 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
   @override
   void initState() {
     super.initState();
+    // Phone-first hardening P2: attest ahead of the SMS send.
+    ref.read(appCheckTokenPrefetcherProvider).prefetch();
     // Pre-fill from the draft (back from the code step).
     final draft = ref.read(registerDraftProvider);
     if (draft != null) {
@@ -234,7 +237,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           ),
           const SizedBox(height: VelvetSpacing.sm),
 
-          // ── "Вже є акаунт? Увійти" ─────────────────────────────────────
+          // ── "Вже маєте акаунт з email? Увійдіть" (AUTH-D28) ────────────
           Center(
             child: GestureDetector(
               key: const ValueKey<String>('step1_login_link'),
@@ -245,12 +248,12 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
                   TextSpan(
                     children: <InlineSpan>[
                       TextSpan(
-                        text: l10n.registerHaveAccount,
+                        text: l10n.registerHaveEmailAccount,
                         style: VelvetText.body(),
                       ),
                       const TextSpan(text: ' '),
                       TextSpan(
-                        text: l10n.registerSignIn,
+                        text: l10n.registerSignInImperative,
                         style: VelvetText.link(),
                       ),
                     ],

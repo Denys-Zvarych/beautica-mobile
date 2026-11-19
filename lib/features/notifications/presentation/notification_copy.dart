@@ -77,6 +77,8 @@ abstract final class NotificationCopy {
       l10n.notificationTitleSecurityPhoneChanged,
     AppNotificationType.securityEmailChanged =>
       l10n.notificationTitleSecurityEmailChanged,
+    AppNotificationType.securityPasswordReset =>
+      l10n.notificationTitleSecurityPasswordReset,
     AppNotificationType.unknown => l10n.notificationTitleUnknown,
   };
 
@@ -148,6 +150,9 @@ abstract final class NotificationCopy {
         return email == null
             ? l10n.notificationBodySecuritySupport
             : l10n.notificationBodySecurityEmailChanged(email);
+      // AUTH-D26 a — fixed copy, no contact value.
+      case AppNotificationType.securityPasswordReset:
+        return l10n.notificationBodySecurityPasswordReset;
       default:
         break;
     }
@@ -517,7 +522,8 @@ abstract final class NotificationCopy {
     AppNotificationType.reviewAboutYouRemoved => Icons.reviews_rounded,
     AppNotificationType.bookingReminder => Icons.alarm_rounded,
     AppNotificationType.securityPhoneChanged ||
-    AppNotificationType.securityEmailChanged => Icons.security_rounded,
+    AppNotificationType.securityEmailChanged ||
+    AppNotificationType.securityPasswordReset => Icons.security_rounded,
     AppNotificationType.unknown => Icons.notifications_rounded,
   };
 

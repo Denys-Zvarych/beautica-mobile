@@ -589,6 +589,18 @@ swallows the next value instead. Wire-string mappers over a `status` String
 as the arm: `// status-default-ok: <why>`. Self-test:
 `./scripts/forbid_booking_status_default_arm.sh --self-test`.
 
+<a id="error-codes-contract"></a>
+
+### Identity error-code contract in sync with backend `dev` (phone-first hardening, 2026-11-19)
+
+`scripts/sync_error_codes.sh --check --source <raw URL>` (job `gates-fast`) fetches
+the backend golden `src/test/resources/contract/identity-error-codes.json` from the
+public `beautica-backend` repo, `dev` branch, and fails when the app copy
+`tool/contract/identity-error-codes.json` differs (the Dart contract test then maps
+every code). A 404 — the backend change is not on `dev` yet, since the backend PR
+merges first — prints a `::warning::` and passes. Locally the same script with no
+`--source` compares against `../beautica-backend`.
+
 <a id="verify-guards-self-test"></a>
 
 ### Self-test drift-prevention gates (2026-06-24, 2026-08-18)

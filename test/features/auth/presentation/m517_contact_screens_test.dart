@@ -8,6 +8,10 @@
 //     and pops `true` on success; the email step maps INVALID_CODE / 409.
 //   NotificationEmailScreen (AUTH-50): bad email refused inline; a valid one
 //     requests the code and returns `true` once confirmed.
+//   Phone-first hardening: AUTH-D28 duplicate state on the add-phone step
+//     (verify-time 409 pops back here; support mailto; field editable;
+//     «Вийти» kept), M1 resend 429 keeps the cooldown on the code step, M7
+//     the phone path's exhausted / expired code is INVALID_CODE copy.
 //   QA additions: the lockout is ONE tally shared by the phone-change and
 //     email steps and never touches a first add; a correct password clears
 //     it; an email CHANGE starts from the confirmed address and replaces it.
@@ -18,6 +22,7 @@
 import 'package:beautica_mobile/core/diagnostics/crash_reporting_enabled_provider.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/app_check_prefetch.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -30,6 +35,7 @@ import 'package:beautica_mobile/features/auth/presentation/add_phone_screen.dart
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/contact_verify_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/notification_email_screen.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/phone_code_step.dart';
 import 'package:beautica_mobile/features/auth/state/current_password_lockout_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -37,6 +43,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../../integration_test/support/app_harness.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
@@ -80,7 +89,11 @@ class _AuthStub extends AuthNotifier {
 }
 
 final class _Harness {
-  _Harness(this.user, {DateTime Function()? clock}) {
+  _Harness(
+    this.user, {
+    DateTime Function()? clock,
+    AppCheckTokenPrefetcher? prefetcher,
+  }) {
     container = ProviderContainer(
       retry: beauticaProviderRetry,
       overrides: [
@@ -89,6 +102,8 @@ final class _Harness {
         authProvider.overrideWith(() => auth),
         diagnosticsStoreProvider.overrideWithValue(FakeDiagnosticsStore()),
         if (clock != null) clockProvider.overrideWithValue(clock),
+        if (prefetcher != null)
+          appCheckTokenPrefetcherProvider.overrideWithValue(prefetcher),
       ],
     );
   }
@@ -185,6 +200,11 @@ Future<GoRouter> _pump(
 
 Finder _key(String k) => find.byKey(ValueKey<String>(k));
 
+/// `launchUrl` routes through [UrlLauncherPlatform.instance] (AUTH-D28 mailto).
+class _MockUrlLauncher extends Mock
+    with MockPlatformInterfaceMixin
+    implements UrlLauncherPlatform {}
+
 /// Records [n] wrong current passwords for [h]'s account, as the verify
 /// steps do on each 400 CURRENT_PASSWORD_INVALID.
 void _failPasswords(_Harness h, int n) {
@@ -222,6 +242,24 @@ void main() {
   final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
 
   group('AddPhoneScreen (AUTH-D12)', () {
+    testWidgets('opening the add-phone step starts exactly one App Check '
+        'prefetch (AUTH-D27 d, P2)', (tester) async {
+      int fetches = 0;
+      final AppCheckTokenPrefetcher prefetcher = AppCheckTokenPrefetcher(
+        fetch: () async => 'tok-${++fetches}',
+        canPrefetch: () => true,
+        clock: () => DateTime.utc(2026, 11, 19, 10),
+      );
+      final _Harness h = _Harness(_legacy, prefetcher: prefetcher);
+      addTearDown(h.container.dispose);
+
+      await _pump(tester, h, initialLocation: RouteNames.addPhone);
+
+      expect(fetches, 1);
+      expect(await prefetcher.take(), 'tok-1', reason: 'no second fetch');
+      expect(fetches, 1);
+    });
+
     testWidgets('blocking: no back affordance and PopScope refuses a pop', (
       tester,
     ) async {
@@ -633,6 +671,267 @@ void main() {
       );
       final AuthSession? s = h.container.read(authProvider).value;
       expect(s is Authenticated ? s.user.confirmedEmail : null, 'old@b.ua');
+    });
+  });
+
+  group(
+    'AddPhoneScreen — AUTH-D28 duplicate (409 PHONE_ALREADY_REGISTERED)',
+    () {
+      late _MockUrlLauncher launcher;
+      late UrlLauncherPlatform originalPlatform;
+
+      setUpAll(() => registerFallbackValue(const LaunchOptions()));
+      setUp(() {
+        originalPlatform = UrlLauncherPlatform.instance;
+        launcher = _MockUrlLauncher();
+        UrlLauncherPlatform.instance = launcher;
+      });
+      tearDown(() => UrlLauncherPlatform.instance = originalPlatform);
+
+      /// Number → code step → code rejected with the verify-time 409.
+      Future<GoRouter> reachDuplicate(WidgetTester tester, _Harness h) async {
+        h.repo.verifyPhoneCodeFailure = const PhoneIdentityFailure(
+          code: PhoneIdentityErrorCode.phoneAlreadyRegistered,
+        );
+        final GoRouter router = await _pump(
+          tester,
+          h,
+          initialLocation: RouteNames.addPhone,
+        );
+        await tester.enterText(_key('add_phone'), '093 111 22 33');
+        await _tapAndSettle(tester, _key('add_phone_submit'));
+        expect(AppHarness.location(router), RouteNames.addPhoneVerify);
+        await _enterCodeAndPassword(tester);
+        await _tapAndSettle(tester, _key('phone_code_submit'));
+        return router;
+      }
+
+      testWidgets('verify-time 409 returns to the add-phone step with the D28 '
+          'copy, support action, editable field and «Вийти»', (tester) async {
+        final _Harness h = _Harness(_legacy);
+        addTearDown(h.container.dispose);
+        final GoRouter router = await reachDuplicate(tester, h);
+
+        expect(AppHarness.location(router), RouteNames.addPhone);
+        expect(_key('add_phone_duplicate'), findsOneWidget);
+        expect(find.text(l10n.addPhoneDuplicateMessage), findsOneWidget);
+        // i18n-finder-ok: pins the AUTH-D28 uk copy verbatim (uk locale).
+        expect(
+          find.text(
+            'Цей номер уже прив\'язаний до іншого акаунта. Можливо, ви вже '
+            'зареєструвалися за цим номером — увійдіть у той акаунт або '
+            'напишіть у підтримку, ми допоможемо.',
+          ),
+          findsOneWidget,
+          reason: 'uk copy exactly as AUTH-D28',
+        );
+        // i18n-finder-ok: pins the AUTH-D28 uk copy verbatim (the test runs
+        // in the uk locale); the key-based lookup is asserted above.
+        expect(find.text('Написати в підтримку'), findsOneWidget);
+        expect(_key('phone_send_error'), findsNothing);
+        expect(_key('add_phone_logout'), findsOneWidget);
+        expect(
+          tester.widget<NeumorphicTextField>(_key('add_phone')).enabled,
+          isTrue,
+        );
+        expect(h.auth.logoutCalls, 0);
+      });
+
+      testWidgets('«Написати в підтримку» opens a mailto to support with the '
+          'subject', (tester) async {
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => true);
+        final _Harness h = _Harness(_legacy);
+        addTearDown(h.container.dispose);
+        await reachDuplicate(tester, h);
+
+        await _tapAndSettle(tester, _key('auth_banner_action'));
+
+        final List<dynamic> captured = verify(
+          () => launcher.launchUrl(captureAny(), any()),
+        ).captured;
+        final Uri uri = Uri.parse(captured.single as String);
+        expect(uri.scheme, 'mailto');
+        expect(uri.path, 'support@beautica.app');
+        expect(
+          uri.queryParameters['subject'],
+          l10n.addPhoneSupportEmailSubject,
+        );
+        expect(
+          find.text(l10n.addPhoneSupportOpenError('support@beautica.app')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('no mail app → snack naming the support address', (
+        tester,
+      ) async {
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => false);
+        final _Harness h = _Harness(_legacy);
+        addTearDown(h.container.dispose);
+        await reachDuplicate(tester, h);
+
+        await _tapAndSettle(tester, _key('auth_banner_action'));
+
+        expect(
+          find.text(l10n.addPhoneSupportOpenError('support@beautica.app')),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets(
+        'editing the number clears the state; «Вийти» still logs out',
+        (tester) async {
+          final _Harness h = _Harness(_legacy);
+          addTearDown(h.container.dispose);
+          await reachDuplicate(tester, h);
+
+          await tester.enterText(_key('add_phone'), '093 111 22 3');
+          await tester.pump();
+          expect(_key('add_phone_duplicate'), findsNothing);
+
+          await _tapAndSettle(tester, _key('add_phone_logout'));
+          expect(h.auth.logoutCalls, 1);
+        },
+      );
+
+      testWidgets('a 409 on send (defensive) shows the same state', (
+        tester,
+      ) async {
+        final _Harness h = _Harness(_legacy);
+        addTearDown(h.container.dispose);
+        h.repo.sendPhoneCodeFailure = const PhoneIdentityFailure(
+          code: PhoneIdentityErrorCode.phoneAlreadyRegistered,
+        );
+        await _pump(tester, h, initialLocation: RouteNames.addPhone);
+
+        await tester.enterText(_key('add_phone'), '0931112233');
+        await _tapAndSettle(tester, _key('add_phone_submit'));
+
+        expect(_key('add_phone_duplicate'), findsOneWidget);
+        expect(_key('phone_send_error'), findsNothing);
+      });
+    },
+  );
+
+  group('ContactVerifyScreen — phone add code step', () {
+    Future<void> openCodeStep(WidgetTester tester, _Harness h) async {
+      await _pump(tester, h, initialLocation: RouteNames.addPhone);
+      await tester.enterText(_key('add_phone'), '0931112233');
+      await _tapAndSettle(tester, _key('add_phone_submit'));
+    }
+
+    Future<void> tapResend(WidgetTester tester) async {
+      await tester.tap(_key('phone_code_resend'));
+      await tester.pump();
+      await tester.pump();
+    }
+
+    // M7 — the phone path never answers CODE_EXPIRED (AUTH-D19): an
+    // exhausted or expired phone code arrives as INVALID_CODE and shows the
+    // «Невірний код» copy, never the email «code expired» copy.
+    testWidgets('M7: exhausted / expired phone code → INVALID_CODE copy', (
+      tester,
+    ) async {
+      final _Harness h = _Harness(_legacy);
+      addTearDown(h.container.dispose);
+      h.repo.verifyPhoneCodeFailure = const PhoneIdentityFailure(
+        code: PhoneIdentityErrorCode.invalidCode,
+      );
+      await openCodeStep(tester, h);
+
+      await _enterCodeAndPassword(tester);
+      await _tapAndSettle(tester, _key('phone_code_submit'));
+
+      expect(find.text(l10n.errPhoneCodeInvalid), findsOneWidget);
+      expect(find.text(l10n.verificationErrCodeExpired), findsNothing);
+      expect(_key('add_phone_duplicate'), findsNothing);
+    });
+
+    testWidgets('M1: resend 429 keeps the cooldown (60 s fallback)', (
+      tester,
+    ) async {
+      final _Harness h = _Harness(_legacy);
+      addTearDown(h.container.dispose);
+      await openCodeStep(tester, h);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(1));
+
+      h.repo.sendPhoneCodeFailure = const PhoneIdentityFailure(
+        code: PhoneIdentityErrorCode.rateLimited,
+      );
+      // fixed-wait-ok: TTL crossing — the arrival cooldown must fully elapse.
+      await tester.pump(
+        const Duration(seconds: kPhoneCodeResendCooldownSeconds),
+      );
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(2));
+      expect(find.text(l10n.errPhoneCodeRateLimited), findsOneWidget);
+
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(2));
+      // fixed-wait-ok: TTL crossing — one second short of the 429 cooldown.
+      await tester.pump(
+        const Duration(seconds: kPhoneCodeResendCooldownSeconds - 1),
+      );
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(2));
+      // fixed-wait-ok: TTL crossing — the 429 cooldown fully elapses.
+      await tester.pump(const Duration(seconds: 1));
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(3));
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('M1: resend 429 with Retry-After 0 still waits 60 s', (
+      tester,
+    ) async {
+      final _Harness h = _Harness(_legacy);
+      addTearDown(h.container.dispose);
+      await openCodeStep(tester, h);
+
+      h.repo.sendPhoneCodeFailure = const PhoneIdentityFailure(
+        code: PhoneIdentityErrorCode.rateLimited,
+        retryAfterSeconds: 0,
+      );
+      // fixed-wait-ok: TTL crossing — the arrival cooldown must fully elapse.
+      await tester.pump(
+        const Duration(seconds: kPhoneCodeResendCooldownSeconds),
+      );
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(2));
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(2), reason: 'not unlocked');
+      // fixed-wait-ok: TTL crossing — the 60 s fallback fully elapses.
+      await tester.pump(
+        const Duration(seconds: kPhoneCodeResendCooldownSeconds),
+      );
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(3));
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('M1: a network error on resend re-enables the link at once', (
+      tester,
+    ) async {
+      final _Harness h = _Harness(_legacy);
+      addTearDown(h.container.dispose);
+      await openCodeStep(tester, h);
+
+      h.repo.sendPhoneCodeFailure = const NetworkFailure();
+      // fixed-wait-ok: TTL crossing — the arrival cooldown must fully elapse.
+      await tester.pump(
+        const Duration(seconds: kPhoneCodeResendCooldownSeconds),
+      );
+      await tapResend(tester);
+      await tapResend(tester);
+      expect(h.repo.sendPhoneCodeCalls, hasLength(3));
+
+      await tester.pumpWidget(const SizedBox());
     });
   });
 }

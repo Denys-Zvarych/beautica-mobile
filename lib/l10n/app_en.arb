@@ -3518,6 +3518,8 @@
       }
     }
   },
+  "notificationTitleSecurityPasswordReset": "Password changed",
+  "notificationBodySecurityPasswordReset": "Your account password was changed. If this wasn't you, contact support.",
   "notificationBodySecuritySupport": "If this wasn't you, contact support.",
   "@notificationBodySecuritySupport": {
     "description": "Body of a phone/email-changed security notice when the backend sent no masked contact."
@@ -7638,5 +7640,11 @@
   "notificationEmailHelper": "We will send a confirmation code to this address",
   "notificationEmailBackSemantics": "Back",
   "forgotPasswordIdentifierSubText": "Enter the account phone or email — we will send a password reset code.",
-  "resetCodeSentNeutral": "If the account exists, we sent a code. Enter it below."
+  "resetCodeSentNeutral": "If the account exists, we sent a code. Enter it below.",
+  "addPhoneDuplicateMessage": "This number is already linked to another account. You may have already registered with this number — sign in to that account or contact support, we will help.",
+  "addPhoneContactSupport": "Contact support",
+  "addPhoneSupportEmailSubject": "Phone number already linked to another account",
+  "addPhoneSupportOpenError": "Couldn't open email. Write to us at {email}",
+  "registerHaveEmailAccount": "Already have an account with email?",
+  "registerSignInImperative": "Sign in"
 }

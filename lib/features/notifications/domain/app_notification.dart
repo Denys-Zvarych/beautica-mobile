@@ -65,6 +65,10 @@ enum AppNotificationType {
   /// `maskedContact` carries the masked new address. Leads nowhere (mark read).
   securityEmailChanged,
 
+  /// Phone-first hardening (AUTH-D26 a) — the account password was reset.
+  /// Carries no contact value. Leads nowhere (mark read).
+  securityPasswordReset,
+
   /// A wire value this build predates. Rendered as a generic row; never throws.
   unknown,
 }
@@ -83,13 +87,14 @@ extension AppNotificationTypeModeration on AppNotificationType {
   };
 }
 
-/// AUTH-D19 — the two account-security notices (phone / notifications email
-/// changed). They lead nowhere: the mapper forces [NoTarget] for them whatever
+/// AUTH-D19 / AUTH-D26 a — the account-security notices (phone /
+/// notifications email changed, password reset). They lead nowhere: the mapper forces [NoTarget] for them whatever
 /// target the wire (feed row or push) carries.
 extension AppNotificationTypeSecurity on AppNotificationType {
   bool get isSecurityNotice => switch (this) {
     AppNotificationType.securityPhoneChanged ||
-    AppNotificationType.securityEmailChanged => true,
+    AppNotificationType.securityEmailChanged ||
+    AppNotificationType.securityPasswordReset => true,
     _ => false,
   };
 }

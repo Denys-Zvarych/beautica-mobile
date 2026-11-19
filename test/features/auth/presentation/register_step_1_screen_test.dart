@@ -17,6 +17,7 @@
 //  22-25. Consent gate (phase 443).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/app_check_prefetch.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -362,6 +363,28 @@ void main() {
       expect(find.text('login'), findsOneWidget);
       expect(container.read(registerDraftProvider), isNull);
     });
+
+    testWidgets('7c. AUTH-D28 — the login row reads «Вже маєте акаунт з '
+        'email? Увійдіть»', (tester) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      await _pump(tester, container);
+
+      final Finder link = find.byKey(
+        const ValueKey<String>('step1_login_link'),
+      );
+      expect(
+        find.descendant(
+          of: link,
+          // i18n-finder-ok: pins the AUTH-D28 uk copy verbatim (uk locale).
+          matching: find.text(
+            'Вже маєте акаунт з email? Увійдіть',
+            findRichText: true,
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
   group('RegisterStep1Screen — terms / privacy links', () {
@@ -552,6 +575,37 @@ void main() {
       expect(hint(), findsOneWidget);
       await _tickTerms(tester);
       expect(hint(), findsNothing);
+    });
+  });
+
+  group('RegisterStep1Screen — App Check prefetch (AUTH-D27 d, P2)', () {
+    testWidgets('opening step 1 starts exactly one App Check prefetch, '
+        'before any send', (tester) async {
+      int fetches = 0;
+      final AppCheckTokenPrefetcher prefetcher = AppCheckTokenPrefetcher(
+        fetch: () async => 'tok-${++fetches}',
+        canPrefetch: () => true,
+        clock: () => DateTime.utc(2026, 11, 19, 10),
+      );
+      final repo = FakeAuthRepository();
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          appCheckTokenPrefetcherProvider.overrideWithValue(prefetcher),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(registerDraftProvider.notifier).start(UserRole.client);
+
+      await _pump(tester, container);
+
+      expect(fetches, 1, reason: 'initState prefetches once');
+      expect(repo.sendRegistrationCodeCalls, isEmpty);
+      // The SMS send consumes the prefetched token (no second fetch).
+      expect(await prefetcher.take(), 'tok-1');
+      expect(fetches, 1);
     });
   });
 }

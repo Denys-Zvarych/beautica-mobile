@@ -418,7 +418,25 @@ final class ErrorMapperInterceptor extends Interceptor {
     };
     return mapped == null
         ? null
-        : PhoneIdentityFailure(code: mapped, cause: err);
+        : PhoneIdentityFailure(
+            code: mapped,
+            retryAfterSeconds: mapped == PhoneIdentityErrorCode.rateLimited
+                ? _phoneRetryAfterSeconds(err)
+                : null,
+            cause: err,
+          );
+  }
+
+  /// The `Retry-After` of a phone-send 429 for [PhoneIdentityFailure]:
+  /// positive seconds as sent; `null` when absent, 0 or malformed (the
+  /// shared extractor's `0`), so the resend step falls back to its own
+  /// cooldown; `kMaxUxCooldownSeconds + 1` when the server value is over the
+  /// UX ceiling (the extractor's `null`), so the step shows «unavailable»
+  /// instead of a countdown. The shared extractor itself is unchanged.
+  static int? _phoneRetryAfterSeconds(DioException err) {
+    final int? seconds = _extractRetryAfterSecondsNullable(err);
+    if (seconds == null) return kMaxUxCooldownSeconds + 1;
+    return seconds > 0 ? seconds : null;
   }
 
   static const String _kRegisterPhoneSendPath = '/auth/register/phone/otp/send';

@@ -198,6 +198,7 @@ bool isBookingNotificationType(AppNotificationType type) => switch (type) {
   // Phone-first auth (AUTH-D19) — security notices: tap = mark read only.
   AppNotificationType.securityPhoneChanged ||
   AppNotificationType.securityEmailChanged ||
+  AppNotificationType.securityPasswordReset ||
   AppNotificationType.unknown => false,
 };
 

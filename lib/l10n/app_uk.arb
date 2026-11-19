@@ -3518,6 +3518,14 @@
       }
     }
   },
+  "notificationTitleSecurityPasswordReset": "Пароль змінено",
+  "@notificationTitleSecurityPasswordReset": {
+    "description": "Notification-feed title: the account password was reset (security notice, AUTH-D26 a). Must equal the backend PushCopy title."
+  },
+  "notificationBodySecurityPasswordReset": "Пароль до вашого акаунта змінено. Якщо це не ви — зверніться в підтримку.",
+  "@notificationBodySecurityPasswordReset": {
+    "description": "Body of the password-reset security notice (AUTH-D26 a). Names no contact value; matches the backend push body."
+  },
   "notificationBodySecuritySupport": "Якщо це не ви — зверніться в підтримку.",
   "@notificationBodySecuritySupport": {
     "description": "Body of a phone/email-changed security notice when the backend sent no masked contact."
@@ -7783,5 +7791,17 @@
   "forgotPasswordIdentifierSubText": "Вкажіть телефон або email акаунта — ми надішлемо код для скидання пароля.",
   "@forgotPasswordIdentifierSubText": {"description": "M517 (AUTH-D18) — forgot-password intro for the phone-or-email field."},
   "resetCodeSentNeutral": "Якщо акаунт існує, ми надіслали код. Введіть його нижче.",
-  "@resetCodeSentNeutral": {"description": "M517 (AUTH-D18) — neutral reset-code copy; never names the channel."}
+  "@resetCodeSentNeutral": {"description": "M517 (AUTH-D18) — neutral reset-code copy; never names the channel."},
+  "addPhoneDuplicateMessage": "Цей номер уже прив'язаний до іншого акаунта. Можливо, ви вже зареєструвалися за цим номером — увійдіть у той акаунт або напишіть у підтримку, ми допоможемо.",
+  "@addPhoneDuplicateMessage": {"description": "AUTH-D28 — banner on the blocking add-phone step when the confirmed number is already verified on another account (409 PHONE_ALREADY_REGISTERED, legacy duplicate)."},
+  "addPhoneContactSupport": "Написати в підтримку",
+  "@addPhoneContactSupport": {"description": "AUTH-D28 — banner action on the add-phone duplicate state; opens the support email."},
+  "addPhoneSupportEmailSubject": "Номер телефону вже прив'язаний до іншого акаунта",
+  "@addPhoneSupportEmailSubject": {"description": "AUTH-D28 — subject line of the support email opened from the add-phone duplicate state."},
+  "addPhoneSupportOpenError": "Не вдалося відкрити пошту. Напишіть нам на {email}",
+  "@addPhoneSupportOpenError": {"description": "AUTH-D28 — snack when no email app can open the support link.", "placeholders": {"email": {"type": "String", "example": "support@beautica.app"}}},
+  "registerHaveEmailAccount": "Вже маєте акаунт з email?",
+  "@registerHaveEmailAccount": {"description": "AUTH-D28 — first half of the login hint on the phone register step 1 (link part: registerSignInImperative)."},
+  "registerSignInImperative": "Увійдіть",
+  "@registerSignInImperative": {"description": "AUTH-D28 — link half of the register step 1 login hint."}
 }

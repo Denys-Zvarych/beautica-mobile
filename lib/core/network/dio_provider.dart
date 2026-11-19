@@ -135,7 +135,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../app_version/app_version_info.dart';
 import '../config/app_config.dart';
-import '../push/push_available_provider.dart';
+import 'app_check_prefetch.dart';
 import 'app_check_interceptor.dart';
 import 'app_version_interceptor.dart';
 import 'auth_interceptor.dart';
@@ -251,12 +251,14 @@ bool _logRejectedCertificate(X509Certificate cert, String host, int port) {
 // ---------------------------------------------------------------------------
 
 /// Upper bound on the WHOLE App Check token fetch (Firebase init wait +
-/// `getToken()`). An SMS-sending request must never hang on attestation: past
+/// `getLimitedUseToken()`). An SMS-sending request must never hang on attestation: past
 /// this bound it goes out without the header and the backend decides.
 const Duration kAppCheckTokenTimeout = Duration(seconds: 5);
 
 /// M515 (AUTH-D14) — the production [AppCheckTokenSource]: `null` while
-/// Firebase is not initialised (push-less build), else the SDK-cached token.
+/// Firebase is not initialised (push-less build), else a fresh LIMITED-USE
+/// token (AUTH-D27 d): one per SMS-sending request, never the SDK-cached
+/// standard token, so the backend can refuse a replayed `jti`.
 ///
 /// The whole fetch is capped by [timeout]; a timeout or any error yields
 /// `null` (request proceeds without the header). [firebaseReady] and
@@ -269,7 +271,7 @@ Future<String?> appCheckToken({
 }) async {
   Future<String?> fetch() async {
     if (!await firebaseReady()) return null;
-    return (getToken ?? FirebaseAppCheck.instance.getToken)();
+    return (getToken ?? FirebaseAppCheck.instance.getLimitedUseToken)();
   }
 
   try {
@@ -329,11 +331,9 @@ Dio dio(Ref ref) {
     if (kDebugMode) ClockSkewWarningInterceptor(),
     // M515 (AUTH-D14) — App Check token on the SMS-sending paths only. AFTER
     // the debug logger so the token never reaches a log line.
-    AppCheckInterceptor(
-      () => appCheckToken(
-        firebaseReady: () => ref.read(pushAvailableProvider.future),
-      ),
-    ),
+    // Phone-first hardening P2: a token prefetched when the phone / code step
+    // opened is used once, else one is fetched on demand (same 5 s cap).
+    AppCheckInterceptor(() => ref.read(appCheckTokenPrefetcherProvider).take()),
     // Order is load-bearing — see the header. RefreshInterceptor must run
     // BEFORE ErrorMapperInterceptor, whose `handler.reject` ends the error flow.
     RefreshInterceptor(ref, d),

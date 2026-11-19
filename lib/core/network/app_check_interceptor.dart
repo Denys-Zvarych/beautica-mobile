@@ -2,7 +2,8 @@
 // SMS-sending requests listed in `app_check_paths.dart`, and to nothing else.
 //
 // The token comes from [AppCheckTokenSource] (production:
-// `FirebaseAppCheck.instance.getToken()`, which the SDK caches and refreshes).
+// `FirebaseAppCheck.instance.getLimitedUseToken()` — a fresh single-use token
+// per request, AUTH-D27 d; the backend refuses a replayed `jti`).
 // When Firebase is not initialised (push-less build without
 // `google-services.json`) or the SDK throws, the request goes out WITHOUT the
 // header and the backend decides: the local backend runs App Check OFF, so
@@ -37,6 +38,10 @@ final class AppCheckInterceptor extends Interceptor {
       handler.next(options);
       return;
     }
+    // A retried request (e.g. after a 401 refresh) reuses its options: drop
+    // the previous — already spent, limited-use — token first, so a failed
+    // fetch below never resends it (AUTH-D27 d replay).
+    options.headers.remove(kAppCheckHeader);
     String? token;
     String? reason;
     try {

@@ -15,10 +15,17 @@
 //                                    password field; counted towards the
 //                                    client-side lockout mirror, which turns
 //                                    the step [PhoneCodeStep.locked].
-//   400 INVALID_CODE / CODE_EXPIRED  banner under the resend row.
+//   400 INVALID_CODE                 banner under the resend row (phone and
+//                                    email). The phone path never answers
+//                                    CODE_EXPIRED: a wrong, expired or
+//                                    exhausted phone code is always
+//                                    INVALID_CODE (AUTH-D19). CODE_EXPIRED
+//                                    comes only from the email path.
 //   409 PHONE_ALREADY_REGISTERED /
 //       EMAIL_ALREADY_REGISTERED     banner: the contact belongs to another
-//                                    account.
+//                                    account. phoneAdd pops back to the
+//                                    add-phone step with the code instead,
+//                                    which shows the AUTH-D28 state.
 //
 // SEC: an OTP + the current password are typed here — screenshot guard on.
 
@@ -40,10 +47,8 @@ import '../domain/auth_session.dart';
 import '../domain/contact_verify_args.dart';
 import '../state/current_password_lockout_notifier.dart';
 import 'auth_notifier.dart';
+import 'phone_code_resend_cooldown.dart';
 import 'widgets/phone_code_step.dart';
-
-/// Seconds the resend row waits after a 429 that carries no usable seconds.
-const int _kContactResendFallbackSeconds = 60;
 
 /// The shared contact-code step (see the file header).
 class ContactVerifyScreen extends ConsumerStatefulWidget {
@@ -171,6 +176,16 @@ class _ContactVerifyScreenState extends ConsumerState<ContactVerifyScreen> {
       setState(() => _passwordError = f.userMessage(context));
     } on PhoneIdentityFailure catch (f) {
       if (!mounted) return;
+      // AUTH-D28 — on the blocking first add, a number verified on another
+      // account goes back to the add-phone step, which shows the duplicate
+      // state (support link, editable field). A restored stack with nothing
+      // to pop keeps the inline banner below.
+      if (_kind == ContactVerifyKind.phoneAdd &&
+          f.code == PhoneIdentityErrorCode.phoneAlreadyRegistered &&
+          context.canPop()) {
+        context.pop(f.code);
+        return;
+      }
       final AppLocalizations l10n = AppLocalizations.of(context);
       setState(
         () =>
@@ -211,19 +226,11 @@ class _ContactVerifyScreenState extends ConsumerState<ContactVerifyScreen> {
       }
       if (mounted) setState(() => _codeError = null);
       return kPhoneCodeResendCooldownSeconds;
-    } on ResendThrottledFailure catch (f) {
-      if (mounted) setState(() => _codeError = f.userMessage(context));
-      return f.retryAfterSeconds ?? _kContactResendFallbackSeconds;
-    } on PhoneIdentityFailure catch (f) {
-      if (mounted) setState(() => _codeError = f.userMessage(context));
-      // A throttled send keeps the link disabled; other rejections allow an
-      // immediate retry.
-      return f.code == PhoneIdentityErrorCode.rateLimited
-          ? _kContactResendFallbackSeconds
-          : null;
     } on Failure catch (f) {
       if (mounted) setState(() => _codeError = f.userMessage(context));
-      return null;
+      // A throttled send keeps the link disabled; other rejections allow an
+      // immediate retry (shared with RegisterCodeScreen).
+      return resendCooldownFor(f);
     }
   }
 

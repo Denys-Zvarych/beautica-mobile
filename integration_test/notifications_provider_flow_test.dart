@@ -26,6 +26,10 @@
 //     (HTTP, AUTH-D19, device-check 2026-11-19) -> each row shows its title and
 //     a body with the masked contact; a tap only marks it read and stays on the
 //     feed, although the wire carries a BOOKING target (forced NoTarget).
+//  6. CLIENT, `SECURITY_PASSWORD_RESET` (HTTP, phone-first hardening AUTH-D26
+//     a) -> the row shows its fixed title + body (no contact value) with the
+//     security icon; a tap only marks it read and stays on the feed, although
+//     the wire carries a BOOKING target (forced NoTarget).
 //
 // NEGATIVE PATH (M14): journey 2 asserts the decline control is ABSENT. It is
 // paired with journeys 1 and 3, which run the identical seeded booking and DO
@@ -315,6 +319,60 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.notifications);
       expect(find.byType(BookingDetailScreen), findsNothing);
       expect(fb.notificationMarkedReadIds, <String>[phoneId, emailId]);
+      expect(unreadCountOf(tester), 0);
+    });
+  });
+  testWidgets('CLIENT sees the SECURITY_PASSWORD_RESET row with its fixed '
+      'title + body, and a tap only marks it read (no navigation)', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      // A BOOKING target on the wire on purpose: the mapper must force
+      // NoTarget for the password-reset notice too (AUTH-D26 a).
+      final String id = fb.seedNotification(
+        type: 'SECURITY_PASSWORD_RESET',
+        bookingId: FakeBackend.kNotificationBookingId,
+      );
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await AppHarness.settle(tester);
+      expect(unreadCountOf(tester), 1);
+      await openFeed(tester, router, const Key('home_hub_bell_button'));
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(NotificationsScreen)),
+      );
+
+      for (final String text in <String>[
+        l10n.notificationTitleSecurityPasswordReset,
+        l10n.notificationBodySecurityPasswordReset,
+      ]) {
+        expect(
+          find.descendant(of: notificationTile(id), matching: find.text(text)),
+          findsOneWidget,
+          reason: text,
+        );
+      }
+      expect(
+        find.descendant(
+          of: notificationTile(id),
+          matching: find.byIcon(Icons.security_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: notificationTile(id),
+          matching: find.text(l10n.notificationsNoTarget),
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(notificationTile(id));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.notifications);
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(fb.notificationMarkedReadIds, <String>[id]);
       expect(unreadCountOf(tester), 0);
     });
   });

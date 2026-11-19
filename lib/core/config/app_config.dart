@@ -92,6 +92,10 @@ abstract final class AppConfig {
   /// Host part of [publicWebOrigin].
   static const String publicWebHost = 'beautica.app';
 
+  /// AUTH-D28 — the support mailbox the add-phone duplicate state opens
+  /// (`mailto:`). Same address the website legal pages publish.
+  static const String supportEmail = 'support@beautica.app';
+
   /// Defensive guard against the double-`/api/v1`-prefix bug class.
   ///
   /// WHY: the generated `beautica_api` client AND every raw Dio repository call

@@ -562,6 +562,15 @@ jobs:
         shell: bash
         run: ./scripts/ci/patrol_retry_gate.sh --self-test
 
+      # Identity error-code contract: app copy == backend golden on backend `dev`.
+      # A 404 (backend change not on dev yet; backend PR merges first) warns and passes.
+      # why: docs/ci/static-guards.md#error-codes-contract
+      - name: Error-code contract in sync with backend dev
+        shell: bash
+        run: >-
+          ./scripts/sync_error_codes.sh --check --source
+          https://raw.githubusercontent.com/Denys-Zvarych/beautica-backend/dev/src/test/resources/contract/identity-error-codes.json
+
       # Phase 1.4: go_router-only navigation in lib/features; comment-only lines skipped.
       # why: docs/ci/static-guards.md#direct-navigator
       - name: Forbid direct Navigator usage in features

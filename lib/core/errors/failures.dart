@@ -498,9 +498,21 @@ final class EmailAlreadyRegisteredFailure extends Failure {
 /// is never shown. A 403 [PhoneIdentityErrorCode.appCheckFailed] is a plain
 /// typed failure — it never enters the 401-only refresh / logout path.
 final class PhoneIdentityFailure extends Failure {
-  const PhoneIdentityFailure({required this.code, super.cause});
+  const PhoneIdentityFailure({
+    required this.code,
+    this.retryAfterSeconds,
+    super.cause,
+  });
 
   final PhoneIdentityErrorCode code;
+
+  /// ADDITIVE (phone-first hardening M1, AUTH-D27 a): the server's
+  /// `Retry-After` of a [PhoneIdentityErrorCode.rateLimited] 429 — positive
+  /// seconds as sent, or `kMaxUxCooldownSeconds + 1` when the server value is
+  /// over the UX ceiling. `null` for every other code and when the header /
+  /// body value is absent, 0 or malformed (callers then use their own
+  /// fallback cooldown).
+  final int? retryAfterSeconds;
 
   @override
   String userMessage(BuildContext ctx) {

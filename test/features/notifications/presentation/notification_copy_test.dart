@@ -1299,5 +1299,65 @@ void main() {
         'зверніться в підтримку.',
       );
     });
+
+    // Phone-first hardening (AUTH-D26 a) — the password-reset notice: same
+    // glyph, never navigates, fixed body with no contact value, title equal
+    // to the backend PushCopy title.
+    test('securityPasswordReset: title, glyph, fixed body; no target, no '
+        'footer', () {
+      for (final bool isClient in <bool>[true, false]) {
+        expect(
+          NotificationCopy.title(
+            uk,
+            AppNotificationType.securityPasswordReset,
+            isClient: isClient,
+          ),
+          'Пароль змінено',
+        );
+        expect(
+          NotificationCopy.body(
+            uk,
+            row(AppNotificationType.securityPasswordReset, null),
+            isClient: isClient,
+          ),
+          'Пароль до вашого акаунта змінено. $support',
+        );
+      }
+      // A stray maskedContact is never shown on this notice.
+      expect(
+        NotificationCopy.body(
+          uk,
+          row(AppNotificationType.securityPasswordReset, '+380 •• 67'),
+          isClient: true,
+        ),
+        'Пароль до вашого акаунта змінено. $support',
+      );
+      expect(
+        NotificationCopy.title(
+          en,
+          AppNotificationType.securityPasswordReset,
+          isClient: true,
+        ),
+        en.notificationTitleSecurityPasswordReset,
+      );
+      expect(
+        NotificationCopy.body(
+          en,
+          row(AppNotificationType.securityPasswordReset, null),
+          isClient: true,
+        ),
+        en.notificationBodySecurityPasswordReset,
+      );
+      expect(
+        NotificationCopy.glyph(AppNotificationType.securityPasswordReset),
+        Icons.security_rounded,
+      );
+      // isSecurityNotice drives NoTarget in the mapper and hides the tile
+      // footer (notification_tile.dart).
+      expect(
+        AppNotificationType.securityPasswordReset.isSecurityNotice,
+        isTrue,
+      );
+    });
   });
 }

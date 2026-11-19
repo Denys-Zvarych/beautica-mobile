@@ -9,6 +9,12 @@
 //   5. Resend is cooled down 60 s on arrival (explicit pumps — pumpAndSettle
 //      fires no Timer): still blocked at 59 s, then re-sends the code for the
 //      same phone.
+//   6–9. M1 (AUTH-D27 a) — a failed resend: 429 keeps the cooldown (fallback
+//      60 s, or the server's Retry-After), ResendThrottledFailure keeps its
+//      seconds, a network error re-enables the link at once.
+//   10–13. Audit cycle 1 — a Retry-After of 0 / negative (or a throttle with
+//      0) still waits the full 60 s; an over-ceiling value shows «Недоступно»
+//      instead of a countdown.
 
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -235,6 +241,192 @@ void main() {
     expect(h.repo.sendRegistrationCodeCalls, <String>[_phone]);
 
     // Unmount so the fresh cooldown Timer is cancelled by dispose.
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  // ── M1 — failed resends (shared resendCooldownFor) ──────────────────────
+
+  /// Lets the arrival cooldown run out, then taps «Надіслати знову» once.
+  Future<void> resendAfterArrivalCooldown(WidgetTester tester) async {
+    // fixed-wait-ok: TTL crossing — the arrival cooldown must fully elapse.
+    await tester.pump(const Duration(seconds: kPhoneCodeResendCooldownSeconds));
+    await tester.tap(find.byKey(const ValueKey<String>('phone_code_resend')));
+    await tester.pump();
+    await tester.pump();
+  }
+
+  Future<void> tapResend(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey<String>('phone_code_resend')));
+    await tester.pump();
+    await tester.pump();
+  }
+
+  testWidgets('6. 429 rateLimited without Retry-After keeps the link '
+      'disabled for the full 60 s (M1 regression)', (tester) async {
+    final h = _setUp();
+    addTearDown(h.container.dispose);
+    h.repo.sendRegistrationCodeFailure = const PhoneIdentityFailure(
+      code: PhoneIdentityErrorCode.rateLimited,
+    );
+    await _pump(tester, h.container);
+
+    await resendAfterArrivalCooldown(tester);
+    expect(h.repo.sendRegistrationCodeCalls, <String>[_phone]);
+    expect(find.text(l10n.errPhoneCodeRateLimited), findsOneWidget);
+    expect(
+      find.textContaining(
+        l10n.resetOtpResendTimer('$kPhoneCodeResendCooldownSeconds с'),
+      ),
+      findsOneWidget,
+      reason: 'the 429 restarted the cooldown instead of re-enabling resend',
+    );
+
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+    // fixed-wait-ok: TTL crossing — one second short of the 429 cooldown.
+    await tester.pump(
+      const Duration(seconds: kPhoneCodeResendCooldownSeconds - 1),
+    );
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+
+    // fixed-wait-ok: TTL crossing — the 429 cooldown fully elapses.
+    await tester.pump(const Duration(seconds: 1));
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(2));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('7. 429 rateLimited with Retry-After 7 s cools down 7 s', (
+    tester,
+  ) async {
+    final h = _setUp();
+    addTearDown(h.container.dispose);
+    h.repo.sendRegistrationCodeFailure = const PhoneIdentityFailure(
+      code: PhoneIdentityErrorCode.rateLimited,
+      retryAfterSeconds: 7,
+    );
+    await _pump(tester, h.container);
+
+    await resendAfterArrivalCooldown(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+    // fixed-wait-ok: TTL crossing — one second short of Retry-After.
+    await tester.pump(const Duration(seconds: 6));
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+    // fixed-wait-ok: TTL crossing — Retry-After fully elapses.
+    await tester.pump(const Duration(seconds: 1));
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(2));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('8. ResendThrottledFailure keeps its own seconds', (
+    tester,
+  ) async {
+    final h = _setUp();
+    addTearDown(h.container.dispose);
+    h.repo.sendRegistrationCodeFailure = const ResendThrottledFailure(
+      retryAfterSeconds: 5,
+    );
+    await _pump(tester, h.container);
+
+    await resendAfterArrivalCooldown(tester);
+    // fixed-wait-ok: TTL crossing — one second short of the throttle.
+    await tester.pump(const Duration(seconds: 4));
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+    // fixed-wait-ok: TTL crossing — the throttle fully elapses.
+    await tester.pump(const Duration(seconds: 1));
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(2));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('9. a network error re-enables the link at once', (tester) async {
+    final h = _setUp();
+    addTearDown(h.container.dispose);
+    h.repo.sendRegistrationCodeFailure = const NetworkFailure();
+    await _pump(tester, h.container);
+
+    await resendAfterArrivalCooldown(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(2));
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final (String name, Failure failure) in <(String, Failure)>[
+    (
+      '10. 429 with Retry-After 0',
+      const PhoneIdentityFailure(
+        code: PhoneIdentityErrorCode.rateLimited,
+        retryAfterSeconds: 0,
+      ),
+    ),
+    (
+      '11. 429 with a negative Retry-After',
+      const PhoneIdentityFailure(
+        code: PhoneIdentityErrorCode.rateLimited,
+        retryAfterSeconds: -5,
+      ),
+    ),
+    (
+      '12. ResendThrottledFailure with 0 s',
+      const ResendThrottledFailure(retryAfterSeconds: 0),
+    ),
+  ]) {
+    testWidgets('$name keeps resend disabled for the full 60 s', (
+      tester,
+    ) async {
+      final h = _setUp();
+      addTearDown(h.container.dispose);
+      h.repo.sendRegistrationCodeFailure = failure;
+      await _pump(tester, h.container);
+
+      await resendAfterArrivalCooldown(tester);
+      expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+      await tapResend(tester);
+      expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+      // fixed-wait-ok: TTL crossing — one second short of the fallback.
+      await tester.pump(
+        const Duration(seconds: kPhoneCodeResendCooldownSeconds - 1),
+      );
+      await tapResend(tester);
+      expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+      // fixed-wait-ok: TTL crossing — the fallback fully elapses.
+      await tester.pump(const Duration(seconds: 1));
+      await tapResend(tester);
+      expect(h.repo.sendRegistrationCodeCalls, hasLength(2));
+
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  testWidgets('13. an over-ceiling Retry-After shows «Недоступно», not a '
+      'countdown, and blocks resend', (tester) async {
+    final h = _setUp();
+    addTearDown(h.container.dispose);
+    h.repo.sendRegistrationCodeFailure = const PhoneIdentityFailure(
+      code: PhoneIdentityErrorCode.rateLimited,
+      retryAfterSeconds: kMaxUxCooldownSeconds + 1,
+    );
+    await _pump(tester, h.container);
+
+    await resendAfterArrivalCooldown(tester);
+    expect(find.textContaining(l10n.resetOtpResendUnavailable), findsOneWidget);
+    expect(
+      find.textContaining(RegExp(r'\(\d+ с\)')),
+      findsNothing,
+      reason: 'no numeric countdown above the UX ceiling',
+    );
+    await tapResend(tester);
+    expect(h.repo.sendRegistrationCodeCalls, hasLength(1));
+
     await tester.pumpWidget(const SizedBox());
   });
 }
