@@ -16,14 +16,16 @@
 //
 // WHY ONLY THIS PATH BROKE — and why only an E2E can hold it
 // -----------------------------------------------------------
-// `acceptInvite` is the ONLY session-establishing flow that never follows with
-// `repo.me()`. `login`, `verifyEmail` and the cold-start `build()` all do, and
-// the `GET /users/me` profile DTO carries `salonId` — so all three REPAIRED the
-// dropped binding and none of them can express the defect. The accept path
-// cannot repair it by contract: the 2xx is its documented point of no return
-// (`http_auth_repository.dart:583`), so nothing may go back to the network
-// after it. That makes the `AuthResponse` envelope the session's ONLY source
-// for the binding, and the mapper the only thing carrying it.
+// `acceptInvite` is the ONLY session-establishing flow that does not AWAIT
+// `repo.me()` before the session exists. `login`, `verifyEmail` and the
+// cold-start `build()` all do, and the `GET /users/me` profile DTO carries
+// `salonId` — so all three REPAIRED the dropped binding and none of them can
+// express the defect. The accept path builds its session from the
+// `AuthResponse` envelope alone; since AUTH-D17 c it then fires a background
+// `refreshUser()` (for `emailVerified`), which WOULD repair the binding on a
+// 200. This file therefore runs with `FakeBackend(meServerError: true)`: the
+// refresh fails, `refreshUser` keeps the session, and the envelope stays the
+// session's ONLY source for the binding — the mapper the only thing carrying it.
 //
 // What the two existing tiers can and cannot say:
 //   • `test/features/auth/data/user_mapper_test.dart` pins the mapper against a
@@ -128,7 +130,11 @@ void main() {
     'with the invited salonId carried by the accept envelope alone',
     (tester) async {
       await mockNetworkImagesFor(() async {
-        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        // `meServerError`: every `GET /users/me` answers 500, so the
+        // background profile read `acceptInvite` fires (AUTH-D17 c) cannot
+        // REPAIR a dropped salonId — see step 8.
+        final fb = FakeBackend(meServerError: true)
+          ..currentRole = UserRole.salonAdmin;
         final GoRouter router = await AppHarness.boot(tester, fb);
 
         // 1 ── Unauthenticated cold start, exactly as the invitee arrives:
@@ -349,15 +355,22 @@ void main() {
         // 8 ── …and it came from the ENVELOPE, not from a repair read. This is
         //      the discriminator that makes the whole file load-bearing: every
         //      OTHER session-establishing flow hides this defect precisely by
-        //      calling `GET /users/me` afterwards.
+        //      calling `GET /users/me` afterwards. Since AUTH-D17 c the accept
+        //      path ALSO fires a background `refreshUser()` (so the email card
+        //      sees a concrete `emailVerified`) — allowed. The fake answers
+        //      every such read with 500 (`meServerError`), so it cannot supply
+        //      a salonId; `refreshUser` swallows the failure and keeps the
+        //      session. The salonId asserted in step 7 can therefore only have
+        //      come from the accept envelope.
         expect(
           fb.getMeCalls,
-          0,
+          greaterThanOrEqualTo(1),
           reason:
-              'the accept path must not call GET /users/me — its 2xx is the '
-              'point of no return. If this ever becomes non-zero, the profile '
-              'read would REPAIR a dropped salonId and every assertion above '
-              'would pass with the mapper binding deleted.',
+              'GET /users/me IS read after accept (AUTH-D17 c refresh) and '
+              'every read 500s here — so the salonId above survived a failed '
+              'refresh and cannot have come from a profile read. Were this '
+              'read ever a 200, it would REPAIR a dropped salonId and every '
+              'assertion above would pass with the mapper binding deleted.',
         );
       });
     },

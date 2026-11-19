@@ -311,10 +311,10 @@ const Map<String, dynamic> _okVoid = <String, dynamic>{
 /// by the fixture personas above).
 ///
 /// `salonId` is forwarded when the persona has one. The real backend populates
-/// it on this envelope for an invited `SALON_ADMIN`/`SALON_MASTER`, and
-/// `POST /auth/invite/accept` NEVER follows with `GET /users/me` — so this
-/// envelope is the only place the binding can reach the session, and a fake
-/// that dropped it could not express an invite-accept → salon-home flow at all
+/// it on this envelope for an invited `SALON_ADMIN`/`SALON_MASTER`. Since
+/// AUTH-D17 c `acceptInvite` fires a background `GET /users/me`, but the
+/// session is established from this envelope first — so a fake that dropped
+/// the binding could not express an invite-accept → salon-home flow at all
 /// (it would land on the resolver's incomplete-session arm instead of the
 /// shell). Omitted entirely for personas with no salon so the wire stays the
 /// shape the backend actually sends.
@@ -441,6 +441,7 @@ final class FakeBackend {
     this.wireOwnRowSchedule = false,
     this.listOwnerRowWhenBookable = false,
     this.masterMeNotFound = false,
+    this.meServerError = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
@@ -853,6 +854,14 @@ final class FakeBackend {
   /// request, by `replyCallback`), and `_wire()` runs from the constructor —
   /// so this cannot be a mutable field the way the body-level knobs are.
   final bool masterMeNotFound;
+
+  /// When true, `GET /api/v1/users/me` replies **500** (still counted in
+  /// [getMeCalls]). Lets a flow prove a session value came from an auth
+  /// ENVELOPE alone: a failed profile read cannot repair it, and
+  /// `AuthNotifier.refreshUser` swallows the failure and keeps the session.
+  /// Defaults false so every existing flow keeps its 200. CONSTRUCTOR-TIME
+  /// for the same reason as [masterMeNotFound].
+  final bool meServerError;
 
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
   //
@@ -8783,49 +8792,61 @@ final class FakeBackend {
     // the static fixture.
     _adapter.onRoute(
       '/api/v1/users/me',
-      (server) => server.replyCallback(200, (_) {
-        getMeCalls++;
-        // Phase 367 — `avatarUrl` (backend 344, every role) mirrors the
-        // last successful `/media/avatar` write; OMITTED while none happened,
-        // so every pre-existing flow's body is byte-identical.
-        final String? avatar = mediaAvatarUrl;
-        final Map<String, dynamic> reply = switch (currentRole) {
-          UserRole.client => _ok(<String, dynamic>{
-            ..._clientProfileBody(),
-            'avatarUrl': ?avatar,
-          }),
-          UserRole.salonAdmin => _ok(<String, dynamic>{
-            ..._adminProfileBody(),
-            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
-            'avatarUrl': ?avatar,
-          }),
-          // Phase 137 — owner identity is mutable (see [ownerFirstName]).
-          UserRole.salonOwner => _ok(<String, dynamic>{
-            ...userJsonForRole(currentRole),
-            ...?reRegisteredOwnerJson,
-            'firstName': ownerFirstName,
-            'lastName': ownerLastName,
-            // Phase 399 — the label lives on the shared `users` row, so the
-            // owner's PATCH /independent-masters/me/profile shows up here.
-            if (masterProfessionalTitle != null)
-              'professionalTitle': masterProfessionalTitle,
-            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
-            'avatarUrl': ?avatar,
-          }),
-          // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
-          // it, so the default body is byte-identical to the pre-21.14 one
-          // and `null` stays a genuine "key absent", not a serialized null.
-          _ => _ok(<String, dynamic>{
-            ...userJsonForRole(currentRole),
-            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
-            'avatarUrl': ?avatar,
-          }),
-        };
-        // M517 — phone / email verification state (empty by default).
-        final Object? data = reply['data'];
-        if (data is Map<String, dynamic>) data.addAll(_m517MeFields());
-        return reply;
-      }),
+      (server) => meServerError
+          ? server.replyCallback(500, (_) {
+              getMeCalls++;
+              return <String, dynamic>{
+                'success': false,
+                'message': 'FAKE-500: /users/me unavailable',
+                'data': null,
+              };
+            })
+          : server.replyCallback(200, (_) {
+              getMeCalls++;
+              // Phase 367 — `avatarUrl` (backend 344, every role) mirrors the
+              // last successful `/media/avatar` write; OMITTED while none happened,
+              // so every pre-existing flow's body is byte-identical.
+              final String? avatar = mediaAvatarUrl;
+              final Map<String, dynamic> reply = switch (currentRole) {
+                UserRole.client => _ok(<String, dynamic>{
+                  ..._clientProfileBody(),
+                  'avatarUrl': ?avatar,
+                }),
+                UserRole.salonAdmin => _ok(<String, dynamic>{
+                  ..._adminProfileBody(),
+                  if (hasMasterProfile != null)
+                    'hasMasterProfile': hasMasterProfile,
+                  'avatarUrl': ?avatar,
+                }),
+                // Phase 137 — owner identity is mutable (see [ownerFirstName]).
+                UserRole.salonOwner => _ok(<String, dynamic>{
+                  ...userJsonForRole(currentRole),
+                  ...?reRegisteredOwnerJson,
+                  'firstName': ownerFirstName,
+                  'lastName': ownerLastName,
+                  // Phase 399 — the label lives on the shared `users` row, so the
+                  // owner's PATCH /independent-masters/me/profile shows up here.
+                  if (masterProfessionalTitle != null)
+                    'professionalTitle': masterProfessionalTitle,
+                  if (hasMasterProfile != null)
+                    'hasMasterProfile': hasMasterProfile,
+                  'avatarUrl': ?avatar,
+                }),
+                // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
+                // it, so the default body is byte-identical to the pre-21.14 one
+                // and `null` stays a genuine "key absent", not a serialized null.
+                _ => _ok(<String, dynamic>{
+                  ...userJsonForRole(currentRole),
+                  if (hasMasterProfile != null)
+                    'hasMasterProfile': hasMasterProfile,
+                  'avatarUrl': ?avatar,
+                }),
+              };
+              // M517 — phone / email verification state (empty by default).
+              final Object? data = reply['data'];
+              if (data is Map<String, dynamic>) data.addAll(_m517MeFields());
+              return reply;
+            }),
       request: const Request(method: RequestMethods.get),
     );
 
