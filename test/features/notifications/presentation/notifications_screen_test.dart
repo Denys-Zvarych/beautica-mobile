@@ -422,6 +422,55 @@ void main() {
       },
     );
 
+    // NTF-34 (2026-11-19): moderation outcomes open nowhere by design — no
+    // «Більше недоступно» footer; a lost booking target (NTF-10) keeps it.
+    testWidgets(
+      'should_hideNoTargetHint_when_moderationOutcome_butKeepItForBooking',
+      (WidgetTester tester) async {
+        await _pumpFeed(
+          tester,
+          _repoOf(<AppNotification>[
+            moderationNotif(
+              'm1',
+              type: AppNotificationType.reportContentRemoved,
+              contentKind: ModeratedContentKind.review,
+            ),
+            moderationNotif(
+              'm2',
+              type: AppNotificationType.reportNoViolation,
+              contentKind: ModeratedContentKind.portfolioPhoto,
+            ),
+            moderationNotif(
+              'm3',
+              type: AppNotificationType.reportReviewed,
+              contentKind: ModeratedContentKind.profile,
+            ),
+            moderationNotif(
+              'm4',
+              type: AppNotificationType.contentRemoved,
+              contentKind: ModeratedContentKind.clientReview,
+            ),
+            moderationNotif(
+              'm5',
+              type: AppNotificationType.reviewAboutYouRemoved,
+              contentKind: ModeratedContentKind.review,
+            ),
+            notif('b1', target: const NotificationTarget.none()),
+          ]),
+          height: 4000,
+        );
+
+        expect(find.text(uk.notificationTitleContentRemoved), findsOneWidget);
+        expect(
+          find.text(uk.notificationTitleReviewAboutYouRemoved),
+          findsOneWidget,
+        );
+        // Exactly one hint: the booking row's. RED WHEN the moderation
+        // exclusion is dropped (6 hints).
+        expect(find.text(uk.notificationsNoTarget), findsOneWidget);
+      },
+    );
+
     testWidgets('should_renderInviteAccepted_withRole', (
       WidgetTester tester,
     ) async {

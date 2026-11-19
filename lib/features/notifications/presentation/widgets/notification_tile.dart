@@ -166,9 +166,13 @@ class _NotificationTileState extends State<NotificationTile> {
     final bool tappable = onOpen != null;
     final AppLocalizations l10n = AppLocalizations.of(context);
     final bool unread = !item.read;
-    // AUTH-D19: security notices lead nowhere BY DESIGN (the mapper forces
-    // NoTarget) — they are not "gone", so no «Більше недоступно» hint.
-    final bool gone = item.target is NoTarget && !item.type.isSecurityNotice;
+    // AUTH-D19 security notices and NTF-34 moderation outcomes lead nowhere
+    // BY DESIGN (the mapper forces NoTarget) — they are not "gone", so no
+    // «Більше недоступно» hint. A lost booking target (NTF-10) keeps it.
+    final bool gone =
+        item.target is NoTarget &&
+        !item.type.isSecurityNotice &&
+        !item.type.isModerationOutcome;
     final String title = NotificationCopy.title(
       l10n,
       item.type,
