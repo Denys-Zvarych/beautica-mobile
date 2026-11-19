@@ -23,6 +23,7 @@
 // NO PATROL FLOW: no OS permission, deep link, notification or WebView.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/otp_code_field.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -104,6 +105,18 @@ Future<void> _submitPhoneStep(
 
 Future<void> _submitCode(WidgetTester tester) async {
   await _enter(tester, 'phone_code_input', '123456');
+  // PR #182 device bug: the code was captured but the cells never redrew —
+  // every typed digit must be visible in its cell before confirming.
+  for (final String digit in <String>['1', '2', '3', '4', '5', '6']) {
+    expect(
+      find.descendant(
+        of: find.byType(OtpCodeField),
+        matching: find.text(digit),
+      ),
+      findsOneWidget,
+      reason: 'OTP cell $digit must render the typed digit',
+    );
+  }
   await AppHarness.tapVisible(
     tester,
     find.byKey(const ValueKey<String>('phone_code_submit')),

@@ -36,7 +36,59 @@ bool _ctaEnabled(WidgetTester tester) =>
     tester.widget<NeumorphicButton>(find.byKey(_kSubmit)).onPressedAsync !=
     null;
 
+Finder _cellDigit(String digit) =>
+    find.descendant(of: find.byType(OtpCodeField), matching: find.text(digit));
+
 void main() {
+  // Device bug (PR #182): PhoneCodeStep placed OtpCodeField bare, so typed
+  // digits were captured (CTA enabled) but the cells never redrew.
+  testWidgets('typed digits appear in the code cells', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+        home: PhoneCodeStep(
+          description: 'code',
+          showBack: false,
+          onConfirm: (String code, String password) async {},
+          onResend: () async => null,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(_kCode));
+    await tester.pump();
+
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '12',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 0, end: 2),
+      ),
+    );
+    await tester.pump();
+    expect(_cellDigit('1'), findsOneWidget);
+    expect(_cellDigit('2'), findsOneWidget);
+    expect(_ctaEnabled(tester), isFalse, reason: 'code incomplete');
+
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '123456',
+        selection: TextSelection.collapsed(offset: 6),
+      ),
+    );
+    await tester.pump();
+    for (final String digit in <String>['1', '2', '3', '4', '5', '6']) {
+      expect(_cellDigit(digit), findsOneWidget, reason: 'cell $digit');
+    }
+    expect(_ctaEnabled(tester), isTrue);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('typing the password does not rebuild the code cells', (
     WidgetTester tester,
   ) async {

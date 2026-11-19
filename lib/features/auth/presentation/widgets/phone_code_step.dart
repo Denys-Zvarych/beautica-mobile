@@ -186,12 +186,19 @@ class _PhoneCodeStepState extends State<PhoneCodeStep> {
             textAlign: header == null ? TextAlign.center : TextAlign.start,
           ),
           const SizedBox(height: VelvetSpacing.xl),
-          OtpCodeField(
-            controller: _codeController,
-            focusNode: _codeFocus,
-            length: _kOtpLength,
-            fieldKey: const ValueKey<String>('phone_code_input'),
-            semanticsLabel: l10n.resetOtpSemantics,
+          // OtpCodeField reads controller.text only at build time — rebuild
+          // it on every code edit (never on a password keystroke).
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _codeController,
+            builder:
+                (BuildContext context, TextEditingValue value, Widget? _) =>
+                    OtpCodeField(
+                      controller: _codeController,
+                      focusNode: _codeFocus,
+                      length: _kOtpLength,
+                      fieldKey: const ValueKey<String>('phone_code_input'),
+                      semanticsLabel: l10n.resetOtpSemantics,
+                    ),
           ),
           if (widget.requireCurrentPassword) ...<Widget>[
             const SizedBox(height: VelvetSpacing.lg),

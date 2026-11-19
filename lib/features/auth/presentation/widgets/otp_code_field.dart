@@ -21,6 +21,11 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 
 /// A row of [length] neumorphic OTP cells backed by a single hidden
 /// [TextField] that owns the real text input + system keyboard.
+///
+/// Stateless: the cells read [controller]`.text` only at build time, so the
+/// HOST must rebuild this widget on every controller change — wrap it in a
+/// `ValueListenableBuilder<TextEditingValue>(valueListenable: controller, …)`.
+/// Placed bare, typed digits never appear in the cells.
 class OtpCodeField extends StatelessWidget {
   const OtpCodeField({
     super.key,
