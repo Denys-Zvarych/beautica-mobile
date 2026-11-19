@@ -169,7 +169,10 @@ void main() {
     'password + name + consent, and lands as SALON_MASTER',
     (tester) async {
       await mockNetworkImagesFor(() async {
-        final fb = FakeBackend()..currentRole = UserRole.salonMaster;
+        final fb = FakeBackend()
+          ..currentRole = UserRole.salonMaster
+          // A fresh invitee has no confirmed notifications email (AUTH-D17).
+          ..meEmailVerified = false;
         final GoRouter router = await AppHarness.boot(tester, fb);
 
         router.go('${RouteNames.acceptInvite}?token=$_kToken');
@@ -226,6 +229,26 @@ void main() {
         expect(sent['termsAccepted'], isTrue);
         expect(find.byType(AcceptInviteScreen), findsNothing);
         AppHarness.expectLocation(router, RouteNames.salonMasterProfile);
+
+        // Device-check 2026-11-19 (AUTH-D17 c): the accept response leaves
+        // `emailVerified` unknown, so acceptInvite re-reads `/users/me` and
+        // the «Email для сповіщень» card shows at once — no restart.
+        expect(
+          fb.getMeCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'acceptInvite must re-read /users/me',
+        );
+        final Finder emailCard = find.byKey(
+          const Key('provider-home-email-card'),
+        );
+        await AppHarness.pumpUntilFound(tester, emailCard);
+        expect(
+          find.descendant(
+            of: emailCard,
+            matching: find.text(l10n.providerHomeEmailPromptTitle),
+          ),
+          findsOneWidget,
+        );
       });
     },
   );

@@ -13,6 +13,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notification_navigation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -443,6 +444,30 @@ void main() {
       );
     });
 
+    // Phone-first auth (AUTH-D19) — security notices lead nowhere and are
+    // never «unavailable», with or without params.
+    test('should_beFalse_when_securityNotice', () {
+      for (final AppNotificationType t in <AppNotificationType>[
+        AppNotificationType.securityPhoneChanged,
+        AppNotificationType.securityEmailChanged,
+      ]) {
+        expect(isBookingNotificationType(t), isFalse, reason: t.name);
+        expect(t.isModerationOutcome, isFalse, reason: t.name);
+        for (final NotificationParams p in <NotificationParams>[
+          NotificationParams.empty,
+          const NotificationParams(maskedContact: '+380 •• ••• •• 67'),
+        ]) {
+          expect(
+            isNotificationUnavailable(
+              notif('n', type: t, target: _none, params: p),
+            ),
+            isFalse,
+            reason: t.name,
+          );
+        }
+      }
+    });
+
     test('should_beTrue_when_bookingParamsAreNull', () {
       expect(
         isNotificationUnavailable(
@@ -686,6 +711,41 @@ void main() {
       );
       expect(seen.single, contains('from=notification'));
     });
+
+    // Phone-first auth (AUTH-D19) — a security notice tap opens nothing and
+    // shows no «Запис більше недоступний» snack (mark-read happens upstream).
+    for (final AppNotificationType t in <AppNotificationType>[
+      AppNotificationType.securityPhoneChanged,
+      AppNotificationType.securityEmailChanged,
+    ]) {
+      for (final UserRole role in UserRole.values) {
+        testWidgets('should_openNothing_when_${t.name}_${role.name}', (
+          tester,
+        ) async {
+          final List<String> seen = await pumpApp(
+            tester,
+            (BuildContext c) => openNotification(
+              context: c,
+              item: notif(
+                'n',
+                type: t,
+                target: _none,
+                params: NotificationParams.empty,
+              ),
+              role: role,
+            ),
+            authRole: role,
+          );
+          await tester.pumpAndSettle();
+          expect(seen, isEmpty);
+          expect(
+            find.text(AppLocalizationsUk().notificationsBookingUnavailable),
+            findsNothing,
+          );
+          expect(find.byType(SnackBar), findsNothing);
+        });
+      }
+    }
 
     testWidgets('should_pushFallbackRoute_when_noRoute', (tester) async {
       final List<String> seen = await pumpApp(

@@ -97,6 +97,13 @@ abstract final class NotificationMapper {
     if (dto == api.NotificationResponseTypeEnum.BOOKING_REMINDER) {
       return AppNotificationType.bookingReminder;
     }
+    // Phone-first auth (AUTH-D19) — contact-change security notices.
+    if (dto == api.NotificationResponseTypeEnum.SECURITY_PHONE_CHANGED) {
+      return AppNotificationType.securityPhoneChanged;
+    }
+    if (dto == api.NotificationResponseTypeEnum.SECURITY_EMAIL_CHANGED) {
+      return AppNotificationType.securityEmailChanged;
+    }
     return AppNotificationType.unknown;
   }
 
@@ -195,9 +202,12 @@ abstract final class NotificationMapper {
     return PushTap(
       notificationId: id,
       type: type,
-      // Unknown types AND moderation outcomes (phase 428: never navigate,
-      // whatever target the wire carries) lead nowhere.
-      target: type == AppNotificationType.unknown || type.isModerationOutcome
+      // Unknown types, moderation outcomes (phase 428) AND security notices
+      // (AUTH-D19) never navigate, whatever target the wire carries.
+      target:
+          type == AppNotificationType.unknown ||
+              type.isModerationOutcome ||
+              type.isSecurityNotice
           ? const NotificationTarget.none()
           : targetFromPushData(d),
     );
@@ -219,6 +229,7 @@ abstract final class NotificationMapper {
       categoryName: _nonBlank(dto.categoryName),
       decisionReason: _nonBlank(dto.decisionReason),
       contentKind: contentKindFromDto(dto.contentKind),
+      maskedContact: _nonBlank(dto.maskedContact),
     );
   }
 
@@ -277,8 +288,12 @@ abstract final class NotificationMapper {
       createdAt: createdAt.toUtc(),
       read: dto.read ?? false,
       // An unknown type has no known destination even if `kind` is known; a
-      // moderation outcome never navigates (phase 428), whatever it carries.
-      target: type == AppNotificationType.unknown || type.isModerationOutcome
+      // moderation outcome (phase 428) or security notice (AUTH-D19) never
+      // navigates, whatever it carries.
+      target:
+          type == AppNotificationType.unknown ||
+              type.isModerationOutcome ||
+              type.isSecurityNotice
           ? const NotificationTarget.none()
           : targetFromDto(dto.target),
       params: paramsFromDto(dto.params),

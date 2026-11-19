@@ -2678,6 +2678,291 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Test 13e — a logout while refreshUser's me() is pending wins: the late
+    //            me() result never resurrects the session.
+    // -----------------------------------------------------------------------
+    test(
+      'refreshUser discards me() result when logout ran during it',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => rotatedTokens);
+        when(() => repo.logout()).thenAnswer((_) async {});
+        final pendingMe = Completer<User>();
+        var meCalls = 0;
+        when(() => repo.me()).thenAnswer((_) {
+          meCalls++;
+          return meCalls == 1 ? Future.value(testUser) : pendingMe.future;
+        });
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final notifier = container.read(authProvider.notifier);
+
+        final refresh = notifier.refreshUser();
+        await notifier.logout();
+        expect(
+          container.read(authProvider).value,
+          equals(const AuthSession.unauthenticated()),
+        );
+
+        pendingMe.complete(testUser);
+        await refresh;
+
+        expect(
+          container.read(authProvider).value,
+          equals(const AuthSession.unauthenticated()),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 13f — a token refresh while refreshUser's me() is pending wins: the
+    //            newer access token is kept, the stale one never re-applied.
+    // -----------------------------------------------------------------------
+    test('refreshUser keeps the newer token set during me()', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      const updatedUser = User(
+        id: 'u1',
+        email: 'test@example.com',
+        role: UserRole.independentMaster,
+        firstName: 'Updated',
+        lastName: 'Name',
+      );
+      final pendingMe = Completer<User>();
+      var meCalls = 0;
+      when(() => repo.me()).thenAnswer((_) {
+        meCalls++;
+        return meCalls == 1 ? Future.value(testUser) : pendingMe.future;
+      });
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+
+      final refresh = notifier.refreshUser();
+      notifier.setAccessToken('newer-access-token');
+
+      pendingMe.complete(updatedUser);
+      await refresh;
+
+      final session = container.read(authProvider).value;
+      expect(session, isA<Authenticated>());
+      expect(
+        (session as Authenticated).accessToken,
+        equals('newer-access-token'),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 13g — overlapping refreshUser calls coalesce into ONE me().
+    // -----------------------------------------------------------------------
+    test('overlapping refreshUser calls call me() once', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      final pendingMe = Completer<User>();
+      var meCalls = 0;
+      when(() => repo.me()).thenAnswer((_) {
+        meCalls++;
+        return meCalls == 1 ? Future.value(testUser) : pendingMe.future;
+      });
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+      expect(meCalls, 1); // cold start only.
+
+      final first = notifier.refreshUser();
+      final second = notifier.refreshUser();
+      pendingMe.complete(testUser);
+      await Future.wait([first, second]);
+
+      expect(meCalls, 2); // exactly one me() for both refreshes.
+
+      // The in-flight slot is cleared: a later call fetches again.
+      await notifier.refreshUser();
+      expect(meCalls, 3);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 13h — a refreshUser made as user B after logout + re-login does NOT
+    //            join user A's still-pending call (whose result the token
+    //            guard discards): B gets its own me(), and B's fresh user lands.
+    // -----------------------------------------------------------------------
+    test(
+      'refreshUser after re-login as another user does not join the stale call',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => rotatedTokens);
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        const userB = User(
+          id: 'u2',
+          email: 'b@example.com',
+          role: UserRole.independentMaster,
+          firstName: 'Bee',
+          lastName: 'Login',
+        );
+        const freshUserB = User(
+          id: 'u2',
+          email: 'b@example.com',
+          role: UserRole.independentMaster,
+          firstName: 'Bee',
+          lastName: 'Refreshed',
+        );
+        const tokensB = AuthTokens(
+          accessToken: 'access-b',
+          refreshToken: 'refresh-b',
+        );
+        when(
+          () => repo.login(identifier: 'b@example.com', password: 'pass-b'),
+        ).thenAnswer((_) async => (userB, tokensB));
+
+        // me() answers in call order: cold start (A), A's refreshUser
+        // (pending), B's login, B's refreshUser.
+        final pendingMeA = Completer<User>();
+        final meAnswers = <Future<User> Function()>[
+          () => Future.value(testUser),
+          () => pendingMeA.future,
+          () => Future.value(userB),
+          () => Future.value(freshUserB),
+        ];
+        var meCalls = 0;
+        when(() => repo.me()).thenAnswer((_) => meAnswers[meCalls++]());
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final notifier = container.read(authProvider.notifier);
+        expect(meCalls, 1); // cold start only.
+
+        final refreshA = notifier.refreshUser(); // pending as A.
+        expect(meCalls, 2);
+
+        await notifier.logout();
+        await notifier.login('b@example.com', 'pass-b');
+        expect(meCalls, 3); // B's login me().
+
+        await notifier.refreshUser(); // as B — must NOT join A's call.
+        expect(
+          meCalls,
+          4,
+          reason: 'refreshUser as B must start its own me(), not join A\'s',
+        );
+
+        final afterB = container.read(authProvider).value;
+        expect(afterB, isA<Authenticated>());
+        expect((afterB as Authenticated).user, equals(freshUserB));
+        expect(afterB.accessToken, equals('access-b'));
+
+        // A's late result is discarded and leaves B's session untouched.
+        pendingMeA.complete(testUser);
+        await refreshA;
+        final settled = container.read(authProvider).value as Authenticated;
+        expect(settled.user, equals(freshUserB));
+        expect(settled.accessToken, equals('access-b'));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 13i — A's stale call finishing FIRST must not clear the in-flight
+    //            slot B's still-pending call owns: a further refreshUser as B
+    //            joins B's call (no extra me()), and B's fresh user lands.
+    // -----------------------------------------------------------------------
+    test('stale call finishing first keeps B\'s in-flight slot', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      const userB = User(
+        id: 'u2',
+        email: 'b@example.com',
+        role: UserRole.independentMaster,
+        firstName: 'Bee',
+        lastName: 'Login',
+      );
+      const freshUserB = User(
+        id: 'u2',
+        email: 'b@example.com',
+        role: UserRole.independentMaster,
+        firstName: 'Bee',
+        lastName: 'Refreshed',
+      );
+      const tokensB = AuthTokens(
+        accessToken: 'access-b',
+        refreshToken: 'refresh-b',
+      );
+      when(
+        () => repo.login(identifier: 'b@example.com', password: 'pass-b'),
+      ).thenAnswer((_) async => (userB, tokensB));
+
+      // me() answers in call order: cold start (A), A's refreshUser (pending),
+      // B's login, B's refreshUser (pending).
+      final pendingMeA = Completer<User>();
+      final pendingMeB = Completer<User>();
+      final meAnswers = <Future<User> Function()>[
+        () => Future.value(testUser),
+        () => pendingMeA.future,
+        () => Future.value(userB),
+        () => pendingMeB.future,
+      ];
+      var meCalls = 0;
+      when(() => repo.me()).thenAnswer((_) => meAnswers[meCalls++]());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+
+      final refreshA = notifier.refreshUser(); // pending as A.
+      await notifier.logout();
+      await notifier.login('b@example.com', 'pass-b');
+      final refreshB = notifier.refreshUser(); // pending as B.
+      expect(meCalls, 4);
+
+      // A completes first; its cleanup must leave B's slot alone.
+      pendingMeA.complete(testUser);
+      await refreshA;
+
+      final joined = notifier.refreshUser(); // as B again — joins B's call.
+      expect(
+        meCalls,
+        4,
+        reason: 'A\'s cleanup cleared B\'s in-flight slot — B re-fetched',
+      );
+
+      pendingMeB.complete(freshUserB);
+      await Future.wait([refreshB, joined]);
+
+      final settled = container.read(authProvider).value as Authenticated;
+      expect(settled.user, equals(freshUserB));
+      expect(settled.accessToken, equals('access-b'));
+    });
+
+    // -----------------------------------------------------------------------
     // M517 — a confirmed phone refreshes the session (drops the add-phone
     //        gate); a burst of 409 PHONE_NOT_VERIFIED refreshes ONCE.
     // -----------------------------------------------------------------------
@@ -3634,6 +3919,96 @@ void main() {
         reason:
             'refresh token must be written to SecureStorage after '
             'acceptInvite success (MS-1 invariant)',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Phone-first auth — the accept-invite User leaves `emailVerified` null;
+    // a follow-up `/users/me` makes it concrete (the email prompt card needs
+    // it right away). A `me()` failure must not tear the session down.
+    // -----------------------------------------------------------------------
+    test('acceptInvite success: me() is called once and emailVerified comes '
+        'from it', () async {
+      final repo = MockAuthRepository();
+      when(
+        () => repo.acceptInvite(
+          token: 'invite-abc123',
+          password: 'SecurePass1!',
+          firstName: 'Іван',
+          lastName: 'Коваль',
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+      const User meUser = User(
+        id: 'u1',
+        email: 'test@example.com',
+        role: UserRole.independentMaster,
+        firstName: 'Test',
+        lastName: 'User',
+        emailVerified: false,
+      );
+      when(() => repo.me()).thenAnswer((_) async => meUser);
+
+      final container = makeContainer(repo: repo, storage: FakeSecureStorage());
+      await container.read(authProvider.future);
+      // Cold start with no stored token never reads /users/me.
+      verifyNever(() => repo.me());
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'invite-abc123',
+            password: 'SecurePass1!',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+          );
+      await pumpEventQueue();
+
+      verify(() => repo.me()).called(1);
+      final AuthSession? session = container.read(authProvider).value;
+      expect(session, isA<Authenticated>());
+      final Authenticated auth = session as Authenticated;
+      expect(auth.user.emailVerified, isFalse);
+      expect(auth.user.lacksConfirmedEmail, isTrue);
+      expect(auth.accessToken, testTokens.accessToken);
+    });
+
+    test('acceptInvite success: a me() failure keeps the session '
+        'Authenticated', () async {
+      final repo = MockAuthRepository();
+      when(
+        () => repo.acceptInvite(
+          token: 'invite-abc123',
+          password: 'SecurePass1!',
+          firstName: 'Іван',
+          lastName: 'Коваль',
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+      when(() => repo.me()).thenAnswer(
+        (_) => Future<User>.error(const ServerFailure(statusCode: 503)),
+      );
+
+      final container = makeContainer(repo: repo, storage: FakeSecureStorage());
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'invite-abc123',
+            password: 'SecurePass1!',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+          );
+      await pumpEventQueue();
+
+      verify(() => repo.me()).called(1);
+      final AsyncValue<AuthSession> value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(
+        value.value,
+        AuthSession.authenticated(
+          user: testUser,
+          accessToken: testTokens.accessToken,
+        ),
       );
     });
 

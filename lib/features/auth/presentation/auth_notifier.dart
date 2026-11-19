@@ -1209,6 +1209,11 @@ class AuthNotifier extends _$AuthNotifier {
         refreshTokenPersisted: persisted,
       );
     });
+    // The accept-invite response leaves `emailVerified` null (unknown):
+    // re-read `/users/me` so the email prompt card sees a concrete value right
+    // away. Fire-and-forget — [refreshUser] tolerates a `me()` failure and
+    // leaves this Authenticated session in place.
+    if (state.value is Authenticated) unawaited(refreshUser());
   }
 
   /// Updates the in-memory access token without re-fetching the user profile.
@@ -1297,13 +1302,65 @@ class AuthNotifier extends _$AuthNotifier {
   /// A transient [repo.me] failure is tolerated: it is logged (kDebugMode) and
   /// the prior [Authenticated] session is left intact — a refresh hiccup must
   /// never tear down a valid session.
+  ///
+  /// Single-flight: a call made while one is pending returns the pending one
+  /// ([_refreshUserInFlight]), so overlapping callers trigger one `me()` —
+  /// but ONLY when the session still carries the access token that pending
+  /// call started with ([_refreshUserInFlightToken]). A call made after the
+  /// session changed (logout + re-login as another user, token refresh) starts
+  /// its own fetch: joining would hand it a result the stale-result guard
+  /// discards, so the new session's user would never be re-fetched.
+  ///
+  /// Stale-result guard: the fetched user is applied ONLY if, after `me()`,
+  /// no logout is in flight and the session is still [Authenticated] with the
+  /// SAME access token captured before the call. A logout or token refresh
+  /// during `me()` therefore wins — the stale session is never resurrected.
   Future<void> refreshUser() async {
     final s = state.value;
+    final inFlight = _refreshUserInFlight;
+    if (inFlight != null &&
+        s is Authenticated &&
+        s.accessToken == _refreshUserInFlightToken) {
+      return inFlight;
+    }
     if (s is! Authenticated) return;
-    // Preserve the current settled session's access token across the refresh.
-    final accessToken = s.accessToken;
+    final run = _refreshUserOnce(s.accessToken);
+    _refreshUserInFlight = run;
+    _refreshUserInFlightToken = s.accessToken;
+    try {
+      await run;
+    } finally {
+      // Identity check: an older call's cleanup must never clear the slot a
+      // newer call (started after a session change) now owns.
+      if (identical(_refreshUserInFlight, run)) {
+        _refreshUserInFlight = null;
+        _refreshUserInFlightToken = null;
+      }
+    }
+  }
+
+  Future<void>? _refreshUserInFlight;
+
+  /// Access token [_refreshUserInFlight] started with; a call joins the
+  /// pending future only while the session still carries this token.
+  String? _refreshUserInFlightToken;
+
+  Future<void> _refreshUserOnce(String accessToken) async {
     try {
       final freshUser = await ref.read(authRepositoryProvider).me();
+      final current = state.value;
+      if (_logoutInFlight ||
+          current is! Authenticated ||
+          current.accessToken != accessToken) {
+        if (kDebugMode) {
+          log(
+            'refreshUser: session changed during me() — result discarded',
+            name: 'auth',
+            level: 800,
+          );
+        }
+        return;
+      }
       // Keep the interceptor's session-lifetime fallback in lock-step with the
       // preserved token (mirrors setAccessToken) so a mid-rebuild window never
       // replays a stale one.

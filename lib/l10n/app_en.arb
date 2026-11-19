@@ -90,9 +90,9 @@
   "@errUnauthorized": {
     "description": "Error message shown when the user's session has expired (401)."
   },
-  "errInvalidCredentials": "Incorrect email or password.",
+  "errInvalidCredentials": "Incorrect phone, email or password.",
   "@errInvalidCredentials": {
-    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong email or password — not a session expiry)."
+    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong phone/email or password — not a session expiry). Login accepts a phone number or an email."
   },
   "errValidation": "Please check your input and try again.",
   "@errValidation": {
@@ -207,10 +207,6 @@
   "@loginTitle": {
     "description": "Title of the login screen."
   },
-  "loginEmailLabel": "Email address",
-  "@loginEmailLabel": {
-    "description": "Label for the email input field on the login screen."
-  },
   "loginPasswordLabel": "Password",
   "@loginPasswordLabel": {
     "description": "Label for the password input field on the login screen."
@@ -226,14 +222,6 @@
   "loginCreateAccount": "Register",
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
-  },
-  "loginEmailPlaceholder": "Enter email",
-  "@loginEmailPlaceholder": {
-    "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
-  },
-  "loginEmailHint": "Enter email",
-  "@loginEmailHint": {
-    "description": "hintText for the email field on the login screen — descriptive prompt text."
   },
   "loginPasswordPlaceholder": "Your password",
   "@loginPasswordPlaceholder": {
@@ -801,9 +789,9 @@
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
   },
-  "registerDoneChipEmailVerified": "Email verified",
-  "@registerDoneChipEmailVerified": {
-    "description": "Second summary chip on the registration-done screen confirming the email has been verified (done-page.html .chip — second chip)."
+  "registerDoneChipPhoneVerified": "Phone verified",
+  "@registerDoneChipPhoneVerified": {
+    "description": "Second summary chip on the registration-done screen confirming the phone number has been verified by SMS code (registration is phone-first, AUTH-D09)."
   },
   "registerDoneChipReadyFast": "Ready in seconds",
   "@registerDoneChipReadyFast": {
@@ -3501,6 +3489,38 @@
   "notificationTitleBookingReminder": "Visit reminder",
   "@notificationTitleBookingReminder": {
     "description": "Phase 497 — title of a BOOKING_REMINDER notification (to the booking's client)."
+  },
+  "notificationTitleSecurityPhoneChanged": "Phone number changed",
+  "@notificationTitleSecurityPhoneChanged": {
+    "description": "Notification-feed title: the account's phone number was changed (security notice, AUTH-D19)."
+  },
+  "notificationTitleSecurityEmailChanged": "Notifications email changed",
+  "@notificationTitleSecurityEmailChanged": {
+    "description": "Notification-feed title: the notifications email was changed (security notice, AUTH-D19)."
+  },
+  "notificationBodySecurityPhoneChanged": "New number: {maskedContact}. If this wasn't you, contact support.",
+  "@notificationBodySecurityPhoneChanged": {
+    "description": "Body of the phone-changed security notice. {maskedContact} is the new number, masked by the backend.",
+    "placeholders": {
+      "maskedContact": {
+        "type": "String",
+        "example": "+380 •• ••• •• 67"
+      }
+    }
+  },
+  "notificationBodySecurityEmailChanged": "New notifications email: {maskedContact}. If this wasn't you, contact support.",
+  "@notificationBodySecurityEmailChanged": {
+    "description": "Body of the email-changed security notice. {maskedContact} is the new email, masked by the backend.",
+    "placeholders": {
+      "maskedContact": {
+        "type": "String",
+        "example": "o•••@gmail.com"
+      }
+    }
+  },
+  "notificationBodySecuritySupport": "If this wasn't you, contact support.",
+  "@notificationBodySecuritySupport": {
+    "description": "Body of a phone/email-changed security notice when the backend sent no masked contact."
   },
   "notificationBodyBookingReminder": "Your visit is {day} at {time}",
   "@notificationBodyBookingReminder": {

@@ -12934,6 +12934,9 @@ final class FakeBackend {
     // payload): the category / reject reason a catalogue-decision row carries.
     String? categoryName,
     String? decisionReason,
+    // AUTH-D19 — opt-in (default off): the masked new phone / email a
+    // SECURITY_*_CHANGED notice carries.
+    String? maskedContact,
     bool read = false,
     Duration age = const Duration(hours: 1),
   }) {
@@ -12970,6 +12973,7 @@ final class FakeBackend {
         'masterName': ?masterName,
         'categoryName': ?categoryName,
         'decisionReason': ?decisionReason,
+        'maskedContact': ?maskedContact,
       },
     });
     _adapter.onRoute(

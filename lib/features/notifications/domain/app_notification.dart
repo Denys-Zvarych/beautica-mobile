@@ -57,6 +57,14 @@ enum AppNotificationType {
   /// tomorrow / later today. Opens the booking detail like any booking item.
   bookingReminder,
 
+  /// Phone-first auth (AUTH-D19) — the account's phone number was changed.
+  /// `maskedContact` carries the masked new number. Leads nowhere (mark read).
+  securityPhoneChanged,
+
+  /// Phone-first auth (AUTH-D19) — the notifications email was changed.
+  /// `maskedContact` carries the masked new address. Leads nowhere (mark read).
+  securityEmailChanged,
+
   /// A wire value this build predates. Rendered as a generic row; never throws.
   unknown,
 }
@@ -71,6 +79,17 @@ extension AppNotificationTypeModeration on AppNotificationType {
     AppNotificationType.reportReviewed ||
     AppNotificationType.contentRemoved ||
     AppNotificationType.reviewAboutYouRemoved => true,
+    _ => false,
+  };
+}
+
+/// AUTH-D19 — the two account-security notices (phone / notifications email
+/// changed). They lead nowhere: the mapper forces [NoTarget] for them whatever
+/// target the wire (feed row or push) carries.
+extension AppNotificationTypeSecurity on AppNotificationType {
+  bool get isSecurityNotice => switch (this) {
+    AppNotificationType.securityPhoneChanged ||
+    AppNotificationType.securityEmailChanged => true,
     _ => false,
   };
 }
@@ -144,6 +163,10 @@ abstract class NotificationParams with _$NotificationParams {
     /// Phase 428 — the moderated content's kind, set only on the 4
     /// moderation-outcome types; `null` when absent or unrecognised.
     ModeratedContentKind? contentKind,
+
+    /// Phone-first auth — the masked new phone / email on the two security
+    /// notices; `null` when absent. Already masked by the backend.
+    String? maskedContact,
   }) = _NotificationParams;
 
   const NotificationParams._();
