@@ -166,7 +166,9 @@ class _NotificationTileState extends State<NotificationTile> {
     final bool tappable = onOpen != null;
     final AppLocalizations l10n = AppLocalizations.of(context);
     final bool unread = !item.read;
-    final bool gone = item.target is NoTarget;
+    // AUTH-D19: security notices lead nowhere BY DESIGN (the mapper forces
+    // NoTarget) — they are not "gone", so no «Більше недоступно» hint.
+    final bool gone = item.target is NoTarget && !item.type.isSecurityNotice;
     final String title = NotificationCopy.title(
       l10n,
       item.type,

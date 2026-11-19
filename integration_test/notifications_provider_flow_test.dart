@@ -291,6 +291,19 @@ void main() {
         ),
       );
 
+      // AUTH-D19: no target by design → no «Більше недоступно» footer.
+      for (final String id in <String>[phoneId, emailId]) {
+        expect(
+          find.descendant(
+            of: notificationTile(id),
+            matching: find.text(l10n.notificationsNoTarget),
+          ),
+          findsNothing,
+          reason: id,
+        );
+      }
+      expect(find.text(l10n.notificationsNoTarget), findsNothing);
+
       await tester.tap(notificationTile(phoneId));
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.notifications);
