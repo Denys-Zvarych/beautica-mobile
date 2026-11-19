@@ -1395,7 +1395,7 @@ jobs:
             gradle-it-${{ runner.os }}-
 
       # entry=selected only after a clean trusted generator run; else `parts` = the shards (400 D7).
-      # S1/S3 hardening; cap = one shard (19 flows / 74 tests), else the shards;
+      # S1/S3 hardening; cap = one shard (19 flows / 85 tests), else the shards;
       # bound = clamp(480 + 20 * tests, 600, 1500) s (the APK is pre-built; 1500 = the shard bound).
       # why: docs/ci/emulator-integration.md#choose-entry
       - name: Choose integration entry (selected flows or the full suite)
@@ -1417,7 +1417,7 @@ jobs:
               c="$(printf '%s\n' "$out" | sed -n 's/^count=//p')"
               n="$(printf '%s\n' "$out" | sed -n 's/^tests=//p')"
               if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -ge 1 ] && [ "$c" -le 19 ] &&
-                 [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le 74 ]; then
+                 [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le 85 ]; then
                 entry=selected; count="$c"; tests="$n"
               fi
             fi
