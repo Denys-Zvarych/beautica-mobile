@@ -3932,7 +3932,7 @@ void main() {
       final repo = MockAuthRepository();
       when(
         () => repo.acceptInvite(
-          token: 'invite-abc123',
+          token: 'invite-xyz',
           password: 'SecurePass1!',
           firstName: 'Іван',
           lastName: 'Коваль',
@@ -3956,7 +3956,7 @@ void main() {
       await container
           .read(authProvider.notifier)
           .acceptInvite(
-            token: 'invite-abc123',
+            token: 'invite-xyz',
             password: 'SecurePass1!',
             firstName: 'Іван',
             lastName: 'Коваль',
@@ -3977,7 +3977,7 @@ void main() {
       final repo = MockAuthRepository();
       when(
         () => repo.acceptInvite(
-          token: 'invite-abc123',
+          token: 'invite-xyz',
           password: 'SecurePass1!',
           firstName: 'Іван',
           lastName: 'Коваль',
@@ -3993,7 +3993,7 @@ void main() {
       await container
           .read(authProvider.notifier)
           .acceptInvite(
-            token: 'invite-abc123',
+            token: 'invite-xyz',
             password: 'SecurePass1!',
             firstName: 'Іван',
             lastName: 'Коваль',

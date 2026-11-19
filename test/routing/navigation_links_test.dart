@@ -33,7 +33,7 @@
 //   NL-19  /forgot-password back button → /login                   ✅ covered (this file, NL-B03)
 //   NL-20  /reset-password success CTA → /login                     ✅ covered (reset_password_screen_test)
 //   NL-21  /reset-password invalid CTA → /forgot-password            ✅ covered (reset_password_screen_test)
-//   NL-22  /invite/accept success → / (via router redirect)         ❌ GAP — new test NL-22 below
+//   NL-22  /invite/accept success → /staff/profile (router redirect) ✅ covered (this file, NL-22)
 //   NL-23  /settings logout confirmed → /login                      ✅ covered (settings_screen_test)
 //
 // Auth-guard coverage gaps (authRedirectForLocation — pure seam tests):
@@ -675,18 +675,19 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // NL-22: /invite/accept success → router navigates to /
+  // NL-22: /invite/accept success → router navigates to /staff/profile
   // -------------------------------------------------------------------------
   // The accept invite screen calls authProvider.notifier.acceptInvite(...)
   // which on success transitions authProvider to Authenticated. The screen
   // then relies on the router's redirect (authRedirect: authenticated + on
-  // unauthOnlyRoute → /) to forward to home. In the widget test we wire the
-  // real authRedirect so this guard fires.
+  // unauthOnlyRoute → the role home) to forward the user. In the widget test
+  // we wire the real authRedirect so this guard fires.
   //
-  // Implementation detail: AcceptInviteScreen does NOT call context.go('/') on
+  // Implementation detail: AcceptInviteScreen does NOT call context.go(...) on
   // success — it deliberately leaves navigation to the router's refresh
   // listener. So this test wires authRedirect into the minimal GoRouter and
-  // asserts that the router resolves to / after a successful accept.
+  // asserts that the router resolves to /staff/profile (the SALON_MASTER role
+  // home) after a successful accept.
   group('NL-22: /invite/accept success → /staff/profile via router redirect', () {
     testWidgets(
       'NL-22: tapping invite_accept CTA with valid form and successful '
@@ -708,19 +709,24 @@ void main() {
         // Force acceptInvite() to return a salonMaster user so the role-based
         // router redirect lands on /staff/profile — the SALON_MASTER own-
         // profile landing (fixes the "blank home" bug; see `role_home.dart`).
+        const invitedUser = User(
+          id: 'invited-u1',
+          email: 'masha@salon.ua',
+          role: UserRole.salonMaster,
+          firstName: 'Марія',
+          lastName: 'Бондар',
+        );
         repo.acceptInviteResult = (
-          const User(
-            id: 'invited-u1',
-            email: 'masha@salon.ua',
-            role: UserRole.salonMaster,
-            firstName: 'Марія',
-            lastName: 'Бондар',
-          ),
+          invitedUser,
           const AuthTokens(
             accessToken: 'access-token',
             refreshToken: 'refresh-token',
           ),
         );
+        // The post-accept me() refresh must return the same salonMaster user,
+        // otherwise the fake's default user overrides the role and the
+        // redirect lands elsewhere.
+        repo.meResult = invitedUser;
         final storage = FakeSecureStorage();
 
         // A container that starts with an unauthenticated session and
