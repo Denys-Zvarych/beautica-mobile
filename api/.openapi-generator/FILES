@@ -66,6 +66,7 @@ doc/ApiResponsePassportResponse.md
 doc/ApiResponsePendingBookingActionsCountResponse.md
 doc/ApiResponsePublicSalonResponse.md
 doc/ApiResponseRegistrationResponse.md
+doc/ApiResponseRegistrationTicketResponse.md
 doc/ApiResponseReportResponse.md
 doc/ApiResponseRevenueResponse.md
 doc/ApiResponseReviewResponse.md
@@ -187,6 +188,7 @@ doc/MasterWorkingDayResponse.md
 doc/MediaControllerApi.md
 doc/MediaFileResponse.md
 doc/MyReviewResponse.md
+doc/NotificationEmailVerifyRequest.md
 doc/NotificationParams.md
 doc/NotificationResponse.md
 doc/NotificationTarget.md
@@ -213,6 +215,7 @@ doc/Pageable.md
 doc/PageableObject.md
 doc/PassportResponse.md
 doc/PendingBookingActionsCountResponse.md
+doc/PhoneChangeVerifyRequest.md
 doc/PhoneOtpControllerApi.md
 doc/PhoneOtpSendRequest.md
 doc/PhoneOtpVerifyRequest.md
@@ -225,7 +228,11 @@ doc/RefreshRequest.md
 doc/RegisterDeviceTokenRequest.md
 doc/RegisterIndependentMasterRequest.md
 doc/RegisterRequest.md
+doc/RegistrationOtpSendRequest.md
+doc/RegistrationOtpVerifyRequest.md
+doc/RegistrationPhoneControllerApi.md
 doc/RegistrationResponse.md
+doc/RegistrationTicketResponse.md
 doc/ReportControllerApi.md
 doc/ReportResponse.md
 doc/ReportedTargetResponse.md
@@ -290,6 +297,7 @@ doc/UpdateMasterServiceBandRequest.md
 doc/UpdateProfileRequest.md
 doc/UpdateSalonRequest.md
 doc/UpdateServiceDefinitionRequest.md
+doc/UserContactControllerApi.md
 doc/UserControllerApi.md
 doc/UserProfileResponse.md
 doc/UserRatingResponse.md
@@ -327,6 +335,7 @@ lib/src/api/notifications_api.dart
 lib/src/api/phone_otp_controller_api.dart
 lib/src/api/public_booking_controller_api.dart
 lib/src/api/public_salon_booking_controller_api.dart
+lib/src/api/registration_phone_controller_api.dart
 lib/src/api/report_controller_api.dart
 lib/src/api/review_controller_api.dart
 lib/src/api/salon_controller_api.dart
@@ -339,6 +348,7 @@ lib/src/api/service_controller_api.dart
 lib/src/api/settlement_search_controller_api.dart
 lib/src/api/staff_bookings_api.dart
 lib/src/api/support_controller_api.dart
+lib/src/api/user_contact_controller_api.dart
 lib/src/api/user_controller_api.dart
 lib/src/api_util.dart
 lib/src/auth/api_key_auth.dart
@@ -412,6 +422,7 @@ lib/src/model/api_response_passport_response.dart
 lib/src/model/api_response_pending_booking_actions_count_response.dart
 lib/src/model/api_response_public_salon_response.dart
 lib/src/model/api_response_registration_response.dart
+lib/src/model/api_response_registration_ticket_response.dart
 lib/src/model/api_response_report_response.dart
 lib/src/model/api_response_revenue_response.dart
 lib/src/model/api_response_review_response.dart
@@ -516,6 +527,7 @@ lib/src/model/master_summary_response.dart
 lib/src/model/master_working_day_response.dart
 lib/src/model/media_file_response.dart
 lib/src/model/my_review_response.dart
+lib/src/model/notification_email_verify_request.dart
 lib/src/model/notification_params.dart
 lib/src/model/notification_response.dart
 lib/src/model/notification_target.dart
@@ -541,6 +553,7 @@ lib/src/model/pageable.dart
 lib/src/model/pageable_object.dart
 lib/src/model/passport_response.dart
 lib/src/model/pending_booking_actions_count_response.dart
+lib/src/model/phone_change_verify_request.dart
 lib/src/model/phone_otp_send_request.dart
 lib/src/model/phone_otp_verify_request.dart
 lib/src/model/platform_service_type_response.dart
@@ -550,7 +563,10 @@ lib/src/model/refresh_request.dart
 lib/src/model/register_device_token_request.dart
 lib/src/model/register_independent_master_request.dart
 lib/src/model/register_request.dart
+lib/src/model/registration_otp_send_request.dart
+lib/src/model/registration_otp_verify_request.dart
 lib/src/model/registration_response.dart
+lib/src/model/registration_ticket_response.dart
 lib/src/model/report_response.dart
 lib/src/model/reported_target_response.dart
 lib/src/model/reschedule_booking_request.dart
@@ -617,3 +633,11 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_registration_ticket_response_test.dart
+test/notification_email_verify_request_test.dart
+test/phone_change_verify_request_test.dart
+test/registration_otp_send_request_test.dart
+test/registration_otp_verify_request_test.dart
+test/registration_phone_controller_api_test.dart
+test/registration_ticket_response_test.dart
+test/user_contact_controller_api_test.dart

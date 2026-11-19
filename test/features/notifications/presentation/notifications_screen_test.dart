@@ -381,6 +381,96 @@ void main() {
       expect(find.text(uk.notificationsNoTarget), findsOneWidget);
     });
 
+    // AUTH-D19 — security notices have NoTarget by design: no «Більше
+    // недоступно» footer; a booking row with a missing target keeps it.
+    testWidgets(
+      'should_hideNoTargetHint_when_securityNotice_butKeepItForBooking',
+      (WidgetTester tester) async {
+        await _pumpFeed(
+          tester,
+          _repoOf(<AppNotification>[
+            notif(
+              's1',
+              type: AppNotificationType.securityPhoneChanged,
+              params: const NotificationParams(
+                maskedContact: '+380 •• ••• •• 67',
+              ),
+              target: const NotificationTarget.none(),
+            ),
+            notif(
+              's2',
+              type: AppNotificationType.securityEmailChanged,
+              params: const NotificationParams(maskedContact: 'o•••@gmail.com'),
+              target: const NotificationTarget.none(),
+            ),
+            notif('b1', target: const NotificationTarget.none()),
+          ]),
+          height: 2000,
+        );
+
+        expect(
+          find.text(uk.notificationTitleSecurityPhoneChanged),
+          findsOneWidget,
+        );
+        expect(
+          find.text(uk.notificationTitleSecurityEmailChanged),
+          findsOneWidget,
+        );
+        // Exactly one hint: the booking row's. RED WHEN the security exclusion
+        // is dropped (3 hints).
+        expect(find.text(uk.notificationsNoTarget), findsOneWidget);
+      },
+    );
+
+    // NTF-34 (2026-11-19): moderation outcomes open nowhere by design — no
+    // «Більше недоступно» footer; a lost booking target (NTF-10) keeps it.
+    testWidgets(
+      'should_hideNoTargetHint_when_moderationOutcome_butKeepItForBooking',
+      (WidgetTester tester) async {
+        await _pumpFeed(
+          tester,
+          _repoOf(<AppNotification>[
+            moderationNotif(
+              'm1',
+              type: AppNotificationType.reportContentRemoved,
+              contentKind: ModeratedContentKind.review,
+            ),
+            moderationNotif(
+              'm2',
+              type: AppNotificationType.reportNoViolation,
+              contentKind: ModeratedContentKind.portfolioPhoto,
+            ),
+            moderationNotif(
+              'm3',
+              type: AppNotificationType.reportReviewed,
+              contentKind: ModeratedContentKind.profile,
+            ),
+            moderationNotif(
+              'm4',
+              type: AppNotificationType.contentRemoved,
+              contentKind: ModeratedContentKind.clientReview,
+            ),
+            moderationNotif(
+              'm5',
+              type: AppNotificationType.reviewAboutYouRemoved,
+              contentKind: ModeratedContentKind.review,
+            ),
+            notif('b1', target: const NotificationTarget.none()),
+          ]),
+          height: 4000,
+        );
+
+        expect(find.text(uk.notificationTitleContentRemoved), findsOneWidget);
+        expect(
+          find.text(uk.notificationTitleReviewAboutYouRemoved),
+          findsOneWidget,
+        );
+        // Exactly one hint: the booking row's. RED WHEN the moderation
+        // exclusion is dropped (6 hints).
+        expect(find.text(uk.notificationsNoTarget), findsOneWidget);
+      },
+    );
+
     testWidgets('should_renderInviteAccepted_withRole', (
       WidgetTester tester,
     ) async {

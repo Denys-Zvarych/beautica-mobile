@@ -20,7 +20,10 @@ import '../domain/user_role.dart';
 /// [DioException]) must never escape — they are caught inside the
 /// implementation.
 abstract interface class AuthRepository {
-  /// Authenticates a user with [email] and [password].
+  /// Authenticates a user with [identifier] and [password].
+  ///
+  /// M515 (AUTH-08 / AUTH-46) — [identifier] is an email, or a phone the
+  /// caller already normalised to `+380…` (`identifier_classifier.dart`).
   ///
   /// Returns a tuple of the authenticated [User] and the issued [AuthTokens]
   /// on success.
@@ -31,7 +34,7 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
   Future<(User, AuthTokens)> login({
-    required String email,
+    required String identifier,
     required String password,
   });
 
@@ -62,8 +65,14 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error, including a 200 with
   ///   an unrecognised response shape.
+  ///
+  /// M515 (AUTH-41 / AUTH-D11) — phone-first shape: pass the
+  /// [registrationTicket] from [verifyRegistrationCode] and no [email]; the
+  /// backend stores the ticket's verified phone and answers with a session,
+  /// so the result is [AuthenticatedRegisterResult]. The legacy email shape
+  /// ([email], no ticket) is kept for the existing tests / old fixtures.
   Future<RegisterResult> registerIndependentMaster({
-    required String email,
+    String? email,
     required String password,
     required String firstName,
     required String lastName,
@@ -72,6 +81,32 @@ abstract interface class AuthRepository {
     String? address,
     String? phone,
     bool termsAccepted = false,
+    String? registrationTicket,
+  });
+
+  /// M515 (AUTH-41) — sends the registration SMS code to [phone] (already
+  /// normalised to `+380…`). Carries an App Check token (AUTH-54).
+  ///
+  /// The backend answers 200 for every Ukrainian mobile number, registered or
+  /// not (no account oracle).
+  ///
+  /// Throws:
+  /// - [PhoneIdentityFailure] — `PHONE_NOT_UA_MOBILE`, 429, `APP_CHECK_FAILED`,
+  ///   `APP_CHECK_UNAVAILABLE`.
+  /// - [NetworkFailure] / [ServerFailure] / [UnknownFailure].
+  Future<void> sendRegistrationCode({required String phone});
+
+  /// M515 (AUTH-41) — verifies the SMS [code] sent to [phone] and returns the
+  /// single-use, 15-minute registration ticket for [registerIndependentMaster].
+  ///
+  /// Throws:
+  /// - [PhoneIdentityFailure] — `INVALID_CODE` (wrong / expired code) or 409
+  ///   `PHONE_ALREADY_REGISTERED` (the code proved the phone, and a verified
+  ///   account already holds it).
+  /// - [NetworkFailure] / [ServerFailure] / [UnknownFailure].
+  Future<String> verifyRegistrationCode({
+    required String phone,
+    required String code,
   });
 
   /// Exchanges a valid [refreshToken] for a fresh token pair.
@@ -140,7 +175,11 @@ abstract interface class AuthRepository {
   /// still surfaces so the screen can offer a retry.
   ///
   /// Also used to RESEND the OTP — the forgot-password OTP screen's resend
-  /// action calls this again with the same [email].
+  /// action calls this again with the same [identifier].
+  ///
+  /// M517 (AUTH-D18) — [identifier] is a phone or an email exactly as typed
+  /// (sent as `identifier`); the backend picks the channel (email first) and
+  /// never names it.
   ///
   /// Throws:
   /// - [NetworkFailure] — connectivity issues.
@@ -148,7 +187,7 @@ abstract interface class AuthRepository {
   /// - [ValidationFailure] — 400 bean-validation (e.g. blank/invalid email),
   ///   though the client validates the email locally first.
   /// - [UnknownFailure] — any other unexpected error.
-  Future<void> requestPasswordReset(String email);
+  Future<void> requestPasswordReset(String identifier);
 
   /// Requests a password-reset OTP for the AUTHENTICATED caller (backend
   /// Phase A3 — the "change password from settings" entry point).
@@ -168,7 +207,9 @@ abstract interface class AuthRepository {
   /// - [UnknownFailure] — any other unexpected error.
   Future<void> requestChangePasswordOtp();
 
-  /// Verifies the 6-digit [code] emailed to [email] by [requestPasswordReset]
+  /// Verifies the 6-digit [code] sent for [identifier] (the phone or email
+  /// given to forgot-password, or the account email on the settings path —
+  /// sent as `identifier`, M517) by [requestPasswordReset]
   /// or [requestChangePasswordOtp], and returns the single-use reset ticket
   /// the caller must submit to [confirmPasswordReset] (backend Phase A3).
   ///
@@ -182,8 +223,40 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
   Future<String> verifyPasswordResetOtp({
+    required String identifier,
+    required String code,
+  });
+
+  /// M517 (AUTH-44) — sends an SMS code to the new [phone] for a first add or
+  /// a change (`POST /users/me/phone/otp/send`, App Check header). Throws
+  /// [PhoneIdentityFailure] (non-UA mobile, 429, App Check) and the usual
+  /// transport failures.
+  Future<void> sendPhoneCode({required String phone});
+
+  /// M517 (AUTH-44, AUTH-D19) — confirms [phone] with [code]
+  /// (`POST /users/me/phone/otp/verify`). [currentPassword] is required for a
+  /// CHANGE and omitted (`null`) for a first add. Throws
+  /// [CurrentPasswordInvalidFailure], [PhoneIdentityFailure] (`INVALID_CODE`,
+  /// 409 `PHONE_ALREADY_REGISTERED`, non-UA mobile).
+  Future<void> verifyPhoneCode({
+    required String phone,
+    required String code,
+    String? currentPassword,
+  });
+
+  /// M517 (AUTH-50) — emails a code to the new notifications [email]
+  /// (`POST /users/me/email/request-code`). Throws [ResendThrottledFailure]
+  /// inside the 60 s cooldown.
+  Future<void> requestNotificationEmailCode({required String email});
+
+  /// M517 (AUTH-50, AUTH-D19) — confirms the notifications [email] with
+  /// [code] and the [currentPassword] (add and change both need it). Throws
+  /// [CurrentPasswordInvalidFailure], [VerificationFailure] (`INVALID_CODE` /
+  /// `CODE_EXPIRED`), [EmailAlreadyRegisteredFailure].
+  Future<void> verifyNotificationEmailCode({
     required String email,
     required String code,
+    required String currentPassword,
   });
 
   /// Confirms a password reset with the single-use [resetTicket] minted by
@@ -208,8 +281,8 @@ abstract interface class AuthRepository {
   /// Validates an invite token and returns the pre-filled [InviteDetails].
   ///
   /// `GET /auth/invite/validate?token=<token>`. Called immediately on screen
-  /// arrival to pre-populate the read-only invite preview (email, role, expiry)
-  /// before the user fills in their profile.
+  /// arrival to pre-populate the read-only invite preview (masked phone, salon,
+  /// role, expiry) before the invitee confirms the phone (M521).
   ///
   /// Throws:
   /// - [ValidationFailure] — the token is invalid or expired (400/404).
@@ -219,6 +292,11 @@ abstract interface class AuthRepository {
 
   /// Accepts an invite by completing account setup with [password], [firstName],
   /// [lastName] and optional [phoneNumber].
+  ///
+  /// M521 (B520, AUTH-52) — a phone invite needs [registrationTicket] (from
+  /// [verifyRegistrationCode]) proving the INVITED phone; when it is sent,
+  /// [phoneNumber] is not. 400 `INVITE_PHONE_MISMATCH` →
+  /// [PhoneIdentityFailure] ([PhoneIdentityErrorCode.invitePhoneMismatch]).
   ///
   /// [termsAccepted] (phase 443) — same all-or-nothing consent triple as
   /// [registerIndependentMaster].
@@ -239,5 +317,6 @@ abstract interface class AuthRepository {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   });
 }

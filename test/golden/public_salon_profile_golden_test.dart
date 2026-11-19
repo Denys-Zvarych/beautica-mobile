@@ -238,7 +238,7 @@ class _FakeSalonRepository implements SalonRepository {
   @override
   Future<void> inviteStaff({
     required String salonId,
-    required String email,
+    required String phone,
     required UserRole role,
   }) async => throw UnimplementedError('owner/admin only');
 

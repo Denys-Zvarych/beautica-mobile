@@ -28,6 +28,13 @@ import 'package:flutter/services.dart';
 class UaPhoneInputFormatter extends TextInputFormatter {
   const UaPhoneInputFormatter();
 
+  /// M517 — [raw] (e.g. a stored `+380671234545`) rendered in the input
+  /// mask for display («+380 67 123 45 45»). Additive: the same transform the
+  /// field applies to a paste.
+  static String display(String raw) => const UaPhoneInputFormatter()
+      .formatEditUpdate(TextEditingValue.empty, TextEditingValue(text: raw))
+      .text;
+
   /// Maximum number of subscriber digits (after +380).
   static const int _kSubscriberLength = 9;
 

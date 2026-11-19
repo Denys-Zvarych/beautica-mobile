@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 
+import '../bin/gen_integration_entry.dart' as gen;
 import 'support_pipeline.dart';
 
 void main() {
@@ -249,7 +250,7 @@ void main() {
           "  print('entry=selected'); print('count=2');",
           "  print('entry=selected'); print('count=2'); print('tests=abc');",
           "  print('entry=selected'); print('count=2'); print('tests=0');",
-          "  print('entry=selected'); print('count=2'); print('tests=75');",
+          "  print('entry=selected'); print('count=2'); print('tests=${gen.maxSelectedTests + 1}');",
           "  print('entry=selected'); print('count=2'); print('tests=2'); "
               "print('entry=parts');",
           "  print('entry=parts'); print('count=2'); print('tests=2');",
@@ -276,6 +277,7 @@ void main() {
           51: '1500',
           66: '1500',
           74: '1500',
+          85: '1500',
         };
         want.forEach((tests, bound) {
           final r = pl.chooseEntry(
@@ -295,13 +297,13 @@ void main() {
         });
       });
 
-      test('the caps are one shard: count=19 + tests=74 is the largest '
+      test('the caps are one shard: count=19 + tests=85 is the largest '
           'selected run', () {
         final r = pl.chooseEntry(
           one(),
           partFlows: parts,
           fakeGenerator: writes(
-            "  print('entry=selected'); print('count=19'); print('tests=74');",
+            "  print('entry=selected'); print('count=19'); print('tests=85');",
           ),
         );
         expect(r.outputs['entry'], 'selected', reason: r.log);

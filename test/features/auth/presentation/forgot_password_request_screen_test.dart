@@ -102,7 +102,7 @@ void main() {
       await _pump(tester, repo);
 
       await tester.enterText(
-        find.byKey(const ValueKey<String>('forgot_email')),
+        find.byKey(const ValueKey<String>('forgot_identifier')),
         'not-an-email',
       );
       await tester.pump();
@@ -115,7 +115,7 @@ void main() {
       expect(repo.requestPasswordResetCalls, isEmpty);
       // Still on the request state (email field present).
       expect(
-        find.byKey(const ValueKey<String>('forgot_email')),
+        find.byKey(const ValueKey<String>('forgot_identifier')),
         findsOneWidget,
       );
     });
@@ -128,7 +128,7 @@ void main() {
         await _pump(tester, repo);
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           'anya@example.com',
         );
         await tester.pump();
@@ -144,7 +144,7 @@ void main() {
         // Navigated to the OTP screen with the submitted email.
         expect(find.text('otp:anya@example.com'), findsOneWidget);
         expect(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           findsNothing,
         );
       },
@@ -175,11 +175,11 @@ void main() {
         ..requestPasswordResetResult = const NetworkFailure();
       await _pump(tester, repo);
       final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+        tester.element(find.byKey(const ValueKey<String>('forgot_identifier'))),
       );
 
       await tester.enterText(
-        find.byKey(const ValueKey<String>('forgot_email')),
+        find.byKey(const ValueKey<String>('forgot_identifier')),
         'anya@example.com',
       );
       await tester.pump();
@@ -194,7 +194,7 @@ void main() {
       // …but the inline network error renders and the screen stays on the form.
       expect(find.text(l10n.errNetwork), findsOneWidget);
       expect(
-        find.byKey(const ValueKey<String>('forgot_email')),
+        find.byKey(const ValueKey<String>('forgot_identifier')),
         findsOneWidget,
       );
       expect(find.textContaining('otp:'), findsNothing);
@@ -209,7 +209,7 @@ void main() {
       await _pump(tester, repo);
 
       await tester.enterText(
-        find.byKey(const ValueKey<String>('forgot_email')),
+        find.byKey(const ValueKey<String>('forgot_identifier')),
         'no-such-user-9f3a@nonexistent.example',
       );
       await tester.pump();
@@ -247,7 +247,7 @@ void main() {
         await _pump(tester, repo);
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           'anya@example.com',
         );
         await tester.pump();
@@ -307,11 +307,13 @@ void main() {
           );
         await _pump(tester, repo);
         final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+          tester.element(
+            find.byKey(const ValueKey<String>('forgot_identifier')),
+          ),
         );
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           'anya@example.com',
         );
         await tester.pump();
@@ -327,7 +329,7 @@ void main() {
         expect(find.text(l10n.errValidation), findsOneWidget);
         // Stayed on the request form (no navigation).
         expect(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           findsOneWidget,
         );
         expect(find.textContaining('otp:'), findsNothing);
@@ -355,11 +357,13 @@ void main() {
               const PasswordResetRateLimitedFailure();
         await _pump(tester, repo);
         final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+          tester.element(
+            find.byKey(const ValueKey<String>('forgot_identifier')),
+          ),
         );
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           'anya@example.com',
         );
         await tester.pump();
@@ -391,11 +395,13 @@ void main() {
           );
         await _pump(tester, repo);
         final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+          tester.element(
+            find.byKey(const ValueKey<String>('forgot_identifier')),
+          ),
         );
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           'anya@example.com',
         );
         await tester.pump();
@@ -432,11 +438,13 @@ void main() {
           );
         await _pump(tester, repo);
         final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+          tester.element(
+            find.byKey(const ValueKey<String>('forgot_identifier')),
+          ),
         );
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           'anya@example.com',
         );
         await tester.pump();
@@ -452,11 +460,58 @@ void main() {
         expect(find.text(oversizedEmailMsg), findsNothing);
         expect(find.text(l10n.errValidation), findsOneWidget);
         expect(
-          find.byKey(const ValueKey<String>('forgot_email')),
+          find.byKey(const ValueKey<String>('forgot_identifier')),
           findsOneWidget,
         );
         expect(find.textContaining('otp:'), findsNothing);
       },
     );
+
+    // M517 (AUTH-D18) — one «Телефон або email» field, like login.
+    testWidgets(
+      'M517: a phone identifier is normalised and carried to the OTP screen',
+      (WidgetTester tester) async {
+        final FakeAuthRepository repo = FakeAuthRepository();
+        await _pump(tester, repo);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_identifier')),
+          '067 123 45 67',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pumpAndSettle();
+
+        expect(repo.requestPasswordResetCalls.single.email, '+380671234567');
+        expect(find.text('otp:+380671234567'), findsOneWidget);
+      },
+    );
+
+    testWidgets('M517: a non-UA number is refused inline before any request', (
+      WidgetTester tester,
+    ) async {
+      final FakeAuthRepository repo = FakeAuthRepository();
+      await _pump(tester, repo);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byKey(const ValueKey<String>('forgot_identifier'))),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('forgot_identifier')),
+        '+380 44 123 45 67',
+      );
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('forgot_submit')),
+      );
+      await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+      await tester.pumpAndSettle();
+
+      expect(repo.requestPasswordResetCalls, isEmpty);
+      expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
+    });
   });
 }

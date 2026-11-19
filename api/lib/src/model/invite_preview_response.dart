@@ -12,18 +12,22 @@ part 'invite_preview_response.g.dart';
 /// InvitePreviewResponse
 ///
 /// Properties:
-/// * [invitedEmail]
+/// * [phoneMasked]
 /// * [role]
+/// * [salonName]
 /// * [expiresAt]
 @BuiltValue()
 abstract class InvitePreviewResponse
     implements Built<InvitePreviewResponse, InvitePreviewResponseBuilder> {
-  @BuiltValueField(wireName: r'invitedEmail')
-  String? get invitedEmail;
+  @BuiltValueField(wireName: r'phoneMasked')
+  String? get phoneMasked;
 
   @BuiltValueField(wireName: r'role')
   InvitePreviewResponseRoleEnum? get role;
   // enum roleEnum {  CLIENT,  SALON_OWNER,  SALON_ADMIN,  SALON_MASTER,  INDEPENDENT_MASTER,  };
+
+  @BuiltValueField(wireName: r'salonName')
+  String? get salonName;
 
   @BuiltValueField(wireName: r'expiresAt')
   DateTime? get expiresAt;
@@ -57,10 +61,10 @@ class _$InvitePreviewResponseSerializer
     InvitePreviewResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.invitedEmail != null) {
-      yield r'invitedEmail';
+    if (object.phoneMasked != null) {
+      yield r'phoneMasked';
       yield serializers.serialize(
-        object.invitedEmail,
+        object.phoneMasked,
         specifiedType: const FullType(String),
       );
     }
@@ -69,6 +73,13 @@ class _$InvitePreviewResponseSerializer
       yield serializers.serialize(
         object.role,
         specifiedType: const FullType(InvitePreviewResponseRoleEnum),
+      );
+    }
+    if (object.salonName != null) {
+      yield r'salonName';
+      yield serializers.serialize(
+        object.salonName,
+        specifiedType: const FullType(String),
       );
     }
     if (object.expiresAt != null) {
@@ -103,12 +114,12 @@ class _$InvitePreviewResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'invitedEmail':
+        case r'phoneMasked':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.invitedEmail = valueDes;
+          result.phoneMasked = valueDes;
           break;
         case r'role':
           final valueDes = serializers.deserialize(
@@ -116,6 +127,13 @@ class _$InvitePreviewResponseSerializer
             specifiedType: const FullType(InvitePreviewResponseRoleEnum),
           ) as InvitePreviewResponseRoleEnum;
           result.role = valueDes;
+          break;
+        case r'salonName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.salonName = valueDes;
           break;
         case r'expiresAt':
           final valueDes = serializers.deserialize(

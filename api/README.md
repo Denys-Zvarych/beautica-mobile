@@ -172,6 +172,8 @@ Class | Method | HTTP request | Description
 [*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**availability1**](doc/PublicSalonBookingControllerApi.md#availability1) | **GET** /api/v1/book/s/{slug}/masters/{masterId}/availability | 
 [*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**book1**](doc/PublicSalonBookingControllerApi.md#book1) | **POST** /api/v1/book/s/{slug}/masters/{masterId}/booking | 
 [*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**bookableDays1**](doc/PublicSalonBookingControllerApi.md#bookabledays1) | **GET** /api/v1/book/s/{slug}/masters/{masterId}/bookable-days | 
+[*RegistrationPhoneControllerApi*](doc/RegistrationPhoneControllerApi.md) | [**send1**](doc/RegistrationPhoneControllerApi.md#send1) | **POST** /api/v1/auth/register/phone/otp/send | 
+[*RegistrationPhoneControllerApi*](doc/RegistrationPhoneControllerApi.md) | [**verify1**](doc/RegistrationPhoneControllerApi.md#verify1) | **POST** /api/v1/auth/register/phone/otp/verify | 
 [*ReportControllerApi*](doc/ReportControllerApi.md) | [**createReport**](doc/ReportControllerApi.md#createreport) | **POST** /api/v1/reports | Report a review, photo or profile
 [*ReportControllerApi*](doc/ReportControllerApi.md) | [**myReports**](doc/ReportControllerApi.md#myreports) | **GET** /api/v1/reports/mine | My reported targets
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
@@ -225,6 +227,10 @@ Class | Method | HTTP request | Description
 [*SettlementSearchControllerApi*](doc/SettlementSearchControllerApi.md) | [**searchSettlements**](doc/SettlementSearchControllerApi.md#searchsettlements) | **GET** /api/v1/settlements | 
 [*StaffBookingsApi*](doc/StaffBookingsApi.md) | [**createStaffBooking**](doc/StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
+[*UserContactControllerApi*](doc/UserContactControllerApi.md) | [**requestEmailCode**](doc/UserContactControllerApi.md#requestemailcode) | **POST** /api/v1/users/me/email/request-code | Email a code to a new notifications email
+[*UserContactControllerApi*](doc/UserContactControllerApi.md) | [**sendPhoneCode**](doc/UserContactControllerApi.md#sendphonecode) | **POST** /api/v1/users/me/phone/otp/send | Send an SMS code to a new phone (add or change)
+[*UserContactControllerApi*](doc/UserContactControllerApi.md) | [**verifyEmailCode**](doc/UserContactControllerApi.md#verifyemailcode) | **POST** /api/v1/users/me/email/verify | Confirm the notifications email with its code
+[*UserContactControllerApi*](doc/UserContactControllerApi.md) | [**verifyPhoneCode**](doc/UserContactControllerApi.md#verifyphonecode) | **POST** /api/v1/users/me/phone/otp/verify | Confirm the new phone with its SMS code
 [*UserControllerApi*](doc/UserControllerApi.md) | [**deleteMyAccount**](doc/UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | Delete the caller&#39;s own account
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMyRating**](doc/UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
@@ -299,6 +305,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePendingBookingActionsCountResponse](doc/ApiResponsePendingBookingActionsCountResponse.md)
  - [ApiResponsePublicSalonResponse](doc/ApiResponsePublicSalonResponse.md)
  - [ApiResponseRegistrationResponse](doc/ApiResponseRegistrationResponse.md)
+ - [ApiResponseRegistrationTicketResponse](doc/ApiResponseRegistrationTicketResponse.md)
  - [ApiResponseReportResponse](doc/ApiResponseReportResponse.md)
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
@@ -402,6 +409,7 @@ Class | Method | HTTP request | Description
  - [MasterWorkingDayResponse](doc/MasterWorkingDayResponse.md)
  - [MediaFileResponse](doc/MediaFileResponse.md)
  - [MyReviewResponse](doc/MyReviewResponse.md)
+ - [NotificationEmailVerifyRequest](doc/NotificationEmailVerifyRequest.md)
  - [NotificationParams](doc/NotificationParams.md)
  - [NotificationResponse](doc/NotificationResponse.md)
  - [NotificationTarget](doc/NotificationTarget.md)
@@ -427,6 +435,7 @@ Class | Method | HTTP request | Description
  - [PageableObject](doc/PageableObject.md)
  - [PassportResponse](doc/PassportResponse.md)
  - [PendingBookingActionsCountResponse](doc/PendingBookingActionsCountResponse.md)
+ - [PhoneChangeVerifyRequest](doc/PhoneChangeVerifyRequest.md)
  - [PhoneOtpSendRequest](doc/PhoneOtpSendRequest.md)
  - [PhoneOtpVerifyRequest](doc/PhoneOtpVerifyRequest.md)
  - [PlatformServiceTypeResponse](doc/PlatformServiceTypeResponse.md)
@@ -436,7 +445,10 @@ Class | Method | HTTP request | Description
  - [RegisterDeviceTokenRequest](doc/RegisterDeviceTokenRequest.md)
  - [RegisterIndependentMasterRequest](doc/RegisterIndependentMasterRequest.md)
  - [RegisterRequest](doc/RegisterRequest.md)
+ - [RegistrationOtpSendRequest](doc/RegistrationOtpSendRequest.md)
+ - [RegistrationOtpVerifyRequest](doc/RegistrationOtpVerifyRequest.md)
  - [RegistrationResponse](doc/RegistrationResponse.md)
+ - [RegistrationTicketResponse](doc/RegistrationTicketResponse.md)
  - [ReportResponse](doc/ReportResponse.md)
  - [ReportedTargetResponse](doc/ReportedTargetResponse.md)
  - [RescheduleBookingRequest](doc/RescheduleBookingRequest.md)

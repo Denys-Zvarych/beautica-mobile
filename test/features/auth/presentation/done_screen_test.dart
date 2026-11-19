@@ -10,7 +10,7 @@
 //   2.  Falls back to the l10n placeholder when User has no first name.
 //   2b. Uses lastName as display name when firstName is null.
 //   2c. Uses firstName alone when lastName is null.
-//   3.  Three summary chips render (done_chip_role / done_chip_email /
+//   3.  Three summary chips render (done_chip_role / done_chip_phone /
 //       done_chip_ready) with the expected label text.
 //   4.  Role chip shows the role-derived label from UserRoleL10n (client).
 //   5.  Tapping done_to_app navigates to /home.
@@ -22,7 +22,7 @@
 //   9.  No authenticated user: DoneScreen renders fallback greeting + client role
 //       label without crashing.
 //   10. independentMaster role chip shows l10n.roleIndependentMaster.
-//   11. All three chips (done_chip_role, done_chip_email, done_chip_ready) are
+//   11. All three chips (done_chip_role, done_chip_phone, done_chip_ready) are
 //       on separate centered lines — each chip has a Center ancestor and no
 //       two chips share a Row ancestor.
 //   12. _SummaryChip overflow — Flexible wrapper regression guard: no overflow
@@ -341,7 +341,7 @@ void main() {
     // Test 3 — Three summary chips are rendered
     // -----------------------------------------------------------------------
     testWidgets(
-      '3. renders exactly 3 summary chips (done_chip_role, done_chip_email, '
+      '3. renders exactly 3 summary chips (done_chip_role, done_chip_phone, '
       'done_chip_ready)',
       (tester) async {
         final router = _makeRouter();
@@ -358,7 +358,7 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.byKey(const ValueKey<String>('done_chip_email')),
+          find.byKey(const ValueKey<String>('done_chip_phone')),
           findsOneWidget,
         );
         expect(
@@ -395,11 +395,11 @@ void main() {
           reason: 'role chip must display the localised role label',
         );
 
-        // Email-verified chip displays the l10n string.
+        // Phone-verified chip displays the l10n string.
         expect(
           find.descendant(
-            of: find.byKey(const ValueKey<String>('done_chip_email')),
-            matching: find.text(l10n.registerDoneChipEmailVerified),
+            of: find.byKey(const ValueKey<String>('done_chip_phone')),
+            matching: find.text(l10n.registerDoneChipPhoneVerified),
           ),
           findsOneWidget,
         );
@@ -717,7 +717,7 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 11 — Structural assertion: 3-line centered chip layout
     //
-    // All three chips (done_chip_role, done_chip_email, done_chip_ready) must
+    // All three chips (done_chip_role, done_chip_phone, done_chip_ready) must
     // each be on their own separate centered line — i.e. every chip must have
     // a Center ancestor and no chip may share a Row ancestor with another chip.
     // -----------------------------------------------------------------------
@@ -737,7 +737,7 @@ void main() {
         find.byKey(const ValueKey<String>('done_chip_role')),
       );
       final emailElement = tester.element(
-        find.byKey(const ValueKey<String>('done_chip_email')),
+        find.byKey(const ValueKey<String>('done_chip_phone')),
       );
       final readyElement = tester.element(
         find.byKey(const ValueKey<String>('done_chip_ready')),
@@ -769,7 +769,7 @@ void main() {
       expect(
         emailHasCenter,
         isTrue,
-        reason: 'done_chip_email must be wrapped in Center (line 2)',
+        reason: 'done_chip_phone must be wrapped in Center (line 2)',
       );
 
       bool readyHasCenter = false;
@@ -811,7 +811,7 @@ void main() {
           emailRow,
           isNot(equals(roleRow)),
           reason:
-              'done_chip_email must not share a Row ancestor with done_chip_role',
+              'done_chip_phone must not share a Row ancestor with done_chip_role',
         );
         expect(
           readyRow,
@@ -825,7 +825,7 @@ void main() {
           readyRow,
           isNot(equals(emailRow)),
           reason:
-              'done_chip_ready must not share a Row ancestor with done_chip_email',
+              'done_chip_ready must not share a Row ancestor with done_chip_phone',
         );
       }
     });
@@ -1105,18 +1105,20 @@ void main() {
     // Regression: without the Flexible wrapper the chip's Text overflows its
     // Row when the label is long and the viewport is narrow. This test pumps
     // the done screen inside a 200 dp wide SizedBox so the two side-by-side
-    // chips cannot display "Пошта підтверджена" without truncation. The test
+    // chips cannot display the phone chip (done_chip_phone) label
+    // "Телефон підтверджено" without truncation. The test
     // asserts:
     //   a. No overflow exception is thrown (tester.takeException() is null).
     //   b. At least one Flexible widget exists in the tree that is a descendant
-    //      of done_chip_email — proving the Flexible wrapper is present.
+    //      of done_chip_phone — proving the Flexible wrapper is present.
     // -----------------------------------------------------------------------
     testWidgets(
       '12. _SummaryChip overflow — Flexible wrapper regression guard: '
       'no overflow in a 200 dp wide viewport and Flexible is present',
       (tester) async {
         // Constrain the viewport to 200 logical pixels — narrow enough that
-        // "Пошта підтверджена" would overflow without the Flexible wrapper.
+        // the phone chip (done_chip_phone) label "Телефон підтверджено" would
+        // overflow without the Flexible wrapper.
         tester.view.physicalSize = const Size(200 * 3, 800 * 3);
         tester.view.devicePixelRatio = 3.0;
         addTearDown(tester.view.resetPhysicalSize);
@@ -1140,15 +1142,15 @@ void main() {
               'in a narrow (200 dp) viewport — Flexible must prevent it',
         );
 
-        // b. At least one Flexible must be a descendant of done_chip_email,
+        // b. At least one Flexible must be a descendant of done_chip_phone,
         //    confirming the Flexible wrapper is present in the chip tree.
         final emailChipFinder = find.byKey(
-          const ValueKey<String>('done_chip_email'),
+          const ValueKey<String>('done_chip_phone'),
         );
         expect(
           emailChipFinder,
           findsOneWidget,
-          reason: 'done_chip_email chip must be rendered',
+          reason: 'done_chip_phone chip must be rendered',
         );
         expect(
           find.descendant(of: emailChipFinder, matching: find.byType(Flexible)),

@@ -14,7 +14,10 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/contact_verify_args.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/contact_verify_screen.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
 import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
@@ -31,6 +34,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -50,7 +54,9 @@ const _stubUser = User(
   role: UserRole.client,
   firstName: 'Олена',
   lastName: 'Ковальчук',
-  phoneNumber: '+380 50 123 45 67',
+  // E.164, as the backend stores it (M517: lets the save tests re-spell the
+  // SAME number, which still saves through the PATCH).
+  phoneNumber: '+380501234567',
   salonId: _kProbeSalonId,
 );
 
@@ -104,6 +110,12 @@ Finder _field(String key) =>
 // (`_stubUser.salonId`) instead of a bare whole-family invalidate — see the
 // `_kOtherSalonId` fixtures below for the negative case.
 const String _kProbeSalonId = 'salon-probe-1';
+
+/// M517 — the stub's own number in another spelling: the Contacts save still
+/// PATCHes it (the backend guard treats it as unchanged), so the save-path
+/// tests below keep pinning that path. A DIFFERENT number goes through the
+/// SMS code + current-password step instead (the M517 group at the end).
+const String _kSameNumberRespelled = '050 123 45 67';
 
 class _CountingSalonManagementProfile extends SalonManagementProfile {
   static int buildCount = 0;
@@ -245,7 +257,7 @@ void main() {
 
     expect(
       tester.widget<TextField>(_field('field-phone')).controller?.text,
-      '+380 50 123 45 67',
+      '+380501234567',
     );
   });
 
@@ -261,7 +273,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.enterText(_field('field-phone'), '+380 67 000 11 22');
+      await tester.enterText(_field('field-phone'), _kSameNumberRespelled);
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('btn-save-contacts')));
@@ -292,7 +304,7 @@ void main() {
       await tester.pump();
 
       // Make the form dirty so the Save CTA is enabled.
-      await tester.enterText(_field('field-phone'), '+380 67 000 11 22');
+      await tester.enterText(_field('field-phone'), _kSameNumberRespelled);
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('btn-save-contacts')));
@@ -315,7 +327,10 @@ void main() {
     },
   );
 
-  testWidgets('renders the CLIENT phone privacy note (not the master one)', (
+  // M517 (approved PhoneFirstAuth preview `ContactsPhoneScreen`) — the
+  // helper now says the new number is confirmed by SMS and names the number
+  // that stays in force until then; the privacy note is gone.
+  testWidgets('renders the phone-change helper with the current number', (
     tester,
   ) async {
     await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
@@ -328,12 +343,10 @@ void main() {
     final AppLocalizations l10n = AppLocalizations.of(ctx);
 
     expect(
-      find.text(l10n.clientPhonePrivacyNote),
+      find.text(l10n.contactsPhoneChangeHelper('+380 50 123 45 67')),
       findsOneWidget,
-      reason:
-          'the client phone field shows the client-appropriate privacy note '
-          '(masters do not see the client number)',
     );
+    expect(find.text(l10n.clientPhonePrivacyNote), findsNothing);
     expect(
       find.text(l10n.phonePrivacyNote),
       findsNothing,
@@ -359,7 +372,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.enterText(_field('field-phone'), '+380 67 000 11 22');
+        await tester.enterText(_field('field-phone'), _kSameNumberRespelled);
         await tester.pump();
         await tester.tap(find.byKey(const Key('btn-save-contacts')));
         await tester.pumpAndSettle();
@@ -410,7 +423,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.enterText(_field('field-phone'), '+380 67 000 11 22');
+        await tester.enterText(_field('field-phone'), _kSameNumberRespelled);
         await tester.pump();
         await tester.tap(find.byKey(const Key('btn-save-contacts')));
         await tester.pumpAndSettle();
@@ -509,7 +522,7 @@ void main() {
               'invalidate afterwards would prove nothing',
         );
 
-        await tester.enterText(_field('field-phone'), '+380 67 000 11 22');
+        await tester.enterText(_field('field-phone'), _kSameNumberRespelled);
         await tester.pump();
         await tester.tap(find.byKey(const Key('btn-save-contacts')));
         await tester.pumpAndSettle();
@@ -562,7 +575,7 @@ void main() {
         reason: 'sanity: both probes must be ALIVE before save',
       );
 
-      await tester.enterText(_field('field-phone'), '+380 67 000 11 22');
+      await tester.enterText(_field('field-phone'), _kSameNumberRespelled);
       await tester.pump();
       await tester.tap(find.byKey(const Key('btn-save-contacts')));
       await tester.pumpAndSettle();
@@ -677,5 +690,121 @@ void main() {
       );
       expect(find.byKey(const Key('stub-client-menu')), findsNothing);
     });
+  });
+
+  // ===========================================================================
+  // M517 (AUTH-D13 / AUTH-D19) — a DIFFERENT number never reaches the PATCH:
+  // SMS code to the new number → code + current password → saved; the old
+  // number stays until then.
+  // ===========================================================================
+  group('M517 phone change', () {
+    late FakeAuthRepository auth;
+
+    setUp(() => auth = FakeAuthRepository());
+
+    GoRouter router() => GoRouter(
+      initialLocation: RouteNames.clientEditContacts,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.clientEditContacts,
+          builder: (_, _) => const ClientContactsEditScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.phoneChangeVerify,
+          builder: (_, state) =>
+              ContactVerifyScreen(args: state.extra! as ContactVerifyArgs),
+        ),
+        GoRoute(
+          path: RouteNames.clientHome,
+          builder: (_, _) =>
+              const Scaffold(body: SizedBox(key: Key('stub-home'))),
+        ),
+      ],
+    );
+
+    List<Object> overrides() => <Object>[
+      ..._overrides(repo),
+      authRepositoryProvider.overrideWithValue(auth),
+    ];
+
+    Future<void> open(WidgetTester tester) async {
+      await tester.pumpRoutedApp(router(), overrides: overrides());
+      await tester.pump();
+      await tester.pump();
+    }
+
+    Future<void> save(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('btn-save-contacts')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a non-UA number is refused inline: no SMS, no PATCH', (
+      tester,
+    ) async {
+      await open(tester);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('field-phone'))),
+      );
+
+      await tester.enterText(_field('field-phone'), '044 123 45 67');
+      await tester.pump();
+      await save(tester);
+
+      expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
+      expect(auth.sendPhoneCodeCalls, isEmpty);
+      verifyNever(() => repo.updateMyProfile(any()));
+    });
+
+    testWidgets('a new number: SMS → code + current password → saved, '
+        'never PATCHed', (tester) async {
+      await open(tester);
+
+      await tester.enterText(_field('field-phone'), '067 000 11 22');
+      await tester.pump();
+      await save(tester);
+
+      expect(auth.sendPhoneCodeCalls, <String>['+380670001122']);
+      expect(
+        find.byKey(const ValueKey<String>('phone_code_current_password')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('phone_code_input')),
+        '123456',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('phone_code_current_password')),
+        'Secret1',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('phone_code_submit')));
+      await pumpVelvetSnackIn(tester);
+
+      expect(auth.verifyPhoneCodeCalls.single.phone, '+380670001122');
+      expect(auth.verifyPhoneCodeCalls.single.currentPassword, 'Secret1');
+      expect(find.byKey(const Key('stub-home')), findsOneWidget);
+      verifyNever(() => repo.updateMyProfile(any()));
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets(
+      'backing out of the code step keeps the screen, saves nothing',
+      (tester) async {
+        await open(tester);
+
+        await tester.enterText(_field('field-phone'), '067 000 11 22');
+        await tester.pump();
+        await save(tester);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('field-phone')), findsOneWidget);
+        expect(auth.verifyPhoneCodeCalls, isEmpty);
+        verifyNever(() => repo.updateMyProfile(any()));
+      },
+    );
   });
 }

@@ -1,6 +1,5 @@
-// M517 port (e758bc74, 2026-11-18; Sentry 162160464) — `AuthRefreshNotifier`
-// refreshes go_router ONLY when a redirect-relevant auth field changes
-// (`authRouterKey`).
+// M517 (2026-11-18) — `AuthRefreshNotifier` refreshes go_router ONLY when a
+// redirect-relevant auth field changes (`authRouterKey`).
 //
 // WHY
 // ---------------------------------------------------------------------------
@@ -12,7 +11,7 @@
 //   (b) gave the restored imperative match a NEW Completer, so the original
 //       `push` future never resolved (flutter#128122);
 //   (c) resurrected a route popped in the same frame (not yet reported).
-// A key change (role, salon, ...) must STILL re-run the redirects.
+// A key change (role, `mustAddPhone`, ...) must STILL re-run the redirects.
 //
 // HARNESS: the REAL `AuthRefreshNotifier` as `refreshListenable`, a fake
 // `authProvider` whose state the test assigns directly, `context.push` for
@@ -39,6 +38,7 @@ const User _master = User(
   email: 'm@example.com',
   role: UserRole.independentMaster,
   phoneNumber: '+380501112233',
+  phoneVerified: true,
 );
 
 /// Settles to [initial]; the test then assigns `state` directly, the same
@@ -92,6 +92,8 @@ Future<_Harness> _pumpHarness(WidgetTester tester) async {
         final User? user = session is Authenticated ? session.user : null;
         final String loc = state.matchedLocation;
         if (user == null) return null;
+        if (user.mustAddPhone) return loc == '/add-phone' ? null : '/add-phone';
+        if (loc == '/add-phone') return '/root';
         if (user.role == UserRole.client && loc.startsWith('/root')) {
           return '/client';
         }
@@ -113,6 +115,10 @@ Future<_Harness> _pumpHarness(WidgetTester tester) async {
               },
             ),
           ],
+        ),
+        GoRoute(
+          path: '/add-phone',
+          builder: (context, state) => const _Page(label: 'add-phone'),
         ),
         GoRoute(
           path: '/client',
@@ -195,6 +201,7 @@ void main() {
                 phoneNumber: '+380000000000',
                 firstName: 'A',
                 avatarUrl: 'https://cdn.example/a.jpg',
+                emailVerified: true,
               ),
             ),
           ),
@@ -203,28 +210,41 @@ void main() {
       );
     });
 
-    final Map<String, AsyncValue<AuthSession>> changed =
-        <String, AsyncValue<AuthSession>>{
-          'isLoading': const AsyncLoading<AuthSession>(),
-          'isData': const AsyncError<AuthSession>('boom', StackTrace.empty),
-          'authenticated': const AsyncData<AuthSession>(
-            AuthSession.unauthenticated(),
-          ),
-          'userId': AsyncData<AuthSession>(
-            _session(_master.copyWith(id: 'u-2')),
-          ),
-          'role': AsyncData<AuthSession>(
-            _session(_master.copyWith(role: UserRole.client)),
-          ),
-          'salonId': AsyncData<AuthSession>(
-            _session(_master.copyWith(salonId: 's-1')),
-          ),
-        };
+    final Map<String, AsyncValue<AuthSession>>
+    changed = <String, AsyncValue<AuthSession>>{
+      'isLoading': const AsyncLoading<AuthSession>(),
+      'isData': const AsyncError<AuthSession>('boom', StackTrace.empty),
+      'authenticated': const AsyncData<AuthSession>(
+        AuthSession.unauthenticated(),
+      ),
+      'userId': AsyncData<AuthSession>(_session(_master.copyWith(id: 'u-2'))),
+      'role': AsyncData<AuthSession>(
+        _session(_master.copyWith(role: UserRole.client)),
+      ),
+      'salonId': AsyncData<AuthSession>(
+        _session(_master.copyWith(salonId: 's-1')),
+      ),
+      'mustAddPhone': AsyncData<AuthSession>(
+        _session(
+          _master.copyWith(phoneVerified: false, phoneRequiredBy: '2026-11-18'),
+        ),
+      ),
+    };
     for (final MapEntry<String, AsyncValue<AuthSession>> e in changed.entries) {
       test('differs when ${e.key} changes', () {
         expect(authRouterKey(e.value), isNot(base));
       });
     }
+
+    test(
+      'mustAddPhone mirrors User.mustAddPhone; unauthenticated is false',
+      () {
+        expect(base.mustAddPhone, isFalse);
+        expect(authRouterKey(changed['mustAddPhone']!).mustAddPhone, isTrue);
+        expect(authRouterKey(changed['authenticated']!).mustAddPhone, isFalse);
+        expect(authRouterKey(changed['authenticated']!).userId, isNull);
+      },
+    );
   });
 
   group('profile-only emission leaves the route stack alone', () {
@@ -310,6 +330,25 @@ void main() {
 
       expect(h.router.state.matchedLocation, '/client');
       expect(find.byKey(const ValueKey<String>('page-client')), findsOneWidget);
+    });
+
+    testWidgets('mustAddPhone true -> false flip lifts the block', (
+      tester,
+    ) async {
+      final _Harness h = await _pumpHarness(tester);
+
+      h.notifier.emit(
+        _session(
+          _master.copyWith(phoneVerified: false, phoneRequiredBy: '2026-11-18'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(h.router.state.matchedLocation, '/add-phone');
+
+      h.notifier.emit(_session(_master));
+      await tester.pumpAndSettle();
+      expect(h.router.state.matchedLocation, '/root');
+      expect(find.byKey(const ValueKey<String>('page-root')), findsOneWidget);
     });
   });
 }

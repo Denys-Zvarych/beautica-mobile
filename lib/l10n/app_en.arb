@@ -90,9 +90,9 @@
   "@errUnauthorized": {
     "description": "Error message shown when the user's session has expired (401)."
   },
-  "errInvalidCredentials": "Incorrect email or password.",
+  "errInvalidCredentials": "Incorrect phone, email or password.",
   "@errInvalidCredentials": {
-    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong email or password — not a session expiry)."
+    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong phone/email or password — not a session expiry). Login accepts a phone number or an email."
   },
   "errValidation": "Please check your input and try again.",
   "@errValidation": {
@@ -207,10 +207,6 @@
   "@loginTitle": {
     "description": "Title of the login screen."
   },
-  "loginEmailLabel": "Email address",
-  "@loginEmailLabel": {
-    "description": "Label for the email input field on the login screen."
-  },
   "loginPasswordLabel": "Password",
   "@loginPasswordLabel": {
     "description": "Label for the password input field on the login screen."
@@ -226,14 +222,6 @@
   "loginCreateAccount": "Register",
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
-  },
-  "loginEmailPlaceholder": "Enter email",
-  "@loginEmailPlaceholder": {
-    "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
-  },
-  "loginEmailHint": "Enter email",
-  "@loginEmailHint": {
-    "description": "hintText for the email field on the login screen — descriptive prompt text."
   },
   "loginPasswordPlaceholder": "Your password",
   "@loginPasswordPlaceholder": {
@@ -801,9 +789,9 @@
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
   },
-  "registerDoneChipEmailVerified": "Email verified",
-  "@registerDoneChipEmailVerified": {
-    "description": "Second summary chip on the registration-done screen confirming the email has been verified (done-page.html .chip — second chip)."
+  "registerDoneChipPhoneVerified": "Phone verified",
+  "@registerDoneChipPhoneVerified": {
+    "description": "Second summary chip on the registration-done screen confirming the phone number has been verified by SMS code (registration is phone-first, AUTH-D09)."
   },
   "registerDoneChipReadyFast": "Ready in seconds",
   "@registerDoneChipReadyFast": {
@@ -1253,13 +1241,33 @@
   "@inviteHeading": {
     "description": "Main heading on the accept-invite screen."
   },
-  "inviteSubtitle": "Complete your account setup to join the salon team.",
+  "inviteSubtitle": "Confirm the number the invite was sent to, to join the salon team.",
   "@inviteSubtitle": {
     "description": "Sub-heading on the accept-invite screen."
   },
-  "inviteEmailLabel": "Invited email",
-  "@inviteEmailLabel": {
-    "description": "Read-only label for the invited email row in the invite preview card."
+  "invitePhoneMaskedLabel": "Invited phone",
+  "@invitePhoneMaskedLabel": {
+    "description": "M521 (AUTH-21) — invite preview row label for the masked invited phone."
+  },
+  "inviteSalonLabel": "Salon",
+  "@inviteSalonLabel": {
+    "description": "M521 (AUTH-21) — invite preview row label for the inviting salon name."
+  },
+  "inviteCodeSubtitle": "Enter the code from the SMS to confirm your number.",
+  "@inviteCodeSubtitle": {
+    "description": "M521 — accept-invite SMS code step subtitle."
+  },
+  "inviteDetailsSubtitle": "Number confirmed. Set a password and enter your name.",
+  "@inviteDetailsSubtitle": {
+    "description": "M521 — accept-invite password + name step subtitle (after the phone is confirmed)."
+  },
+  "invitePhoneHelper": "The same number the invite was sent to",
+  "@invitePhoneHelper": {
+    "description": "M521 — helper under the accept-invite phone field."
+  },
+  "errInvitePhoneMismatch": "This number does not match the one in the invite",
+  "@errInvitePhoneMismatch": {
+    "description": "M521 (AUTH-52) — 400 INVITE_PHONE_MISMATCH: the confirmed phone is not the invited one."
   },
   "inviteRoleLabel": "Role",
   "@inviteRoleLabel": {
@@ -1311,7 +1319,7 @@
   "@inviteSuccessSnackbar": {
     "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   },
-  "inviteHandoffAccountReady": "Your account has been created. Sign in with your email and the password you just set.",
+  "inviteHandoffAccountReady": "Your account has been created. Sign in with your phone number and the password you just set.",
   "@inviteHandoffAccountReady": {
     "description": "Login hand-off banner shown when accept-invite got a 2xx response the client could not parse (ResponseUnusableFailure) — the account was created server-side; invite-accept post-success design, 2026-09-01."
   },
@@ -1323,9 +1331,13 @@
   "@inviteHandoffNoLongerValid": {
     "description": "Login hand-off banner shown when the invite token was already used/expired/not found (400 with no field-error map) — invite-accept post-success design, 2026-09-01."
   },
-  "inviteHandoffEmailAlreadyRegistered": "This email is already registered. Sign in to the existing account, or ask the salon to invite a different address.",
-  "@inviteHandoffEmailAlreadyRegistered": {
-    "description": "Login hand-off banner shown when accept-invite returned 409 (email already registered) — invite-accept post-success design, 2026-09-01."
+  "inviteHandoffPhoneAlreadyRegistered": "This number is already registered. Sign in to the existing account, or ask the salon to invite a different number.",
+  "@inviteHandoffPhoneAlreadyRegistered": {
+    "description": "Login hand-off banner shown when accept-invite returned a 409 meaning the account already exists (EmailAlreadyRegisteredFailure / an un-coded 409). M521: invites go by phone (B520), so the copy names the number, never an email."
+  },
+  "inviteHandoffSalonInactive": "This salon is no longer active, so the invite can't be accepted. If you already have an account, sign in.",
+  "@inviteHandoffSalonInactive": {
+    "description": "M521 (AUTH-17, AUTH-E03) — login hand-off banner shown when accept-invite returned 409 INVITE_SALON_INACTIVE (the inviting salon was deactivated)."
   },
 
   "roleSelectHeadline": "Welcome to premium\nBeauty Service",
@@ -3477,6 +3489,38 @@
   "notificationTitleBookingReminder": "Visit reminder",
   "@notificationTitleBookingReminder": {
     "description": "Phase 497 — title of a BOOKING_REMINDER notification (to the booking's client)."
+  },
+  "notificationTitleSecurityPhoneChanged": "Phone number changed",
+  "@notificationTitleSecurityPhoneChanged": {
+    "description": "Notification-feed title: the account's phone number was changed (security notice, AUTH-D19)."
+  },
+  "notificationTitleSecurityEmailChanged": "Notifications email changed",
+  "@notificationTitleSecurityEmailChanged": {
+    "description": "Notification-feed title: the notifications email was changed (security notice, AUTH-D19)."
+  },
+  "notificationBodySecurityPhoneChanged": "New number: {maskedContact}. If this wasn't you, contact support.",
+  "@notificationBodySecurityPhoneChanged": {
+    "description": "Body of the phone-changed security notice. {maskedContact} is the new number, masked by the backend.",
+    "placeholders": {
+      "maskedContact": {
+        "type": "String",
+        "example": "+380 •• ••• •• 67"
+      }
+    }
+  },
+  "notificationBodySecurityEmailChanged": "New notifications email: {maskedContact}. If this wasn't you, contact support.",
+  "@notificationBodySecurityEmailChanged": {
+    "description": "Body of the email-changed security notice. {maskedContact} is the new email, masked by the backend.",
+    "placeholders": {
+      "maskedContact": {
+        "type": "String",
+        "example": "o•••@gmail.com"
+      }
+    }
+  },
+  "notificationBodySecuritySupport": "If this wasn't you, contact support.",
+  "@notificationBodySecuritySupport": {
+    "description": "Body of a phone/email-changed security notice when the backend sent no masked contact."
   },
   "notificationBodyBookingReminder": "Your visit is {day} at {time}",
   "@notificationBodyBookingReminder": {
@@ -6346,7 +6390,7 @@
   "@inviteStaffTitle": {
     "description": "Phase 21.4 — SectionScaffold title for InviteStaffScreen, the SALON_OWNER/SALON_ADMIN's «Invite staff» form."
   },
-  "inviteStaffSubtitle": "Send an invitation to join your salon. The recipient will get an email with a sign-in link.",
+  "inviteStaffSubtitle": "Send an invitation to join your salon. The person will get an SMS with a link.",
   "@inviteStaffSubtitle": {
     "description": "Phase 21.4 — subheading under the title on InviteStaffScreen. Generic (does not interpolate the salon name) — InviteStaffScreen is reached with only `salonId`, mirroring the route's own `state.pathParameters['salonId']` builder; the approved preview's own salon-name interpolation was dropped for this production port."
   },
@@ -6370,23 +6414,15 @@
   "@inviteStaffRoleMasterDescription": {
     "description": "Phase 21.4 — one-line description shown beneath the role toggle when Master is selected."
   },
-  "inviteStaffEmailLabel": "Email",
-  "@inviteStaffEmailLabel": {
-    "description": "Phase 21.4 — label for InviteStaffScreen's email NeumorphicTextField."
-  },
-  "inviteStaffEmailHint": "name@example.com",
-  "@inviteStaffEmailHint": {
-    "description": "Phase 21.4 — placeholder hint for InviteStaffScreen's email field."
-  },
-  "inviteStaffEmailHelper": "The invite is valid for 48 hours.",
-  "@inviteStaffEmailHelper": {
-    "description": "Phase 21.4 — helper text under InviteStaffScreen's email field."
+  "inviteStaffPhoneHelper": "The invite is valid for 48 hours.",
+  "@inviteStaffPhoneHelper": {
+    "description": "M521 — helper text under InviteStaffScreen's phone field."
   },
   "inviteStaffSubmitCta": "Send invite",
   "@inviteStaffSubmitCta": {
     "description": "Phase 21.4 — InviteStaffScreen's primary submit CTA label."
   },
-  "inviteStaffSuccess": "Invite sent",
+  "inviteStaffSuccess": "Invite SMS sent",
   "@inviteStaffSuccess": {
     "description": "Phase 21.4 — success VelvetSnack shown after POST /salons/{salonId}/invite succeeds on InviteStaffScreen, immediately before context.pop()."
   },
@@ -6402,9 +6438,13 @@
   "@inviteStaffErrorGeneric": {
     "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite fails for any other reason (network, 5xx, unknown)."
   },
-  "inviteStaffErrorEmailAlreadyRegistered": "This email already has a Beautica account. You can only invite a new address.",
-  "@inviteStaffErrorEmailAlreadyRegistered": {
-    "description": "Phase 303 — inline error on the email field when POST /salons/{salonId}/invite returns HTTP 409 EMAIL_ALREADY_REGISTERED (backend Phase 287): the invited address already has an account."
+  "inviteStaffErrorPhoneAlreadyRegistered": "A user with this number is already registered",
+  "@inviteStaffErrorPhoneAlreadyRegistered": {
+    "description": "M521 (AUTH-18) — inline error on the invite phone field for 409 PHONE_ALREADY_REGISTERED."
+  },
+  "errInviteSmsLimit": "Today's invite SMS limit is reached. Try again tomorrow.",
+  "@errInviteSmsLimit": {
+    "description": "M521 (AUTH-52) — banner for 429 INVITE_SMS_LIMIT on invite create."
   },
   "inviteStaffBackSemanticLabel": "Back",
   "@inviteStaffBackSemanticLabel": {
@@ -7558,5 +7598,45 @@
   "masterWeekTitleSemantics": "{range}, month calendar",
   "masterWeekStripTodaySemantics": "today",
   "masterWeekStripDayOffSemantics": "day off",
-  "masterWeekStripNoBookingsSemantics": "no bookings"
+  "masterWeekStripNoBookingsSemantics": "no bookings",
+  "loginIdentifierLabel": "Phone or email",
+  "loginIdentifierHint": "+380 XX XXX XX XX or email",
+  "errIdentifierRequired": "Enter your phone or email",
+  "errPhoneNotUaMobile": "A Ukrainian mobile number is required",
+  "errPhoneAlreadyRegistered": "This number is already registered. Sign in or reset your password",
+  "errPhoneCodeInvalid": "Wrong code. Check it and try again.",
+  "errRegistrationTicketInvalid": "Phone confirmation has expired. Confirm your number again.",
+  "errPhoneCodeRateLimited": "Too many code requests. Try again later.",
+  "errAppCheckFailed": "We could not confirm the request came from the Beautica app. Update the app from Google Play and try again.",
+  "errAppCheckUnavailable": "Verification is temporarily unavailable. Try again in a minute.",
+  "registerPhoneHelper": "We will send an SMS with a confirmation code",
+  "registerSendCode": "Send code",
+  "registerPasswordHeadline": "Create a password",
+  "phoneCodeHeadline": "Confirm your number",
+  "phoneCodeSmsDescription": "We sent a 6-digit code by SMS to",
+  "phoneCodeCurrentPasswordLabel": "Current password",
+  "phoneCodeCurrentPasswordHelper": "To protect your account, confirm the change with your password",
+  "phoneCodeLocked": "Too many failed attempts. Changes are blocked for now — try again in 15 minutes.",
+  "errCurrentPasswordInvalid": "Incorrect current password",
+  "errPhoneNotVerified": "Confirm your phone number to continue",
+  "errPhoneInUse": "This number is already linked to another account",
+  "errEmailInUse": "This address is already linked to another account",
+  "phoneChangeCodeHeadline": "Confirm your new number",
+  "emailCodeHeadline": "Confirm your email",
+  "addPhoneHeadline": "Add your phone number",
+  "addPhoneBody": "So you can sign in and recover access",
+  "addPhoneLogout": "Sign out",
+  "contactsPhoneChangeHelper": "We will confirm the new number with an SMS code. Until then {phone} stays active.",
+  "@contactsPhoneChangeHelper": {"placeholders": {"phone": {"type": "String", "example": "+380 67 123 45 45"}}},
+  "profileNotificationEmailTitle": "Email for notifications",
+  "emailPromptAdd": "Add",
+  "emailPromptNotNow": "Not now",
+  "bookingSuccessEmailPromptTitle": "Connect an email address to get notifications and reminders by email",
+  "notificationEmailIntro": "Booking confirmations and the access-recovery code will come here. Email is optional.",
+  "notificationEmailLabel": "Email",
+  "notificationEmailHint": "name@example.com",
+  "notificationEmailHelper": "We will send a confirmation code to this address",
+  "notificationEmailBackSemantics": "Back",
+  "forgotPasswordIdentifierSubText": "Enter the account phone or email — we will send a password reset code.",
+  "resetCodeSentNeutral": "If the account exists, we sent a code. Enter it below."
 }

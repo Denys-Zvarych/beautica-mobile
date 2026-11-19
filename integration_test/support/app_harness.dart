@@ -100,6 +100,7 @@ import 'package:beautica_mobile/core/diagnostics/install_id.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -475,6 +476,71 @@ abstract final class AppHarness {
     await settle(tester);
     await pumpUntilFound(tester, finder.hitTestable(), timeout: timeout);
     await tester.tap(finder);
+  }
+
+  /// M515 (AUTH-D11) — drives the phone-first registration wizard from
+  /// `/register/role` through role [roleKey] (`role_client`, `role_master`,
+  /// `role_salon_owner`) → phone + consent → SMS code → password, and stops
+  /// on the name step (`/register/step-2`).
+  ///
+  /// REUSE-FIRST — every registration E2E (phone-first flow, owner
+  /// re-register, legal links) drives these steps; this is the single copy.
+  static Future<void> registerPhoneFirstSteps(
+    WidgetTester tester,
+    GoRouter router, {
+    required String roleKey,
+    required String phone,
+    String code = '123456',
+    String password = 'Secret1234',
+  }) async {
+    router.go(RouteNames.registerRole);
+    await settle(tester);
+    await tester.tap(find.byKey(ValueKey<String>(roleKey)));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('role_continue')));
+    await settle(tester);
+    expectLocation(router, RouteNames.register);
+
+    await _enterVisible(tester, 'step1_phone', phone);
+    await tapVisible(
+      tester,
+      find.byKey(const ValueKey<String>('step1_terms_checkbox')),
+    );
+    await tester.pump();
+    await tapVisible(
+      tester,
+      find.byKey(const ValueKey<String>('step1_submit')),
+    );
+    await settle(tester);
+    expectLocation(router, RouteNames.registerCode);
+
+    await _enterVisible(tester, 'phone_code_input', code);
+    await tapVisible(
+      tester,
+      find.byKey(const ValueKey<String>('phone_code_submit')),
+    );
+    await settle(tester);
+    expectLocation(router, RouteNames.registerPassword);
+
+    await _enterVisible(tester, 'step1_password', password);
+    await _enterVisible(tester, 'step1_confirm', password);
+    await tapVisible(
+      tester,
+      find.byKey(const ValueKey<String>('reg_password_submit')),
+    );
+    await settle(tester);
+    expectLocation(router, RouteNames.registerStep2);
+  }
+
+  static Future<void> _enterVisible(
+    WidgetTester tester,
+    String key,
+    String text,
+  ) async {
+    final Finder f = find.byKey(ValueKey<String>(key));
+    await tester.ensureVisible(f);
+    await tester.enterText(f, text);
+    await tester.pump();
   }
 
   /// Picks a settlement in the shared «Населений пункт» autocomplete
@@ -1169,26 +1235,31 @@ abstract final class AppHarness {
   static Future<void> loginAs(
     WidgetTester tester,
     FakeBackend fakeBackend,
-    UserRole role,
-  ) async {
+    UserRole role, {
+    // M515 (AUTH-46) — ADDITIVE: what to type into «Телефон або email»
+    // (e.g. `067 123 45 67`); `null` keeps the persona's email.
+    String? identifier,
+  }) async {
     fakeBackend.currentRole = role;
 
-    final email = switch (role) {
-      UserRole.client => 'client@beautica.ua',
-      UserRole.salonOwner => 'owner@beautica.ua',
-      // Must match `_adminUserJson.email` in fake_backend.dart. Without this
-      // arm an admin login fell through to the master persona's address; that
-      // is harmless ONLY because the fake's login handler ignores the
-      // submitted credentials and branches on `currentRole` — the moment it
-      // actually checks them, the omission becomes a silent wrong-persona
-      // login. (mobile-qa 21.14 F2.)
-      UserRole.salonAdmin => 'admin@beautica.ua',
-      // Must match `_salonMasterUserJson.email` in fake_backend.dart — same
-      // reasoning as the SALON_ADMIN arm above (mobile-qa, Phase 309-311
-      // track, 2026-09-06 gap-closure).
-      UserRole.salonMaster => 'salonmaster@beautica.ua',
-      UserRole.independentMaster => 'master@beautica.ua',
-    };
+    final email =
+        identifier ??
+        switch (role) {
+          UserRole.client => 'client@beautica.ua',
+          UserRole.salonOwner => 'owner@beautica.ua',
+          // Must match `_adminUserJson.email` in fake_backend.dart. Without this
+          // arm an admin login fell through to the master persona's address; that
+          // is harmless ONLY because the fake's login handler ignores the
+          // submitted credentials and branches on `currentRole` — the moment it
+          // actually checks them, the omission becomes a silent wrong-persona
+          // login. (mobile-qa 21.14 F2.)
+          UserRole.salonAdmin => 'admin@beautica.ua',
+          // Must match `_salonMasterUserJson.email` in fake_backend.dart — same
+          // reasoning as the SALON_ADMIN arm above (mobile-qa, Phase 309-311
+          // track, 2026-09-06 gap-closure).
+          UserRole.salonMaster => 'salonmaster@beautica.ua',
+          UserRole.independentMaster => 'master@beautica.ua',
+        };
 
     // Drain any in-flight splash→login redirect / route transition BEFORE
     // touching the form. Flake guard (phase 17.1): boot()'s single pumpAndSettle

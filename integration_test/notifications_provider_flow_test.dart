@@ -22,6 +22,10 @@
 //     `salon-owner-1` / `salon-xyz` only. The target is the owner's OWN landing
 //     salon — the common case (an invite accepted for the salon you are in) that
 //     the phase 364 flow, which targets salon B, does not cover.
+//  5. INDEPENDENT_MASTER, `SECURITY_PHONE_CHANGED` + `SECURITY_EMAIL_CHANGED`
+//     (HTTP, AUTH-D19, device-check 2026-11-19) -> each row shows its title and
+//     a body with the masked contact; a tap only marks it read and stays on the
+//     feed, although the wire carries a BOOKING target (forced NoTarget).
 //
 // NEGATIVE PATH (M14): journey 2 asserts the decline control is ABSENT. It is
 // paired with journeys 1 and 3, which run the identical seeded booking and DO
@@ -34,8 +38,10 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/notifications/data/notification_repository.dart';
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
+import 'package:beautica_mobile/features/notifications/presentation/notification_copy.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notifications_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:flutter/material.dart';
@@ -223,6 +229,92 @@ void main() {
         reason: 'the shell opened on «Команда»',
       );
       expect(repo.markedRead, <String>['invite-1']);
+      expect(unreadCountOf(tester), 0);
+    });
+  });
+
+  testWidgets('INDEPENDENT_MASTER sees the SECURITY_PHONE_CHANGED / '
+      'SECURITY_EMAIL_CHANGED rows with title + masked contact, and a tap '
+      'only marks them read (no navigation)', (tester) async {
+    await mockNetworkImagesFor(() async {
+      const String maskedPhone = '+380 •• ••• •• 67';
+      const String maskedEmail = 'o•••@gmail.com';
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // A BOOKING target on the wire on purpose: the mapper must force
+      // NoTarget for security notices, whatever the wire carries.
+      final String phoneId = fb.seedNotification(
+        type: 'SECURITY_PHONE_CHANGED',
+        bookingId: FakeBackend.kNotificationBookingId,
+        maskedContact: maskedPhone,
+      );
+      final String emailId = fb.seedNotification(
+        type: 'SECURITY_EMAIL_CHANGED',
+        bookingId: FakeBackend.kNotificationBookingId,
+        maskedContact: maskedEmail,
+        age: const Duration(hours: 2),
+      );
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      expect(unreadCountOf(tester), 2);
+      await openFeed(tester, router, _masterBell);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(NotificationsScreen)),
+      );
+
+      // The body wraps the contact in bidi isolates (`sanitize`), exactly as
+      // the tile renders it.
+      void expectRow(String id, String title, String body) {
+        for (final String text in <String>[title, body]) {
+          expect(
+            find.descendant(
+              of: notificationTile(id),
+              matching: find.text(text),
+            ),
+            findsOneWidget,
+          );
+        }
+      }
+
+      expectRow(
+        phoneId,
+        l10n.notificationTitleSecurityPhoneChanged,
+        l10n.notificationBodySecurityPhoneChanged(
+          NotificationCopy.sanitize(maskedPhone)!,
+        ),
+      );
+      expectRow(
+        emailId,
+        l10n.notificationTitleSecurityEmailChanged,
+        l10n.notificationBodySecurityEmailChanged(
+          NotificationCopy.sanitize(maskedEmail)!,
+        ),
+      );
+
+      // AUTH-D19: no target by design → no «Більше недоступно» footer.
+      for (final String id in <String>[phoneId, emailId]) {
+        expect(
+          find.descendant(
+            of: notificationTile(id),
+            matching: find.text(l10n.notificationsNoTarget),
+          ),
+          findsNothing,
+          reason: id,
+        );
+      }
+      expect(find.text(l10n.notificationsNoTarget), findsNothing);
+
+      await tester.tap(notificationTile(phoneId));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.notifications);
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(fb.notificationMarkedReadIds, <String>[phoneId]);
+
+      await tester.tap(notificationTile(emailId));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.notifications);
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(fb.notificationMarkedReadIds, <String>[phoneId, emailId]);
       expect(unreadCountOf(tester), 0);
     });
   });

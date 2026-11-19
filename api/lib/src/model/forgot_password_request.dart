@@ -11,12 +11,18 @@ part 'forgot_password_request.g.dart';
 /// ForgotPasswordRequest
 ///
 /// Properties:
-/// * [email]
+/// * [email] - Legacy (pre-B516): the account email. Prefer identifier.
+/// * [identifier] - Phone (+380…, 0…) or email, as typed by the user.
 @BuiltValue()
 abstract class ForgotPasswordRequest
     implements Built<ForgotPasswordRequest, ForgotPasswordRequestBuilder> {
+  /// Legacy (pre-B516): the account email. Prefer identifier.
   @BuiltValueField(wireName: r'email')
-  String get email;
+  String? get email;
+
+  /// Phone (+380…, 0…) or email, as typed by the user.
+  @BuiltValueField(wireName: r'identifier')
+  String? get identifier;
 
   ForgotPasswordRequest._();
 
@@ -47,11 +53,20 @@ class _$ForgotPasswordRequestSerializer
     ForgotPasswordRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'email';
-    yield serializers.serialize(
-      object.email,
-      specifiedType: const FullType(String),
-    );
+    if (object.email != null) {
+      yield r'email';
+      yield serializers.serialize(
+        object.email,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.identifier != null) {
+      yield r'identifier';
+      yield serializers.serialize(
+        object.identifier,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -83,6 +98,13 @@ class _$ForgotPasswordRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.email = valueDes;
+          break;
+        case r'identifier':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.identifier = valueDes;
           break;
         default:
           unhandled.add(key);

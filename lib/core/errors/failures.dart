@@ -147,8 +147,14 @@ enum InviteHandoffReason {
   /// map.
   inviteNoLongerValid,
 
-  /// The invited email already has an account (409).
-  emailAlreadyRegistered,
+  /// The account already exists (409 — [EmailAlreadyRegisteredFailure] or a
+  /// 409 without a recognised code). M521: invites go by phone (B520), so the
+  /// copy names the number, never an email.
+  phoneAlreadyRegistered,
+
+  /// The inviting salon was deactivated — 409 `INVITE_SALON_INACTIVE`
+  /// (AUTH-17, AUTH-E03). The invite can never be accepted.
+  salonInactive,
 }
 
 /// Terminal, non-retryable outcome of an invite-accept (or equivalent
@@ -178,9 +184,12 @@ final class InviteHandoffFailure extends Failure {
     InviteHandoffReason.inviteNoLongerValid => AppLocalizations.of(
       ctx,
     ).inviteHandoffNoLongerValid,
-    InviteHandoffReason.emailAlreadyRegistered => AppLocalizations.of(
+    InviteHandoffReason.phoneAlreadyRegistered => AppLocalizations.of(
       ctx,
-    ).inviteHandoffEmailAlreadyRegistered,
+    ).inviteHandoffPhoneAlreadyRegistered,
+    InviteHandoffReason.salonInactive => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffSalonInactive,
   };
 }
 
@@ -309,6 +318,21 @@ final class ServerFailure extends Failure {
 
   /// The HTTP status code that triggered this failure, if available.
   final int? statusCode;
+
+  /// The backend's structured `data.code` discriminator (e.g.
+  /// `INVITE_SALON_INACTIVE`), read from the [cause] `DioException`'s
+  /// `{success:false, data:{code}}` envelope; `null` when absent. Never the
+  /// human `message` — only the stable machine code.
+  String? get errorCode {
+    final Object? c = cause;
+    if (c is! DioException) return null;
+    final Object? body = c.response?.data;
+    if (body is! Map<String, dynamic>) return null;
+    final Object? data = body['data'];
+    if (data is! Map<String, dynamic>) return null;
+    final Object? code = data['code'];
+    return code is String ? code : null;
+  }
 
   @override
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errServer;
@@ -462,6 +486,97 @@ final class EmailAlreadyRegisteredFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).errEmailAlreadyRegistered;
+}
+
+/// M515 (AUTH-41 / AUTH-54) — the typed `data.code` rejections of the
+/// phone-first identity endpoints (registration phone OTP send / verify, the
+/// ticket-carrying register calls) and of every App Check-guarded SMS send.
+///
+/// Mapped by [ErrorMapperInterceptor] from the backend's
+/// `{success:false, data:{code}}` envelope (`IdentityException` /
+/// `VerificationException`); the mobile owns the copy, the server `message`
+/// is never shown. A 403 [PhoneIdentityErrorCode.appCheckFailed] is a plain
+/// typed failure — it never enters the 401-only refresh / logout path.
+final class PhoneIdentityFailure extends Failure {
+  const PhoneIdentityFailure({required this.code, super.cause});
+
+  final PhoneIdentityErrorCode code;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    return switch (code) {
+      PhoneIdentityErrorCode.phoneNotUaMobile => l10n.errPhoneNotUaMobile,
+      PhoneIdentityErrorCode.phoneAlreadyRegistered =>
+        l10n.errPhoneAlreadyRegistered,
+      PhoneIdentityErrorCode.invalidCode => l10n.errPhoneCodeInvalid,
+      PhoneIdentityErrorCode.registrationTicketInvalid =>
+        l10n.errRegistrationTicketInvalid,
+      PhoneIdentityErrorCode.rateLimited => l10n.errPhoneCodeRateLimited,
+      PhoneIdentityErrorCode.appCheckFailed => l10n.errAppCheckFailed,
+      PhoneIdentityErrorCode.appCheckUnavailable => l10n.errAppCheckUnavailable,
+      PhoneIdentityErrorCode.invitePhoneMismatch => l10n.errInvitePhoneMismatch,
+      PhoneIdentityErrorCode.inviteSmsLimit => l10n.errInviteSmsLimit,
+    };
+  }
+}
+
+/// M517 (AUTH-D19) — 400 `CURRENT_PASSWORD_INVALID` on the verify step of a
+/// phone CHANGE or an email add / change (`/users/me/phone/otp/verify`,
+/// `/users/me/email/verify`). Never 401, so it never enters the refresh /
+/// logout path. The backend answers the SAME code while the per-account
+/// lockout is active, so the wire cannot tell "wrong" from "locked" — the code
+/// step tracks the lockout window itself (see `CurrentPasswordLockout`).
+final class CurrentPasswordInvalidFailure extends Failure {
+  const CurrentPasswordInvalidFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errCurrentPasswordInvalid;
+}
+
+/// M517 (AUTH-45, AUTH-D12) — 409 `PHONE_NOT_VERIFIED`: the server phone gate
+/// refused a write because the account has no verified phone. The app answers
+/// it by routing to the blocking add-phone step (see `ErrorMapperInterceptor`
+/// `onPhoneNotVerified`); this copy only shows if a screen renders it first.
+final class PhoneNotVerifiedFailure extends Failure {
+  const PhoneNotVerifiedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errPhoneNotVerified;
+}
+
+/// The backend codes [PhoneIdentityFailure] carries.
+enum PhoneIdentityErrorCode {
+  /// 400 `PHONE_NOT_UA_MOBILE` (AUTH-D15).
+  phoneNotUaMobile,
+
+  /// 409 `PHONE_ALREADY_REGISTERED` (AUTH-42).
+  phoneAlreadyRegistered,
+
+  /// 400 `INVALID_CODE` on `/auth/register/phone/otp/verify`.
+  invalidCode,
+
+  /// 400 `REGISTRATION_TICKET_INVALID` — unknown, used or expired ticket.
+  registrationTicketInvalid,
+
+  /// 429 on `/auth/register/phone/otp/send`.
+  rateLimited,
+
+  /// 403 `APP_CHECK_FAILED` (AUTH-54).
+  appCheckFailed,
+
+  /// 503 `APP_CHECK_UNAVAILABLE` (AUTH-54).
+  appCheckUnavailable,
+
+  /// M521 (AUTH-52) — 400 `INVITE_PHONE_MISMATCH` on `/auth/invite/accept`:
+  /// the ticket's phone is not the invited one; no account is created.
+  invitePhoneMismatch,
+
+  /// M521 (AUTH-52) — 429 `INVITE_SMS_LIMIT` on invite create (per-inviter /
+  /// per-salon / per-phone SMS caps, or the 409-probe budget).
+  inviteSmsLimit,
 }
 
 /// Emitted when a provider role ([UserRole.independentMaster] or

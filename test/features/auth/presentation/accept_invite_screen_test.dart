@@ -10,14 +10,15 @@
 //   1. Loading state: acceptInviteProvider in AsyncLoading → CircularProgressIndicator
 //      shown; CTA absent.
 //   2. Invalid token: notifier emits AsyncError → AuthBanner present; CTA absent.
-//   3. Valid token: notifier emits AsyncData(InviteDetails) → invited email shown;
-//      CTA (invite_accept) present.
+//   3. Valid token: notifier emits AsyncData(InviteDetails) → salon + masked
+//      invited phone shown; phone step first (M521), then SMS code, then the
+//      password form with the CTA (invite_accept).
 //   4. Password < 8 chars → CTA disabled (PasswordChecklist rules unmet).
 //      The invite path shares the SAME 8-char minimum as register/reset —
 //      see `passwordRules`'s default (fixed 2026-09-01; it used to override
 //      minLength to 12, diverging from the backend's @StrongPassword policy).
-//   5. Accept success: fill valid 8+ char password + firstName + lastName +
-//      phone (REQUIRED — InviteAcceptRequest.phoneNumber is @NotBlank) →
+//   5. Accept success: after phone + code (M521), fill valid 8+ char
+//      password + firstName + lastName →
 //      tap CTA → FakeAuthRepository.acceptInviteCalls has 1 entry;
 //      router navigates to /.
 //   6. Accept failure: repository throws ValidationFailure → inline error shown;
@@ -31,7 +32,9 @@
 
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/phone_code_step.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/invite_details.dart';
@@ -57,7 +60,8 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 const String _kToken = 'test-invite-token';
 
 final _validInvite = InviteDetails(
-  email: 'masha@salon.ua',
+  phoneMasked: '+380 •• ••• •• 45',
+  salonName: 'Salon Lumière',
   role: UserRole.salonMaster,
   expiresAt: DateTime.now().add(const Duration(hours: 48)),
 );
@@ -119,10 +123,14 @@ Future<FakeAuthRepository> _pumpValid(
   InviteDetails? invite,
   Object? acceptResult,
   // Phase 443 — tick the required terms-consent box after pumping so the
-  // pre-443 tests keep exercising the password/name/phone gate alone.
+  // pre-443 tests keep exercising the password/name gate alone.
   bool tickTerms = true,
+  // M521 — walk phone → code first (the form lives on the details step).
+  bool advanceToDetails = true,
+  void Function(FakeAuthRepository repo)? configure,
 }) async {
   final repo = FakeAuthRepository()..acceptInviteResult = acceptResult;
+  configure?.call(repo);
   final storage = FakeSecureStorage();
   final router = _makeRouter();
   addTearDown(router.dispose);
@@ -147,8 +155,70 @@ Future<FakeAuthRepository> _pumpValid(
     ),
   );
   await tester.pumpAndSettle();
-  if (tickTerms) await _tickTerms(tester);
+  if (advanceToDetails) await _advanceToDetails(tester);
+  if (tickTerms && advanceToDetails) await _tickTerms(tester);
   return repo;
+}
+
+/// M521 — a phone whose last two digits match [_validInvite]'s mask.
+const String _kInvitedPhoneTyped = '0671234545';
+const String _kInvitedPhone = '+380671234545';
+const String _kCode = '123456';
+
+final Finder _phoneField = find.byKey(const ValueKey<String>('invite_phone'));
+final Finder _sendCodeCta = find.byKey(
+  const ValueKey<String>('invite_send_code'),
+);
+final Finder _codeField = find.byKey(
+  const ValueKey<String>('phone_code_input'),
+);
+final Finder _codeSubmit = find.byKey(
+  const ValueKey<String>('phone_code_submit'),
+);
+
+/// M521 — phone step: types [phone] and taps «Надіслати код».
+Future<void> _sendCode(
+  WidgetTester tester, {
+  String phone = _kInvitedPhoneTyped,
+}) async {
+  await tester.enterText(_phoneField, phone);
+  await tester.pump();
+  await tester.tap(_sendCodeCta);
+  await tester.pumpAndSettle();
+}
+
+/// M521 — code step: enters [code] and taps «Підтвердити».
+Future<void> _confirmCode(WidgetTester tester, {String code = _kCode}) async {
+  await tester.enterText(_codeField, code);
+  await tester.pump();
+  await tester.tap(_codeSubmit);
+  await tester.pumpAndSettle();
+}
+
+/// Fills a valid password + first + last name on the details step.
+Future<void> _fillDetails(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('invite_password')),
+    'StrongPassword12',
+  );
+  await tester.ensureVisible(
+    find.byKey(const ValueKey<String>('invite_first_name')),
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('invite_first_name')),
+    'Марія',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('invite_last_name')),
+    'Бондар',
+  );
+  await tester.pump();
+}
+
+/// M521 — walks phone → SMS code → the password / name / consent step.
+Future<void> _advanceToDetails(WidgetTester tester) async {
+  await _sendCode(tester);
+  await _confirmCode(tester);
 }
 
 const ValueKey<String> _termsBox = ValueKey<String>('invite_terms_checkbox');
@@ -190,7 +260,10 @@ Future<void> _pumpLoading(WidgetTester tester) async {
 }
 
 /// Pumps the screen with an [AsyncError] state (invalid / expired token).
-Future<void> _pumpError(WidgetTester tester) async {
+Future<void> _pumpError(
+  WidgetTester tester, {
+  Failure failure = const ValidationFailure(fieldErrors: <String, String>{}),
+}) async {
   final repo = FakeAuthRepository();
   final storage = FakeSecureStorage();
   final router = _makeRouter();
@@ -204,10 +277,7 @@ Future<void> _pumpError(WidgetTester tester) async {
         secureStorageProvider.overrideWithValue(storage),
         acceptInviteProvider(_kToken).overrideWith(
           () => _StubAcceptInviteNotifier(
-            const AsyncError<InviteDetails>(
-              ValidationFailure(fieldErrors: <String, String>{}),
-              StackTrace.empty,
-            ),
+            AsyncError<InviteDetails>(failure, StackTrace.empty),
           ),
         ),
       ],
@@ -288,21 +358,36 @@ void main() {
       },
     );
 
-    // ── 3. Valid token shows form ─────────────────────────────────────────
-    testWidgets('3. valid token: email shown in preview, CTA present', (
+    // ── 3. Valid token shows the phone step (M521) ──────────────────────
+    testWidgets('3. valid token: preview shows salon + MASKED invited phone; '
+        'the phone step comes first, the password form only after the code', (
       WidgetTester tester,
     ) async {
-      await _pumpValid(tester);
+      await _pumpValid(tester, advanceToDetails: false);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
 
-      // The invited email should be visible in the preview card.
-      expect(find.text(_validInvite.email), findsOneWidget);
-      // CTA is present (though disabled until form is valid).
+      expect(find.text(_validInvite.phoneMasked), findsOneWidget);
+      expect(find.text(_validInvite.salonName), findsOneWidget);
+      expect(find.text(l10n.inviteSalonLabel), findsOneWidget);
+      expect(find.text(l10n.invitePhoneMaskedLabel), findsOneWidget);
+      expect(find.text(l10n.invitePhoneHelper), findsOneWidget);
+      expect(_phoneField, findsOneWidget);
+      expect(_sendCodeCta, findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('invite_accept')), findsNothing);
+      expect(find.byType(PasswordChecklist), findsNothing);
+
+      // After phone + code: the details step with the same preview card.
+      await _advanceToDetails(tester);
+      expect(find.text(_validInvite.phoneMasked), findsOneWidget);
+      expect(find.text(l10n.inviteDetailsSubtitle), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('invite_accept')),
         findsOneWidget,
       );
-      // Password checklist is present.
       expect(find.byType(PasswordChecklist), findsOneWidget);
+      expect(_phoneField, findsNothing);
     });
 
     // ── 4. Short password disables CTA ───────────────────────────────────
@@ -363,15 +448,6 @@ void main() {
         );
         await tester.pump();
 
-        // Phone is REQUIRED (InviteAcceptRequest.phoneNumber is @NotBlank) —
-        // without it _formValid stays false and the CTA never enables.
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_phone')),
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
-        );
         await tester.pump();
 
         // Tap the CTA.
@@ -482,103 +558,162 @@ void main() {
       },
     );
 
-    // ── 8. Phone formatter wires +380 mask to invite_phone ───────────────
-    //
-    // UaPhoneInputFormatter is attached to the invite_phone field.
-    // Typing the 10-digit local number '0671234567' must produce the formatted
-    // string '+380 67 123 45 67' in the field.
+    // ── 8. Phone step → code step (M521) ─────────────────────────────────
     testWidgets(
-      '8. entering 0671234567 in invite_phone formats to +380 67 123 45 67',
+      '8. the phone field masks input; «Надіслати код» sends the +380 number '
+      'and the code step shows it formatted; the code is verified for it',
       (WidgetTester tester) async {
-        await _pumpValid(tester);
+        final repo = await _pumpValid(tester, advanceToDetails: false);
 
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_phone')),
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
-        );
+        await tester.enterText(_phoneField, _kInvitedPhoneTyped);
         await tester.pump();
+        expect(find.text('+380 67 123 45 45'), findsOneWidget);
 
-        // The formatter converts the raw digits to the masked format.
-        expect(
-          find.text('+380 67 123 45 67'),
-          findsOneWidget,
-          reason:
-              'UaPhoneInputFormatter must reformat "0671234567" to '
-              '"+380 67 123 45 67" in the invite_phone field',
-        );
+        await tester.tap(_sendCodeCta);
+        await tester.pumpAndSettle();
+        expect(repo.sendRegistrationCodeCalls, <String>[_kInvitedPhone]);
+        expect(_codeField, findsOneWidget);
+        expect(find.textContaining('+380 67 123 45 45'), findsOneWidget);
+
+        await _confirmCode(tester);
+        expect(repo.verifyRegistrationCodeCalls, hasLength(1));
+        expect(repo.verifyRegistrationCodeCalls.single.phone, _kInvitedPhone);
+        expect(repo.verifyRegistrationCodeCalls.single.code, _kCode);
       },
     );
 
-    // ── 9. Formatted phone passed through to repository ──────────────────
-    //
-    // After UaPhoneInputFormatter formats the input, the formatted string
-    // must be submitted to the repository unchanged so that the backend
-    // receives the canonical +380 XX XXX XX XX value.
+    testWidgets('8a. a non-UA-mobile number is refused inline, no SMS', (
+      WidgetTester tester,
+    ) async {
+      final repo = await _pumpValid(tester, advanceToDetails: false);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
+      await _sendCode(tester, phone: '0441234545');
+      expect(repo.sendRegistrationCodeCalls, isEmpty);
+      expect(
+        find.descendant(
+          of: _phoneField,
+          matching: find.text(l10n.errPhoneNotUaMobile),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('8b. a number whose tail contradicts the masked invite phone '
+        'is refused with the mismatch copy BEFORE any SMS', (
+      WidgetTester tester,
+    ) async {
+      final repo = await _pumpValid(tester, advanceToDetails: false);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
+      await _sendCode(tester, phone: '0671234599');
+      expect(repo.sendRegistrationCodeCalls, isEmpty);
+      expect(
+        find.descendant(
+          of: _phoneField,
+          matching: find.text(l10n.errInvitePhoneMismatch),
+        ),
+        findsOneWidget,
+      );
+      // Editing clears it.
+      await tester.enterText(_phoneField, _kInvitedPhoneTyped);
+      await tester.pump();
+      expect(find.text(l10n.errInvitePhoneMismatch), findsNothing);
+    });
+
+    testWidgets('8c. a wrong SMS code stays on the code step with the M515 '
+        'inline banner', (WidgetTester tester) async {
+      await _pumpValid(
+        tester,
+        advanceToDetails: false,
+        configure: (repo) =>
+            repo.verifyRegistrationCodeResult = const PhoneIdentityFailure(
+              code: PhoneIdentityErrorCode.invalidCode,
+            ),
+      );
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
+      await _sendCode(tester);
+      await _confirmCode(tester);
+      expect(
+        find.byKey(const ValueKey<String>('phone_code_error')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.errPhoneCodeInvalid), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('invite_accept')), findsNothing);
+    });
+
+    // ── 9. Accept carries the registration ticket (B520, AUTH-52) ────────
     testWidgets(
-      '9. submit with formatted phone → repo.acceptInviteCalls.first.phoneNumber '
-      '== "+380 67 123 45 67"',
+      '9. accept sends the registration ticket from the code step and no '
+      'phoneNumber',
       (WidgetTester tester) async {
         final repo = await _pumpValid(tester);
-
-        // Enter a strong password that satisfies all 3 checklist rules:
-        //   length >= 12 ✓  |  has digit ✓  |  has uppercase ✓
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_password')),
-          'StrongPassword12',
-        );
-        await tester.pump();
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_first_name')),
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_first_name')),
-          'Марія',
-        );
-        await tester.pump();
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_last_name')),
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_last_name')),
-          'Бондар',
-        );
-        await tester.pump();
-
-        // Enter the local-format phone — formatter converts it to +380 mask.
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_phone')),
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
-        );
-        await tester.pump();
-
-        // Tap the CTA.
+        await _fillDetails(tester);
         await tester.ensureVisible(
           find.byKey(const ValueKey<String>('invite_accept')),
         );
         await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
-        await tester.pump(const Duration(milliseconds: 100));
 
-        // The repository received the formatted phone number, not the raw input.
-        expect(repo.acceptInviteCalls.length, 1);
+        expect(repo.acceptInviteCalls, hasLength(1));
+        expect(repo.acceptInviteTicketCalls, <String?>['ticket-1']);
+        expect(repo.acceptInviteCalls.single.phoneNumber, isNull);
+      },
+    );
+
+    testWidgets(
+      '9a. 400 INVITE_PHONE_MISMATCH on accept returns to the phone step with '
+      '«Номер не збігається з номером у запрошенні»; no hand-off to /login',
+      (WidgetTester tester) async {
+        final repo = await _pumpValid(
+          tester,
+          acceptResult: const PhoneIdentityFailure(
+            code: PhoneIdentityErrorCode.invitePhoneMismatch,
+          ),
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        await _fillDetails(tester);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pumpAndSettle();
+
+        expect(repo.acceptInviteCalls, hasLength(1));
+        expect(find.byType(_LoginProbe), findsNothing);
         expect(
-          repo.acceptInviteCalls.first.phoneNumber,
-          '+380 67 123 45 67',
-          reason:
-              'The accept call must carry the formatter output '
-              '"+380 67 123 45 67", not the raw "0671234567"',
+          find.descendant(
+            of: _phoneField,
+            matching: find.text(l10n.errInvitePhoneMismatch),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('invite_accept')),
+          findsNothing,
         );
       },
     );
+
+    testWidgets('9b. system back on the code step returns to the phone step '
+        'instead of leaving the invite', (WidgetTester tester) async {
+      await _pumpValid(tester, advanceToDetails: false);
+      await _sendCode(tester);
+      expect(_codeField, findsOneWidget);
+
+      final bool handled = await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(handled, isTrue);
+      expect(_phoneField, findsOneWidget);
+      expect(_codeField, findsNothing);
+    });
 
     // ── 6. Accept failure shows inline error ─────────────────────────────
     testWidgets('6. accept failure → inline error shown, user stays on form', (
@@ -615,15 +750,6 @@ void main() {
       );
       await tester.pump();
 
-      // Phone is REQUIRED — without it _formValid stays false and the CTA
-      // never enables.
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_phone')),
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_phone')),
-        '0671234567',
-      );
       await tester.pump();
 
       await tester.ensureVisible(
@@ -660,19 +786,19 @@ void main() {
       expect(find.text('home'), findsNothing);
     });
 
-    // ── 7. Multi-field server errors map inline under each field ─────────────
+    // ── 11. Multi-field server errors map inline under each field ────────────
     testWidgets(
-      '7. ValidationFailure{firstName, phone} maps each message inline under '
+      '11. ValidationFailure{firstName, lastName} maps each message inline under '
       'its OWN field (no generic banner)',
       (WidgetTester tester) async {
         const firstNameMsg = 'Імʼя недопустиме';
-        const phoneMsg = 'Невірний номер';
+        const lastNameMsg = 'Прізвище недопустиме';
         final repo = await _pumpValid(
           tester,
           acceptResult: const ValidationFailure(
             fieldErrors: <String, String>{
               'firstName': firstNameMsg,
-              'phone': phoneMsg,
+              'lastName': lastNameMsg,
             },
           ),
         );
@@ -688,11 +814,6 @@ void main() {
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_last_name')),
           'Бондар',
-        );
-        // Valid phone so the client check passes and the server error returns.
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '+380671234567',
         );
         await tester.pump();
 
@@ -714,11 +835,10 @@ void main() {
           ),
           findsOneWidget,
         );
-        // phone error renders inline under the phone field.
         expect(
           find.descendant(
-            of: find.byKey(const ValueKey<String>('invite_phone')),
-            matching: find.text(phoneMsg),
+            of: find.byKey(const ValueKey<String>('invite_last_name')),
+            matching: find.text(lastNameMsg),
           ),
           findsOneWidget,
         );
@@ -730,65 +850,7 @@ void main() {
       },
     );
 
-    // ── 8. Client-side phone format validation blocks before the network ─────
-    testWidgets(
-      '8. an invalid phone format blocks submit client-side (acceptInvite '
-      'never called, inline phone error shown)',
-      (WidgetTester tester) async {
-        final repo = await _pumpValid(tester);
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_password')),
-          'StrongPassword12',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_first_name')),
-          'Марія',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_last_name')),
-          'Бондар',
-        );
-        // Partial phone — formatter yields a too-short number that fails
-        // validatePhone's structural check.
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '067',
-        );
-        await tester.pump();
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_accept')),
-        );
-        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-
-        // Client-side validation blocked the network call entirely.
-        expect(
-          repo.acceptInviteCalls,
-          isEmpty,
-          reason:
-              'An invalid phone must block the accept call client-side before '
-              'any network request.',
-        );
-
-        // Inline phone error is shown.
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(AcceptInviteScreen)),
-        );
-        expect(
-          find.descendant(
-            of: find.byKey(const ValueKey<String>('invite_phone')),
-            matching: find.text(l10n.errPhoneInvalid),
-          ),
-          findsOneWidget,
-        );
-        expect(find.text('home'), findsNothing);
-      },
-    );
-
-    // ── 9. Empty fieldErrors + serverMessage → LOCALIZED banner, never raw ───
+    // ── 12. Empty fieldErrors + serverMessage → LOCALIZED banner, never raw ──
     // mobile-security, 2026-08: the inline banner must never render the raw
     // backend serverMessage — it's untrusted/untranslated text on a
     // `Semantics(liveRegion: true)` surface.
@@ -804,7 +866,7 @@ void main() {
     // `accept_invite_screen.dart`'s `error:` branch. The raw serverMessage
     // guarantee still holds (it is never shown, on either surface).
     testWidgets(
-      '9. ValidationFailure with empty fieldErrors hands off to /login '
+      '12. ValidationFailure with empty fieldErrors hands off to /login '
       'instead of a dead-end banner, and never leaks the raw serverMessage',
       (WidgetTester tester) async {
         const serverMsg = 'Запрошення недійсне';
@@ -828,12 +890,6 @@ void main() {
           find.byKey(const ValueKey<String>('invite_last_name')),
           'Бондар',
         );
-        // Phone is REQUIRED — without it _formValid stays false and the CTA
-        // never enables.
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
-        );
         await tester.pump();
 
         await tester.ensureVisible(
@@ -855,15 +911,15 @@ void main() {
         expect(find.byType(AcceptInviteScreen), findsNothing);
 
         // item 14: loginNoticeProvider holds the matching reason AND the
-        // invited email sourced from acceptInviteProvider (masha@salon.ua —
-        // _validInvite's email, the default seed for _pumpValid).
+        // phone the invitee confirmed (M521 — the login identifier accepts
+        // it; the invite itself only carries a masked phone).
         final container = ProviderScope.containerOf(
           tester.element(find.byType(MaterialApp)),
         );
         final notice = container.read(loginNoticeProvider);
         expect(notice, isNotNull);
         expect(notice!.reason, InviteHandoffReason.inviteNoLongerValid);
-        expect(notice.email, _validInvite.email);
+        expect(notice.email, _kInvitedPhone);
 
         // item 15: the generic banner never renders on any invite-terminal
         // path — neither errUnknown nor errValidation copy anywhere.
@@ -878,11 +934,11 @@ void main() {
 
     // ── 14b. ResponseUnusableFailure → hand-off (accountReady reason) ────
     //
-    // Distinct from test 9 (ValidationFailure/inviteNoLongerValid): a 2xx
+    // Distinct from test 12 (ValidationFailure/inviteNoLongerValid): a 2xx
     // response the client could not parse must hand off with reason
     // accountReady — the account WAS created, only the mapping failed.
     testWidgets('14b. ResponseUnusableFailure hands off to /login with reason '
-        'accountReady and the invited email', (WidgetTester tester) async {
+        'accountReady and the confirmed phone', (WidgetTester tester) async {
       final repo = await _pumpValid(
         tester,
         acceptResult: const ResponseUnusableFailure(),
@@ -899,10 +955,6 @@ void main() {
       await tester.enterText(
         find.byKey(const ValueKey<String>('invite_last_name')),
         'Бондар',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_phone')),
-        '0671234567',
       );
       await tester.pump();
 
@@ -924,7 +976,7 @@ void main() {
       final notice = container.read(loginNoticeProvider);
       expect(notice, isNotNull);
       expect(notice!.reason, InviteHandoffReason.accountReady);
-      expect(notice.email, _validInvite.email);
+      expect(notice.email, _kInvitedPhone);
     });
 
     // ── 16. Preview error branch: loginSubmit action on the invite-invalid
@@ -972,11 +1024,11 @@ void main() {
     //
     // The invite path now shares the register/reset password policy
     // (min 8, max 128, ≥1 digit, ≥1 uppercase — validateNewPassword) instead
-    // of its old 12-char-minimum override, and phone is now REQUIRED end to
-    // end. These pin the two behaviour changes at the SCREEN level (the
+    // of its old 12-char-minimum override (M521: the phone moved to its own
+    // SMS-confirmed step). These pin the behaviour changes at the SCREEN level (the
     // shared validator functions themselves are unit-tested in
     // test/shared/validators/).
-    group('validation alignment (password 8/128, empty-phone gate)', () {
+    group('validation alignment (password 8/128)', () {
       testWidgets(
         'exactly 8-char password (the new minimum) is ACCEPTED — would have '
         'been rejected under the old 12-char minimum',
@@ -1004,10 +1056,6 @@ void main() {
           await tester.enterText(
             find.byKey(const ValueKey<String>('invite_last_name')),
             'Бондар',
-          );
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_phone')),
-            '0671234567',
           );
           await tester.pump();
 
@@ -1080,10 +1128,6 @@ void main() {
             find.byKey(const ValueKey<String>('invite_last_name')),
             'Бондар',
           );
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_phone')),
-            '0671234567',
-          );
           await tester.pump();
 
           await tester.ensureVisible(
@@ -1101,76 +1145,6 @@ void main() {
                 'exactly 128 chars is the boundary, not over it — must be '
                 'accepted, not rejected by an off-by-one in the new gate',
           );
-        },
-      );
-
-      testWidgets(
-        'empty phone blocks submission with the inline required error '
-        '(registerPhoneRequired, same as sign-up) and acceptInvite is never '
-        'called; entering a valid phone then submits it',
-        (WidgetTester tester) async {
-          final repo = await _pumpValid(tester);
-          final l10n = AppLocalizations.of(
-            tester.element(find.byType(AcceptInviteScreen)),
-          );
-
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_password')),
-            'StrongPassword12',
-          );
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_first_name')),
-            'Марія',
-          );
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_last_name')),
-            'Бондар',
-          );
-          // invite_phone deliberately left empty.
-          await tester.pump();
-
-          await tester.ensureVisible(
-            find.byKey(const ValueKey<String>('invite_accept')),
-          );
-          await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
-          await tester.pump();
-
-          expect(
-            repo.acceptInviteCalls,
-            isEmpty,
-            reason: 'an empty phone must never reach the repository',
-          );
-          expect(
-            find.descendant(
-              of: find.byKey(const ValueKey<String>('invite_phone')),
-              matching: find.text(l10n.registerPhoneRequired),
-            ),
-            findsOneWidget,
-            reason:
-                'empty phone must surface the same required error as '
-                'sign-up, not the format error',
-          );
-          expect(find.text(l10n.errPhoneInvalid), findsNothing);
-
-          // Valid phone → the same CTA now submits it.
-          await tester.ensureVisible(
-            find.byKey(const ValueKey<String>('invite_phone')),
-          );
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_phone')),
-            '0671234567',
-          );
-          await tester.pump();
-          expect(find.text(l10n.registerPhoneRequired), findsNothing);
-
-          await tester.ensureVisible(
-            find.byKey(const ValueKey<String>('invite_accept')),
-          );
-          await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
-          await tester.pump();
-
-          expect(repo.acceptInviteCalls, hasLength(1));
-          expect(repo.acceptInviteCalls.first.phoneNumber, '+380 67 123 45 67');
         },
       );
     });
@@ -1199,10 +1173,6 @@ void main() {
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_last_name')),
           'Бондар',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '+380671234567',
         );
         await tester.pump();
 
@@ -1252,10 +1222,6 @@ void main() {
           find.byKey(const ValueKey<String>('invite_last_name')),
           'Kov4l',
         );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '+380671234567',
-        );
         await tester.pump();
 
         await tester.ensureVisible(
@@ -1300,10 +1266,6 @@ void main() {
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_last_name')),
           "O'Brien",
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '+380671234567',
         );
         await tester.pump();
 
@@ -1493,10 +1455,6 @@ void main() {
         find.byKey(const ValueKey<String>('invite_last_name')),
         'Коваль',
       );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_phone')),
-        '+380501234567',
-      );
       await tester.pump();
     }
 
@@ -1555,6 +1513,257 @@ void main() {
       expect(hint, findsOneWidget);
       await _tickTerms(tester);
       expect(hint, findsNothing);
+    });
+  });
+
+  // ── M521 QA — reachable phone-identity failures (AUTH-17/18/52) ────────
+  group('AcceptInviteScreen — M521 QA: failures a real invitee can hit', () {
+    final Finder acceptCta = find.byKey(
+      const ValueKey<String>('invite_accept'),
+    );
+
+    Future<void> tapAccept(WidgetTester tester) async {
+      await _fillDetails(tester);
+      await tester.ensureVisible(acceptCta);
+      await tester.tap(acceptCta);
+      await tester.pumpAndSettle();
+    }
+
+    String phoneError(WidgetTester tester) =>
+        tester.widget<NeumorphicTextField>(_phoneField).errorText ?? '';
+
+    for (final (Failure failure, String name) in <(Failure, String)>[
+      (const ValidationFailure(fieldErrors: <String, String>{}), '400 EXPIRED'),
+      (const NotFoundFailure(), '404 INVITE_NOT_FOUND'),
+    ]) {
+      testWidgets('Q1. an expired / used / revoked / unknown invite ($name) '
+          'shows the invalid-invite copy with a way to log in, never a form', (
+        WidgetTester tester,
+      ) async {
+        await _pumpError(tester, failure: failure);
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+
+        expect(find.text(l10n.inviteInvalidError), findsOneWidget);
+        expect(find.text(l10n.loginSubmit), findsOneWidget);
+        expect(_phoneField, findsNothing);
+        expect(acceptCta, findsNothing);
+      });
+    }
+
+    testWidgets('Q2. a send-code failure keeps the invitee on the phone step '
+        'with the copy under the field and the send button usable again', (
+      WidgetTester tester,
+    ) async {
+      final repo = await _pumpValid(
+        tester,
+        advanceToDetails: false,
+        configure: (r) =>
+            r.sendRegistrationCodeFailure = const PhoneIdentityFailure(
+              code: PhoneIdentityErrorCode.rateLimited,
+            ),
+      );
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
+
+      await _sendCode(tester);
+
+      expect(repo.sendRegistrationCodeCalls, <String>[_kInvitedPhone]);
+      expect(_codeField, findsNothing);
+      expect(phoneError(tester), l10n.errPhoneCodeRateLimited);
+      expect(
+        tester.widget<NeumorphicButton>(_sendCodeCta).onPressed,
+        isNotNull,
+      );
+    });
+
+    testWidgets('Q3. 409 PHONE_ALREADY_REGISTERED on the code step returns '
+        'to the phone step with the copy; no password form', (
+      WidgetTester tester,
+    ) async {
+      await _pumpValid(
+        tester,
+        advanceToDetails: false,
+        configure: (r) =>
+            r.verifyRegistrationCodeResult = const PhoneIdentityFailure(
+              code: PhoneIdentityErrorCode.phoneAlreadyRegistered,
+            ),
+      );
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
+
+      await _advanceToDetails(tester);
+
+      expect(_codeField, findsNothing);
+      expect(phoneError(tester), l10n.errPhoneAlreadyRegistered);
+      expect(acceptCta, findsNothing);
+    });
+
+    for (final (PhoneIdentityErrorCode code, String wire)
+        in <(PhoneIdentityErrorCode, String)>[
+          (
+            PhoneIdentityErrorCode.registrationTicketInvalid,
+            '400 REGISTRATION_TICKET_INVALID',
+          ),
+          (
+            PhoneIdentityErrorCode.phoneAlreadyRegistered,
+            '409 PHONE_ALREADY_REGISTERED',
+          ),
+        ]) {
+      testWidgets('Q4. $wire on accept returns to the phone step with the '
+          'copy, no /login hand-off, no inline banner', (
+        WidgetTester tester,
+      ) async {
+        final repo = await _pumpValid(
+          tester,
+          acceptResult: PhoneIdentityFailure(code: code),
+        );
+        final String expected = PhoneIdentityFailure(
+          code: code,
+        ).userMessage(tester.element(find.byType(AcceptInviteScreen)));
+
+        await tapAccept(tester);
+
+        expect(repo.acceptInviteCalls, hasLength(1));
+        expect(find.byType(_LoginProbe), findsNothing);
+        expect(acceptCta, findsNothing);
+        expect(phoneError(tester), expected);
+      });
+    }
+
+    testWidgets('Q5. after a rejected ticket the invitee must confirm the '
+        'phone by a NEW code; the retry carries the new ticket', (
+      WidgetTester tester,
+    ) async {
+      final repo = await _pumpValid(
+        tester,
+        acceptResult: const PhoneIdentityFailure(
+          code: PhoneIdentityErrorCode.registrationTicketInvalid,
+        ),
+      );
+      await tapAccept(tester);
+      expect(_phoneField, findsOneWidget);
+
+      repo
+        ..acceptInviteResult = null
+        ..verifyRegistrationCodeResult = 'ticket-2';
+      await _advanceToDetails(tester);
+      await _tickTerms(tester);
+      await _fillDetails(tester);
+      await tester.ensureVisible(acceptCta);
+      await tester.tap(acceptCta);
+      // Success shows a snack — explicit pumps, not pumpAndSettle (test 5).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(repo.sendRegistrationCodeCalls, hasLength(2));
+      expect(repo.verifyRegistrationCodeCalls, hasLength(2));
+      expect(repo.acceptInviteTicketCalls, <String?>['ticket-1', 'ticket-2']);
+    });
+
+    testWidgets('Q6. system back on the password step returns to the phone '
+        'step instead of leaving the invite', (WidgetTester tester) async {
+      await _pumpValid(tester, tickTerms: false);
+      expect(acceptCta, findsOneWidget);
+
+      final bool handled = await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(handled, isTrue);
+      expect(find.byType(AcceptInviteScreen), findsOneWidget);
+      expect(_phoneField, findsOneWidget);
+      expect(acceptCta, findsNothing);
+    });
+
+    testWidgets('Q7. 409 INVITE_SALON_INACTIVE on accept hands off to /login '
+        'with the inactive-salon copy, never the account-exists copy', (
+      WidgetTester tester,
+    ) async {
+      final RequestOptions options = RequestOptions(
+        path: '/auth/invite/accept',
+      );
+      final repo = await _pumpValid(
+        tester,
+        acceptResult: ServerFailure(
+          statusCode: 409,
+          cause: DioException(
+            requestOptions: options,
+            response: Response<Object?>(
+              requestOptions: options,
+              statusCode: 409,
+              data: <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{'code': 'INVITE_SALON_INACTIVE'},
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tapAccept(tester);
+
+      expect(repo.acceptInviteCalls, hasLength(1));
+      expect(find.byType(_LoginProbe), findsOneWidget);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MaterialApp)),
+      );
+      final notice = container.read(loginNoticeProvider);
+      expect(notice, isNotNull);
+      expect(notice!.reason, InviteHandoffReason.salonInactive);
+
+      // The copy the login screen renders for this notice.
+      final BuildContext ctx = tester.element(find.byType(_LoginProbe));
+      final AppLocalizations l10n = AppLocalizations.of(ctx);
+      final String shown = InviteHandoffFailure(
+        reason: notice.reason,
+      ).userMessage(ctx);
+      expect(shown, l10n.inviteHandoffSalonInactive);
+      expect(shown, isNot(l10n.inviteHandoffPhoneAlreadyRegistered));
+    });
+
+    testWidgets('Q8. resend on the code step sends a new code to the same '
+        'phone and restarts the countdown', (WidgetTester tester) async {
+      final repo = await _pumpValid(tester, advanceToDetails: false);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AcceptInviteScreen)),
+      );
+      await _sendCode(tester);
+      expect(repo.sendRegistrationCodeCalls, <String>[_kInvitedPhone]);
+
+      // Mirrors PhoneCodeStep.resendTimerLabel (the unit suffix is code, not
+      // an ARB string).
+      final String fullCooldownLabel = l10n.resetOtpResendTimer(
+        '$kPhoneCodeResendCooldownSeconds с',
+      );
+      final Finder resend = find.byKey(
+        const ValueKey<String>('phone_code_resend'),
+      );
+      expect(find.textContaining(fullCooldownLabel), findsOneWidget);
+
+      // pumpAndSettle fires no Timer — advance the countdown explicitly.
+      // fixed-wait-ok: TTL crossing — the resend cooldown must fully elapse.
+      await tester.pump(
+        const Duration(seconds: kPhoneCodeResendCooldownSeconds),
+      );
+      expect(find.textContaining(fullCooldownLabel), findsNothing);
+
+      await tester.ensureVisible(resend);
+      await tester.tap(resend);
+      await tester.pump();
+      await tester.pump();
+
+      expect(repo.sendRegistrationCodeCalls, <String>[
+        _kInvitedPhone,
+        _kInvitedPhone,
+      ]);
+      expect(_codeField, findsOneWidget);
+      expect(find.textContaining(fullCooldownLabel), findsOneWidget);
+
+      // Unmount so the fresh cooldown Timer is cancelled by dispose.
+      await tester.pumpWidget(const SizedBox());
     });
   });
 }

@@ -3,8 +3,8 @@
 // Bridges [authProvider] (a Riverpod provider) to [GoRouter.refreshListenable]
 // (which requires a Flutter [Listenable]). Whenever a REDIRECT-RELEVANT part
 // of [authProvider] changes — loading → authenticated, authenticated →
-// unauthenticated, a role / salon / account switch — this notifier calls
-// [notifyListeners] so [GoRouter] re-evaluates
+// unauthenticated, a role / salon / account switch, the add-phone block
+// lifting — this notifier calls [notifyListeners] so [GoRouter] re-evaluates
 // its redirect callback and routes the user to the correct screen.
 //
 // M517 (2026-11-18): it no longer fires on EVERY emission. A go_router
@@ -39,6 +39,7 @@ typedef AuthRouterKey = ({
   String? userId,
   UserRole? role,
   String? salonId,
+  bool mustAddPhone,
 });
 
 /// Builds the [AuthRouterKey] for [auth].
@@ -50,6 +51,7 @@ typedef AuthRouterKey = ({
 /// - `userId` — an account switch must always re-route.
 /// - `role` — every role gate and inline role redirect.
 /// - `salonId` — `salonManageGuard` SALON_ADMIN binding.
+/// - `mustAddPhone` — the add-phone blocking step and its exit.
 ///
 /// Values are read leniently through `.value`, the same way the guards do.
 @visibleForTesting
@@ -63,6 +65,7 @@ AuthRouterKey authRouterKey(AsyncValue<AuthSession> auth) {
     userId: user?.id,
     role: user?.role,
     salonId: user?.salonId,
+    mustAddPhone: user?.mustAddPhone ?? false,
   );
 }
 

@@ -55,13 +55,13 @@ class InviteStaff extends _$InviteStaff {
   /// [Failure.userMessage] — see `InviteStaffScreen`'s own doc.
   Future<Failure?> submit({
     required String salonId,
-    required String email,
+    required String phone,
     required UserRole role,
   }) async {
     try {
       await ref
           .read(salonRepositoryProvider)
-          .inviteStaff(salonId: salonId, email: email, role: role);
+          .inviteStaff(salonId: salonId, phone: phone, role: role);
       return null;
     } on Failure catch (f) {
       return f;

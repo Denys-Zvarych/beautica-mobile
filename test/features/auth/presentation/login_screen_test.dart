@@ -149,9 +149,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // loginEmailHint must be rendered as placeholder text in the email field.
+      // M515 (AUTH-46) — one «Телефон або email» field.
       final l10n = lookupAppLocalizations(const Locale('uk'));
-      expect(find.text(l10n.loginEmailHint), findsOneWidget);
+      expect(find.text(l10n.loginIdentifierHint), findsOneWidget);
+      expect(find.text(l10n.loginIdentifierLabel), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const ValueKey<String>('login_email')),
@@ -178,7 +179,8 @@ void main() {
     // Test 2 — Invalid email → inline errorText shown, login NOT called
     // -----------------------------------------------------------------------
     testWidgets(
-      '2. invalid email → inline errorText shown on field, login not called',
+      '2. junk without «@» → «Потрібен український мобільний номер», login '
+      'not called (M515 classifier)',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -222,10 +224,29 @@ void main() {
         final l10n = AppLocalizations.of(
           tester.element(find.byKey(const ValueKey<String>('login_email'))),
         );
-        expect(find.text(l10n.errEmailInvalid), findsOneWidget);
+        expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
 
         // No login call should have been made.
         expect(repo.loginCalls, isEmpty);
+
+        // A malformed email («@», no domain) still gets the email error.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_email')),
+          'anna@',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
+        await tester.pump();
+        expect(find.text(l10n.errEmailInvalid), findsOneWidget);
+        expect(repo.loginCalls, isEmpty);
+
+        // A UA mobile in local form is normalised to +380 on the wire.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_email')),
+          '067 123 45 67',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
+        await tester.pumpAndSettle();
+        expect(repo.loginCalls.single.email, '+380671234567');
       },
     );
 

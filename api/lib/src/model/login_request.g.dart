@@ -8,14 +8,17 @@ part of 'login_request.dart';
 
 class _$LoginRequest extends LoginRequest {
   @override
-  final String email;
+  final String? email;
   @override
   final String password;
+  @override
+  final String? identifier;
 
   factory _$LoginRequest([void Function(LoginRequestBuilder)? updates]) =>
       (LoginRequestBuilder()..update(updates))._build();
 
-  _$LoginRequest._({required this.email, required this.password}) : super._();
+  _$LoginRequest._({this.email, required this.password, this.identifier})
+      : super._();
   @override
   LoginRequest rebuild(void Function(LoginRequestBuilder) updates) =>
       (toBuilder()..update(updates)).build();
@@ -28,7 +31,8 @@ class _$LoginRequest extends LoginRequest {
     if (identical(other, this)) return true;
     return other is LoginRequest &&
         email == other.email &&
-        password == other.password;
+        password == other.password &&
+        identifier == other.identifier;
   }
 
   @override
@@ -36,6 +40,7 @@ class _$LoginRequest extends LoginRequest {
     var _$hash = 0;
     _$hash = $jc(_$hash, email.hashCode);
     _$hash = $jc(_$hash, password.hashCode);
+    _$hash = $jc(_$hash, identifier.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -44,7 +49,8 @@ class _$LoginRequest extends LoginRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'LoginRequest')
           ..add('email', email)
-          ..add('password', password))
+          ..add('password', password)
+          ..add('identifier', identifier))
         .toString();
   }
 }
@@ -61,6 +67,10 @@ class LoginRequestBuilder
   String? get password => _$this._password;
   set password(String? password) => _$this._password = password;
 
+  String? _identifier;
+  String? get identifier => _$this._identifier;
+  set identifier(String? identifier) => _$this._identifier = identifier;
+
   LoginRequestBuilder() {
     LoginRequest._defaults(this);
   }
@@ -70,6 +80,7 @@ class LoginRequestBuilder
     if ($v != null) {
       _email = $v.email;
       _password = $v.password;
+      _identifier = $v.identifier;
       _$v = null;
     }
     return this;
@@ -91,10 +102,10 @@ class LoginRequestBuilder
   _$LoginRequest _build() {
     final _$result = _$v ??
         _$LoginRequest._(
-          email: BuiltValueNullFieldError.checkNotNull(
-              email, r'LoginRequest', 'email'),
+          email: email,
           password: BuiltValueNullFieldError.checkNotNull(
               password, r'LoginRequest', 'password'),
+          identifier: identifier,
         );
     replace(_$result);
     return _$result;

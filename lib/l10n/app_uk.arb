@@ -90,9 +90,9 @@
   "@errUnauthorized": {
     "description": "Error message shown when the user's session has expired (401)."
   },
-  "errInvalidCredentials": "Неправильна пошта або пароль.",
+  "errInvalidCredentials": "Неправильний телефон, email або пароль.",
   "@errInvalidCredentials": {
-    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong email or password — not a session expiry)."
+    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong phone/email or password — not a session expiry). Login accepts a phone number or an email."
   },
   "errValidation": "Перевірте введені дані та спробуйте знову.",
   "@errValidation": {
@@ -207,10 +207,6 @@
   "@loginTitle": {
     "description": "Title of the login screen."
   },
-  "loginEmailLabel": "Електронна пошта",
-  "@loginEmailLabel": {
-    "description": "Label for the email input field on the login screen."
-  },
   "loginPasswordLabel": "Пароль",
   "@loginPasswordLabel": {
     "description": "Label for the password input field on the login screen."
@@ -226,14 +222,6 @@
   "loginCreateAccount": "Зареєструватися",
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
-  },
-  "loginEmailPlaceholder": "Введіть email",
-  "@loginEmailPlaceholder": {
-    "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
-  },
-  "loginEmailHint": "Введіть email",
-  "@loginEmailHint": {
-    "description": "hintText for the email field on the login screen — descriptive prompt text."
   },
   "loginPasswordPlaceholder": "Ваш пароль",
   "@loginPasswordPlaceholder": {
@@ -801,9 +789,9 @@
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
   },
-  "registerDoneChipEmailVerified": "Пошта підтверджена",
-  "@registerDoneChipEmailVerified": {
-    "description": "Second summary chip on the registration-done screen confirming the email has been verified (done-page.html .chip — second chip)."
+  "registerDoneChipPhoneVerified": "Телефон підтверджено",
+  "@registerDoneChipPhoneVerified": {
+    "description": "Second summary chip on the registration-done screen confirming the phone number has been verified by SMS code (registration is phone-first, AUTH-D09)."
   },
   "registerDoneChipReadyFast": "Готово за лічені секунди",
   "@registerDoneChipReadyFast": {
@@ -1253,13 +1241,33 @@
   "@inviteHeading": {
     "description": "Main heading on the accept-invite screen."
   },
-  "inviteSubtitle": "Завершіть налаштування акаунту, щоб приєднатися до команди салону.",
+  "inviteSubtitle": "Підтвердіть номер, на який прийшло запрошення, щоб приєднатися до команди салону.",
   "@inviteSubtitle": {
     "description": "Sub-heading on the accept-invite screen."
   },
-  "inviteEmailLabel": "Запрошена пошта",
-  "@inviteEmailLabel": {
-    "description": "Read-only label for the invited email row in the invite preview card."
+  "invitePhoneMaskedLabel": "Запрошений номер",
+  "@invitePhoneMaskedLabel": {
+    "description": "M521 (AUTH-21) — invite preview row label for the masked invited phone."
+  },
+  "inviteSalonLabel": "Салон",
+  "@inviteSalonLabel": {
+    "description": "M521 (AUTH-21) — invite preview row label for the inviting salon name."
+  },
+  "inviteCodeSubtitle": "Введіть код із SMS, щоб підтвердити номер.",
+  "@inviteCodeSubtitle": {
+    "description": "M521 — accept-invite SMS code step subtitle."
+  },
+  "inviteDetailsSubtitle": "Номер підтверджено. Задайте пароль і вкажіть імʼя.",
+  "@inviteDetailsSubtitle": {
+    "description": "M521 — accept-invite password + name step subtitle (after the phone is confirmed)."
+  },
+  "invitePhoneHelper": "Той самий номер, на який прийшло запрошення",
+  "@invitePhoneHelper": {
+    "description": "M521 — helper under the accept-invite phone field."
+  },
+  "errInvitePhoneMismatch": "Номер не збігається з номером у запрошенні",
+  "@errInvitePhoneMismatch": {
+    "description": "M521 (AUTH-52) — 400 INVITE_PHONE_MISMATCH: the confirmed phone is not the invited one."
   },
   "inviteRoleLabel": "Роль",
   "@inviteRoleLabel": {
@@ -1311,7 +1319,7 @@
   "@inviteSuccessSnackbar": {
     "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   },
-  "inviteHandoffAccountReady": "Ваш акаунт створено. Увійдіть, використавши свою пошту та пароль, який ви щойно задали.",
+  "inviteHandoffAccountReady": "Ваш акаунт створено. Увійдіть за номером телефону та паролем, який ви щойно задали.",
   "@inviteHandoffAccountReady": {
     "description": "Login hand-off banner shown when accept-invite got a 2xx response the client could not parse (ResponseUnusableFailure) — the account was created server-side; invite-accept post-success design, 2026-09-01."
   },
@@ -1323,9 +1331,13 @@
   "@inviteHandoffNoLongerValid": {
     "description": "Login hand-off banner shown when the invite token was already used/expired/not found (400 with no field-error map) — invite-accept post-success design, 2026-09-01."
   },
-  "inviteHandoffEmailAlreadyRegistered": "Ця електронна пошта вже зареєстрована. Увійдіть у наявний акаунт або попросіть салон надіслати запрошення на іншу адресу.",
-  "@inviteHandoffEmailAlreadyRegistered": {
-    "description": "Login hand-off banner shown when accept-invite returned 409 (email already registered) — invite-accept post-success design, 2026-09-01."
+  "inviteHandoffPhoneAlreadyRegistered": "Цей номер уже зареєстровано. Увійдіть у наявний акаунт або попросіть салон надіслати запрошення на інший номер.",
+  "@inviteHandoffPhoneAlreadyRegistered": {
+    "description": "Login hand-off banner shown when accept-invite returned a 409 meaning the account already exists (EmailAlreadyRegisteredFailure / an un-coded 409). M521: invites go by phone (B520), so the copy names the number, never an email."
+  },
+  "inviteHandoffSalonInactive": "Цей салон більше не активний, тож запрошення прийняти не вийде. Якщо у вас уже є акаунт, увійдіть.",
+  "@inviteHandoffSalonInactive": {
+    "description": "M521 (AUTH-17, AUTH-E03) — login hand-off banner shown when accept-invite returned 409 INVITE_SALON_INACTIVE (the inviting salon was deactivated)."
   },
 
   "roleSelectHeadline": "Welcome to premium\nBeauty Service",
@@ -3477,6 +3489,38 @@
   "notificationTitleBookingReminder": "Нагадування про візит",
   "@notificationTitleBookingReminder": {
     "description": "Phase 497 — title of a BOOKING_REMINDER notification (to the booking's client)."
+  },
+  "notificationTitleSecurityPhoneChanged": "Номер телефону змінено",
+  "@notificationTitleSecurityPhoneChanged": {
+    "description": "Notification-feed title: the account's phone number was changed (security notice, AUTH-D19)."
+  },
+  "notificationTitleSecurityEmailChanged": "Email для сповіщень змінено",
+  "@notificationTitleSecurityEmailChanged": {
+    "description": "Notification-feed title: the notifications email was changed (security notice, AUTH-D19)."
+  },
+  "notificationBodySecurityPhoneChanged": "Новий номер: {maskedContact}. Якщо це не ви — зверніться в підтримку.",
+  "@notificationBodySecurityPhoneChanged": {
+    "description": "Body of the phone-changed security notice. {maskedContact} is the new number, masked by the backend.",
+    "placeholders": {
+      "maskedContact": {
+        "type": "String",
+        "example": "+380 •• ••• •• 67"
+      }
+    }
+  },
+  "notificationBodySecurityEmailChanged": "Новий email для сповіщень: {maskedContact}. Якщо це не ви — зверніться в підтримку.",
+  "@notificationBodySecurityEmailChanged": {
+    "description": "Body of the email-changed security notice. {maskedContact} is the new email, masked by the backend.",
+    "placeholders": {
+      "maskedContact": {
+        "type": "String",
+        "example": "o•••@gmail.com"
+      }
+    }
+  },
+  "notificationBodySecuritySupport": "Якщо це не ви — зверніться в підтримку.",
+  "@notificationBodySecuritySupport": {
+    "description": "Body of a phone/email-changed security notice when the backend sent no masked contact."
   },
   "notificationBodyBookingReminder": "Ваш візит {day} о {time}",
   "@notificationBodyBookingReminder": {
@@ -6346,7 +6390,7 @@
   "@inviteStaffTitle": {
     "description": "Phase 21.4 — SectionScaffold title for InviteStaffScreen, the SALON_OWNER/SALON_ADMIN's «Запросити персонал» form."
   },
-  "inviteStaffSubtitle": "Надішліть запрошення приєднатися до вашого салону. Людина отримає лист із посиланням для входу.",
+  "inviteStaffSubtitle": "Надішліть запрошення приєднатися до вашого салону. Людина отримає SMS із посиланням.",
   "@inviteStaffSubtitle": {
     "description": "Phase 21.4 — subheading under the title on InviteStaffScreen. Generic (does not interpolate the salon name) — InviteStaffScreen is reached with only `salonId`, mirroring the route's own `state.pathParameters['salonId']` builder; the approved preview's own salon-name interpolation was dropped for this production port."
   },
@@ -6370,23 +6414,15 @@
   "@inviteStaffRoleMasterDescription": {
     "description": "Phase 21.4 — one-line description shown beneath the role toggle when Майстер is selected."
   },
-  "inviteStaffEmailLabel": "Електронна пошта",
-  "@inviteStaffEmailLabel": {
-    "description": "Phase 21.4 — label for InviteStaffScreen's email NeumorphicTextField."
-  },
-  "inviteStaffEmailHint": "name@example.com",
-  "@inviteStaffEmailHint": {
-    "description": "Phase 21.4 — placeholder hint for InviteStaffScreen's email field."
-  },
-  "inviteStaffEmailHelper": "Запрошення дійсне 48 годин.",
-  "@inviteStaffEmailHelper": {
-    "description": "Phase 21.4 — helper text under InviteStaffScreen's email field."
+  "inviteStaffPhoneHelper": "Запрошення дійсне 48 годин.",
+  "@inviteStaffPhoneHelper": {
+    "description": "M521 — helper text under InviteStaffScreen's phone field."
   },
   "inviteStaffSubmitCta": "Надіслати запрошення",
   "@inviteStaffSubmitCta": {
     "description": "Phase 21.4 — InviteStaffScreen's primary submit CTA label."
   },
-  "inviteStaffSuccess": "Запрошення надіслано",
+  "inviteStaffSuccess": "SMS із запрошенням надіслано",
   "@inviteStaffSuccess": {
     "description": "Phase 21.4 — success VelvetSnack shown after POST /salons/{salonId}/invite succeeds on InviteStaffScreen, immediately before context.pop()."
   },
@@ -6402,9 +6438,13 @@
   "@inviteStaffErrorGeneric": {
     "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite fails for any other reason (network, 5xx, unknown)."
   },
-  "inviteStaffErrorEmailAlreadyRegistered": "Ця пошта вже зареєстрована в Beautica. Запросити можна лише нову адресу.",
-  "@inviteStaffErrorEmailAlreadyRegistered": {
-    "description": "Phase 303 — inline error on the email field when POST /salons/{salonId}/invite returns HTTP 409 EMAIL_ALREADY_REGISTERED (backend Phase 287): the invited address already has an account."
+  "inviteStaffErrorPhoneAlreadyRegistered": "Користувач із таким номером уже зареєстрований",
+  "@inviteStaffErrorPhoneAlreadyRegistered": {
+    "description": "M521 (AUTH-18) — inline error on the invite phone field for 409 PHONE_ALREADY_REGISTERED."
+  },
+  "errInviteSmsLimit": "Ліміт SMS-запрошень на сьогодні вичерпано. Спробуйте завтра.",
+  "@errInviteSmsLimit": {
+    "description": "M521 (AUTH-52) — banner for 429 INVITE_SMS_LIMIT on invite create."
   },
   "inviteStaffBackSemanticLabel": "Назад",
   "@inviteStaffBackSemanticLabel": {
@@ -7665,5 +7705,83 @@
   "masterWeekStripDayOffSemantics": "вихідний",
   "@masterWeekStripDayOffSemantics": {"description": "Phase 484 — a11y suffix on a day-off week-strip cell."},
   "masterWeekStripNoBookingsSemantics": "немає записів",
-  "@masterWeekStripNoBookingsSemantics": {"description": "Phase 484 — a11y suffix on a week-strip cell with no live bookings."}
+  "@masterWeekStripNoBookingsSemantics": {"description": "Phase 484 — a11y suffix on a week-strip cell with no live bookings."},
+  "loginIdentifierLabel": "Телефон або email",
+  "@loginIdentifierLabel": {"description": "M515 (AUTH-46) — login identifier field label."},
+  "loginIdentifierHint": "+380 XX XXX XX XX або email",
+  "@loginIdentifierHint": {"description": "M515 — login identifier field hint."},
+  "errIdentifierRequired": "Введіть телефон або email",
+  "@errIdentifierRequired": {"description": "M515 — empty login identifier."},
+  "errPhoneNotUaMobile": "Потрібен український мобільний номер",
+  "@errPhoneNotUaMobile": {"description": "M515 (AUTH-D15) — inline error for a non-UA-mobile number; also 400 PHONE_NOT_UA_MOBILE."},
+  "errPhoneAlreadyRegistered": "Цей номер уже зареєстровано. Увійдіть або відновіть пароль",
+  "@errPhoneAlreadyRegistered": {"description": "M515 — 409 PHONE_ALREADY_REGISTERED on registration."},
+  "errPhoneCodeInvalid": "Невірний код. Перевірте та спробуйте ще раз.",
+  "@errPhoneCodeInvalid": {"description": "M515 — 400 INVALID_CODE on the registration SMS code."},
+  "errRegistrationTicketInvalid": "Час підтвердження номера минув. Підтвердьте номер ще раз.",
+  "@errRegistrationTicketInvalid": {"description": "M515 — 400 REGISTRATION_TICKET_INVALID (used / expired ticket)."},
+  "errPhoneCodeRateLimited": "Забагато запитів коду. Спробуйте пізніше.",
+  "@errPhoneCodeRateLimited": {"description": "M515 — 429 on the registration SMS code send."},
+  "errAppCheckFailed": "Не вдалося підтвердити, що запит надіслано із застосунку Beautica. Оновіть застосунок із Google Play і спробуйте ще раз.",
+  "@errAppCheckFailed": {"description": "M515 (AUTH-54) — 403 APP_CHECK_FAILED."},
+  "errAppCheckUnavailable": "Перевірка тимчасово недоступна. Спробуйте за хвилину.",
+  "@errAppCheckUnavailable": {"description": "M515 (AUTH-54) — 503 APP_CHECK_UNAVAILABLE."},
+  "registerPhoneHelper": "Надішлемо SMS з кодом підтвердження",
+  "@registerPhoneHelper": {"description": "M515 — helper under the registration phone field."},
+  "registerSendCode": "Надіслати код",
+  "@registerSendCode": {"description": "M515 — CTA of the registration phone step."},
+  "registerPasswordHeadline": "Придумайте пароль",
+  "@registerPasswordHeadline": {"description": "M515 — headline of the registration password step."},
+  "phoneCodeHeadline": "Підтвердіть номер",
+  "@phoneCodeHeadline": {"description": "M515 — PhoneCodeStep default headline."},
+  "phoneCodeSmsDescription": "Ми надіслали 6-значний код у SMS на",
+  "@phoneCodeSmsDescription": {"description": "M515 — PhoneCodeStep description before the bold phone."},
+  "phoneCodeCurrentPasswordLabel": "Поточний пароль",
+  "@phoneCodeCurrentPasswordLabel": {"description": "PhoneCodeStep — current-password field (requireCurrentPassword, used by M517)."},
+  "phoneCodeCurrentPasswordHelper": "Для захисту акаунта підтвердіть зміну паролем",
+  "@phoneCodeCurrentPasswordHelper": {"description": "PhoneCodeStep — helper under the current-password field (M517)."},
+  "phoneCodeLocked": "Забагато невдалих спроб. Зміну тимчасово заблоковано — спробуйте через 15 хвилин.",
+  "@phoneCodeLocked": {"description": "PhoneCodeStep — per-account lockout banner (AUTH-D19, M517)."},
+  "errCurrentPasswordInvalid": "Невірний поточний пароль",
+  "@errCurrentPasswordInvalid": {"description": "M517 (AUTH-D19) — 400 CURRENT_PASSWORD_INVALID under the current-password field."},
+  "errPhoneNotVerified": "Підтвердьте номер телефону, щоб продовжити",
+  "@errPhoneNotVerified": {"description": "M517 (AUTH-45) — 409 PHONE_NOT_VERIFIED fallback copy."},
+  "errPhoneInUse": "Цей номер уже прив’язано до іншого акаунта",
+  "@errPhoneInUse": {"description": "M517 — 409 PHONE_ALREADY_REGISTERED on a signed-in phone add / change."},
+  "errEmailInUse": "Ця адреса вже прив’язана до іншого акаунта",
+  "@errEmailInUse": {"description": "M517 — 409 EMAIL_ALREADY_REGISTERED on the notifications-email verify."},
+  "phoneChangeCodeHeadline": "Підтвердіть новий номер",
+  "@phoneChangeCodeHeadline": {"description": "M517 — phone-change code step headline."},
+  "emailCodeHeadline": "Підтвердіть email",
+  "@emailCodeHeadline": {"description": "M517 — notifications-email code step headline."},
+  "addPhoneHeadline": "Додайте номер телефону",
+  "@addPhoneHeadline": {"description": "M517 (AUTH-D12) — blocking add-phone step headline."},
+  "addPhoneBody": "Так ви зможете входити в акаунт і відновлювати доступ",
+  "@addPhoneBody": {"description": "M517 — blocking add-phone step body."},
+  "addPhoneLogout": "Вийти з акаунта",
+  "@addPhoneLogout": {"description": "M517 — the only other action on the blocking add-phone step."},
+  "contactsPhoneChangeHelper": "Новий номер підтвердимо кодом із SMS. До того діє поточний {phone}.",
+  "@contactsPhoneChangeHelper": {"description": "M517 (AUTH-D13) — helper under the «Контакти» phone field.", "placeholders": {"phone": {"type": "String", "example": "+380 67 123 45 45"}}},
+  "profileNotificationEmailTitle": "Email для сповіщень",
+  "@profileNotificationEmailTitle": {"description": "M517 (AUTH-D17 a) — settings row + email entry title."},
+  "emailPromptAdd": "Додати",
+  "@emailPromptAdd": {"description": "M517 (AUTH-D17) — row value / card action when no email is confirmed."},
+  "emailPromptNotNow": "Не зараз",
+  "@emailPromptNotNow": {"description": "M517 (AUTH-D17) — card dismiss action."},
+  "bookingSuccessEmailPromptTitle": "Підключіть електронну адресу, щоб отримувати сповіщення та нагадування на email",
+  "@bookingSuccessEmailPromptTitle": {"description": "M517 (AUTH-D17 b, CLI-D09) — client booking-success card."},
+  "notificationEmailIntro": "Сюди прийдуть підтвердження записів і код для відновлення доступу. Email необовʼязковий.",
+  "@notificationEmailIntro": {"description": "M517 — notifications-email entry intro."},
+  "notificationEmailLabel": "Електронна пошта",
+  "@notificationEmailLabel": {"description": "M517 — notifications-email field label."},
+  "notificationEmailHint": "name@example.com",
+  "@notificationEmailHint": {"description": "M517 — notifications-email field hint."},
+  "notificationEmailHelper": "Надішлемо код підтвердження на цю адресу",
+  "@notificationEmailHelper": {"description": "M517 — notifications-email field helper."},
+  "notificationEmailBackSemantics": "Назад",
+  "@notificationEmailBackSemantics": {"description": "M517 — notifications-email entry back button a11y label."},
+  "forgotPasswordIdentifierSubText": "Вкажіть телефон або email акаунта — ми надішлемо код для скидання пароля.",
+  "@forgotPasswordIdentifierSubText": {"description": "M517 (AUTH-D18) — forgot-password intro for the phone-or-email field."},
+  "resetCodeSentNeutral": "Якщо акаунт існує, ми надіслали код. Введіть його нижче.",
+  "@resetCodeSentNeutral": {"description": "M517 (AUTH-D18) — neutral reset-code copy; never names the channel."}
 }

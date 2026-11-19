@@ -45,12 +45,12 @@ import 'dart:io';
 const defaultThreshold = 0.7;
 
 /// P4: more selected flows than this in one process => the shards instead.
-/// One shard's size (2026-11-06: 149 flows / 588 testWidgets in 8 shards of
-/// 18-19 flows / 73-74 testWidgets), mobile-perf cycle 2 P1.
+/// One shard's size (2026-11-19: 164 flows / 680 testWidgets in 8 shards of
+/// 20-21 flows / 85 testWidgets), mobile-perf cycle 2 P1.
 const maxSelectedFlows = 19;
 
 /// P4: more selected testWidgets than this => the shards instead (one shard).
-const maxSelectedTests = 74;
+const maxSelectedTests = 85;
 
 const partFiles = [
   'integration_test/all_tests_part1.dart',

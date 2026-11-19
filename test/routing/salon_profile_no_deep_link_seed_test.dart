@@ -317,7 +317,7 @@ class _CountingSalonRepository implements SalonRepository {
   @override
   Future<void> inviteStaff({
     required String salonId,
-    required String email,
+    required String phone,
     required UserRole role,
   }) async => throw UnimplementedError(
     '_CountingSalonRepository.inviteStaff is not stubbed — this fake backs '

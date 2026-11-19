@@ -67,6 +67,12 @@ const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_BOOKING_REMINDER =
     const NotificationResponseTypeEnum._('BOOKING_REMINDER');
 const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_SECURITY_PHONE_CHANGED =
+    const NotificationResponseTypeEnum._('SECURITY_PHONE_CHANGED');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_SECURITY_EMAIL_CHANGED =
+    const NotificationResponseTypeEnum._('SECURITY_EMAIL_CHANGED');
+const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_unknownDefaultOpenApi =
     const NotificationResponseTypeEnum._('unknownDefaultOpenApi');
 
@@ -113,6 +119,10 @@ NotificationResponseTypeEnum _$notificationResponseTypeEnumValueOf(
       return _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED;
     case 'BOOKING_REMINDER':
       return _$notificationResponseTypeEnum_BOOKING_REMINDER;
+    case 'SECURITY_PHONE_CHANGED':
+      return _$notificationResponseTypeEnum_SECURITY_PHONE_CHANGED;
+    case 'SECURITY_EMAIL_CHANGED':
+      return _$notificationResponseTypeEnum_SECURITY_EMAIL_CHANGED;
     case 'unknownDefaultOpenApi':
       return _$notificationResponseTypeEnum_unknownDefaultOpenApi;
     default:
@@ -143,6 +153,8 @@ final BuiltSet<NotificationResponseTypeEnum>
   _$notificationResponseTypeEnum_CONTENT_REMOVED,
   _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED,
   _$notificationResponseTypeEnum_BOOKING_REMINDER,
+  _$notificationResponseTypeEnum_SECURITY_PHONE_CHANGED,
+  _$notificationResponseTypeEnum_SECURITY_EMAIL_CHANGED,
   _$notificationResponseTypeEnum_unknownDefaultOpenApi,
 ]);
 
@@ -173,6 +185,8 @@ class _$NotificationResponseTypeEnumSerializer
     'CONTENT_REMOVED': 'CONTENT_REMOVED',
     'REVIEW_ABOUT_YOU_REMOVED': 'REVIEW_ABOUT_YOU_REMOVED',
     'BOOKING_REMINDER': 'BOOKING_REMINDER',
+    'SECURITY_PHONE_CHANGED': 'SECURITY_PHONE_CHANGED',
+    'SECURITY_EMAIL_CHANGED': 'SECURITY_EMAIL_CHANGED',
     'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
@@ -196,6 +210,8 @@ class _$NotificationResponseTypeEnumSerializer
     'CONTENT_REMOVED': 'CONTENT_REMOVED',
     'REVIEW_ABOUT_YOU_REMOVED': 'REVIEW_ABOUT_YOU_REMOVED',
     'BOOKING_REMINDER': 'BOOKING_REMINDER',
+    'SECURITY_PHONE_CHANGED': 'SECURITY_PHONE_CHANGED',
+    'SECURITY_EMAIL_CHANGED': 'SECURITY_EMAIL_CHANGED',
     'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 

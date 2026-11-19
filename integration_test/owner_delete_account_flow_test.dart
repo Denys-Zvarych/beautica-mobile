@@ -13,14 +13,15 @@
 // `salon-xyz`, so the default primary salon is removed from `mySalons` after
 // login and `salon-xyz` becomes the owner's only salon.
 //
-// Second test (user decision 2026-11-12): after the delete, the SAME email
-// registers again as a SALON_OWNER and the new account sees NONE of the old
-// data — no old salon, no old name, no old avatar. FakeBackend's opt-in
+// Second test (user decision 2026-11-12; phone-first since M515): after the
+// delete, the same person registers again as a SALON_OWNER (phone -> SMS
+// code -> password -> name -> address) and the new account sees NONE of the
+// old data — no old salon, no old name, no old avatar. FakeBackend's opt-in
 // `modelOwnerAccountLifecycle` wipes the old server state on the 204 and
-// issues a NEW owner identity on verify-email. Owner signup creates its salon
-// post-OTP (verification_screen.dart `_saveProviderProfile` → POST /salons),
-// so the re-registered hub holds exactly that ONE new salon — "empty of old
-// data", not literally empty.
+// issues a NEW owner identity on the ticket-carrying register. Owner signup
+// creates its salon right after register (`saveRegistrationLocality` → POST
+// /salons), so the re-registered hub holds exactly that ONE new salon —
+// "empty of old data", not literally empty.
 //
 // NO PATROL FLOW: no OS permission, deep link, notification or WebView.
 
@@ -104,42 +105,38 @@ void main() {
     timeout: const Timeout(Duration(seconds: 90)),
   );
 
-  testWidgets(
-    'SALON_OWNER deletes the account -> registers again with the SAME email '
-    '-> sees only the new salon, new name, no old avatar',
-    (tester) async {
-      await mockNetworkImagesFor(() async {
-        final fb = FakeBackend()
-          ..currentRole = UserRole.salonOwner
-          ..modelOwnerAccountLifecycle = true
-          ..mediaAvatarUrl = _oldAvatarUrl;
-        _seedDeletableSalon(fb);
-        final storage = FakeSecureStorage();
-        final GoRouter router = await AppHarness.boot(
-          tester,
-          fb,
-          storage: storage,
-        );
-        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
-        await AppHarness.settle(tester);
-        final ProviderContainer container = ProviderScope.containerOf(
-          tester.element(find.byType(E2eHarnessApp)),
-        );
+  testWidgets('SALON_OWNER deletes the account -> registers again by phone '
+      '-> sees only the new salon, new name, no old avatar', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.salonOwner
+        ..modelOwnerAccountLifecycle = true
+        ..mediaAvatarUrl = _oldAvatarUrl;
+      _seedDeletableSalon(fb);
+      final storage = FakeSecureStorage();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: storage,
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(E2eHarnessApp)),
+      );
 
-        await _deleteLastSalonThenAccount(tester, fb, router, container);
-        expect(fb.ownerAccountDeleted, isTrue);
-        AppHarness.expectLocation(router, RouteNames.login);
+      await _deleteLastSalonThenAccount(tester, fb, router, container);
+      expect(fb.ownerAccountDeleted, isTrue);
+      AppHarness.expectLocation(router, RouteNames.login);
 
-        await _registerOwnerAgain(tester, router);
-        expect(fb.createSalonCalls, 1);
-        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
-        await AppHarness.settle(tester);
+      await _registerOwnerAgain(tester, router);
+      expect(fb.createSalonCalls, 1);
+      await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+      await AppHarness.settle(tester);
 
-        await _expectOnlyTheNewAccountsData(tester, fb, router, container);
-      });
-    },
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
+      await _expectOnlyTheNewAccountsData(tester, fb, router, container);
+    });
+  }, timeout: const Timeout(Duration(seconds: 120)));
 }
 
 /// «Мої салони» trimmed to ONE salon (see this file's header); the top bar
@@ -250,7 +247,7 @@ Future<void> _confirmDeleteAccountLandsOnLogin(
 }
 
 const String _oldAvatarUrl = 'https://cdn.beautica.test/old-owner-avatar.jpg';
-const String _sameEmail = 'owner@beautica.ua';
+const String _newPhone = '+380503333333';
 const String _newSalonName = 'Нова Студія Лілія';
 const String _newFirstName = 'Марта';
 
@@ -306,31 +303,18 @@ Future<void> _deleteLastSalonThenAccount(
   expect(fb.deleteMyAccountCalls, 1);
 }
 
-/// /register/role → SALON_OWNER → step 1 with the SAME email → step 2 (new
-/// name + new salon name) → step 3 (city + address) → OTP → /done.
+/// /register/role → SALON_OWNER → phone → code → password (shared harness
+/// helper) → name + new salon name → address → /done.
 Future<void> _registerOwnerAgain(WidgetTester tester, GoRouter router) async {
-  router.go(RouteNames.registerRole);
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const ValueKey<String>('role_salon_owner')));
-  await tester.pump();
-  await tester.tap(find.byKey(const ValueKey<String>('role_continue')));
-  await tester.pumpAndSettle();
-
-  await _enter(tester, 'step1_email', _sameEmail);
-  await _enter(tester, 'step1_password', 'Secret1234');
-  await _enter(tester, 'step1_confirm', 'Secret1234');
-  await AppHarness.tapVisible(
+  await AppHarness.registerPhoneFirstSteps(
     tester,
-    find.byKey(const ValueKey<String>('step1_terms_checkbox')),
+    router,
+    roleKey: 'role_salon_owner',
+    phone: _newPhone,
   );
-  await tester.pump();
-  await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-  await tester.pumpAndSettle();
-  AppHarness.expectLocation(router, RouteNames.registerStep2);
 
   await _enter(tester, 'step2_first_name', _newFirstName);
   await _enter(tester, 'step2_last_name', 'Нова');
-  await _enter(tester, 'step2_phone', '+380503333333');
   await _enter(tester, 'step2_salon_name', _newSalonName);
   await AppHarness.tapVisible(
     tester,
@@ -346,15 +330,10 @@ Future<void> _registerOwnerAgain(WidgetTester tester, GoRouter router) async {
     tester,
     find.byKey(const ValueKey<String>('address_submit')),
   );
-  await tester.pumpAndSettle();
-  AppHarness.expectLocation(router, RouteNames.verification);
-
-  await _enter(tester, 'verify_code_input', '123456');
-  await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
   await AppHarness.pumpUntilCondition(
     tester,
     () => AppHarness.location(router) == RouteNames.done,
-    description: 'post-OTP POST /salons + nav to /done',
+    description: 'register + POST /salons + nav to /done',
   );
 }
 
@@ -375,7 +354,8 @@ Future<void> _expectOnlyTheNewAccountsData(
 ) async {
   final User? user = container.read(currentUserProvider);
   expect(user?.id, 'user-owner-2', reason: 'a NEW account, not the old id');
-  expect(user?.email, _sameEmail);
+  expect(user?.email, isNull, reason: 'phone-first: no email (AUTH-D11)');
+  expect(user?.phoneNumber, _newPhone);
   expect(user?.firstName, _newFirstName);
   expect(user?.avatarUrl, isNull, reason: 'old avatar must not carry over');
 

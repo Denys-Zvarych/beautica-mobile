@@ -26,6 +26,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/security/screen_protection.dart';
+
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -1034,9 +1036,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('row-location')), findsNothing);
+      // M517 — «Email для сповіщень» (every role) sits right after contacts.
       final List<String> keys = <String>[
         'row-personal',
         'row-contacts',
+        'row-notification-email',
         'row-account',
         'row-help',
         'row-logout',
@@ -1046,7 +1050,7 @@ void main() {
       }
       // Reveal slots are animation-only (opacity/slide, 1/zero at rest): the
       // layout must be gap-free, i.e. each row sits exactly one row-step
-      // below the previous one between personal -> contacts -> account.
+      // below the previous one between personal -> contacts -> email.
       final List<double> ys = keys
           .map((k) => tester.getTopLeft(find.byKey(Key(k))).dy)
           .toList();
@@ -1260,6 +1264,31 @@ void main() {
       tester.getTopLeft(find.text(fakeAppVersionText())).dy,
       greaterThan(tester.getBottomLeft(find.byKey(const Key('row-logout'))).dy),
       reason: 'the version line must sit at the very bottom, under «Вийти»',
+    );
+  });
+
+  // M517 — the hub shows the full confirmed email
+  // (NotificationEmailSettingsRow), so it holds the app-switcher guard while
+  // mounted and releases it on dispose (contacts_edit_screen pattern).
+  testWidgets('holds screen protection while mounted, releases on dispose', (
+    tester,
+  ) async {
+    final ScreenProtectionManager manager = ScreenProtectionManager();
+    final router = _hubRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpRoutedApp(
+      router,
+      overrides: <Object>[screenProtectionProvider.overrideWithValue(manager)],
+    );
+    await tester.pumpAndSettle();
+    expect(manager.acquirerCount, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(
+      manager.acquirerCount,
+      0,
+      reason: 'disposing the hub must release its reference',
     );
   });
 }

@@ -26,6 +26,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show appFlavor;
 
 import '../media/media_config.dart';
+import 'app_check_config.dart';
 import 'app_config.dart';
 
 /// Build mode as seen by the guard (mirrors `kDebugMode` / `kProfileMode` /
@@ -70,10 +71,19 @@ EnvCheckResult checkEnvConsistency({
   required String baseUrl,
   required EnvBuildMode mode,
   Set<String> mediaHosts = const <String>{},
+  String appCheckDebugToken = '',
 }) {
   final List<String> errors = <String>[];
   var fatal = false;
   final bool strict = mode != EnvBuildMode.debug;
+
+  // M515 (AUTH-D14) — an App Check debug token bypasses Play Integrity
+  // attestation; it is for debug builds only, never profile / release.
+  if (strict && appCheckDebugToken.isNotEmpty) {
+    errors.add(
+      'APP_CHECK_DEBUG_TOKEN is set in a ${mode.name} build — debug builds only',
+    );
+  }
   final String host = Uri.tryParse(baseUrl)?.host.toLowerCase() ?? '';
 
   // The prod flavor may never talk to a dev/staging host, any non-allow-listed
@@ -180,6 +190,7 @@ abstract final class EnvGuard {
         baseUrl: AppConfig.baseUrl,
         mode: mode,
         mediaHosts: MediaConfig.allowedHosts,
+        appCheckDebugToken: kAppCheckDebugToken,
       ),
       mode,
     );

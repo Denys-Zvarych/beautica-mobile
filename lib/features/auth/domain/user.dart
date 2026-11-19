@@ -44,8 +44,10 @@ abstract class User with _$User {
     /// Backend-assigned UUID for the user.
     required String id,
 
-    /// The user's email address (also used as login identifier).
-    required String email,
+    /// The user's email address, or `null` for a phone-registered account
+    /// (M515, AUTH-D11 — email is optional for every role; login accepts a
+    /// phone or an email, AUTH-08).
+    String? email,
 
     /// The role that governs which features this user can access.
     @_UserRoleConverter() required UserRole role,
@@ -144,7 +146,40 @@ abstract class User with _$User {
     /// only by the self-avatar upload flow (`POST`/`DELETE /media/avatar`),
     /// which patches it in place via `AuthNotifier.patchAvatarUrl`.
     String? avatarUrl,
+
+    /// M517 (AUTH-45) — `true` once the phone was confirmed by an SMS code.
+    /// Populated by GET /users/me only; `null` = unknown (login response, an
+    /// older cached blob), never read as "unverified".
+    bool? phoneVerified,
+
+    /// M517 (AUTH-45, AUTH-D12) — ISO date by which the phone must be
+    /// confirmed: today for any account without a verified phone, `null` once
+    /// verified (or when unknown). Its presence alone triggers the blocking
+    /// add-phone step ([mustAddPhone]) — there is no deadline to compare.
+    String? phoneRequiredBy,
+
+    /// M517 (AUTH-50, AUTH-D17) — `true` once a notifications email is
+    /// confirmed. Populated by GET /users/me only; `null` = unknown, which
+    /// hides every email prompt (only an explicit `false` shows one).
+    bool? emailVerified,
   }) = _User;
+
+  /// M517 (AUTH-D12) — the account has no verified phone and must add one
+  /// before reaching any other app surface. Only an explicit server signal
+  /// (`phoneRequiredBy` present, phone not verified) counts: an unknown
+  /// (`null`) profile never blocks.
+  bool get mustAddPhone => phoneRequiredBy != null && phoneVerified != true;
+
+  /// M517 (AUTH-D17 a) — the confirmed notifications email, or `null` when
+  /// none is confirmed (the profile row then reads «Додати»).
+  String? get confirmedEmail {
+    final String? e = email;
+    return emailVerified == true && e != null && e.isNotEmpty ? e : null;
+  }
+
+  /// M517 (AUTH-D17 b/c) — an email prompt may show: the server said
+  /// explicitly that no email is confirmed.
+  bool get lacksConfirmedEmail => emailVerified == false;
 
   factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);
 

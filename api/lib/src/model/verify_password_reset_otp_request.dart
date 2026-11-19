@@ -11,18 +11,24 @@ part 'verify_password_reset_otp_request.g.dart';
 /// VerifyPasswordResetOtpRequest
 ///
 /// Properties:
-/// * [email]
+/// * [email] - Legacy (pre-B516): the account email. Prefer identifier.
 /// * [code]
+/// * [identifier] - B516: the same phone or email sent to forgot-password.
 @BuiltValue()
 abstract class VerifyPasswordResetOtpRequest
     implements
         Built<VerifyPasswordResetOtpRequest,
             VerifyPasswordResetOtpRequestBuilder> {
+  /// Legacy (pre-B516): the account email. Prefer identifier.
   @BuiltValueField(wireName: r'email')
-  String get email;
+  String? get email;
 
   @BuiltValueField(wireName: r'code')
   String get code;
+
+  /// B516: the same phone or email sent to forgot-password.
+  @BuiltValueField(wireName: r'identifier')
+  String? get identifier;
 
   VerifyPasswordResetOtpRequest._();
 
@@ -54,16 +60,25 @@ class _$VerifyPasswordResetOtpRequestSerializer
     VerifyPasswordResetOtpRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'email';
-    yield serializers.serialize(
-      object.email,
-      specifiedType: const FullType(String),
-    );
+    if (object.email != null) {
+      yield r'email';
+      yield serializers.serialize(
+        object.email,
+        specifiedType: const FullType(String),
+      );
+    }
     yield r'code';
     yield serializers.serialize(
       object.code,
       specifiedType: const FullType(String),
     );
+    if (object.identifier != null) {
+      yield r'identifier';
+      yield serializers.serialize(
+        object.identifier,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -102,6 +117,13 @@ class _$VerifyPasswordResetOtpRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.code = valueDes;
+          break;
+        case r'identifier':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.identifier = valueDes;
           break;
         default:
           unhandled.add(key);

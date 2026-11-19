@@ -12,6 +12,8 @@ class _$SalonInviteResponse extends SalonInviteResponse {
   @override
   final String? recipientEmail;
   @override
+  final String? recipientPhone;
+  @override
   final String? role;
   @override
   final String? status;
@@ -27,6 +29,7 @@ class _$SalonInviteResponse extends SalonInviteResponse {
   _$SalonInviteResponse._(
       {this.inviteId,
       this.recipientEmail,
+      this.recipientPhone,
       this.role,
       this.status,
       this.createdAt,
@@ -47,6 +50,7 @@ class _$SalonInviteResponse extends SalonInviteResponse {
     return other is SalonInviteResponse &&
         inviteId == other.inviteId &&
         recipientEmail == other.recipientEmail &&
+        recipientPhone == other.recipientPhone &&
         role == other.role &&
         status == other.status &&
         createdAt == other.createdAt &&
@@ -58,6 +62,7 @@ class _$SalonInviteResponse extends SalonInviteResponse {
     var _$hash = 0;
     _$hash = $jc(_$hash, inviteId.hashCode);
     _$hash = $jc(_$hash, recipientEmail.hashCode);
+    _$hash = $jc(_$hash, recipientPhone.hashCode);
     _$hash = $jc(_$hash, role.hashCode);
     _$hash = $jc(_$hash, status.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
@@ -71,6 +76,7 @@ class _$SalonInviteResponse extends SalonInviteResponse {
     return (newBuiltValueToStringHelper(r'SalonInviteResponse')
           ..add('inviteId', inviteId)
           ..add('recipientEmail', recipientEmail)
+          ..add('recipientPhone', recipientPhone)
           ..add('role', role)
           ..add('status', status)
           ..add('createdAt', createdAt)
@@ -91,6 +97,11 @@ class SalonInviteResponseBuilder
   String? get recipientEmail => _$this._recipientEmail;
   set recipientEmail(String? recipientEmail) =>
       _$this._recipientEmail = recipientEmail;
+
+  String? _recipientPhone;
+  String? get recipientPhone => _$this._recipientPhone;
+  set recipientPhone(String? recipientPhone) =>
+      _$this._recipientPhone = recipientPhone;
 
   String? _role;
   String? get role => _$this._role;
@@ -117,6 +128,7 @@ class SalonInviteResponseBuilder
     if ($v != null) {
       _inviteId = $v.inviteId;
       _recipientEmail = $v.recipientEmail;
+      _recipientPhone = $v.recipientPhone;
       _role = $v.role;
       _status = $v.status;
       _createdAt = $v.createdAt;
@@ -144,6 +156,7 @@ class SalonInviteResponseBuilder
         _$SalonInviteResponse._(
           inviteId: inviteId,
           recipientEmail: recipientEmail,
+          recipientPhone: recipientPhone,
           role: role,
           status: status,
           createdAt: createdAt,

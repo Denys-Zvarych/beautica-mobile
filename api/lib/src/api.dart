@@ -31,6 +31,7 @@ import 'package:beautica_api/src/api/notifications_api.dart';
 import 'package:beautica_api/src/api/phone_otp_controller_api.dart';
 import 'package:beautica_api/src/api/public_booking_controller_api.dart';
 import 'package:beautica_api/src/api/public_salon_booking_controller_api.dart';
+import 'package:beautica_api/src/api/registration_phone_controller_api.dart';
 import 'package:beautica_api/src/api/report_controller_api.dart';
 import 'package:beautica_api/src/api/review_controller_api.dart';
 import 'package:beautica_api/src/api/salon_controller_api.dart';
@@ -43,6 +44,7 @@ import 'package:beautica_api/src/api/service_controller_api.dart';
 import 'package:beautica_api/src/api/settlement_search_controller_api.dart';
 import 'package:beautica_api/src/api/staff_bookings_api.dart';
 import 'package:beautica_api/src/api/support_controller_api.dart';
+import 'package:beautica_api/src/api/user_contact_controller_api.dart';
 import 'package:beautica_api/src/api/user_controller_api.dart';
 
 @Deprecated(
@@ -245,6 +247,12 @@ class BeauticaApi {
     return PublicSalonBookingControllerApi(dio, serializers);
   }
 
+  /// Get RegistrationPhoneControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  RegistrationPhoneControllerApi getRegistrationPhoneControllerApi() {
+    return RegistrationPhoneControllerApi(dio, serializers);
+  }
+
   /// Get ReportControllerApi instance, base route and serializer can be overridden by a given but be careful,
   /// by doing that all interceptors will not be executed
   ReportControllerApi getReportControllerApi() {
@@ -315,6 +323,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   SupportControllerApi getSupportControllerApi() {
     return SupportControllerApi(dio, serializers);
+  }
+
+  /// Get UserContactControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  UserContactControllerApi getUserContactControllerApi() {
+    return UserContactControllerApi(dio, serializers);
   }
 
   /// Get UserControllerApi instance, base route and serializer can be overridden by a given but be careful,

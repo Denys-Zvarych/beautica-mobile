@@ -651,18 +651,40 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('btn-save-contacts')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('btn-save-contacts')));
+
+        // M517 (AUTH-D19) — a different number goes through the SMS code +
+        // current-password step; nothing is written before it is confirmed.
+        final Finder codeInput = find.byKey(
+          const ValueKey<String>('phone_code_input'),
+        );
+        await AppHarness.pumpUntilFound(tester, codeInput);
+        expect(fb.userPhoneSendCalls, <String>['+380671112233']);
+        expect(fb.adminPhone, _kAdminPhone, reason: 'old number kept');
+        await tester.enterText(codeInput, '123456');
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('phone_code_current_password')),
+          FakeBackend.kCurrentPassword,
+        );
+        await tester.pump();
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const ValueKey<String>('phone_code_submit')),
+        );
         await AppHarness.settle(tester);
 
-        expect(fb.patchMeCalls, equals(patchesBefore + 1));
         expect(
-          fb.adminPhone,
-          contains('67 111 22 33'),
-          reason: 'the PATCH must persist onto the mutable admin identity',
+          fb.patchMeCalls,
+          equals(patchesBefore),
+          reason: 'a phone change must not ride PATCH /users/me (B516)',
         );
         expect(
-          fb.lastPatchMeBody?.containsKey('instagram'),
-          isFalse,
-          reason: 'ClientContactsEditScreen must NEVER send instagram',
+          fb.userPhoneVerifyBodies.single['currentPassword'],
+          FakeBackend.kCurrentPassword,
+        );
+        expect(
+          fb.adminPhone,
+          '+380671112233',
+          reason: 'the confirmed number persists onto the admin identity',
         );
 
         expect(
@@ -682,7 +704,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byKey(const Key('admin-own-profile-contact-phone')),
-            matching: find.text('+380 67 111 22 33'),
+            matching: find.text('+380671112233'),
           ),
           findsOneWidget,
           reason:

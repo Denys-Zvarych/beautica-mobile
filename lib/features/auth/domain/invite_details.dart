@@ -1,7 +1,8 @@
 // Phase 2.20 — InviteDetails domain entity.
 //
 // Pure Dart — no Flutter imports, no generated code. Holds the read-only
-// snapshot returned by `GET /auth/invite/validate?token=<token>`.
+// snapshot returned by `GET /auth/invite/validate?token=<token>` (B520:
+// masked phone, role, salon name, expiry).
 //
 // [expiresInHours] is a derived convenience property so the presentation layer
 // never needs to perform DateTime arithmetic directly.
@@ -15,13 +16,19 @@ import 'user_role.dart';
 /// [UserRole.salonMaster]; the backend enforces this at the API level.
 class InviteDetails {
   const InviteDetails({
-    required this.email,
+    required this.phoneMasked,
     required this.role,
     required this.expiresAt,
+    this.salonName = '',
   });
 
-  /// The email address the invite was sent to — pre-filled, not editable.
-  final String email;
+  /// M521 (B520, AUTH-21) — the invited phone as the backend masks it
+  /// (`+380 •• ••• •• 45`). A forwarded link must not reveal the number, so
+  /// the invitee types it; only the visible tail is ever compared locally.
+  final String phoneMasked;
+
+  /// The inviting salon's name; `''` when the backend sent none.
+  final String salonName;
 
   /// The role that will be assigned when the user accepts the invite.
   final UserRole role;
@@ -39,4 +46,18 @@ class InviteDetails {
     final remaining = expiresAt.difference(now);
     return remaining.isNegative ? 0 : remaining.inHours;
   }
+
+  /// Whether [normalizedPhone] (`+380XXXXXXXXX`) can be the invited number:
+  /// `false` only when the digits the mask leaves visible at its end differ.
+  /// A UX pre-check that saves a doomed SMS; the server match (400
+  /// `INVITE_PHONE_MISMATCH`) stays the authority.
+  bool phoneMayMatch(String normalizedPhone) {
+    final RegExpMatch? tail = _kTrailingDigits.firstMatch(phoneMasked);
+    final String? visible = tail?.group(1);
+    if (visible == null) return true;
+    return normalizedPhone.replaceAll(_kNonDigits, '').endsWith(visible);
+  }
+
+  static final RegExp _kTrailingDigits = RegExp(r'(\d+)\s*$');
+  static final RegExp _kNonDigits = RegExp(r'\D');
 }

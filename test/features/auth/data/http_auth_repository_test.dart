@@ -50,6 +50,11 @@ class MockAuthApi extends Mock implements AuthControllerApi {}
 
 class MockUserApi extends Mock implements UserControllerApi {}
 
+class MockUserContactApi extends Mock implements UserContactControllerApi {}
+
+class MockRegistrationPhoneApi extends Mock
+    implements RegistrationPhoneControllerApi {}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -277,7 +282,7 @@ void main() {
         ).thenAnswer((_) async => _authResponse());
 
         final (user, tokens) = await repository.login(
-          email: 'master@beautica.test',
+          identifier: 'master@beautica.test',
           password: 's3cr3t!',
         );
 
@@ -300,7 +305,10 @@ void main() {
       ).thenAnswer((_) async => _authResponse(role: 'unknownDefaultOpenApi'));
 
       await expectLater(
-        repository.login(email: 'master@beautica.test', password: 's3cr3t!'),
+        repository.login(
+          identifier: 'master@beautica.test',
+          password: 's3cr3t!',
+        ),
         throwsA(isA<UnknownFailure>()),
       );
     });
@@ -313,7 +321,7 @@ void main() {
       ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
       await expectLater(
-        () => repository.login(email: 'x@x.com', password: 'wrong'),
+        () => repository.login(identifier: 'x@x.com', password: 'wrong'),
         throwsA(isA<InvalidCredentialsFailure>()),
       );
     });
@@ -328,7 +336,8 @@ void main() {
         ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
         await expectLater(
-          () => repository.login(email: 'unverified@x.com', password: 'pw'),
+          () =>
+              repository.login(identifier: 'unverified@x.com', password: 'pw'),
           throwsA(
             isA<UnauthorizedFailure>().having(
               (f) => f.emailNotVerified,
@@ -351,7 +360,7 @@ void main() {
         ).thenThrow(_dioWithFailure(failure, statusCode: 400));
 
         await expectLater(
-          () => repository.login(email: 'bad-email', password: 'pw'),
+          () => repository.login(identifier: 'bad-email', password: 'pw'),
           throwsA(
             isA<ValidationFailure>().having(
               (f) => f.fieldErrors,
@@ -371,7 +380,7 @@ void main() {
         ).thenThrow(_rawDioException());
 
         await expectLater(
-          () => repository.login(email: 'x@x.com', password: 'pw'),
+          () => repository.login(identifier: 'x@x.com', password: 'pw'),
           throwsA(isA<UnknownFailure>()),
         );
       },
@@ -954,6 +963,38 @@ void main() {
     }
   });
 
+  // M521 (B520, AUTH-52) — the phone invite accept.
+  group('acceptInvite — registration ticket', () {
+    test('a ticket is sent and phoneNumber is NOT (the ticket proves the '
+        'invited phone)', () async {
+      when(
+        () => mockAuthApi.acceptInvite(
+          inviteAcceptRequest: any(named: 'inviteAcceptRequest'),
+        ),
+      ).thenAnswer((_) async => _authResponse());
+
+      await repository.acceptInvite(
+        token: 'invite-token-123',
+        password: 'P@ssw0rd!',
+        firstName: 'Іванна',
+        lastName: 'Коваль',
+        termsAccepted: true,
+        registrationTicket: 'ticket-1',
+      );
+
+      final InviteAcceptRequest body =
+          verify(
+                () => mockAuthApi.acceptInvite(
+                  inviteAcceptRequest: captureAny(named: 'inviteAcceptRequest'),
+                ),
+              ).captured.single
+              as InviteAcceptRequest;
+      expect(body.registrationTicket, 'ticket-1');
+      expect(body.phoneNumber, isNull);
+      expect(body.token, 'invite-token-123');
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Group 9 — validateInvite
   // -------------------------------------------------------------------------
@@ -962,7 +1003,8 @@ void main() {
     test('success → returns InviteDetails with typed role', () async {
       final dto = InvitePreviewResponse(
         (b) => b
-          ..invitedEmail = 'admin@salon.test'
+          ..phoneMasked = '+380 •• ••• •• 45'
+          ..salonName = 'Salon Lumière'
           ..role = InvitePreviewResponseRoleEnum.SALON_ADMIN
           ..expiresAt = DateTime.utc(2030),
       );
@@ -983,7 +1025,8 @@ void main() {
 
       final details = await repository.validateInvite(token: 'valid-token');
 
-      expect(details.email, 'admin@salon.test');
+      expect(details.phoneMasked, '+380 •• ••• •• 45');
+      expect(details.salonName, 'Salon Lumière');
       expect(details.role, UserRole.salonAdmin);
       expect(details.expiresAt, DateTime.utc(2030));
     });
@@ -1162,7 +1205,7 @@ void main() {
     });
 
     test(
-      'forwards the supplied email to ForgotPasswordRequest (arg-match)',
+      'forwards the typed identifier to ForgotPasswordRequest.identifier (M517)',
       () async {
         // The finding calls for asserting the email is forwarded correctly. The
         // happy-path test above only asserts completion with any(named: ...) —
@@ -1190,7 +1233,8 @@ void main() {
                   ),
                 ).captured.single
                 as ForgotPasswordRequest;
-        expect(captured.email, 'known@beautica.test');
+        expect(captured.identifier, 'known@beautica.test');
+        expect(captured.email, isNull);
       },
     );
 
@@ -1312,7 +1356,7 @@ void main() {
       ).thenAnswer((_) async => okResponse(resetTicket: 'ticket-abc-123'));
 
       final ticket = await repository.verifyPasswordResetOtp(
-        email: 'anya@example.com',
+        identifier: 'anya@example.com',
         code: '123456',
       );
 
@@ -1320,7 +1364,7 @@ void main() {
     });
 
     test(
-      'forwards email + code to VerifyPasswordResetOtpRequest (arg-match)',
+      'forwards identifier + code to VerifyPasswordResetOtpRequest (M517)',
       () async {
         when(
           () => mockAuthApi.verifyPasswordResetOtp(
@@ -1331,7 +1375,7 @@ void main() {
         ).thenAnswer((_) async => okResponse());
 
         await repository.verifyPasswordResetOtp(
-          email: 'anya@example.com',
+          identifier: 'anya@example.com',
           code: '654321',
         );
 
@@ -1344,7 +1388,8 @@ void main() {
                   ),
                 ).captured.single
                 as VerifyPasswordResetOtpRequest;
-        expect(captured.email, 'anya@example.com');
+        expect(captured.identifier, 'anya@example.com');
+        expect(captured.email, isNull);
         expect(captured.code, '654321');
       },
     );
@@ -1365,7 +1410,7 @@ void main() {
 
         await expectLater(
           () => repository.verifyPasswordResetOtp(
-            email: 'anya@example.com',
+            identifier: 'anya@example.com',
             code: '000000',
           ),
           throwsA(isA<PasswordResetOtpFailure>()),
@@ -1386,7 +1431,7 @@ void main() {
 
         await expectLater(
           () => repository.verifyPasswordResetOtp(
-            email: 'anya@example.com',
+            identifier: 'anya@example.com',
             code: '000000',
           ),
           throwsA(isA<UnknownFailure>()),
@@ -1519,5 +1564,336 @@ void main() {
         verify(() => mockAuthApi.logout()).called(1);
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // M515 — phone-first identity (B514)
+  // -------------------------------------------------------------------------
+  group('M515 phone-first', () {
+    late MockRegistrationPhoneApi phoneApi;
+    late HttpAuthRepository repo;
+
+    setUpAll(() {
+      registerFallbackValue(
+        RegistrationOtpSendRequest((b) => b..phone = '+380671234567'),
+      );
+      registerFallbackValue(
+        RegistrationOtpVerifyRequest(
+          (b) => b
+            ..phone = '+380671234567'
+            ..code = '000000',
+        ),
+      );
+    });
+
+    setUp(() {
+      phoneApi = MockRegistrationPhoneApi();
+      repo = HttpAuthRepository(
+        mockAuthApi,
+        mockUserApi,
+        TokenRefreshLock(),
+        registrationPhoneApi: phoneApi,
+      );
+    });
+
+    test('login sends `identifier` and no legacy `email`', () async {
+      when(
+        () => mockAuthApi.login(loginRequest: any(named: 'loginRequest')),
+      ).thenAnswer((_) async => _authResponse());
+
+      await repo.login(identifier: '+380671234567', password: 'pw');
+
+      final LoginRequest sent =
+          verify(
+                () => mockAuthApi.login(
+                  loginRequest: captureAny(named: 'loginRequest'),
+                ),
+              ).captured.single
+              as LoginRequest;
+      expect(sent.identifier, '+380671234567');
+      expect(sent.email, isNull);
+    });
+
+    test('sendRegistrationCode posts the phone', () async {
+      when(
+        () => phoneApi.send1(
+          registrationOtpSendRequest: any(named: 'registrationOtpSendRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => Response(
+          data: ApiResponseVoid((b) => b..success = true),
+          statusCode: 200,
+          requestOptions: _fakeOptions('/auth/register/phone/otp/send'),
+        ),
+      );
+
+      await repo.sendRegistrationCode(phone: '+380671234567');
+
+      final RegistrationOtpSendRequest sent =
+          verify(
+                () => phoneApi.send1(
+                  registrationOtpSendRequest: captureAny(
+                    named: 'registrationOtpSendRequest',
+                  ),
+                ),
+              ).captured.single
+              as RegistrationOtpSendRequest;
+      expect(sent.phone, '+380671234567');
+    });
+
+    test('verifyRegistrationCode returns the ticket', () async {
+      when(
+        () => phoneApi.verify1(
+          registrationOtpVerifyRequest: any(
+            named: 'registrationOtpVerifyRequest',
+          ),
+        ),
+      ).thenAnswer(
+        (_) async => Response(
+          data: ApiResponseRegistrationTicketResponse(
+            (b) => b
+              ..success = true
+              ..data = RegistrationTicketResponseBuilder()
+              ..data.registrationTicket = 'ticket-1',
+          ),
+          statusCode: 200,
+          requestOptions: _fakeOptions('/auth/register/phone/otp/verify'),
+        ),
+      );
+
+      expect(
+        await repo.verifyRegistrationCode(
+          phone: '+380671234567',
+          code: '123456',
+        ),
+        'ticket-1',
+      );
+    });
+
+    test('verifyRegistrationCode rethrows the mapped PhoneIdentityFailure', () {
+      const failure = PhoneIdentityFailure(
+        code: PhoneIdentityErrorCode.phoneAlreadyRegistered,
+      );
+      when(
+        () => phoneApi.verify1(
+          registrationOtpVerifyRequest: any(
+            named: 'registrationOtpVerifyRequest',
+          ),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: _fakeOptions('/auth/register/phone/otp/verify'),
+          error: failure,
+        ),
+      );
+
+      expect(
+        () => repo.verifyRegistrationCode(phone: '+380671234567', code: '1'),
+        throwsA(same(failure)),
+      );
+    });
+
+    test(
+      'register with a ticket sends no email / phoneNumber and maps the '
+      'signed-in envelope to AuthenticatedRegisterResult (null email)',
+      () async {
+        final auth = AuthResponse(
+          (b) => b
+            ..userId = 'usr-9'
+            ..role = AuthResponseRoleEnum.CLIENT
+            ..accessToken = 'a'
+            ..refreshToken = 'r'
+            ..tokenType = 'Bearer',
+        );
+        when(
+          () => mockAuthApi.register(
+            registerRequest: any(named: 'registerRequest'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            data: ApiResponseRegistrationResponse(
+              (b) => b
+                ..success = true
+                ..data = (RegistrationResponseBuilder()
+                  ..message = 'Registration successful.'
+                  ..auth = auth.toBuilder()),
+            ),
+            statusCode: 200,
+            requestOptions: _fakeOptions('/auth/register'),
+          ),
+        );
+
+        final result = await repo.registerIndependentMaster(
+          password: 'Secret1234',
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          role: UserRole.client,
+          phone: '+380671234567',
+          termsAccepted: true,
+          registrationTicket: 'ticket-1',
+        );
+
+        final RegisterRequest sent =
+            verify(
+                  () => mockAuthApi.register(
+                    registerRequest: captureAny(named: 'registerRequest'),
+                  ),
+                ).captured.single
+                as RegisterRequest;
+        expect(sent.registrationTicket, 'ticket-1');
+        expect(sent.email, isNull);
+        expect(sent.phoneNumber, isNull);
+        expect(result, isA<AuthenticatedRegisterResult>());
+        final ok = result as AuthenticatedRegisterResult;
+        expect(ok.user.id, 'usr-9');
+        expect(ok.user.email, isNull);
+        expect(ok.tokens.refreshToken, 'r');
+      },
+    );
+  });
+
+  // M517 (B516) — signed-in phone add / change + notifications email.
+  group('M517 contact calls', () {
+    late MockUserContactApi contactApi;
+    late HttpAuthRepository repo;
+
+    Response<ApiResponseVoid> ok(String path) => Response(
+      data: ApiResponseVoid((b) => b..success = true),
+      statusCode: 200,
+      requestOptions: _fakeOptions(path),
+    );
+
+    setUpAll(() {
+      registerFallbackValue(
+        RegistrationOtpSendRequest((b) => b..phone = '+380671234567'),
+      );
+      registerFallbackValue(
+        PhoneChangeVerifyRequest(
+          (b) => b
+            ..phone = '+380671234567'
+            ..code = '000000',
+        ),
+      );
+      registerFallbackValue(
+        NotificationEmailVerifyRequest(
+          (b) => b
+            ..email = 'a@a.com'
+            ..code = '000000',
+        ),
+      );
+    });
+
+    setUp(() {
+      contactApi = MockUserContactApi();
+      repo = HttpAuthRepository(
+        mockAuthApi,
+        mockUserApi,
+        TokenRefreshLock(),
+        userContactApi: contactApi,
+      );
+    });
+
+    test('sendPhoneCode posts the new phone', () async {
+      when(
+        () => contactApi.sendPhoneCode(
+          registrationOtpSendRequest: any(named: 'registrationOtpSendRequest'),
+        ),
+      ).thenAnswer((_) async => ok('/users/me/phone/otp/send'));
+
+      await repo.sendPhoneCode(phone: '+380931112233');
+
+      final RegistrationOtpSendRequest sent =
+          verify(
+                () => contactApi.sendPhoneCode(
+                  registrationOtpSendRequest: captureAny(
+                    named: 'registrationOtpSendRequest',
+                  ),
+                ),
+              ).captured.single
+              as RegistrationOtpSendRequest;
+      expect(sent.phone, '+380931112233');
+    });
+
+    test('verifyPhoneCode: a first add sends no currentPassword; a change '
+        'sends it', () async {
+      when(
+        () => contactApi.verifyPhoneCode(
+          phoneChangeVerifyRequest: any(named: 'phoneChangeVerifyRequest'),
+        ),
+      ).thenAnswer((_) async => ok('/users/me/phone/otp/verify'));
+
+      await repo.verifyPhoneCode(phone: '+380931112233', code: '123456');
+      await repo.verifyPhoneCode(
+        phone: '+380931112233',
+        code: '654321',
+        currentPassword: 'Secret1',
+      );
+
+      final List<PhoneChangeVerifyRequest> sent = verify(
+        () => contactApi.verifyPhoneCode(
+          phoneChangeVerifyRequest: captureAny(
+            named: 'phoneChangeVerifyRequest',
+          ),
+        ),
+      ).captured.cast<PhoneChangeVerifyRequest>();
+      expect(sent[0].code, '123456');
+      expect(sent[0].currentPassword, isNull);
+      expect(sent[1].currentPassword, 'Secret1');
+    });
+
+    test('verifyNotificationEmailCode sends email + code + password and '
+        'rethrows the mapped CurrentPasswordInvalidFailure', () async {
+      const CurrentPasswordInvalidFailure failure =
+          CurrentPasswordInvalidFailure();
+      when(
+        () => contactApi.verifyEmailCode(
+          notificationEmailVerifyRequest: any(
+            named: 'notificationEmailVerifyRequest',
+          ),
+        ),
+      ).thenThrow(_dioWithFailure(failure));
+
+      await expectLater(
+        repo.verifyNotificationEmailCode(
+          email: 'o@b.ua',
+          code: '111111',
+          currentPassword: 'wrong',
+        ),
+        throwsA(same(failure)),
+      );
+      final NotificationEmailVerifyRequest sent =
+          verify(
+                () => contactApi.verifyEmailCode(
+                  notificationEmailVerifyRequest: captureAny(
+                    named: 'notificationEmailVerifyRequest',
+                  ),
+                ),
+              ).captured.single
+              as NotificationEmailVerifyRequest;
+      expect(sent.email, 'o@b.ua');
+      expect(sent.code, '111111');
+      expect(sent.currentPassword, 'wrong');
+    });
+
+    test('requestNotificationEmailCode posts the email', () async {
+      when(
+        () => contactApi.requestEmailCode(
+          resendVerificationRequest: any(named: 'resendVerificationRequest'),
+        ),
+      ).thenAnswer((_) async => ok('/users/me/email/request-code'));
+
+      await repo.requestNotificationEmailCode(email: 'o@b.ua');
+
+      final ResendVerificationRequest sent =
+          verify(
+                () => contactApi.requestEmailCode(
+                  resendVerificationRequest: captureAny(
+                    named: 'resendVerificationRequest',
+                  ),
+                ),
+              ).captured.single
+              as ResendVerificationRequest;
+      expect(sent.email, 'o@b.ua');
+    });
   });
 }

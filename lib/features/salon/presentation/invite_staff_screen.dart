@@ -3,9 +3,16 @@
 // Reached from the salon management profile's «Персонал» tab «+» tile
 // (`salon_management_profile_screen.dart`'s `_openInviteStaff`, wired this
 // phase). A `SALON_OWNER`/`SALON_ADMIN` invites a new admin or master by
-// email: a compact two-segment role toggle (Адміністратор | Майстер) with a
-// one-line description of the selected role beneath it, then the invitee's
-// email, then a primary «Надіслати запрошення» CTA.
+// phone (M521, B520 — the email field was deleted, AUTH-D16): a compact
+// two-segment role toggle (Адміністратор | Майстер) with a one-line
+// description of the selected role beneath it, then the invitee's Ukrainian
+// mobile number, then a primary «Надіслати запрошення» CTA. The backend sends
+// the join link by SMS. Design: docs/signup-designs/PhoneFirstAuth/lib/
+// screens/invite_screens.dart (`InviteStaffScreen`).
+//
+// Errors (B520): 400 PHONE_NOT_UA_MOBILE and 409 PHONE_ALREADY_REGISTERED →
+// inline on the phone field; 429 INVITE_SMS_LIMIT → in-form banner; 403
+// APP_CHECK_FAILED → the M515 copy; plain 403 / 429 / other → snack.
 //
 // SCOPE — form only. The approved preview's own «Очікують підтвердження»
 // pending-invites block is descoped to Phase 21.11 (backend Phase 23.1's
@@ -24,10 +31,11 @@
 //     pinned footer. Same substitution [RegisterSalonScreen]/
 //     [SalonProfileEditScreen]/[SalonAddressEditScreen]/
 //     [SalonContactsEditScreen] already made for their own preview source.
-//   - [NeumorphicTextField] — the email field.
+//   - [NeumorphicTextField] + [UaPhoneInputFormatter] — the phone field.
 //   - [NeumorphicInset] + [NeumorphicButton] — the role-toggle track and the
 //     submit CTA, exactly like every other production form.
-//   - [validateEmail] — email validation (Phase 2.5 validator, unchanged).
+//   - [normalizeUaMobile] — the M515 Ukrainian-mobile classifier.
+//   - [VelvetBanner] — the SMS-limit banner (preview `invite_staff_error`).
 //   - [showSuccessSnack]/[showErrorSnack]/[showInfoSnack] — feedback, same
 //     mechanism [RegisterSalonScreen] uses.
 //   - `SalonRepository.inviteStaff` / `InviteStaff.submit` — the write path;
@@ -49,10 +57,12 @@
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -60,8 +70,10 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
-import 'package:beautica_mobile/shared/validators/email_validator.dart';
+import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
+import 'package:beautica_mobile/shared/validators/identifier_classifier.dart';
 import 'package:beautica_mobile/shared/widgets/section_header.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_banner.dart';
 
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../application/invite_staff_notifier.dart';
@@ -94,11 +106,17 @@ class InviteStaffScreen extends ConsumerStatefulWidget {
 }
 
 class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
-  final TextEditingController _emailCtrl = TextEditingController();
+  final TextEditingController _phoneCtrl = TextEditingController();
 
   UserRole _role = UserRole.salonMaster;
   bool _submitting = false;
-  String? _errEmail;
+
+  /// Inline error under the phone field (not a UA mobile / already
+  /// registered).
+  String? _errPhone;
+
+  /// The in-form banner under the field (429 `INVITE_SMS_LIMIT`).
+  String? _banner;
 
   // mobile-perf LOW fix — the role-description caption's style is the SAME
   // Color/height on every build (never varies with `_role`, only the TEXT
@@ -109,9 +127,23 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
     BrandColors.muted,
   ).copyWith(height: 1.35);
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on `ref` in dispose) — same lifecycle as `AcceptInviteScreen`.
+  late final ScreenProtectionManager _screenProtection;
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC LOW (M521 audit) — the recent-invites list shows FULL invitee
+    // phones: hold the ref-counted app-switcher / data-leakage guard while
+    // mounted (internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+  }
+
   @override
   void dispose() {
-    _emailCtrl.dispose();
+    _screenProtection.release();
+    _phoneCtrl.dispose();
     super.dispose();
   }
 
@@ -164,35 +196,52 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
     if (_submitting) return;
     final l10n = AppLocalizations.of(context);
 
-    final String? emailErr = validateEmail(_emailCtrl.text, l10n);
-    if (emailErr != null) {
-      setState(() => _errEmail = emailErr);
+    // M515 classifier — Ukrainian mobile only, same inline error as login /
+    // registration; the backend re-checks (400 PHONE_NOT_UA_MOBILE).
+    final String? phone = normalizeUaMobile(_phoneCtrl.text);
+    if (phone == null) {
+      setState(() {
+        _errPhone = l10n.errPhoneNotUaMobile;
+        _banner = null;
+      });
       showErrorSnack(context, l10n.editValidationSummary);
       return;
     }
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _banner = null;
+    });
     final Failure? failure = await ref
         .read(inviteStaffProvider.notifier)
-        .submit(
-          salonId: widget.salonId,
-          email: _emailCtrl.text.trim(),
-          role: _role,
-        );
+        .submit(salonId: widget.salonId, phone: phone, role: _role);
     if (!mounted) return;
     setState(() => _submitting = false);
     if (failure != null) {
-      // `EmailAlreadyRegisteredFailure` (Phase 303) is a FIELD-level problem
-      // — the email itself, not the request — so it renders inline on
-      // `_errEmail` (`:337`'s `errorText`) exactly like the local-validation
-      // branch above, rather than only the generic error snack every other
-      // failure gets from [_errorMessage]. The `editValidationSummary` snack
-      // is ALSO shown, matching that same local-validation branch: the email
-      // field can be scrolled out of view on this form, so an inline-only
-      // change could go unseen.
-      if (failure is EmailAlreadyRegisteredFailure) {
-        setState(() => _errEmail = l10n.inviteStaffErrorEmailAlreadyRegistered);
-        showErrorSnack(context, l10n.editValidationSummary);
+      // FIELD-level problems (the number itself, not the request) render
+      // inline on `_errPhone`, plus the `editValidationSummary` snack: the
+      // field can be scrolled out of view on this form.
+      if (failure is PhoneIdentityFailure) {
+        switch (failure.code) {
+          case PhoneIdentityErrorCode.phoneNotUaMobile:
+            setState(() => _errPhone = l10n.errPhoneNotUaMobile);
+            showErrorSnack(context, l10n.editValidationSummary);
+          case PhoneIdentityErrorCode.phoneAlreadyRegistered:
+            setState(
+              () => _errPhone = l10n.inviteStaffErrorPhoneAlreadyRegistered,
+            );
+            showErrorSnack(context, l10n.editValidationSummary);
+          case PhoneIdentityErrorCode.inviteSmsLimit:
+            setState(() => _banner = l10n.errInviteSmsLimit);
+          case PhoneIdentityErrorCode.invalidCode ||
+              PhoneIdentityErrorCode.registrationTicketInvalid ||
+              PhoneIdentityErrorCode.rateLimited ||
+              PhoneIdentityErrorCode.appCheckFailed ||
+              PhoneIdentityErrorCode.appCheckUnavailable ||
+              PhoneIdentityErrorCode.invitePhoneMismatch:
+            // 403 APP_CHECK_FAILED / 503 APP_CHECK_UNAVAILABLE → M515 copy.
+            showErrorSnack(context, failure.userMessage(context));
+        }
         return;
       }
       showErrorSnack(context, _errorMessage(failure, l10n));
@@ -240,6 +289,7 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
     // `submit()` never reassigns `state`, so this watch never fires a
     // rebuild after the first one.
     ref.watch(inviteStaffProvider);
+    final String? banner = _banner;
 
     // The pending-invites block below. `.value` (not `.when`) deliberately:
     // this list is SECONDARY to the form, so a loading or errored fetch
@@ -272,7 +322,7 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
     // — same predicate, same order, computed once per data change. Doing it
     // here walked all 200 history rows and allocated a fresh `List` on every
     // build of this screen, and this screen rebuilds on a role toggle, on the
-    // `_submitting` flip, and on every keystroke that changes the email
+    // `_submitting` flip, and on every keystroke that changes the phone
     // field's error (mobile-perf MEDIUM).
     final List<SalonInvite> pendingInvites = history.pending;
 
@@ -338,22 +388,41 @@ class _InviteStaffScreenState extends ConsumerState<InviteStaffScreen> {
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
                 NeumorphicTextField(
-                  key: const ValueKey<String>('invite_email'),
-                  label: l10n.inviteStaffEmailLabel,
-                  controller: _emailCtrl,
+                  key: const ValueKey<String>('invite_phone'),
+                  label: l10n.phoneLabel,
+                  controller: _phoneCtrl,
                   enabled: !_submitting,
-                  hintText: l10n.inviteStaffEmailHint,
-                  keyboardType: TextInputType.emailAddress,
+                  hintText: l10n.registerPhoneHint,
+                  keyboardType: TextInputType.phone,
                   textInputAction: TextInputAction.done,
-                  maxLength: 255,
-                  prefixIcon: const Icon(Icons.alternate_email_rounded),
-                  errorText: _errEmail,
-                  helperText: l10n.inviteStaffEmailHelper,
-                  onChanged: (String v) {
-                    final next = validateEmail(v, l10n);
-                    if (next != _errEmail) setState(() => _errEmail = next);
+                  maxLength: 17,
+                  prefixIcon: const Icon(Icons.phone_outlined),
+                  errorText: _errPhone,
+                  helperText: _errPhone == null
+                      ? l10n.inviteStaffPhoneHelper
+                      : null,
+                  inputFormatters: const <TextInputFormatter>[
+                    UaPhoneInputFormatter(),
+                  ],
+                  autofillHints: const <String>[AutofillHints.telephoneNumber],
+                  onChanged: (String _) {
+                    if (_errPhone != null || _banner != null) {
+                      setState(() {
+                        _errPhone = null;
+                        _banner = null;
+                      });
+                    }
                   },
                 ),
+                if (banner != null) ...<Widget>[
+                  const SizedBox(height: VelvetSpacing.md),
+                  VelvetBanner(
+                    key: const ValueKey<String>('invite_staff_error'),
+                    icon: Icons.sms_failed_outlined,
+                    color: BrandColors.error,
+                    message: banner,
+                  ),
+                ],
                 // The preview's own «Очікують підтвердження» block, appended
                 // here (NOT forked into a second invite screen). Consumes the
                 // SAME [SalonInviteRow] + [SectionHeader] the dedicated

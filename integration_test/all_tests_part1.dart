@@ -133,6 +133,7 @@ import 'salon_owner_unassign_master_service_flow_test.dart'
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
 import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
+import 'staff_invite_by_phone_flow_test.dart' as staff_invite_by_phone;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -423,4 +424,6 @@ void main() {
   // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
   // the five riskiest surfaces opens ONE route / sends ONE request.
   group('tap_reentrancy_flow', tap_reentrancy.main);
+  // M521 — staff invite by phone (SMS link) for owner/admin.
+  group('staff_invite_by_phone_flow', staff_invite_by_phone.main);
 }

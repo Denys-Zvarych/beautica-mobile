@@ -2,6 +2,11 @@
 //
 // SOURCE OF TRUTH:
 //   docs/signup-designs/VelvetTouchDesign/lib/screens/accept_invite_screen.dart
+//   M521 (staff invite by phone): docs/signup-designs/PhoneFirstAuth/lib/
+//   screens/invite_screens.dart — phone step -> SMS code ([PhoneCodeStep],
+//   M515) -> password + name + consent; the preview card shows the salon and
+//   the MASKED invited phone. The preview's three pushed pages are steps of
+//   this ONE route here (App Link `/invite/accept?token=` unchanged).
 //
 // Adaptations from the design source:
 //   - StatefulWidget → ConsumerStatefulWidget + ConsumerState<AcceptInviteScreen>
@@ -33,13 +38,14 @@ import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../shared/validators/name_validator.dart';
 import '../../../shared/validators/password_validator.dart';
-import '../../../shared/validators/phone_validator.dart';
+import '../../../shared/validators/identifier_classifier.dart';
 import '../../../shared/widgets/terms_consent_checkbox.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
+import '../domain/invite_details.dart';
 import '../domain/user_role.dart';
 import '../state/accept_invite_notifier.dart';
 import '../state/login_notice_notifier.dart';
@@ -47,19 +53,28 @@ import 'auth_notifier.dart';
 import 'user_role_l10n.dart';
 import 'widgets/auth_scaffold.dart';
 import 'widgets/password_checklist.dart';
+import 'widgets/phone_code_step.dart';
 
-/// Accept-invite screen — Phase 2.20.
+/// The three steps of the phone-matched accept (M521, AUTH-D16) — kept INSIDE
+/// the one `/invite/accept?token=` route so the App Link stays unchanged and
+/// the single-use registration ticket never travels through the router.
+enum _InviteStep { phone, code, details }
+
+/// Accept-invite screen — Phase 2.20, reworked for phone invites by M521.
 ///
 /// [token] is the single-use invite token parsed from the `?token=` query
 /// parameter by the router. The screen validates it on mount (via
-/// [acceptInviteProvider]) and shows a form for the invited user to set
-/// their password and enter their name. On success, [AuthNotifier.acceptInvite]
+/// [acceptInviteProvider]) and shows the salon, the masked invited phone, the
+/// role and the expiry. The invitee then types the invited phone, confirms it
+/// with the M515 SMS-code step ([PhoneCodeStep]; App Check via the M515
+/// interceptor), and finally sets password + name + consent. Accept sends the
+/// registration ticket (B520, AUTH-52). On success, [AuthNotifier.acceptInvite]
 /// transitions the session to [Authenticated] and the router guard forwards
 /// to the home shell automatically.
 class AcceptInviteScreen extends ConsumerStatefulWidget {
   const AcceptInviteScreen({super.key, required this.token});
 
-  /// Single-use invite token from the emailed deep link.
+  /// Single-use invite token from the SMS link.
   final String token;
 
   @override
@@ -72,9 +87,29 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   final TextEditingController _lastName = TextEditingController();
   final TextEditingController _phone = TextEditingController();
 
-  String _passwordValue = '';
-  String _firstNameValue = '';
-  String _lastNameValue = '';
+  _InviteStep _step = _InviteStep.phone;
+
+  // ── Phone + code steps ────────────────────────────────────────────────
+  String? _phoneError;
+  bool _sending = false;
+  String? _codeError;
+
+  /// `+380…` the SMS code went to (set when the send succeeded).
+  String? _codePhone;
+
+  /// Single-use B514 registration ticket for [_codePhone]; memory only.
+  String? _ticket;
+
+  // ── Details step ──────────────────────────────────────────────────────
+
+  /// Drives ONLY the accept CTA's enabled state (the [PhoneCodeStep]
+  /// `_ctaInputs` pattern): a keystroke rebuilds the CTA, not the screen.
+  late final Listenable _ctaInputs = Listenable.merge(<Listenable>[
+    _password,
+    _firstName,
+    _lastName,
+  ]);
+
   String? _inlineError;
   bool _loading = false;
 
@@ -84,47 +119,44 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   bool _termsAccepted = false;
 
   /// True once the user tapped Accept at least once — surfaces the client-side
-  /// name/phone validators inline (not before the first submit attempt).
+  /// name validators inline (not before the first submit attempt).
   bool _submitted = false;
 
   /// Server-side field errors from the last [ValidationFailure], keyed by the
-  /// backend field name (firstName / lastName / phone / password). Cleared when
-  /// the user edits the corresponding field.
+  /// backend field name (firstName / lastName / password). Cleared when the
+  /// user edits the corresponding field.
   Map<String, String> _fieldErrors = const <String, String>{};
 
   /// Password policy rules — same shared policy every other auth form uses
-  /// (min 8, ≥1 digit, ≥1 uppercase; see `passwordRules`'s default). The
-  /// invite path used to override this to a 12-char minimum that no longer
-  /// matches the backend's `@StrongPassword` policy (min 8, same as
-  /// register/reset) — fixed 2026-09-01.
+  /// (min 8, ≥1 digit, ≥1 uppercase; see `passwordRules`'s default).
   /// Initialised in [didChangeDependencies] so AppLocalizations is available.
   List<PasswordRule>? _rules;
 
   /// Cached read-only invite summary. The preview depends only on the invite
-  /// (email/role/expiry) and the active locale — none of which change while the
-  /// user is typing into the form fields. Caching the instance lets the element
-  /// layer skip its subtree on keystroke-driven [setState] rebuilds; it is
-  /// recreated only when one of its inputs actually changes (e.g. the expiry
-  /// countdown ticks down an hour or the locale switches).
+  /// and the active locale — none of which change while the user is typing.
+  /// Caching the instance lets the element layer skip its subtree on
+  /// [setState] rebuilds; it is recreated only when one of
+  /// its inputs actually changes (expiry countdown tick, locale switch).
   _InvitePreview? _invitePreview;
 
   _InvitePreview _previewFor(
     AppLocalizations l10n,
-    String email,
-    UserRole role,
+    InviteDetails invite,
     int expiresInHours,
   ) {
     final cached = _invitePreview;
     if (cached != null &&
-        cached.email == email &&
-        cached.role == role &&
+        cached.phoneMasked == invite.phoneMasked &&
+        cached.salonName == invite.salonName &&
+        cached.role == invite.role &&
         cached.expiresInHours == expiresInHours &&
         identical(cached.l10n, l10n)) {
       return cached;
     }
     return _invitePreview = _InvitePreview(
-      email: email,
-      role: role,
+      phoneMasked: invite.phoneMasked,
+      salonName: invite.salonName,
+      role: invite.role,
       expiresInHours: expiresInHours,
       l10n: l10n,
     );
@@ -164,21 +196,123 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     super.dispose();
   }
 
-  // ── Validation helpers ────────────────────────────────────────────────
+  // ── Step navigation ───────────────────────────────────────────────────
+
+  /// Back from the code or details step returns to the phone step; a ticket
+  /// already issued is dropped (it proves a phone the user may now change).
+  void _backToPhone({String? error}) {
+    setState(() {
+      _step = _InviteStep.phone;
+      _ticket = null;
+      _codeError = null;
+      _loading = false;
+      _phoneError = error;
+    });
+  }
+
+  // ── Phone step ────────────────────────────────────────────────────────
+
+  Future<void> _sendCode(InviteDetails invite) async {
+    if (_sending) return;
+    final l10n = AppLocalizations.of(context);
+    final String? phone = normalizeUaMobile(_phone.text);
+    if (phone == null) {
+      setState(() => _phoneError = l10n.errPhoneNotUaMobile);
+      return;
+    }
+    // The visible tail of the masked phone already rules this number out —
+    // no SMS for a certain 400 INVITE_PHONE_MISMATCH.
+    if (!invite.phoneMayMatch(phone)) {
+      setState(() => _phoneError = l10n.errInvitePhoneMismatch);
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _phoneError = null;
+    });
+    try {
+      await ref.read(authProvider.notifier).sendRegistrationCode(phone: phone);
+      if (!mounted) return;
+      setState(() {
+        _codePhone = phone;
+        _codeError = null;
+        _step = _InviteStep.code;
+      });
+    } on Failure catch (f) {
+      if (!mounted) return;
+      setState(() => _phoneError = f.userMessage(context));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  // ── Code step ─────────────────────────────────────────────────────────
+
+  Future<void> _confirmCode(String code, String _) async {
+    final String? phone = _codePhone;
+    if (phone == null) {
+      _backToPhone();
+      return;
+    }
+    try {
+      final String ticket = await ref
+          .read(authProvider.notifier)
+          .verifyRegistrationCode(phone: phone, code: code);
+      if (!mounted) return;
+      setState(() {
+        _ticket = ticket;
+        _step = _InviteStep.details;
+      });
+    } on PhoneIdentityFailure catch (f) {
+      if (!mounted) return;
+      if (f.code == PhoneIdentityErrorCode.phoneAlreadyRegistered) {
+        _backToPhone(error: f.userMessage(context));
+        return;
+      }
+      setState(() => _codeError = f.userMessage(context));
+    } on Failure catch (f) {
+      if (!mounted) return;
+      setState(() => _codeError = f.userMessage(context));
+    }
+  }
+
+  Future<int?> _resendCode() async {
+    final String? phone = _codePhone;
+    if (phone == null) return null;
+    try {
+      await ref.read(authProvider.notifier).sendRegistrationCode(phone: phone);
+      if (mounted) setState(() => _codeError = null);
+      return kPhoneCodeResendCooldownSeconds;
+    } on Failure catch (f) {
+      if (mounted) setState(() => _codeError = f.userMessage(context));
+      return null;
+    }
+  }
+
+  // ── Details step: validation helpers ──────────────────────────────────
 
   // _rules is guaranteed non-null after didChangeDependencies runs.
-  bool get _passwordMeetsRules => _rules!.every((r) => r.test(_passwordValue));
+  bool get _passwordMeetsRules => _rules!.every((r) => r.test(_password.text));
 
-  // Phone is REQUIRED for every role (InviteAcceptRequest.phoneNumber is
-  // @NotBlank on the backend). It is deliberately NOT part of this CTA gate —
-  // same as register_step_2_screen: the CTA stays tappable and an empty phone
-  // is rejected at submit time with the inline `registerPhoneRequired` error
-  // (then `validatePhone` for format), so the user is told why it blocked.
   bool get _formValid =>
       _termsAccepted &&
       _passwordMeetsRules &&
-      _firstNameValue.trim().isNotEmpty &&
-      _lastNameValue.trim().isNotEmpty;
+      _firstName.text.trim().isNotEmpty &&
+      _lastName.text.trim().isNotEmpty;
+
+  /// A details-field keystroke: drops that field's server error and, only
+  /// once a submit was attempted (client errors are visible), rebuilds so the
+  /// inline client error tracks the text. Otherwise only the CTA
+  /// ([_ctaInputs]) and the password checklist rebuild.
+  void _onDetailsChanged(String key) {
+    if (_fieldErrors.containsKey(key) || _submitted) {
+      setState(() {
+        _fieldErrors = Map<String, String>.unmodifiable(
+          Map<String, String>.from(_fieldErrors)..remove(key),
+        );
+      });
+    }
+  }
 
   /// Inline first-name error: server error first, then client validator
   /// (non-blank + max-length 100), only after the first submit attempt.
@@ -197,26 +331,9 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     return validateName(_lastName.text, l10n);
   }
 
-  /// Inline phone error, in priority order (mirrors register_step_2_screen):
-  ///   1. Server error for `phone` / `phoneNumber`.
-  ///   2. Required-field guard (`registerPhoneRequired`) — after first submit.
-  ///   3. Shared format validator [validatePhone] — after first submit.
-  /// Phone is REQUIRED for every role (InviteAcceptRequest.phoneNumber is
-  /// @NotBlank on the backend).
-  String? _phoneError(AppLocalizations l10n) {
-    final serverErr = _fieldErrors['phone'] ?? _fieldErrors['phoneNumber'];
-    if (serverErr != null) return serverErr;
-    if (!_submitted) return null;
-    if (_phone.text.trim().isEmpty) return l10n.registerPhoneRequired;
-    return validatePhone(_phone.text.trim(), l10n);
-  }
-
   /// Inline password error: server error first, then the same hard-gate
   /// validator register_step_1_screen/reset_password_screen use
-  /// (`validateNewPassword` — min 8, max 128, ≥1 digit, ≥1 uppercase). The
-  /// live [PasswordChecklist] above (driven by [_rules]) already gives
-  /// real-time feedback for the same 3 checks; this keeps the submit path
-  /// unable to diverge from what the checklist promises.
+  /// (`validateNewPassword` — min 8, max 128, ≥1 digit, ≥1 uppercase).
   String? _passwordError(AppLocalizations l10n) {
     final serverErr = _fieldErrors['password'];
     if (serverErr != null) return serverErr;
@@ -224,42 +341,32 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     return validateNewPassword(_password.text, l10n);
   }
 
-  void _clearServerError(String key) {
-    if (_fieldErrors.containsKey(key)) {
-      setState(() {
-        _fieldErrors = Map<String, String>.unmodifiable(
-          Map<String, String>.from(_fieldErrors)..remove(key),
-        );
-      });
-    }
-  }
-
-  // ── Action ────────────────────────────────────────────────────────────
+  // ── Details step: action ──────────────────────────────────────────────
 
   Future<void> _accept() async {
     if (_loading || !_formValid) return;
+    final String? ticket = _ticket;
+    if (ticket == null) {
+      _backToPhone();
+      return;
+    }
 
     final l10n = AppLocalizations.of(context);
 
     // Client-side validation before the network call — the same hard gate
-    // every other auth form applies, all via shared lib/shared/validators/
-    // helpers: password (min 8 / max 128 / digit / uppercase), names
-    // (non-blank + max-length 100 + no digits), phone (REQUIRED for every
-    // role — backend's InviteAcceptRequest.phoneNumber is @NotBlank; empty →
-    // `registerPhoneRequired`, non-empty must match the Ukrainian phone
-    // format via validatePhone). Surfaced inline via the *Error getters.
-    setState(() => _submitted = true);
+    // every other auth form applies (password + names). The phone is proven
+    // by the ticket, not re-sent (B520).
     final bool clientInvalid =
         validateNewPassword(_password.text, l10n) != null ||
         validateName(_firstName.text, l10n) != null ||
-        validateName(_lastName.text, l10n) != null ||
-        validatePhone(_phone.text.trim(), l10n) != null;
+        validateName(_lastName.text, l10n) != null;
     if (clientInvalid) {
-      setState(() {});
+      setState(() => _submitted = true);
       return;
     }
 
     setState(() {
+      _submitted = true;
       _loading = true;
       _inlineError = null;
       _fieldErrors = const <String, String>{};
@@ -272,10 +379,8 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           password: _password.text,
           firstName: _firstName.text.trim(),
           lastName: _lastName.text.trim(),
-          // Guaranteed non-empty here — the clientInvalid gate above already
-          // returned when validatePhone (which rejects empty) failed.
-          phoneNumber: _phone.text.trim(),
           termsAccepted: _termsAccepted,
+          registrationTicket: ticket,
         );
 
     if (!mounted) return;
@@ -300,11 +405,20 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
       },
       error: (e, _) {
         final l10n = AppLocalizations.of(context);
+        // M521 (AUTH-52) — the ticket's phone is not the invited one, the
+        // ticket expired, or the phone was claimed meanwhile: the invite and
+        // the ticket are both left unspent (B520 rolls back), so the user
+        // goes back to the phone step with the reason under the field.
+        if (e is PhoneIdentityFailure &&
+            (e.code == PhoneIdentityErrorCode.invitePhoneMismatch ||
+                e.code == PhoneIdentityErrorCode.registrationTicketInvalid ||
+                e.code == PhoneIdentityErrorCode.phoneAlreadyRegistered)) {
+          _backToPhone(error: e.userMessage(context));
+          return;
+        }
         // A ValidationFailure with field errors maps onto each field's inline
-        // errorText (firstName / lastName / phone / password) instead of
-        // collapsing to a single banner. The banner is kept only as the
-        // fallback for an empty field map (localized generic) or any
-        // non-validation failure.
+        // errorText (firstName / lastName / password) instead of collapsing
+        // to a single banner.
         if (e is ValidationFailure && e.fieldErrors.isNotEmpty) {
           setState(() {
             _loading = false;
@@ -314,29 +428,25 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           return;
         }
         // Invite-accept post-success design (2026-09-01): the HTTP 2xx is
-        // the point of no return, so these three cases (response unusable /
-        // dropped after send / invite-or-email already spent) must never
-        // dead-end on a "try again" banner — the retry can never succeed on
-        // a single-use token. Hand off to /login with the reason + invited
-        // email instead. `go`, not `push` — the spent invite screen must
-        // leave the navigation stack.
+        // the point of no return, so these cases (response unusable /
+        // dropped after send / invite already spent) must never dead-end on
+        // a "try again" banner — the retry can never succeed on a single-use
+        // token. Hand off to /login with the reason + the confirmed phone
+        // (the login identifier accepts it) instead. `go`, not `push` — the
+        // spent invite screen must leave the navigation stack.
         if (e is InviteHandoffFailure) {
-          final email = ref
-              .read(acceptInviteProvider(widget.token))
-              .value
-              ?.email;
-          ref.read(loginNoticeProvider.notifier).show(e.reason, email: email);
+          ref
+              .read(loginNoticeProvider.notifier)
+              .show(e.reason, email: _codePhone);
           setState(() => _loading = false);
           if (!mounted) return;
           context.go(RouteNames.login);
           return;
         }
         // ValidationFailure.userMessage() already returns the localized
-        // errValidation copy — no need to branch on it separately. The raw
-        // serverMessage fallback that used to live here was removed
+        // errValidation copy. The raw serverMessage fallback was removed
         // (mobile-security, 2026-08): it could surface untranslated/technical
-        // backend text on this live-narrated banner. Per-field specificity is
-        // unaffected — the fieldErrors branch above already returned.
+        // backend text on this live-narrated banner.
         final String message = e is Failure
             ? e.userMessage(context)
             : l10n.errUnknown;
@@ -403,44 +513,130 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             ],
           ),
         ),
-        data: (invite) => _buildForm(
-          l10n,
-          invite.email,
-          invite.role,
-          invite.expiresInHoursFrom(ref.watch(clockProvider)()),
-        ),
+        data: (invite) {
+          final preview = _previewFor(
+            l10n,
+            invite,
+            invite.expiresInHoursFrom(ref.watch(clockProvider)()),
+          );
+          // System back on the code / details step steps back to the phone
+          // step instead of leaving the invite (and losing the typed phone).
+          return PopScope(
+            canPop: _step == _InviteStep.phone,
+            onPopInvokedWithResult: (bool didPop, Object? _) {
+              if (!didPop && !_loading) _backToPhone();
+            },
+            child: switch (_step) {
+              _InviteStep.phone => _buildPhoneStep(l10n, invite, preview),
+              _InviteStep.code => _buildCodeStep(l10n, preview),
+              _InviteStep.details => _buildDetailsStep(l10n, preview),
+            },
+          );
+        },
       ),
     );
   }
 
-  Widget _buildForm(
+  /// Heading + subtitle + invite card — the same block on all three steps
+  /// (preview `_inviteHeader`).
+  Widget _inviteHeader(
     AppLocalizations l10n,
-    String email,
-    UserRole role,
-    int expiresInHours,
+    String subtitle,
+    _InvitePreview preview,
   ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        const VelvetHeader(),
+        Text(l10n.inviteHeading, style: VelvetText.heading()),
+        const SizedBox(height: VelvetSpacing.sm),
+        Text(subtitle, style: VelvetText.body()),
+        const SizedBox(height: VelvetSpacing.lg),
+        preview,
+        const SizedBox(height: VelvetSpacing.xl),
+      ],
+    );
+  }
+
+  Widget _buildPhoneStep(
+    AppLocalizations l10n,
+    InviteDetails invite,
+    _InvitePreview preview,
+  ) {
+    final String? error = _phoneError;
+    return AuthScaffold(
+      showBack: false,
+      bottomBar: NeumorphicButton(
+        key: const ValueKey<String>('invite_send_code'),
+        label: l10n.registerSendCode,
+        loading: _sending,
+        onPressed: _sending ? null : () => _sendCode(invite),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _inviteHeader(l10n, l10n.inviteSubtitle, preview),
+          NeumorphicTextField(
+            key: const ValueKey<String>('invite_phone'),
+            label: l10n.invitePhoneLabel,
+            controller: _phone,
+            hintText: l10n.registerPhoneHint,
+            keyboardType: TextInputType.phone,
+            textInputAction: TextInputAction.done,
+            maxLength: 17,
+            prefixIcon: const Icon(Icons.phone_outlined),
+            enabled: !_sending,
+            helperText: error == null ? l10n.invitePhoneHelper : null,
+            errorText: error,
+            inputFormatters: const <TextInputFormatter>[
+              UaPhoneInputFormatter(),
+            ],
+            autofillHints: const <String>[AutofillHints.telephoneNumber],
+            onChanged: (String _) {
+              if (_phoneError != null) setState(() => _phoneError = null);
+            },
+            onSubmitted: (String _) => _sendCode(invite),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCodeStep(AppLocalizations l10n, _InvitePreview preview) {
+    return PhoneCodeStep(
+      onBack: _backToPhone,
+      header: _inviteHeader(l10n, l10n.inviteCodeSubtitle, preview),
+      description: l10n.phoneCodeSmsDescription,
+      target: UaPhoneInputFormatter.display(_codePhone ?? ''),
+      codeError: _codeError,
+      onCodeChanged: (_) {
+        if (_codeError != null) setState(() => _codeError = null);
+      },
+      onConfirm: _confirmCode,
+      onResend: _resendCode,
+    );
+  }
+
+  Widget _buildDetailsStep(AppLocalizations l10n, _InvitePreview preview) {
     return AuthScaffold(
       showBack: false,
       bottomBar: Semantics(
         hint: _termsAccepted ? null : l10n.termsConsentRequiredHint,
-        child: NeumorphicButton(
-          key: const ValueKey<String>('invite_accept'),
-          label: l10n.inviteAcceptCta,
-          icon: Icons.group_add_rounded,
-          loading: _loading,
-          onPressed: (_formValid && !_loading) ? _accept : null,
+        child: ListenableBuilder(
+          listenable: _ctaInputs,
+          builder: (BuildContext context, Widget? _) => NeumorphicButton(
+            key: const ValueKey<String>('invite_accept'),
+            label: l10n.inviteAcceptCta,
+            icon: Icons.group_add_rounded,
+            loading: _loading,
+            onPressed: (_formValid && !_loading) ? _accept : null,
+          ),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const VelvetHeader(),
-          Text(l10n.inviteHeading, style: VelvetText.heading()),
-          const SizedBox(height: VelvetSpacing.sm),
-          Text(l10n.inviteSubtitle, style: VelvetText.body()),
-          const SizedBox(height: VelvetSpacing.lg),
-          _previewFor(l10n, email, role, expiresInHours),
-          const SizedBox(height: VelvetSpacing.xl),
+          _inviteHeader(l10n, l10n.inviteDetailsSubtitle, preview),
           NeumorphicTextField(
             key: const ValueKey<String>('invite_password'),
             label: l10n.invitePasswordLabel,
@@ -453,16 +649,17 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             autofillHints: const <String>[AutofillHints.newPassword],
             enabled: !_loading,
             errorText: _passwordError(l10n),
-            onChanged: (String v) {
-              _clearServerError('password');
-              setState(() => _passwordValue = v);
-            },
+            onChanged: (String _) => _onDetailsChanged('password'),
           ),
           const SizedBox(height: VelvetSpacing.sm),
           // Same shared policy as register/reset (min 8, ≥1 digit, ≥1
           // uppercase — see `passwordRules`'s default).
           // _rules is guaranteed non-null after didChangeDependencies runs.
-          PasswordChecklist(value: _passwordValue, rules: _rules!),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _password,
+            builder: (BuildContext context, TextEditingValue v, Widget? _) =>
+                PasswordChecklist(value: v.text, rules: _rules!),
+          ),
           const SizedBox(height: VelvetSpacing.lg),
           Row(
             children: <Widget>[
@@ -477,10 +674,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
                   autofillHints: const <String>[AutofillHints.givenName],
                   enabled: !_loading,
                   errorText: _firstNameError(l10n),
-                  onChanged: (String v) {
-                    _clearServerError('firstName');
-                    setState(() => _firstNameValue = v);
-                  },
+                  onChanged: (String _) => _onDetailsChanged('firstName'),
                 ),
               ),
               const SizedBox(width: VelvetSpacing.md),
@@ -490,42 +684,19 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
                   label: l10n.inviteLastNameLabel,
                   controller: _lastName,
                   hintText: l10n.registerLastNamePlaceholder,
-                  textInputAction: TextInputAction.next,
+                  textInputAction: TextInputAction.done,
                   maxLength: 100,
                   autofillHints: const <String>[AutofillHints.familyName],
                   enabled: !_loading,
                   errorText: _lastNameError(l10n),
-                  onChanged: (String v) {
-                    _clearServerError('lastName');
-                    setState(() => _lastNameValue = v);
-                  },
+                  onChanged: (String _) => _onDetailsChanged('lastName'),
+                  // [_accept] itself ignores the call while loading or while
+                  // the form is invalid (the field no longer rebuilds per
+                  // keystroke, so the guard cannot live in the build).
+                  onSubmitted: (String _) => _accept(),
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: VelvetSpacing.md),
-          NeumorphicTextField(
-            key: const ValueKey<String>('invite_phone'),
-            label: l10n.invitePhoneLabel,
-            controller: _phone,
-            hintText: '+380 XX XXX XX XX',
-            keyboardType: TextInputType.phone,
-            textInputAction: TextInputAction.done,
-            maxLength: 17,
-            prefixIcon: const Icon(Icons.phone_outlined),
-            enabled: !_loading,
-            errorText: _phoneError(l10n),
-            inputFormatters: const <TextInputFormatter>[
-              UaPhoneInputFormatter(),
-            ],
-            onChanged: (String _) {
-              _clearServerError('phone');
-              _clearServerError('phoneNumber');
-              // Phone is outside the CTA gate, so a rebuild is only needed to
-              // refresh the inline error once it is visible (after submit).
-              if (_submitted) setState(() {});
-            },
-            onSubmitted: (!_loading && _formValid) ? (_) => _accept() : null,
           ),
           const SizedBox(height: VelvetSpacing.md),
           // ── Terms consent (required, phase 443) ─────────────────────────
@@ -535,12 +706,12 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             enabled: !_loading,
             onChanged: (bool v) => setState(() => _termsAccepted = v),
           ),
-          if (_inlineError != null) ...<Widget>[
+          if (_inlineError case final String inlineError) ...<Widget>[
             const SizedBox(height: VelvetSpacing.sm),
             Semantics(
               liveRegion: true,
               child: Text(
-                _inlineError!,
+                inlineError,
                 style: VelvetText.feedback(BrandColors.error),
               ),
             ),
@@ -551,18 +722,21 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   }
 }
 
-/// Read-only summary of the invitation: the locked email, the assigned role
-/// and the expiry window. Rendered as an inset well so it reads as "fixed,
+/// Read-only summary of the invitation: the salon, the masked invited phone
+/// (B520 — a forwarded link never reveals the number), the assigned role and
+/// the expiry window. Rendered as an inset well so it reads as "fixed,
 /// not editable".
 class _InvitePreview extends StatelessWidget {
   const _InvitePreview({
-    required this.email,
+    required this.phoneMasked,
+    required this.salonName,
     required this.role,
     required this.expiresInHours,
     required this.l10n,
   });
 
-  final String email;
+  final String phoneMasked;
+  final String salonName;
   final UserRole role;
   final int expiresInHours;
   final AppLocalizations l10n;
@@ -576,7 +750,15 @@ class _InvitePreview extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            _row(Icons.alternate_email_rounded, l10n.inviteEmailLabel, email),
+            if (salonName.isNotEmpty) ...<Widget>[
+              _row(Icons.storefront_outlined, l10n.inviteSalonLabel, salonName),
+              const SizedBox(height: VelvetSpacing.md),
+            ],
+            _row(
+              Icons.phone_outlined,
+              l10n.invitePhoneMaskedLabel,
+              phoneMasked,
+            ),
             const SizedBox(height: VelvetSpacing.md),
             _row(role.icon, l10n.inviteRoleLabel, role.label(l10n)),
             const SizedBox(height: VelvetSpacing.md),

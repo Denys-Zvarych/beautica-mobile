@@ -13,6 +13,7 @@ part 'salon_invite_response.g.dart';
 /// Properties:
 /// * [inviteId]
 /// * [recipientEmail]
+/// * [recipientPhone]
 /// * [role]
 /// * [status]
 /// * [createdAt]
@@ -25,6 +26,9 @@ abstract class SalonInviteResponse
 
   @BuiltValueField(wireName: r'recipientEmail')
   String? get recipientEmail;
+
+  @BuiltValueField(wireName: r'recipientPhone')
+  String? get recipientPhone;
 
   @BuiltValueField(wireName: r'role')
   String? get role;
@@ -78,6 +82,13 @@ class _$SalonInviteResponseSerializer
       yield r'recipientEmail';
       yield serializers.serialize(
         object.recipientEmail,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.recipientPhone != null) {
+      yield r'recipientPhone';
+      yield serializers.serialize(
+        object.recipientPhone,
         specifiedType: const FullType(String),
       );
     }
@@ -147,6 +158,13 @@ class _$SalonInviteResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.recipientEmail = valueDes;
+          break;
+        case r'recipientPhone':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.recipientPhone = valueDes;
           break;
         case r'role':
           final valueDes = serializers.deserialize(

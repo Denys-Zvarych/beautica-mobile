@@ -194,6 +194,9 @@ void main() {
         'secret',
         'email',
         'phone',
+        'ticket',
+        'registrationticket',
+        'identifier',
       ]) {
         expect(
           kSensitiveQueryKeys,
@@ -201,6 +204,15 @@ void main() {
           reason: '"$key" carries PII / credentials and must be value-masked',
         );
       }
+    });
+
+    test('M515: ticket / identifier values are masked on any route', () {
+      expect(
+        redactLogPath(
+          '/api/v1/x?registrationTicket=rt1&identifier=olena&ticket=t2&page=1',
+        ),
+        '/api/v1/x?registrationTicket=***&identifier=***&ticket=***&page=1',
+      );
     });
 
     test('does NOT list the harmless pagination/sort keys', () {
@@ -746,7 +758,7 @@ void main() {
           expect(isPiiPath(path), isTrue, reason: path);
         }
         expect(kPiiPathPrefixes, contains('/api/v1/notifications'));
-        expect(kPiiPaths.length, equals(23));
+        expect(kPiiPaths.length, equals(25));
       },
     );
   });
@@ -754,7 +766,7 @@ void main() {
     test('/api/v1/devices/token is a PII route; kPiiPaths count unchanged', () {
       expect(isPiiPath('/api/v1/devices/token'), isTrue);
       expect(kPiiPathPrefixes, contains('/api/v1/devices/'));
-      expect(kPiiPaths.length, equals(23));
+      expect(kPiiPaths.length, equals(25));
     });
   });
   group('content report paths (phase 424)', () {
@@ -763,7 +775,7 @@ void main() {
       expect(isPiiPath('/api/v1/reports?x=1'), isTrue);
       expect(kPiiPathPrefixes, contains('/api/v1/reports'));
       expect(kAuthPaths.contains('/api/v1/reports'), isFalse);
-      expect(kPiiPaths.length, equals(23));
+      expect(kPiiPaths.length, equals(25));
     });
   });
   group('client block paths (phase 425/426)', () {
@@ -773,7 +785,7 @@ void main() {
       expect(isPiiPath('/api/v1/blocks/3f2c'), isTrue);
       expect(kPiiPathPrefixes, contains('/api/v1/blocks'));
       expect(kAuthPaths.contains('/api/v1/blocks'), isFalse);
-      expect(kPiiPaths.length, equals(23));
+      expect(kPiiPaths.length, equals(25));
     });
   });
   group('media upload paths (Phase 070)', () {

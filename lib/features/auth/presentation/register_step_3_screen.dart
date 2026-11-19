@@ -68,8 +68,10 @@ import '../domain/user_role.dart';
 import '../state/pending_locality.dart';
 import '../state/pending_locality_store.dart';
 import '../state/register_draft_notifier.dart';
+import '../domain/auth_session.dart';
 import 'auth_notifier.dart';
 import 'register_flow_shell.dart';
+import 'registration_locality_save.dart';
 import 'widgets/auth_scaffold.dart';
 
 // ---------------------------------------------------------------------------
@@ -303,9 +305,20 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     // call and go straight to verification (Phase 2.19 fix, bug #1).
     if (draft.password.isEmpty) {
       if (!mounted) return;
+      // M515 — the phone-first account (no email in the draft) already
+      // exists and the session is live: only the locality / salon save is
+      // left to retry. The legacy email path keeps going to /verification.
+      if (draft.email.isEmpty &&
+          ref.read(authProvider).value is Authenticated) {
+        await _saveLocalityAndFinish(role: role, skipLocality: skipLocality);
+        return;
+      }
       context.go(RouteNames.verification, extra: draft.email);
       return;
     }
+
+    // M515 — captured BEFORE clearCredentials() wipes the ticket.
+    final bool phoneFirst = draft.registrationTicket != null;
 
     setState(() {
       _submitting = true;
@@ -328,7 +341,10 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       final result = await ref
           .read(authProvider.notifier)
           .register(
-            email: draft.email,
+            // M515 (AUTH-D11) — the phone-first shape sends the ticket and
+            // no email; the legacy email shape is kept for old drafts.
+            email: draft.registrationTicket == null ? draft.email : null,
+            registrationTicket: draft.registrationTicket,
             password: draft.password,
             firstName: draft.firstName,
             lastName: draft.lastName,
@@ -352,6 +368,18 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         // throwaway notice.
         if (error is EmailAlreadyRegisteredFailure) {
           setState(() => _emailAlreadyRegistered = true);
+          return;
+        }
+        // M515 — the ticket expired (15 min) or was used, or the phone got
+        // registered meanwhile: the phone must be proven again on step 1.
+        if (error is PhoneIdentityFailure &&
+            (error.code == PhoneIdentityErrorCode.registrationTicketInvalid ||
+                error.code == PhoneIdentityErrorCode.phoneAlreadyRegistered)) {
+          draftNotifier.setRegistrationTicket(null);
+          if (error.code == PhoneIdentityErrorCode.registrationTicketInvalid) {
+            showErrorSnack(context, error.userMessage(context));
+          }
+          context.go(RouteNames.register, extra: error.code);
           return;
         }
         // Map a 400/422 ValidationFailure to a banner naming the failed
@@ -378,6 +406,13 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       // slice stays in the draft for the post-verification save.
       draftNotifier.clearCredentials();
 
+      // M515 — phone-first: the session exists already, so save the locality
+      // / salon now and finish (no email verification step).
+      if (phoneFirst && result is AuthenticatedRegisterResult) {
+        await _saveLocalityAndFinish(role: role, skipLocality: skipLocality);
+        return;
+      }
+
       // Silent-data-loss fix — durably stash the Step 3 locality slice keyed by
       // email. The in-memory draft is routinely lost when the user backgrounds
       // the app to read the OTP email (or is OS-killed under memory pressure);
@@ -398,6 +433,44 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       context.go(RouteNames.verification, extra: email);
     } finally {
       // Defect 2 — always re-enable CTAs.
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  /// M515 — persists the Step 3 slice with the live phone-first session
+  /// (shared [saveRegistrationLocality], the same implementation the legacy
+  /// verification screen uses) and goes to /done. A failure keeps the user
+  /// here with the error; «Далі» then retries only the save (the account
+  /// exists — see the already-registered guard in [_runRegisterAndSave]).
+  Future<void> _saveLocalityAndFinish({
+    required UserRole role,
+    required bool skipLocality,
+  }) async {
+    final draft = ref.read(registerDraftProvider);
+    if (draft == null) return;
+    final String? cityId = skipLocality ? null : draft.cityId;
+    setState(() => _submitting = true);
+    try {
+      await saveRegistrationLocality(
+        ref,
+        RegistrationLocality(
+          role: role,
+          localityProvided: cityId != null && cityId.isNotEmpty,
+          cityId: cityId,
+          districtId: skipLocality ? null : draft.districtId,
+          street: draft.street,
+          buildingNo: draft.buildingNo,
+          locationNote: draft.locationNote,
+          salonName: draft.salonName,
+          phone: draft.phone,
+        ),
+      );
+      if (!mounted) return;
+      context.go(RouteNames.done);
+    } on Failure catch (f) {
+      if (!mounted) return;
+      showErrorSnack(context, f.userMessage(context));
+    } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
@@ -499,7 +572,9 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
           ),
           const SizedBox(height: VelvetSpacing.lg),
           WizardStepChrome(
-            step: 2,
+            // M515 — the address continues dot 4 of the phone-first wizard.
+            step: kPhoneFirstRegisterSteps,
+            totalSteps: kPhoneFirstRegisterSteps,
             headline: switch (role) {
               UserRole.client => l10n.registerStep3ShellHeadlineClient,
               UserRole.salonOwner => l10n.registerStep3ShellHeadlineOwner,

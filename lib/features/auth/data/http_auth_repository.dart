@@ -38,10 +38,46 @@ import 'user_mapper.dart';
 ///
 /// Inject via [authRepositoryProvider] — never construct directly.
 final class HttpAuthRepository implements AuthRepository {
-  HttpAuthRepository(this._authApi, this._userApi, this._refreshLock);
+  HttpAuthRepository(
+    this._authApi,
+    this._userApi,
+    this._refreshLock, {
+    RegistrationPhoneControllerApi? registrationPhoneApi,
+    UserContactControllerApi? userContactApi,
+  }) : _registrationPhoneApi = registrationPhoneApi,
+       _userContactApi = userContactApi;
 
   final AuthControllerApi _authApi;
   final UserControllerApi _userApi;
+
+  /// M515 — `POST /auth/register/phone/otp/{send,verify}`. Optional so the
+  /// existing constructions keep compiling; [authRepositoryProvider] always
+  /// passes it.
+  final RegistrationPhoneControllerApi? _registrationPhoneApi;
+
+  /// M517 — `POST /users/me/phone/otp/*` + `/users/me/email/*`. Optional for
+  /// the same reason as [_registrationPhoneApi].
+  final UserContactControllerApi? _userContactApi;
+
+  UserContactControllerApi get _contactApi {
+    final UserContactControllerApi? api = _userContactApi;
+    if (api == null) {
+      throw const UnknownFailure(
+        cause: 'HttpAuthRepository built without userContactApi',
+      );
+    }
+    return api;
+  }
+
+  RegistrationPhoneControllerApi get _phoneApi {
+    final RegistrationPhoneControllerApi? api = _registrationPhoneApi;
+    if (api == null) {
+      throw const UnknownFailure(
+        cause: 'HttpAuthRepository built without registrationPhoneApi',
+      );
+    }
+    return api;
+  }
 
   /// Shared single-flight guard that prevents concurrent token refreshes
   /// across both this repository's direct [refresh] path and the
@@ -59,14 +95,16 @@ final class HttpAuthRepository implements AuthRepository {
 
   @override
   Future<(User, AuthTokens)> login({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
     try {
+      // M515 (AUTH-08) — `identifier` (phone or email); the legacy `email`
+      // field is not sent (the backend reads `identifier` first).
       final res = await _authApi.login(
         loginRequest: LoginRequest(
           (b) => b
-            ..email = email
+            ..identifier = identifier
             ..password = password,
         ),
       );
@@ -104,7 +142,7 @@ final class HttpAuthRepository implements AuthRepository {
 
   @override
   Future<RegisterResult> registerIndependentMaster({
-    required String email,
+    String? email,
     required String password,
     required String firstName,
     required String lastName,
@@ -113,7 +151,11 @@ final class HttpAuthRepository implements AuthRepository {
     String? address,
     String? phone,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
+    // M515 (AUTH-41) — phone-first shape: the ticket carries the verified
+    // phone, so neither `email` nor `phoneNumber` is sent.
+    final bool phoneShape = registrationTicket != null;
     // Backend contract:
     //   INDEPENDENT_MASTER → POST /auth/register/independent-master
     //     Body: { email, password, firstName, lastName, phoneNumber }
@@ -140,11 +182,12 @@ final class HttpAuthRepository implements AuthRepository {
         final res = await _authApi.registerIndependentMaster(
           registerIndependentMasterRequest: RegisterIndependentMasterRequest(
             (b) => b
-              ..email = email
+              ..email = phoneShape ? null : email
               ..password = password
               ..firstName = firstName
               ..lastName = lastName
-              ..phoneNumber = trimmedPhone
+              ..phoneNumber = phoneShape ? null : trimmedPhone
+              ..registrationTicket = registrationTicket
               // Phase 443 — consent triple, all-or-nothing.
               ..termsAccepted = termsAccepted ? true : null
               ..termsVersion = termsAccepted ? kTermsVersion : null
@@ -153,11 +196,7 @@ final class HttpAuthRepository implements AuthRepository {
                   : null,
           ),
         );
-        return _parseRegisterResultFromResponse(
-          res.data?.data?.message,
-          res.data?.data?.email,
-          res.data?.data,
-        );
+        return _parseRegisterResultFromResponse(res.data?.data);
       } else {
         final trimmedPhone = phone?.trim() ?? '';
         final trimmedBusiness = businessName?.trim();
@@ -172,12 +211,13 @@ final class HttpAuthRepository implements AuthRepository {
         final res = await _authApi.register(
           registerRequest: RegisterRequest(
             (b) => b
-              ..email = email
+              ..email = phoneShape ? null : email
               ..password = password
               ..role = wireRole
               ..firstName = firstName
               ..lastName = lastName
-              ..phoneNumber = trimmedPhone
+              ..phoneNumber = phoneShape ? null : trimmedPhone
+              ..registrationTicket = registrationTicket
               ..businessName = trimmedBusiness
               // Phase 443 — consent triple, all-or-nothing.
               ..termsAccepted = termsAccepted ? true : null
@@ -187,16 +227,66 @@ final class HttpAuthRepository implements AuthRepository {
                   : null,
           ),
         );
-        return _parseRegisterResultFromResponse(
-          res.data?.data?.message,
-          res.data?.data?.email,
-          res.data?.data,
-        );
+        return _parseRegisterResultFromResponse(res.data?.data);
       }
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
           'register failed (role=${role.toWire}): ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> sendRegistrationCode({required String phone}) async {
+    try {
+      await _phoneApi.send1(
+        registrationOtpSendRequest: RegistrationOtpSendRequest(
+          (b) => b..phone = phone,
+        ),
+      );
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'sendRegistrationCode failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<String> verifyRegistrationCode({
+    required String phone,
+    required String code,
+  }) async {
+    try {
+      final res = await _phoneApi.verify1(
+        registrationOtpVerifyRequest: RegistrationOtpVerifyRequest(
+          (b) => b
+            ..phone = phone
+            ..code = code,
+        ),
+      );
+      final String? ticket = res.data?.data?.registrationTicket;
+      if (ticket == null || ticket.isEmpty) {
+        throw const UnknownFailure(
+          cause: 'verifyRegistrationCode: response without a ticket',
+        );
+      }
+      return ticket;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'verifyRegistrationCode failed: ${e.type} ${e.response?.statusCode}',
           name: 'auth.repository',
           level: 900,
           stackTrace: st,
@@ -396,13 +486,18 @@ final class HttpAuthRepository implements AuthRepository {
   /// Backend Phase 11.2 contract (locked): ALWAYS returns a generic 200
   /// regardless of whether the email is known — anti-enumeration.
   ///
-  /// SECURITY: the request body (`{email}`) is redacted by [LoggingInterceptor]
-  /// because `/auth/forgot-password` is in [kAuthPaths].
+  /// SECURITY: the request body (`{identifier}`) is redacted by
+  /// [LoggingInterceptor] because `/auth/forgot-password` is in [kAuthPaths].
+  ///
+  /// M517 (AUTH-D18) — sends `identifier` (phone or email as typed), never
+  /// the legacy `email` field.
   @override
-  Future<void> requestPasswordReset(String email) async {
+  Future<void> requestPasswordReset(String identifier) async {
     try {
       await _authApi.forgotPassword(
-        forgotPasswordRequest: ForgotPasswordRequest((b) => b..email = email),
+        forgotPasswordRequest: ForgotPasswordRequest(
+          (b) => b..identifier = identifier,
+        ),
       );
     } on DioException catch (e, st) {
       if (kDebugMode) {
@@ -448,14 +543,14 @@ final class HttpAuthRepository implements AuthRepository {
   /// [verifyEmail]'s own typed-code handling.
   @override
   Future<String> verifyPasswordResetOtp({
-    required String email,
+    required String identifier,
     required String code,
   }) async {
     try {
       final res = await _authApi.verifyPasswordResetOtp(
         verifyPasswordResetOtpRequest: VerifyPasswordResetOtpRequest(
           (b) => b
-            ..email = email
+            ..identifier = identifier
             ..code = code,
         ),
       );
@@ -470,6 +565,87 @@ final class HttpAuthRepository implements AuthRepository {
       if (kDebugMode) {
         log(
           'verifyPasswordResetOtp failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // M517 — signed-in phone add / change + notifications email (B516)
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<void> sendPhoneCode({required String phone}) => _contactCall(
+    'sendPhoneCode',
+    () => _contactApi.sendPhoneCode(
+      registrationOtpSendRequest: RegistrationOtpSendRequest(
+        (b) => b..phone = phone,
+      ),
+    ),
+  );
+
+  @override
+  Future<void> verifyPhoneCode({
+    required String phone,
+    required String code,
+    String? currentPassword,
+  }) => _contactCall(
+    'verifyPhoneCode',
+    () => _contactApi.verifyPhoneCode(
+      phoneChangeVerifyRequest: PhoneChangeVerifyRequest(
+        (b) => b
+          ..phone = phone
+          ..code = code
+          ..currentPassword = currentPassword,
+      ),
+    ),
+  );
+
+  @override
+  Future<void> requestNotificationEmailCode({required String email}) =>
+      _contactCall(
+        'requestNotificationEmailCode',
+        () => _contactApi.requestEmailCode(
+          resendVerificationRequest: ResendVerificationRequest(
+            (b) => b..email = email,
+          ),
+        ),
+      );
+
+  @override
+  Future<void> verifyNotificationEmailCode({
+    required String email,
+    required String code,
+    required String currentPassword,
+  }) => _contactCall(
+    'verifyNotificationEmailCode',
+    () => _contactApi.verifyEmailCode(
+      notificationEmailVerifyRequest: NotificationEmailVerifyRequest(
+        (b) => b
+          ..email = email
+          ..code = code
+          ..currentPassword = currentPassword,
+      ),
+    ),
+  );
+
+  /// One error funnel for the four contact calls: a [DioException] becomes
+  /// its typed [Failure]; the log line names the call, never the body (it
+  /// carries a phone / email / code / password).
+  Future<void> _contactCall(
+    String name,
+    Future<Object?> Function() call,
+  ) async {
+    try {
+      await call();
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          '$name failed: ${e.type} ${e.response?.statusCode}',
           name: 'auth.repository',
           level: 900,
           stackTrace: st,
@@ -542,8 +718,10 @@ final class HttpAuthRepository implements AuthRepository {
       } catch (_) {
         throw const UnknownFailure(cause: 'invite validate: unknown role');
       }
+      // B520 (AUTH-21) — masked phone + salon name; no email branch remains.
       return InviteDetails(
-        email: dto.invitedEmail!,
+        phoneMasked: dto.phoneMasked ?? '',
+        salonName: dto.salonName ?? '',
         role: role,
         expiresAt: dto.expiresAt!,
       );
@@ -582,9 +760,12 @@ final class HttpAuthRepository implements AuthRepository {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     try {
       final trimmedPhone = phoneNumber?.trim() ?? '';
+      // M521 (B520) — the ticket proves the phone; the number is not resent.
+      final bool phoneShape = registrationTicket != null;
       final res = await _authApi.acceptInvite(
         inviteAcceptRequest: InviteAcceptRequest(
           (b) => b
@@ -592,7 +773,8 @@ final class HttpAuthRepository implements AuthRepository {
             ..password = password
             ..firstName = firstName
             ..lastName = lastName
-            ..phoneNumber = trimmedPhone
+            ..phoneNumber = phoneShape ? null : trimmedPhone
+            ..registrationTicket = registrationTicket
             // Phase 443 — consent triple, all-or-nothing.
             ..termsAccepted = termsAccepted ? true : null
             ..termsVersion = termsAccepted ? kTermsVersion : null
@@ -648,25 +830,32 @@ final class HttpAuthRepository implements AuthRepository {
   /// [RegisterResult] variant.
   ///
   /// The backend returns two shapes:
-  ///   Verification-required (current default):
-  ///     data contains { message, email }
-  ///   Auto-login (when email verification is not required):
-  ///     data contains { userId, email, role, accessToken, refreshToken, … }
-  ///
-  /// The generated [RegistrationResponse] only has [message] and [email],
-  /// so the auto-login path is not reachable via this branch — the backend
-  /// currently always returns verification-required for new registrations.
-  /// The auto-login guard is kept for forward-compatibility.
-  RegisterResult _parseRegisterResultFromResponse(
-    String? message,
-    String? email,
-    Object? data,
-  ) {
+  ///   Phone-first (B514, `registrationTicket` sent):
+  ///     data = { message, email: null, auth: { accessToken, refreshToken,
+  ///              userId, role, … } } → [AuthenticatedRegisterResult].
+  ///   Legacy email:
+  ///     data = { message, email } → [VerificationRequired].
+  RegisterResult _parseRegisterResultFromResponse(RegistrationResponse? data) {
+    final AuthResponse? auth = data?.auth;
+    if (auth != null) {
+      final String? access = auth.accessToken;
+      final String? refresh = auth.refreshToken;
+      if (access == null || refresh == null || auth.userId == null) {
+        throw const UnknownFailure(
+          cause: 'unexpected register response shape (auth without tokens)',
+        );
+      }
+      return RegisterResult.authenticated(
+        user: UserMapper.fromAuthResponse(auth),
+        tokens: AuthTokens(accessToken: access, refreshToken: refresh),
+      );
+    }
+    final String? email = data?.email;
     if (email != null && email.isNotEmpty) {
       return RegisterResult.verificationRequired(email: email);
     }
     throw const UnknownFailure(
-      cause: 'unexpected register response shape (no email)',
+      cause: 'unexpected register response shape (no auth, no email)',
     );
   }
 

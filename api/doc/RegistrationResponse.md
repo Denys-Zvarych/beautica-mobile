@@ -10,6 +10,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **message** | **String** |  | [optional] 
 **email** | **String** |  | [optional] 
+**auth** | [**AuthResponse**](AuthResponse.md) | Present only for phone registration (registrationTicket): the new session. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

@@ -4,6 +4,7 @@
 
 // ignore_for_file: unused_element
 import 'package:built_collection/built_collection.dart';
+import 'package:beautica_api/src/model/date.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -37,6 +38,8 @@ part 'user_profile_response.g.dart';
 /// * [citySettlementType] - Kind of the saved settlement (cityId); null when no cityId is set.
 /// * [cityHromadaNameUk] - Bare hromada adjective of the saved settlement, populated only when its name is ambiguous within its oblast; null otherwise.
 /// * [avatarUrl] - The caller's own avatar URL (https); null when no avatar is set. Written only via /api/v1/media/avatar.
+/// * [phoneVerified] - True once the phone was confirmed by an SMS code.
+/// * [phoneRequiredBy] - ISO date by which the phone must be confirmed by SMS: today for any account without a verified phone, null once verified.
 @BuiltValue()
 abstract class UserProfileResponse
     implements Built<UserProfileResponse, UserProfileResponseBuilder> {
@@ -118,6 +121,14 @@ abstract class UserProfileResponse
   /// The caller's own avatar URL (https); null when no avatar is set. Written only via /api/v1/media/avatar.
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
+
+  /// True once the phone was confirmed by an SMS code.
+  @BuiltValueField(wireName: r'phoneVerified')
+  bool? get phoneVerified;
+
+  /// ISO date by which the phone must be confirmed by SMS: today for any account without a verified phone, null once verified.
+  @BuiltValueField(wireName: r'phoneRequiredBy')
+  Date? get phoneRequiredBy;
 
   UserProfileResponse._();
 
@@ -324,6 +335,20 @@ class _$UserProfileResponseSerializer
         specifiedType: const FullType.nullable(String),
       );
     }
+    if (object.phoneVerified != null) {
+      yield r'phoneVerified';
+      yield serializers.serialize(
+        object.phoneVerified,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.phoneRequiredBy != null) {
+      yield r'phoneRequiredBy';
+      yield serializers.serialize(
+        object.phoneRequiredBy,
+        specifiedType: const FullType.nullable(Date),
+      );
+    }
   }
 
   @override
@@ -527,6 +552,21 @@ class _$UserProfileResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.avatarUrl = valueDes;
+          break;
+        case r'phoneVerified':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.phoneVerified = valueDes;
+          break;
+        case r'phoneRequiredBy':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(Date),
+          ) as Date?;
+          if (valueDes == null) continue;
+          result.phoneRequiredBy = valueDes;
           break;
         default:
           unhandled.add(key);

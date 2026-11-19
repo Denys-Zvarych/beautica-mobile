@@ -23,6 +23,7 @@ part 'notification_params.g.dart';
 /// * [categoryName]
 /// * [decisionReason]
 /// * [contentKind]
+/// * [maskedContact]
 @BuiltValue()
 abstract class NotificationParams
     implements Built<NotificationParams, NotificationParamsBuilder> {
@@ -60,6 +61,9 @@ abstract class NotificationParams
   @BuiltValueField(wireName: r'contentKind')
   NotificationParamsContentKindEnum? get contentKind;
   // enum contentKindEnum {  REVIEW,  CLIENT_REVIEW,  PORTFOLIO_PHOTO,  PROFILE,  };
+
+  @BuiltValueField(wireName: r'maskedContact')
+  String? get maskedContact;
 
   NotificationParams._();
 
@@ -164,6 +168,13 @@ class _$NotificationParamsSerializer
         object.contentKind,
         specifiedType:
             const FullType.nullable(NotificationParamsContentKindEnum),
+      );
+    }
+    if (object.maskedContact != null) {
+      yield r'maskedContact';
+      yield serializers.serialize(
+        object.maskedContact,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -279,6 +290,14 @@ class _$NotificationParamsSerializer
           ) as NotificationParamsContentKindEnum?;
           if (valueDes == null) continue;
           result.contentKind = valueDes;
+          break;
+        case r'maskedContact':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.maskedContact = valueDes;
           break;
         default:
           unhandled.add(key);

@@ -39,7 +39,7 @@
 // POST really mints one, so neither assertion below can be satisfied by a
 // canned response that happens to agree with the bug.
 //
-// FINDERS: widget Keys and fixture email addresses only — never a Cyrillic
+// FINDERS: widget Keys and fixture phone numbers only — never a Cyrillic
 // UI string (`forbid_cyrillic_finder.sh`).
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -63,8 +63,13 @@ const String _kSalonId = 'salon-xyz';
 /// — safe (and necessary) to match literally.
 const String _kSeedInviteA = 'invite-seed-a';
 const String _kSeedInviteB = 'invite-seed-b';
-const String _kSeedEmailA = 'anna.master@beautica.ua';
-const String _kSeedEmailB = 'borys.admin@beautica.ua';
+
+/// Their B520 wire phones (`recipientPhone`) and the masked form each row
+/// renders (M521, SAL-48).
+const String _kSeedPhoneA = '+380671112201';
+const String _kSeedPhoneB = '+380671112202';
+const String _kSeedPhoneShownA = '+380 67 111 22 01';
+const String _kSeedPhoneShownB = '+380 67 111 22 02';
 
 /// The FOUR rows `FakeBackend.seedSalonInviteHistory()` serves — one per wire
 /// status, `createdAt DESC` (newest first) exactly as the real endpoint sorts
@@ -77,10 +82,12 @@ const List<String> _kHistoryOrder = <String>[
 ];
 const String _kHistPending = 'invite-hist-1';
 
-/// The address typed into the invite form by the CTA journey — deliberately
+/// The phone typed into the invite form by the CTA journey — deliberately
 /// absent from the seeded rows, so "it appeared" cannot be satisfied by a row
-/// that was already there.
-const String _kNewInviteEmail = 'nova.majstrynia@beautica.ua';
+/// that was already there. Typed raw; sent normalised; shown masked.
+const String _kNewInvitePhoneTyped = '0931234567';
+const String _kNewInvitePhone = '+380931234567';
+const String _kNewInvitePhoneShown = '+380 93 123 45 67';
 
 /// `salonManageGuard`'s SALON_OWNER arm authorizes against the REAL
 /// `mySalonsProvider` list (`GET /salons/mine`), which `FakeBackend` seeds
@@ -201,18 +208,18 @@ void main() {
               'GET /salons/{salonId}/invites exactly once',
         );
         expect(find.byType(SalonInviteRow), findsNWidgets(2));
-        // i18n-finder-ok: fixture email addresses, not UI copy.
+        // i18n-finder-ok: fixture phone numbers, not UI copy.
         expect(
           find.descendant(
             of: find.byKey(salonInviteRowKey(_kSeedInviteA)),
-            matching: find.text(_kSeedEmailA),
+            matching: find.text(_kSeedPhoneShownA),
           ),
           findsOneWidget,
         );
         expect(
           find.descendant(
             of: find.byKey(salonInviteRowKey(_kSeedInviteB)),
-            matching: find.text(_kSeedEmailB),
+            matching: find.text(_kSeedPhoneShownB),
           ),
           findsOneWidget,
         );
@@ -357,8 +364,8 @@ void main() {
         AppHarness.expectLocation(router, '/salons/$_kSalonId/manage/invite');
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_email')),
-          _kNewInviteEmail,
+          find.byKey(const ValueKey<String>('invite_phone')),
+          _kNewInvitePhoneTyped,
         );
         await tester.pump();
 
@@ -377,9 +384,9 @@ void main() {
         // a red below unambiguously blames the client cache, never the seed.
         expect(
           fb.pendingInvites.map(
-            (Map<String, dynamic> r) => r['recipientEmail'],
+            (Map<String, dynamic> r) => r['recipientPhone'],
           ),
-          containsAll(<String>[_kSeedEmailA, _kSeedEmailB, _kNewInviteEmail]),
+          containsAll(<String>[_kSeedPhoneA, _kSeedPhoneB, _kNewInvitePhone]),
           reason:
               'the fake POST mints a real pending row — if this fails the '
               'FIXTURE is broken, not the app',
@@ -390,8 +397,8 @@ void main() {
         // is still rendering the two-row list it fetched before the send.
         await AppHarness.pumpUntilFound(
           tester,
-          // i18n-finder-ok: a fixture email address, not UI copy.
-          find.text(_kNewInviteEmail),
+          // i18n-finder-ok: a fixture phone number, not UI copy.
+          find.text(_kNewInvitePhoneShown),
         );
         expect(
           find.byType(SalonInviteRow),
@@ -426,7 +433,7 @@ void main() {
   //
   // The fixture genuinely moves every assertion: `seedSalonInviteHistory()`
   // seeds ids that ASCEND while `createdAt` DESCENDS, so a client that
-  // re-sorted by id, email or status would produce a visibly different
+  // re-sorted by id, phone or status would produce a visibly different
   // sequence rather than landing on this one by luck.
   testWidgets(
     'a MIXED-status history renders newest-first with cancel offered ONLY on '

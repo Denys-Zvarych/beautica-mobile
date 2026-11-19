@@ -206,6 +206,38 @@ void main() {
       );
     });
 
+    // M515 (AUTH-41) — the phone-first register on /register/step-3 returns
+    // a session at once; the address step must stay mounted to save the
+    // locality and go to /done itself.
+    test('authenticated session at /register/step-3 stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.registerStep3,
+        ),
+        isNull,
+      );
+    });
+
+    test('unauthenticated session at /register/code and /register/password '
+        'stays; authenticated is sent to its role home', () {
+      for (final String route in <String>[
+        RouteNames.registerCode,
+        RouteNames.registerPassword,
+      ]) {
+        expect(
+          authRedirectForLocation(_unauthenticatedSession, route),
+          isNull,
+          reason: route,
+        );
+        expect(
+          authRedirectForLocation(_authenticatedSession, route),
+          RouteNames.masterProfile,
+          reason: route,
+        );
+      }
+    });
+
     test('loading session at /verification stays (null)', () {
       expect(
         authRedirectForLocation(_loadingSession, RouteNames.verification),
@@ -1130,6 +1162,106 @@ void main() {
 
   // Phase 361 audit (security LOW) — `/notifications` is guarded: signed-out
   // users go to /login, and EVERY role reaches it (the feed is role-agnostic).
+  // M517 (AUTH-D12) — the blocking add-phone gate: decision table over
+  // role × phone state, every location.
+  group('add-phone gate (M517, AUTH-D12)', () {
+    AsyncData<AuthSession> sessionOf(User user) => AsyncData<AuthSession>(
+      AuthSession.authenticated(user: user, accessToken: 'token'),
+    );
+
+    const List<String> anywhere = <String>[
+      RouteNames.clientHome,
+      RouteNames.masterProfile,
+      RouteNames.salonHome,
+      RouteNames.salonMasterProfile,
+      RouteNames.settings,
+      RouteNames.splash,
+      RouteNames.login,
+      RouteNames.notificationEmail,
+      RouteNames.phoneChangeVerify,
+      '/bookings/b1',
+    ];
+
+    for (final UserRole role in UserRole.values) {
+      final User unverified = User(
+        id: 'u-$role',
+        role: role,
+        phoneVerified: false,
+        phoneRequiredBy: '2026-11-18',
+      );
+      final User verified = unverified.copyWith(
+        phoneVerified: true,
+        phoneRequiredBy: null,
+      );
+
+      test('$role without a verified phone is held on /auth/add-phone '
+          'from every location', () {
+        for (final String location in anywhere) {
+          expect(
+            authRedirectForLocation(sessionOf(unverified), location),
+            RouteNames.addPhone,
+            reason: location,
+          );
+        }
+        expect(
+          authRedirectForLocation(sessionOf(unverified), RouteNames.addPhone),
+          isNull,
+        );
+        expect(
+          authRedirectForLocation(
+            sessionOf(unverified),
+            RouteNames.addPhoneVerify,
+          ),
+          isNull,
+        );
+      });
+
+      test('$role with a verified phone leaves the add-phone step for its '
+          'role home', () {
+        expect(
+          authRedirectForLocation(sessionOf(verified), RouteNames.addPhone),
+          roleHomePath(role),
+        );
+        expect(
+          authRedirectForLocation(
+            sessionOf(verified),
+            RouteNames.addPhoneVerify,
+          ),
+          roleHomePath(role),
+        );
+        expect(
+          authRedirectForLocation(sessionOf(verified), roleHomePath(role)),
+          isNull,
+        );
+      });
+    }
+
+    test(
+      'an unknown phone state (login response / old cache) never blocks',
+      () {
+        expect(
+          authRedirectForLocation(_clientSession, RouteNames.clientHome),
+          isNull,
+        );
+        expect(
+          authRedirectForLocation(
+            sessionOf(_clientUser.copyWith(phoneVerified: false)),
+            RouteNames.clientHome,
+          ),
+          isNull,
+          reason: 'only phoneRequiredBy (from /users/me) triggers the gate',
+        );
+      },
+    );
+
+    test('unauthenticated on /auth/add-phone goes to /login', () {
+      expect(
+        authRedirectForLocation(_unauthenticatedSession, RouteNames.addPhone),
+        RouteNames.login,
+      );
+    });
+  });
+
   group('/notifications guard (Phase 361)', () {
     AsyncValue<AuthSession> sessionFor(UserRole role) => AsyncData<AuthSession>(
       AuthSession.authenticated(

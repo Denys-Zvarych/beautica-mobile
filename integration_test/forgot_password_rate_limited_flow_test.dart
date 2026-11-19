@@ -53,7 +53,7 @@ void main() {
 
       // ── Submit → the filter answers 429 ──────────────────────────────────
       await tester.enterText(
-        find.byKey(const ValueKey<String>('forgot_email')),
+        find.byKey(const ValueKey<String>('forgot_identifier')),
         _kEmail,
       );
       await tester.pump();
@@ -66,7 +66,7 @@ void main() {
       expect(fb.lastForgotPasswordEmail, equals(_kEmail));
 
       final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+        tester.element(find.byKey(const ValueKey<String>('forgot_identifier'))),
       );
 
       expect(

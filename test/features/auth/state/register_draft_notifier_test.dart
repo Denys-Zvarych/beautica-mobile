@@ -8,6 +8,7 @@
 //   • updateStepN before start() is a no-op (defensive).
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/state/register_draft.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -239,6 +240,68 @@ void main() {
       );
       // Previous step-1 data did NOT carry over.
       expect(container.read(registerDraftProvider)!.email, isEmpty);
+    });
+  });
+
+  // M515 audit (security INFO) — credentials never print.
+  group('RegisterDraft.toString', () {
+    test('redacts password, confirmPassword and registrationTicket', () {
+      const RegisterDraft draft = RegisterDraft(
+        role: UserRole.independentMaster,
+        password: 'Sup3r-Secret!',
+        confirmPassword: 'Sup3r-Secret!',
+        registrationTicket: 'rt-opaque-ticket',
+        salonName: 'Studio Nova',
+      );
+      final String out = draft.toString();
+      expect(out, isNot(contains('Sup3r-Secret!')));
+      expect(out, isNot(contains('rt-opaque-ticket')));
+      expect(out, contains('<redacted>'));
+      expect(
+        out,
+        contains('Studio Nova'),
+        reason: 'non-personal fields still print',
+      );
+    });
+
+    // M515 cleanup (INFO) — personal fields print presence only.
+    test('redacts email, phone, names and address to a presence marker', () {
+      const RegisterDraft draft = RegisterDraft(
+        role: UserRole.independentMaster,
+        email: 'olena@example.com',
+        phone: '+380671234567',
+        firstName: 'Olena',
+        lastName: 'Kovalenko',
+        street: 'Khreshchatyk',
+        buildingNo: '22',
+        locationNote: 'Gate code 4821',
+      );
+      final String out = draft.toString();
+      for (final String pii in <String>[
+        'olena@example.com',
+        '+380671234567',
+        'Olena',
+        'Kovalenko',
+        'Khreshchatyk',
+        'Gate code 4821',
+      ]) {
+        expect(out, isNot(contains(pii)), reason: '$pii must not print');
+      }
+      expect(out, isNot(contains('buildingNo: 22')));
+      expect(out, contains('email: <set>'));
+      expect(out, contains('phone: <set>'));
+      expect(out, contains('firstName: <set>'));
+      expect(out, contains('street: <set>'));
+      expect(out, contains('locationNote: <set>'));
+    });
+
+    test('empty personal fields print <empty>', () {
+      final String out = const RegisterDraft(
+        role: UserRole.independentMaster,
+      ).toString();
+      expect(out, contains('email: <empty>'));
+      expect(out, contains('phone: <empty>'));
+      expect(out, contains('lastName: <empty>'));
     });
   });
 }

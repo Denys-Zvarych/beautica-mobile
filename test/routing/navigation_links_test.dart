@@ -33,7 +33,7 @@
 //   NL-19  /forgot-password back button → /login                   ✅ covered (this file, NL-B03)
 //   NL-20  /reset-password success CTA → /login                     ✅ covered (reset_password_screen_test)
 //   NL-21  /reset-password invalid CTA → /forgot-password            ✅ covered (reset_password_screen_test)
-//   NL-22  /invite/accept success → / (via router redirect)         ❌ GAP — new test NL-22 below
+//   NL-22  /invite/accept success → /staff/profile (router redirect) ✅ covered (this file, NL-22)
 //   NL-23  /settings logout confirmed → /login                      ✅ covered (settings_screen_test)
 //
 // Auth-guard coverage gaps (authRedirectForLocation — pure seam tests):
@@ -274,6 +274,13 @@ void main() {
       'login': RouteNames.login,
       'registerRole': RouteNames.registerRole,
       'register': RouteNames.register,
+      'registerCode': RouteNames.registerCode,
+      'addPhone': RouteNames.addPhone,
+      'addPhoneVerify': RouteNames.addPhoneVerify,
+      'phoneChangeVerify': RouteNames.phoneChangeVerify,
+      'notificationEmail': RouteNames.notificationEmail,
+      'notificationEmailVerify': RouteNames.notificationEmailVerify,
+      'registerPassword': RouteNames.registerPassword,
       'registerStep2': RouteNames.registerStep2,
       'registerStep3': RouteNames.registerStep3,
       'forgotPassword': RouteNames.forgotPassword,
@@ -668,18 +675,19 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // NL-22: /invite/accept success → router navigates to /
+  // NL-22: /invite/accept success → router navigates to /staff/profile
   // -------------------------------------------------------------------------
   // The accept invite screen calls authProvider.notifier.acceptInvite(...)
   // which on success transitions authProvider to Authenticated. The screen
   // then relies on the router's redirect (authRedirect: authenticated + on
-  // unauthOnlyRoute → /) to forward to home. In the widget test we wire the
-  // real authRedirect so this guard fires.
+  // unauthOnlyRoute → the role home) to forward the user. In the widget test
+  // we wire the real authRedirect so this guard fires.
   //
-  // Implementation detail: AcceptInviteScreen does NOT call context.go('/') on
+  // Implementation detail: AcceptInviteScreen does NOT call context.go(...) on
   // success — it deliberately leaves navigation to the router's refresh
   // listener. So this test wires authRedirect into the minimal GoRouter and
-  // asserts that the router resolves to / after a successful accept.
+  // asserts that the router resolves to /staff/profile (the SALON_MASTER role
+  // home) after a successful accept.
   group('NL-22: /invite/accept success → /staff/profile via router redirect', () {
     testWidgets(
       'NL-22: tapping invite_accept CTA with valid form and successful '
@@ -688,7 +696,7 @@ void main() {
         const kToken = 'valid-invite-token';
 
         final validInvite = InviteDetails(
-          email: 'masha@salon.ua',
+          phoneMasked: '+380 •• ••• •• 45',
           role: UserRole.salonMaster,
           expiresAt: DateTime.now().add(const Duration(hours: 48)),
         );
@@ -701,19 +709,24 @@ void main() {
         // Force acceptInvite() to return a salonMaster user so the role-based
         // router redirect lands on /staff/profile — the SALON_MASTER own-
         // profile landing (fixes the "blank home" bug; see `role_home.dart`).
+        const invitedUser = User(
+          id: 'invited-u1',
+          email: 'masha@salon.ua',
+          role: UserRole.salonMaster,
+          firstName: 'Марія',
+          lastName: 'Бондар',
+        );
         repo.acceptInviteResult = (
-          const User(
-            id: 'invited-u1',
-            email: 'masha@salon.ua',
-            role: UserRole.salonMaster,
-            firstName: 'Марія',
-            lastName: 'Бондар',
-          ),
+          invitedUser,
           const AuthTokens(
             accessToken: 'access-token',
             refreshToken: 'refresh-token',
           ),
         );
+        // The post-accept me() refresh must return the same salonMaster user,
+        // otherwise the fake's default user overrides the role and the
+        // redirect lands elsewhere.
+        repo.meResult = invitedUser;
         final storage = FakeSecureStorage();
 
         // A container that starts with an unauthenticated session and
@@ -777,6 +790,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Fill password (shared 8-char minimum — same policy as register/reset).
+        await _walkInvitePhoneAndCode(tester);
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_password')),
           'StrongPass12',
@@ -801,15 +815,6 @@ void main() {
         );
         await tester.pump();
 
-        // Phone is REQUIRED (InviteAcceptRequest.phoneNumber is @NotBlank) —
-        // without it _formValid stays false and the CTA never enables.
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('invite_phone')),
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
-        );
         await tester.pump();
 
         // Tap the accept CTA.
@@ -878,12 +883,12 @@ void main() {
     'NL-23: /invite/accept post-success failure → /login hand-off via router',
     () {
       testWidgets('NL-23a: ResponseUnusableFailure → router lands on /login, '
-          'loginNoticeProvider holds accountReady + the invited email', (
+          'loginNoticeProvider holds accountReady + the confirmed phone', (
         tester,
       ) async {
         const kToken = 'valid-invite-token';
         final validInvite = InviteDetails(
-          email: 'masha@salon.ua',
+          phoneMasked: '+380 •• ••• •• 45',
           role: UserRole.salonMaster,
           expiresAt: DateTime.now().add(const Duration(hours: 48)),
         );
@@ -942,6 +947,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 50));
         await tester.pumpAndSettle();
 
+        await _walkInvitePhoneAndCode(tester);
+
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_password')),
           'StrongPass12',
@@ -953,10 +960,6 @@ void main() {
         await tester.enterText(
           find.byKey(const ValueKey<String>('invite_last_name')),
           'Бондар',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_phone')),
-          '0671234567',
         );
         await tester.pump();
 
@@ -994,7 +997,7 @@ void main() {
         final notice = container.read(loginNoticeProvider);
         expect(notice, isNotNull);
         expect(notice!.reason, InviteHandoffReason.accountReady);
-        expect(notice.email, validInvite.email);
+        expect(notice.email, '+380671234545');
 
         // State-consistency check: the failed accept must NOT have
         // transitioned the session to Authenticated (this is a genuine
@@ -1015,7 +1018,7 @@ void main() {
         (tester) async {
           const kToken = 'valid-invite-token';
           final validInvite = InviteDetails(
-            email: 'masha@salon.ua',
+            phoneMasked: '+380 •• ••• •• 45',
             role: UserRole.salonMaster,
             expiresAt: DateTime.now().add(const Duration(hours: 48)),
           );
@@ -1076,6 +1079,8 @@ void main() {
           await tester.pump(const Duration(milliseconds: 50));
           await tester.pumpAndSettle();
 
+          await _walkInvitePhoneAndCode(tester);
+
           await tester.enterText(
             find.byKey(const ValueKey<String>('invite_password')),
             'StrongPass12',
@@ -1087,10 +1092,6 @@ void main() {
           await tester.enterText(
             find.byKey(const ValueKey<String>('invite_last_name')),
             'Бондар',
-          );
-          await tester.enterText(
-            find.byKey(const ValueKey<String>('invite_phone')),
-            '0671234567',
           );
           await tester.pump();
 
@@ -1124,7 +1125,8 @@ void main() {
   );
 
   // -------------------------------------------------------------------------
-  // NL-B01: /register/step-2 AuthScaffold back button navigates to /register
+  // NL-B01: /register/step-2 AuthScaffold back button navigates to the
+  // previous wizard step — /register/password since M515 (was /register).
   //
   // FIX: AuthScaffold gained an `onBack` callback parameter. RegisterStep2Screen
   // passes `onBack: () => context.go(RouteNames.register)` so the back affordance
@@ -1150,8 +1152,8 @@ void main() {
           redirect: (_, _) => null,
           routes: <RouteBase>[
             GoRoute(
-              path: RouteNames.register,
-              builder: (_, _) => const _Probe('step-1'),
+              path: RouteNames.registerPassword,
+              builder: (_, _) => const _Probe('password-step'),
             ),
             GoRoute(
               path: RouteNames.registerRole,
@@ -1202,11 +1204,11 @@ void main() {
 
         // After the fix, tapping back on step-2 must navigate to /register.
         expect(
-          find.text('step-1'),
+          find.text('password-step'),
           findsOneWidget,
           reason:
-              'NL-B01: tapping the NeumorphicIconButton back on step-2 must '
-              'navigate to /register via context.go(RouteNames.register). '
+              'NL-B01: tapping the NeumorphicIconButton back on the name step '
+              'must go to /register/password (M515 wizard order). '
               'AuthScaffold.onBack was wired to context.go() to fix the '
               'maybePop no-op bug.',
         );
@@ -1490,4 +1492,24 @@ class _SyncInviteNotifier extends AcceptInviteNotifier {
 
   @override
   FutureOr<InviteDetails> build(String token) => _invite;
+}
+
+/// M521 — the accept screen's phone → SMS-code steps (FakeAuthRepository
+/// sends 200 and mints `ticket-1`); the phone's tail matches the fixture's
+/// masked invite phone (`… 45`).
+Future<void> _walkInvitePhoneAndCode(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('invite_phone')),
+    '0671234545',
+  );
+  await tester.pump();
+  await tester.tap(find.byKey(const ValueKey<String>('invite_send_code')));
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('phone_code_input')),
+    '123456',
+  );
+  await tester.pump();
+  await tester.tap(find.byKey(const ValueKey<String>('phone_code_submit')));
+  await tester.pumpAndSettle();
 }

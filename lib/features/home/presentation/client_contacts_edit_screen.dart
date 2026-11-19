@@ -34,6 +34,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/phone_change_flow.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
 import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
@@ -41,6 +42,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
+import 'package:beautica_mobile/shared/validators/identifier_classifier.dart';
 
 import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 
@@ -224,6 +226,22 @@ class _ClientContactsEditScreenState
       return;
     }
 
+    // M517 (AUTH-D13 / AUTH-D19) — a DIFFERENT number goes through the SMS
+    // code + current password step; the old number stays until it is
+    // confirmed. Only a Ukrainian mobile is accepted (AUTH-D15).
+    final String typed = _phone.text.trim();
+    final String? newPhone = normalizeUaMobile(typed);
+    if (newPhone == null) {
+      setState(
+        () => _errPhone = AppLocalizations.of(context).errPhoneNotUaMobile,
+      );
+      return;
+    }
+    if (newPhone != normalizeUaMobile(_origPhone)) {
+      await _changePhone(newPhone);
+      return;
+    }
+
     setState(() => _saving = true);
 
     try {
@@ -277,6 +295,31 @@ class _ClientContactsEditScreenState
       setState(() => _saving = false);
     } finally {
       if (mounted && _saving) setState(() => _saving = false);
+    }
+  }
+
+  /// M517 — the shared phone-change sequence; on success the session user is
+  /// already refreshed, so only the derived identity providers re-read.
+  Future<void> _changePhone(String newPhone) async {
+    setState(() => _saving = true);
+    try {
+      final bool changed = await runPhoneChangeFlow(
+        context,
+        ref,
+        normalizedPhone: newPhone,
+      );
+      if (!mounted || !changed) return;
+      invalidateOwnIdentity(ref);
+      showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
+      context.go(widget.doneRoute ?? RouteNames.clientHome);
+    } on PhoneIdentityFailure catch (f) {
+      if (!mounted) return;
+      setState(() => _errPhone = f.userMessage(context));
+    } on Failure catch (f) {
+      if (!mounted) return;
+      showErrorSnack(context, f.userMessage(context));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -352,7 +395,13 @@ class _ClientContactsEditScreenState
                     ],
                     hint: '+380 __ ___ __ __',
                     errorText: _errPhone,
-                    helperText: l10n.clientPhonePrivacyNote,
+                    // M517 — the new number is confirmed by SMS; the
+                    // current one stays in force until then.
+                    helperText: _origPhone.isEmpty
+                        ? l10n.registerPhoneHelper
+                        : l10n.contactsPhoneChangeHelper(
+                            UaPhoneInputFormatter.display(_origPhone),
+                          ),
                     onChanged: (v) {
                       _clearServerError('phoneNumber');
                       field.didChange(v);

@@ -11,12 +11,14 @@ class _$RegistrationResponse extends RegistrationResponse {
   final String? message;
   @override
   final String? email;
+  @override
+  final AuthResponse? auth;
 
   factory _$RegistrationResponse(
           [void Function(RegistrationResponseBuilder)? updates]) =>
       (RegistrationResponseBuilder()..update(updates))._build();
 
-  _$RegistrationResponse._({this.message, this.email}) : super._();
+  _$RegistrationResponse._({this.message, this.email, this.auth}) : super._();
   @override
   RegistrationResponse rebuild(
           void Function(RegistrationResponseBuilder) updates) =>
@@ -31,7 +33,8 @@ class _$RegistrationResponse extends RegistrationResponse {
     if (identical(other, this)) return true;
     return other is RegistrationResponse &&
         message == other.message &&
-        email == other.email;
+        email == other.email &&
+        auth == other.auth;
   }
 
   @override
@@ -39,6 +42,7 @@ class _$RegistrationResponse extends RegistrationResponse {
     var _$hash = 0;
     _$hash = $jc(_$hash, message.hashCode);
     _$hash = $jc(_$hash, email.hashCode);
+    _$hash = $jc(_$hash, auth.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -47,7 +51,8 @@ class _$RegistrationResponse extends RegistrationResponse {
   String toString() {
     return (newBuiltValueToStringHelper(r'RegistrationResponse')
           ..add('message', message)
-          ..add('email', email))
+          ..add('email', email)
+          ..add('auth', auth))
         .toString();
   }
 }
@@ -64,6 +69,10 @@ class RegistrationResponseBuilder
   String? get email => _$this._email;
   set email(String? email) => _$this._email = email;
 
+  AuthResponseBuilder? _auth;
+  AuthResponseBuilder get auth => _$this._auth ??= AuthResponseBuilder();
+  set auth(AuthResponseBuilder? auth) => _$this._auth = auth;
+
   RegistrationResponseBuilder() {
     RegistrationResponse._defaults(this);
   }
@@ -73,6 +82,7 @@ class RegistrationResponseBuilder
     if ($v != null) {
       _message = $v.message;
       _email = $v.email;
+      _auth = $v.auth?.toBuilder();
       _$v = null;
     }
     return this;
@@ -92,11 +102,25 @@ class RegistrationResponseBuilder
   RegistrationResponse build() => _build();
 
   _$RegistrationResponse _build() {
-    final _$result = _$v ??
-        _$RegistrationResponse._(
-          message: message,
-          email: email,
-        );
+    _$RegistrationResponse _$result;
+    try {
+      _$result = _$v ??
+          _$RegistrationResponse._(
+            message: message,
+            email: email,
+            auth: _auth?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'auth';
+        _auth?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'RegistrationResponse', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

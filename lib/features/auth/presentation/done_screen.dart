@@ -180,9 +180,9 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
               const SizedBox(height: VelvetSpacing.sm),
               Center(
                 child: _SummaryChip(
-                  key: const ValueKey<String>('done_chip_email'),
-                  icon: Icons.mark_email_read_outlined,
-                  label: l10n.registerDoneChipEmailVerified,
+                  key: const ValueKey<String>('done_chip_phone'),
+                  icon: Icons.phonelink_lock_outlined,
+                  label: l10n.registerDoneChipPhoneVerified,
                 ),
               ),
               const SizedBox(height: VelvetSpacing.sm),

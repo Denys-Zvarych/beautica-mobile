@@ -38,9 +38,9 @@
 //  11.  kAuthPaths contains /api/v1/auth/invite/accept.
 //  12.  /api/v1/independent-masters/me is in kPiiPaths but NOT kAuthPaths.
 //  13.  /api/v1/masters/me is in kPiiPaths but NOT kAuthPaths.
-//  14.  kAuthPaths has exactly 12 entries — no undocumented extras.
+//  14.  kAuthPaths has exactly 14 entries — no undocumented extras.
 //  14b. kPiiPaths is a strict superset of kAuthPaths.
-//  15.  kPiiPaths has exactly 23 entries = kAuthPaths (12) + 11 authenticated
+//  15.  kPiiPaths has exactly 25 entries = kAuthPaths (14) + 11 authenticated
 //       PII paths: /api/v1/independent-masters/me,
 //       /api/v1/independent-masters/me/profile, /api/v1/masters/me, the two
 //       auth-gated discovery search paths /api/v1/search/masters +
@@ -440,12 +440,26 @@ void main() {
     // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
+    // M515 (B514) — the registration phone step is unauthenticated (no
+    // session yet) and carries the phone + SMS code: in kAuthPaths (no
+    // Bearer) and therefore in kPiiPaths (redacted).
+    test('13m. registration phone OTP send / verify are unauthenticated '
+        'PII paths', () {
+      for (final String path in <String>[
+        '/api/v1/auth/register/phone/otp/send',
+        '/api/v1/auth/register/phone/otp/verify',
+      ]) {
+        expect(kAuthPaths, contains(path));
+        expect(kPiiPaths, contains(path));
+      }
+    });
+
     test(
-      '14. kAuthPaths has exactly 12 entries (unauthenticated endpoints only)',
+      '14. kAuthPaths has exactly 14 entries (unauthenticated endpoints only)',
       () {
         expect(
           kAuthPaths.length,
-          equals(12),
+          equals(14),
           reason:
               'A path was added to or removed from kAuthPaths without a '
               'corresponding test update. kAuthPaths must only contain unauthenticated '
@@ -488,11 +502,11 @@ void main() {
     });
 
     test(
-      '15. kPiiPaths has exactly 23 entries (kAuthPaths union + 11 authenticated PII paths)',
+      '15. kPiiPaths has exactly 25 entries (kAuthPaths union + 11 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(23),
+          equals(25),
           reason:
               'kPiiPaths must equal kAuthPaths (12) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
@@ -549,7 +563,7 @@ void main() {
       // The exact-match /api/v1/salons/mine entry (counted in test 15's 23)
       // is untouched by this prefix addition.
       expect(kPiiPaths, contains('/api/v1/salons/mine'));
-      expect(kPiiPaths.length, equals(23));
+      expect(kPiiPaths.length, equals(25));
     });
 
     test('17. kPiiPathSegments contains /invite (Phase 21.4, staff-invite '
@@ -568,7 +582,7 @@ void main() {
       );
       // kPiiPathSegments is a separate list from kPiiPaths — adding to it
       // must NOT move test 15's exact-count ledger.
-      expect(kPiiPaths.length, equals(23));
+      expect(kPiiPaths.length, equals(25));
     });
 
     test('18. kPiiPathPrefixes contains /api/v1/users/me (Finding S1, '
@@ -611,7 +625,7 @@ void main() {
             'routes). Mirrors the /bookings segment entry.',
       );
       // A segment entry must NOT move test 15's exact-count ledger.
-      expect(kPiiPaths.length, equals(23));
+      expect(kPiiPaths.length, equals(25));
     });
   });
 
@@ -628,7 +642,7 @@ void main() {
           expect(isPiiPath(path), isTrue, reason: path);
         }
         expect(kPiiPathPrefixes, contains('/api/v1/notifications'));
-        expect(kPiiPaths.length, equals(23));
+        expect(kPiiPaths.length, equals(25));
       },
     );
   });

@@ -261,6 +261,13 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   PasswordResetOtpFailure() => false,
   ResetTokenInvalidFailure() => false,
   EmailAlreadyRegisteredFailure() => false,
+  // M515 — phone-first identity / App Check rejections: deterministic
+  // statements about the request (wrong code, used ticket, failed
+  // attestation), never re-issued blindly.
+  PhoneIdentityFailure() => false,
+  // M517 — wrong current password / unverified-phone gate: deterministic.
+  CurrentPasswordInvalidFailure() => false,
+  PhoneNotVerifiedFailure() => false,
   ProviderMissingCityFailure() => false,
   CategoryAlreadyExistsFailure() => false,
   SupportAttachmentTooLargeFailure() => false,

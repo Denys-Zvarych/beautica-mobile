@@ -11,13 +11,13 @@ part 'invite_response.g.dart';
 /// InviteResponse
 ///
 /// Properties:
-/// * [invitedEmail]
+/// * [invitedPhone]
 /// * [expiresAt]
 @BuiltValue()
 abstract class InviteResponse
     implements Built<InviteResponse, InviteResponseBuilder> {
-  @BuiltValueField(wireName: r'invitedEmail')
-  String? get invitedEmail;
+  @BuiltValueField(wireName: r'invitedPhone')
+  String? get invitedPhone;
 
   @BuiltValueField(wireName: r'expiresAt')
   DateTime? get expiresAt;
@@ -48,10 +48,10 @@ class _$InviteResponseSerializer
     InviteResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.invitedEmail != null) {
-      yield r'invitedEmail';
+    if (object.invitedPhone != null) {
+      yield r'invitedPhone';
       yield serializers.serialize(
-        object.invitedEmail,
+        object.invitedPhone,
         specifiedType: const FullType(String),
       );
     }
@@ -87,12 +87,12 @@ class _$InviteResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'invitedEmail':
+        case r'invitedPhone':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.invitedEmail = valueDes;
+          result.invitedPhone = valueDes;
           break;
         case r'expiresAt':
           final valueDes = serializers.deserialize(

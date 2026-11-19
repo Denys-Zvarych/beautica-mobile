@@ -19,6 +19,7 @@ part 'invite_accept_request.g.dart';
 /// * [termsAccepted]
 /// * [termsVersion]
 /// * [privacyPolicyVersion]
+/// * [registrationTicket]
 @BuiltValue()
 abstract class InviteAcceptRequest
     implements Built<InviteAcceptRequest, InviteAcceptRequestBuilder> {
@@ -35,7 +36,7 @@ abstract class InviteAcceptRequest
   String get lastName;
 
   @BuiltValueField(wireName: r'phoneNumber')
-  String get phoneNumber;
+  String? get phoneNumber;
 
   @BuiltValueField(wireName: r'termsAccepted')
   bool? get termsAccepted;
@@ -45,6 +46,9 @@ abstract class InviteAcceptRequest
 
   @BuiltValueField(wireName: r'privacyPolicyVersion')
   String? get privacyPolicyVersion;
+
+  @BuiltValueField(wireName: r'registrationTicket')
+  String? get registrationTicket;
 
   InviteAcceptRequest._();
 
@@ -95,11 +99,13 @@ class _$InviteAcceptRequestSerializer
       object.lastName,
       specifiedType: const FullType(String),
     );
-    yield r'phoneNumber';
-    yield serializers.serialize(
-      object.phoneNumber,
-      specifiedType: const FullType(String),
-    );
+    if (object.phoneNumber != null) {
+      yield r'phoneNumber';
+      yield serializers.serialize(
+        object.phoneNumber,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.termsAccepted != null) {
       yield r'termsAccepted';
       yield serializers.serialize(
@@ -118,6 +124,13 @@ class _$InviteAcceptRequestSerializer
       yield r'privacyPolicyVersion';
       yield serializers.serialize(
         object.privacyPolicyVersion,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.registrationTicket != null) {
+      yield r'registrationTicket';
+      yield serializers.serialize(
+        object.registrationTicket,
         specifiedType: const FullType(String),
       );
     }
@@ -201,6 +214,13 @@ class _$InviteAcceptRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.privacyPolicyVersion = valueDes;
+          break;
+        case r'registrationTicket':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.registrationTicket = valueDes;
           break;
         default:
           unhandled.add(key);
