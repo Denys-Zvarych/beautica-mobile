@@ -15,12 +15,22 @@
 // → [RouteNames.addPhoneVerify] (code only, AUTH-D19). The number may differ
 // from an unverified legacy profile phone; once confirmed it replaces it
 // (AUTH-44).
+//
+// AUTH-D28 — a legacy account whose number is already VERIFIED on another
+// account gets 409 PHONE_ALREADY_REGISTERED. The backend answers it on the
+// verify step (send never reveals ownership), so the code step pops back here
+// with that code; the send path maps it too, defensively. This step then shows
+// the duplicate state: the shared [AuthBanner] (mocha, no new widget) with the
+// D28 copy and «Написати в підтримку» (mailto via [openExternalUri]); the
+// field stays editable and «Вийти» is unchanged.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/errors/failures.dart';
+import '../../../core/network/app_check_prefetch.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
@@ -31,6 +41,7 @@ import '../../../core/navigation/single_flight.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
+import '../../../shared/utils/open_external_uri.dart';
 import '../../../shared/validators/identifier_classifier.dart';
 import '../domain/contact_verify_args.dart';
 import 'auth_notifier.dart';
@@ -58,6 +69,8 @@ class _AddPhoneScreenState extends ConsumerState<AddPhoneScreen> {
   void initState() {
     super.initState();
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    // Phone-first hardening P2: attest ahead of the SMS send.
+    ref.read(appCheckTokenPrefetcherProvider).prefetch();
   }
 
   @override
@@ -82,13 +95,19 @@ class _AddPhoneScreenState extends ConsumerState<AddPhoneScreen> {
     try {
       await ref.read(authProvider.notifier).sendPhoneCode(phone: phone);
       if (!mounted) return;
-      await context.pushOnce<bool>(
+      final Object? result = await context.pushOnce<Object?>(
         RouteNames.addPhoneVerify,
         extra: ContactVerifyArgs(
           kind: ContactVerifyKind.phoneAdd,
           target: phone,
         ),
       );
+      // AUTH-D28 — the code step popped with the verify-time 409.
+      if (mounted && result == PhoneIdentityErrorCode.phoneAlreadyRegistered) {
+        setState(
+          () => _sendError = PhoneIdentityErrorCode.phoneAlreadyRegistered,
+        );
+      }
     } on PhoneIdentityFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -104,6 +123,23 @@ class _AddPhoneScreenState extends ConsumerState<AddPhoneScreen> {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  /// AUTH-D28 — opens the support email; a device with no mail app gets a
+  /// snack naming the address instead.
+  Future<void> _contactSupport() {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return openExternalUri(
+      context,
+      Uri(
+        scheme: 'mailto',
+        path: AppConfig.supportEmail,
+        query:
+            'subject=${Uri.encodeComponent(l10n.addPhoneSupportEmailSubject)}',
+      ),
+      errorMessage: l10n.addPhoneSupportOpenError(AppConfig.supportEmail),
+      logName: 'auth.add_phone',
+    );
   }
 
   Future<void> _logout() async {
@@ -173,7 +209,19 @@ class _AddPhoneScreenState extends ConsumerState<AddPhoneScreen> {
               },
               onSubmitted: (_) => _submit(),
             ),
-            if (sendError != null) ...<Widget>[
+            if (sendError ==
+                PhoneIdentityErrorCode.phoneAlreadyRegistered) ...<Widget>[
+              const SizedBox(height: VelvetSpacing.md),
+              // AUTH-D28 — not a typing error: guidance, so mocha, not red.
+              AuthBanner(
+                key: const ValueKey<String>('add_phone_duplicate'),
+                icon: Icons.manage_accounts_outlined,
+                color: BrandColors.accentDeep,
+                message: l10n.addPhoneDuplicateMessage,
+                actionLabel: l10n.addPhoneContactSupport,
+                onAction: _contactSupport,
+              ),
+            ] else if (sendError != null) ...<Widget>[
               const SizedBox(height: VelvetSpacing.md),
               AuthBanner(
                 key: const ValueKey<String>('phone_send_error'),
@@ -181,12 +229,9 @@ class _AddPhoneScreenState extends ConsumerState<AddPhoneScreen> {
                     ? Icons.system_update_alt_rounded
                     : Icons.error_outline_rounded,
                 color: BrandColors.error,
-                message:
-                    sendError == PhoneIdentityErrorCode.phoneAlreadyRegistered
-                    ? l10n.errPhoneInUse
-                    : PhoneIdentityFailure(
-                        code: sendError,
-                      ).userMessage(context),
+                message: PhoneIdentityFailure(
+                  code: sendError,
+                ).userMessage(context),
               ),
             ],
             const SizedBox(height: VelvetSpacing.lg),

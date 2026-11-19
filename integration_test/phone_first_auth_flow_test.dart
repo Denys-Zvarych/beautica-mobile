@@ -19,16 +19,27 @@
 //  10. Expired ticket (400 REGISTRATION_TICKET_INVALID) at submit — back to the
 //      phone step, which re-sends the code.
 //  11. 403 APP_CHECK_FAILED on send — «update from Google Play» banner.
+//  12. Phone-first hardening M1 (AUTH-D27 a) — a 429 on the code RESEND,
+//      through the production mapper and its real `Retry-After` header:
+//      0 → the full 60 s cooldown, 45 → 45 s, over the 600 s ceiling →
+//      «Недоступно»; the link stays disabled (no second resend reaches the
+//      wire) in every case.
+//  13. Phone-first hardening M4 (AUTH-D28) — the step-1 hint «Вже маєте акаунт
+//      з email? Увійдіть» opens /login and wipes the draft.
 //
 // NO PATROL FLOW: no OS permission, deep link, notification or WebView.
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/otp_code_field.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/otp_resend_row.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/utils/legal_versions.dart';
+import 'package:beautica_mobile/shared/widgets/prompt_link_text.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -123,6 +134,55 @@ Future<void> _submitCode(WidgetTester tester) async {
   );
   await tester.pumpAndSettle();
 }
+
+/// Every register code send AFTER the first one (i.e. the «Надіслати знову»
+/// resend) is answered 429 by the server, with `Retry-After: [retryAfter]`
+/// and the `{success:false}` envelope — rejected in front of the fake route
+/// so the PRODUCTION [ErrorMapperInterceptor] maps it. Returns the counter of
+/// sends that reached this guard.
+List<int> _throttleResends(FakeBackend fb, String retryAfter) {
+  final List<int> sends = <int>[0];
+  fb.dio.interceptors.insert(
+    0,
+    InterceptorsWrapper(
+      onRequest: (RequestOptions o, RequestInterceptorHandler h) {
+        if (!o.path.endsWith('/auth/register/phone/otp/send')) {
+          return h.next(o);
+        }
+        sends[0]++;
+        if (sends[0] == 1) return h.next(o);
+        h.reject(
+          DioException(
+            requestOptions: o,
+            type: DioExceptionType.badResponse,
+            response: Response<Map<String, dynamic>>(
+              requestOptions: o,
+              statusCode: 429,
+              headers: Headers.fromMap(<String, List<String>>{
+                'retry-after': <String>[retryAfter],
+              }),
+              data: const <String, dynamic>{
+                'success': false,
+                'message': 'Too many requests',
+              },
+            ),
+          ),
+          true,
+        );
+      },
+    ),
+  );
+  return sends;
+}
+
+/// The resend link as currently rendered on the code step.
+PromptLinkText _resendLink(WidgetTester tester) =>
+    tester.widget<PromptLinkText>(
+      find.ancestor(
+        of: find.byKey(const ValueKey<String>('phone_code_resend')),
+        matching: find.byType(PromptLinkText),
+      ),
+    );
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -487,6 +547,119 @@ void main() {
     expect(fb.registrationCodeSendCalls, 1);
     expect(fb.registrationCodeVerifyCalls, 0);
     expect(fb.logoutCalls, 0, reason: 'a 403 never enters the 401 path');
+  });
+
+  // ── M1 (AUTH-D27 a) — a throttled resend keeps the link disabled ─────────
+  for (final (String retryAfter, String expectation) in <(String, String)>[
+    ('0', 'the full 60 s fallback'),
+    ('45', 'the server 45 s'),
+    ('${kMaxUxCooldownSeconds + 1}', '«Недоступно»'),
+  ]) {
+    testWidgets('429 Retry-After $retryAfter on the code resend keeps the '
+        'link disabled with $expectation', (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final List<int> sends = _throttleResends(fb, retryAfter);
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await _submitPhoneStep(tester, router);
+      AppHarness.expectLocation(router, RouteNames.registerCode);
+      expect(fb.registrationCodeSendCalls, 1, reason: 'step 1 sent the code');
+      // The arrival cooldown (widget-tested) is skipped, not waited out: the
+      // journey under test is the server's 429 answer to the resend.
+      tester
+          .state<OtpResendRowState>(find.byType(OtpResendRow))
+          .resetCooldown();
+      await tester.pump();
+      expect(_resendLink(tester).onTap, isNotNull, reason: 'precondition');
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const ValueKey<String>('phone_code_resend')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(sends.single, 2, reason: 'the resend reached the server');
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('phone_code_error')),
+          matching: find.text(_l10n.errPhoneCodeRateLimited),
+        ),
+        findsOneWidget,
+      );
+      final PromptLinkText link = _resendLink(tester);
+      expect(link.onTap, isNull, reason: 'a 429 never re-enables resend');
+      if (retryAfter == '${kMaxUxCooldownSeconds + 1}') {
+        expect(link.linkLabel, _l10n.resetOtpResendUnavailable);
+      } else {
+        final int expected = retryAfter == '0' ? 60 : 45;
+        final int shown = int.parse(
+          RegExp(r'\((\d+) с\)').firstMatch(link.linkLabel)!.group(1)!,
+        );
+        // Real-time binding: allow the countdown a few ticks.
+        expect(
+          shown,
+          inInclusiveRange(expected - 5, expected),
+          reason: link.linkLabel,
+        );
+      }
+
+      // A second tap on the disabled link sends nothing.
+      await tester.tap(
+        find.byKey(const ValueKey<String>('phone_code_resend')),
+        warnIfMissed: false,
+      );
+      await AppHarness.settle(tester);
+      expect(sends.single, 2);
+      AppHarness.expectLocation(router, RouteNames.registerCode);
+    });
+  }
+
+  // ── M4 (AUTH-D28) — the step-1 hint opens /login ─────────────────────────
+  testWidgets('step 1 «Вже маєте акаунт з email? Увійдіть» opens /login and '
+      'wipes the draft', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    router.go(RouteNames.registerRole);
+    await tester.pumpAndSettle();
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const ValueKey<String>('role_client')),
+    );
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const ValueKey<String>('role_continue')),
+    );
+    await tester.pumpAndSettle();
+    AppHarness.expectLocation(router, RouteNames.register);
+    final Finder hint = find.byKey(const ValueKey<String>('step1_login_link'));
+    expect(
+      find.descendant(
+        of: hint,
+        matching: find.textContaining(
+          _l10n.registerHaveEmailAccount,
+          findRichText: true,
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: hint,
+        matching: find.textContaining(
+          _l10n.registerSignInImperative,
+          findRichText: true,
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await AppHarness.tapVisible(tester, hint);
+    await tester.pumpAndSettle();
+
+    AppHarness.expectLocation(router, RouteNames.login);
+    expect(_draft(tester), isNull, reason: 'the draft is wiped on leave');
+    expect(fb.registrationCodeSendCalls, 0);
   });
 }
 

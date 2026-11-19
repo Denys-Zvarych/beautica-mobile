@@ -104,6 +104,10 @@ abstract final class NotificationMapper {
     if (dto == api.NotificationResponseTypeEnum.SECURITY_EMAIL_CHANGED) {
       return AppNotificationType.securityEmailChanged;
     }
+    // Phone-first hardening (AUTH-D26 a) — password-reset security notice.
+    if (dto == api.NotificationResponseTypeEnum.SECURITY_PASSWORD_RESET) {
+      return AppNotificationType.securityPasswordReset;
+    }
     return AppNotificationType.unknown;
   }
 

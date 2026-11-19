@@ -82,6 +82,8 @@ void main() {
     // Phone-first auth (AUTH-D19) — contact-change security notices.
     'SECURITY_PHONE_CHANGED': AppNotificationType.securityPhoneChanged,
     'SECURITY_EMAIL_CHANGED': AppNotificationType.securityEmailChanged,
+    // Phone-first hardening (AUTH-D26 a) — password-reset security notice.
+    'SECURITY_PASSWORD_RESET': AppNotificationType.securityPasswordReset,
   };
 
   const bookingTarget = <String, Object?>{
@@ -296,6 +298,7 @@ void main() {
     for (final String type in <String>[
       'SECURITY_PHONE_CHANGED',
       'SECURITY_EMAIL_CHANGED',
+      'SECURITY_PASSWORD_RESET',
     ]) {
       test('should_yieldNoTarget_for_${type}_evenWithABookingTarget', () {
         // RED WHEN `isSecurityNotice` is dropped from `fromDto`.

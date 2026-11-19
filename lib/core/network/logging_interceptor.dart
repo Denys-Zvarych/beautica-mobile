@@ -23,7 +23,10 @@ import 'dart:developer';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../config/app_check_config.dart';
 import 'auth_paths.dart';
+
+final String _kAppCheckHeaderLower = kAppCheckHeader.toLowerCase();
 
 /// [RequestOptions.extra] key under which this interceptor stores its
 /// [Stopwatch] instance for response-time measurement.
@@ -93,6 +96,13 @@ final class LoggingInterceptor extends Interceptor {
     final headers = Map<String, dynamic>.from(options.headers);
     if (headers.containsKey('Authorization')) {
       headers['Authorization'] = '***REDACTED***';
+    }
+    // AUTH-D27 d — a limited-use App Check token is a credential too (any
+    // casing: a retried request may carry it).
+    for (final String key in headers.keys.toList()) {
+      if (key.toLowerCase() == _kAppCheckHeaderLower) {
+        headers[key] = '***REDACTED***';
+      }
     }
 
     // Redact body for sensitive endpoints (auth credentials, OTPs, PII

@@ -36,6 +36,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/app_check_prefetch.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/presentation/forgot_password_request_screen.dart';
@@ -73,7 +74,11 @@ GoRouter _makeRouter() => GoRouter(
   ],
 );
 
-Future<void> _pump(WidgetTester tester, FakeAuthRepository repo) async {
+Future<void> _pump(
+  WidgetTester tester,
+  FakeAuthRepository repo, {
+  List<Object> extraOverrides = const <Object>[],
+}) async {
   final GoRouter router = _makeRouter();
   addTearDown(router.dispose);
   await tester.pumpWidget(
@@ -82,6 +87,7 @@ Future<void> _pump(WidgetTester tester, FakeAuthRepository repo) async {
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ...extraOverrides.cast(),
       ],
       child: MaterialApp.router(
         routerConfig: router,
@@ -512,6 +518,108 @@ void main() {
 
       expect(repo.requestPasswordResetCalls, isEmpty);
       expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
+    });
+
+    // Phone-first hardening (AUTH-54 / AUTH-D27 d): forgot-password is an
+    // App Check-guarded SMS send. A 403 / 503 App Check rejection shows its
+    // own copy inline and never navigates to the code step.
+    for (final (String status, PhoneIdentityErrorCode code)
+        in <(String, PhoneIdentityErrorCode)>[
+          ('403 APP_CHECK_FAILED', PhoneIdentityErrorCode.appCheckFailed),
+          (
+            '503 APP_CHECK_UNAVAILABLE',
+            PhoneIdentityErrorCode.appCheckUnavailable,
+          ),
+        ]) {
+      testWidgets('App Check $status → inline copy, stays on the form', (
+        WidgetTester tester,
+      ) async {
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..requestPasswordResetResult = PhoneIdentityFailure(code: code);
+        await _pump(tester, repo);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('forgot_identifier')),
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_identifier')),
+          '093 111 22 33',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pumpAndSettle();
+
+        expect(repo.requestPasswordResetCalls, hasLength(1));
+        expect(
+          find.text(
+            code == PhoneIdentityErrorCode.appCheckFailed
+                ? l10n.errAppCheckFailed
+                : l10n.errAppCheckUnavailable,
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('otp:'), findsNothing);
+      });
+    }
+
+    // Phone-first hardening P2 — the App Check token is prefetched once, the
+    // first time the identifier is a UA mobile number; never for an email.
+    group('App Check prefetch on the identifier', () {
+      Future<int Function()> pumpCounting(WidgetTester tester) async {
+        int prefetchCalls = 0;
+        final AppCheckTokenPrefetcher prefetcher = AppCheckTokenPrefetcher(
+          fetch: () async => null,
+          // `prefetch()` asks this once per call; false = no real fetch.
+          canPrefetch: () {
+            prefetchCalls++;
+            return false;
+          },
+          clock: () => DateTime.utc(2026, 11, 19, 10),
+        );
+        await _pump(
+          tester,
+          FakeAuthRepository(),
+          extraOverrides: <Object>[
+            appCheckTokenPrefetcherProvider.overrideWithValue(prefetcher),
+          ],
+        );
+        return () => prefetchCalls;
+      }
+
+      Future<void> type(WidgetTester tester, String text) async {
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_identifier')),
+          text,
+        );
+        await tester.pump();
+      }
+
+      testWidgets('nothing on open; one prefetch once a phone parses, '
+          'never again', (WidgetTester tester) async {
+        final int Function() calls = await pumpCounting(tester);
+        expect(calls(), 0, reason: 'no prefetch on open');
+
+        await type(tester, '067');
+        expect(calls(), 0, reason: 'not a phone yet');
+        await type(tester, '067 123 45 67');
+        expect(calls(), 1);
+        await type(tester, '067 123 45 6');
+        await type(tester, '0671234567');
+        expect(calls(), 1, reason: 'at most once per screen');
+      });
+
+      testWidgets('an email never prefetches', (WidgetTester tester) async {
+        final int Function() calls = await pumpCounting(tester);
+
+        await type(tester, 'anya@example.com');
+        await type(tester, '0671234567@example.com');
+        expect(calls(), 0);
+      });
     });
   });
 }

@@ -1488,4 +1488,40 @@ void main() {
       expect(calls, 1);
     });
   });
+
+  // Audit cycle 1 (phone-first hardening) — a phone-send 429's Retry-After:
+  // absent / 0 / negative → null (the step's own 60 s fallback), positive →
+  // as sent, over the 600 s UX ceiling → kMaxUxCooldownSeconds + 1 («unavailable»).
+  group('PhoneIdentityFailure rateLimited Retry-After', () {
+    int? retryAfter(String? header) {
+      final RequestOptions o = _opts(path: '/api/v1/users/me/phone/otp/send');
+      final Object? error = _captureRejected(
+        DioException(
+          requestOptions: o,
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: o,
+            statusCode: 429,
+            data: <String, dynamic>{'success': false},
+            headers: Headers.fromMap(<String, List<String>>{
+              if (header != null) 'retry-after': <String>[header],
+            }),
+          ),
+        ),
+      ).error;
+      expect(error, isA<PhoneIdentityFailure>());
+      final PhoneIdentityFailure f = error! as PhoneIdentityFailure;
+      expect(f.code, PhoneIdentityErrorCode.rateLimited);
+      return f.retryAfterSeconds;
+    }
+
+    test('absent → null', () => expect(retryAfter(null), isNull));
+    test('0 → null', () => expect(retryAfter('0'), isNull));
+    test('negative → null', () => expect(retryAfter('-5'), isNull));
+    test('42 → 42', () => expect(retryAfter('42'), 42));
+    test('600 (at the ceiling) → 600', () => expect(retryAfter('600'), 600));
+    test('over the ceiling → kMaxUxCooldownSeconds + 1', () {
+      expect(retryAfter('3600'), kMaxUxCooldownSeconds + 1);
+    });
+  });
 }

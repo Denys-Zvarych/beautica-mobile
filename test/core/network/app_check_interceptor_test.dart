@@ -104,6 +104,41 @@ void main() {
     });
   });
 
+  // Audit cycle 1 (AUTH-D27 d) — a retried request reuses its options; a
+  // failed fetch must never resend the previous, already spent, limited-use
+  // token.
+  group('AppCheckInterceptor — retried request', () {
+    Future<RequestOptions> runWithStaleHeader(
+      AppCheckTokenSource source,
+    ) async {
+      final RequestOptions retried = RequestOptions(
+        path: '/api/v1/auth/forgot-password',
+        headers: <String, dynamic>{kAppCheckHeader: 'spent-token'},
+      );
+      final _CapturingHandler handler = _CapturingHandler();
+      await AppCheckInterceptor(source).onRequest(retried, handler);
+      expect(handler.passed, isNotNull);
+      return handler.passed!;
+    }
+
+    test('fetch throws → the stale header is removed', () async {
+      final RequestOptions o = await runWithStaleHeader(
+        () async => throw StateError('sdk'),
+      );
+      expect(o.headers.containsKey(kAppCheckHeader), isFalse);
+    });
+
+    test('fetch returns null → the stale header is removed', () async {
+      final RequestOptions o = await runWithStaleHeader(() async => null);
+      expect(o.headers.containsKey(kAppCheckHeader), isFalse);
+    });
+
+    test('fetch succeeds → the NEW token replaces the stale one', () async {
+      final RequestOptions o = await runWithStaleHeader(() async => 'fresh');
+      expect(o.headers[kAppCheckHeader], 'fresh');
+    });
+  });
+
   // M515 audit (perf MEDIUM) — the WHOLE token fetch (Firebase init wait +
   // getToken) is capped, so a stalled attestation never pins an SMS request.
   group('appCheckToken (production token source)', () {

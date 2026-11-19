@@ -48,6 +48,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/network/app_check_prefetch.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -85,6 +86,11 @@ class _ForgotPasswordRequestScreenState
   /// Inline error shown under the email field when a genuine transport / server
   /// error occurs (NOT shown for the generic anti-enumeration success).
   String? _inlineError;
+
+  /// Phone-first hardening P2 — an App Check token is prefetched at most once
+  /// per screen, and only once the input is a Ukrainian mobile number (an
+  /// email sends no SMS and needs none).
+  bool _prefetched = false;
 
   // Captured in initState so dispose() never touches `ref` — under Riverpod
   // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
@@ -206,7 +212,13 @@ class _ForgotPasswordRequestScreenState
               AutofillHints.email,
             ],
             errorText: _inlineError,
-            onChanged: (_) {
+            onChanged: (String value) {
+              if (!_prefetched &&
+                  !isEmailIdentifier(value) &&
+                  normalizeUaMobile(value) != null) {
+                _prefetched = true;
+                ref.read(appCheckTokenPrefetcherProvider).prefetch();
+              }
               // Single setState coalesces the error clear + CTA enabled-state
               // rebuild into one markNeedsBuild per keystroke.
               setState(() {

@@ -9,7 +9,9 @@
 //   409 PHONE_ALREADY_REGISTERED  → back to step 1 with the «Увійти» banner
 //                                   (the backend answers it only after the
 //                                   code proved ownership, AUTH-42).
-// «Надіслати знову» re-sends through the same App Check-guarded endpoint.
+// «Надіслати знову» re-sends through the same App Check-guarded endpoint; a
+// 429 keeps the cooldown running ([resendCooldownFor], shared with
+// ContactVerifyScreen).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,6 +25,7 @@ import '../../../shared/feedback/show_velvet_snack.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
+import 'phone_code_resend_cooldown.dart';
 import 'register_flow_shell.dart';
 import 'widgets/auth_icon_tile.dart';
 import 'widgets/phone_code_step.dart';
@@ -75,7 +78,8 @@ class _RegisterCodeScreenState extends ConsumerState<RegisterCodeScreen> {
       return kPhoneCodeResendCooldownSeconds;
     } on Failure catch (f) {
       if (mounted) setState(() => _codeError = f.userMessage(context));
-      return null;
+      // M1 (AUTH-D27 a): a throttled resend keeps the link disabled.
+      return resendCooldownFor(f);
     }
   }
 

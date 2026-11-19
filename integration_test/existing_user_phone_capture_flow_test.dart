@@ -34,6 +34,10 @@
 //  12. Regression (2026-11-19): the provider home email card is gone — an
 //      INDEPENDENT_MASTER / SALON_MASTER without a confirmed email sees no
 //      card on the profile home, and no provider prompt state is written.
+//  13. Phone-first hardening (AUTH-D28): a legacy account whose number is
+//      verified on ANOTHER account → the code step's 409
+//      PHONE_ALREADY_REGISTERED returns to the add-phone step with the
+//      duplicate state (support link, editable field); «Вийти» → /login.
 //
 // App Links are delivered through the `flutter/navigation` channel (cold
 // start = `defaultRouteName`), exactly as booking_review_app_link_flow_test
@@ -152,8 +156,15 @@ ProviderContainer _container(WidgetTester tester) =>
     ProviderScope.containerOf(tester.element(find.byType(E2eHarnessApp)));
 
 /// The server phone gate (AUTH-45): every write to [path] answers 409
-/// PHONE_NOT_VERIFIED through the production mapper.
-void _gateWrites(FakeBackend fb, String path) {
+/// PHONE_NOT_VERIFIED through the production mapper. [status] / [code]
+/// (additive, phone-first hardening) answer another envelope instead, e.g.
+/// the AUTH-D28 409 PHONE_ALREADY_REGISTERED on the phone verify.
+void _gateWrites(
+  FakeBackend fb,
+  String path, {
+  int status = 409,
+  String code = 'PHONE_NOT_VERIFIED',
+}) {
   fb.dio.interceptors.insert(
     0,
     InterceptorsWrapper(
@@ -165,11 +176,11 @@ void _gateWrites(FakeBackend fb, String path) {
             type: DioExceptionType.badResponse,
             response: Response<Map<String, dynamic>>(
               requestOptions: o,
-              statusCode: 409,
+              statusCode: status,
               data: <String, dynamic>{
                 'success': false,
-                'message': 'FAKE-409',
-                'data': <String, dynamic>{'code': 'PHONE_NOT_VERIFIED'},
+                'message': 'FAKE-$status',
+                'data': <String, dynamic>{'code': code},
               },
             ),
           ),
@@ -611,5 +622,40 @@ void main() {
       isFalse,
       reason: 'no provider prompt state is ever written',
     );
+  });
+
+  testWidgets('legacy duplicate (AUTH-D28): the verify-time 409 '
+      'PHONE_ALREADY_REGISTERED shows the support state on the add-phone '
+      'step; «Вийти» is still the way out', (tester) async {
+    final FakeBackend fb = FakeBackend()..currentRole = UserRole.client;
+    _legacy(fb);
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await AppHarness.pumpUntilFound(tester, _key('add_phone'));
+    _gateWrites(
+      fb,
+      '/api/v1/users/me/phone/otp/verify',
+      code: 'PHONE_ALREADY_REGISTERED',
+    );
+
+    await _enter(tester, _key('add_phone'), '093 111 22 33');
+    await _tap(tester, _key('add_phone_submit'));
+    await AppHarness.pumpUntilFound(tester, _key('phone_code_input'));
+    await _submitCode(tester);
+    await AppHarness.pumpUntilFound(tester, _key('add_phone_duplicate'));
+
+    AppHarness.expectLocation(router, RouteNames.addPhone);
+    expect(find.text(_l10n.addPhoneDuplicateMessage), findsOneWidget);
+    expect(find.text(_l10n.addPhoneContactSupport), findsOneWidget);
+    expect(fb.mePhoneVerified, isFalse, reason: 'nothing was confirmed');
+    // Still blocking: any other location bounces back.
+    router.go(RouteNames.clientBookings);
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.addPhone);
+
+    await _tap(tester, _key('add_phone_logout'));
+    await AppHarness.pumpUntilFound(tester, _key('login_email'));
+    AppHarness.expectLocation(router, RouteNames.login);
+    expect(fb.logoutCalls, 1);
   });
 }
