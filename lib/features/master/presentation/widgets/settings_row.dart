@@ -14,6 +14,8 @@
 // settings_widgets.dart` — ported 1:1, swapping VelvetColors → BrandColors and
 // reusing the production [NeumorphicInset].
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -36,7 +38,6 @@ class SettingsRow extends StatefulWidget {
     this.destructive = false,
     this.loading = false,
     this.enabled = true,
-    this.subtitle,
     this.ellipsizeValue = false,
   });
 
@@ -84,15 +85,26 @@ class SettingsRow extends StatefulWidget {
   /// renders and behaves EXACTLY as before this parameter existed.
   final bool enabled;
 
-  /// ADDITIVE (PhoneFirstAuth, M515 port for M517): an optional muted second
-  /// line under [label], styled like `SettingsToggleRow.subtitle`. `null`
-  /// keeps the row exactly as before.
-  final String? subtitle;
-
   /// ADDITIVE (PhoneFirstAuth, M515 port for M517): when `true` a long
   /// [value] (an email) shrinks and ellipsizes on one line. `false` (default)
   /// keeps the value at its intrinsic width, exactly as before.
+  ///
+  /// Fix 2026-11-19 (manual test): the label keeps its intrinsic width and the
+  /// value takes the rest, END-aligned, so a short value («Додати») and the
+  /// chevron sit at the far right exactly like every other row. Before, a
+  /// loose `Flexible` value shared the free space with the `Expanded` label,
+  /// leaving a gap after the chevron (trailing shifted left).
+  ///
+  /// Fix 2026-11-19 (perf audit): the label is width-bounded (see
+  /// `_ellipsizeLabelMaxWidth`: what the value leaves free, floor 60 %) and
+  /// wraps to at most 2 lines, so at textScaler 1.3 a long label («Email for
+  /// notifications» at 360 dp) can no longer overflow the row or squeeze the
+  /// value to a single glyph.
   final bool ellipsizeValue;
+
+  /// Minimum share of the free row width the label may always take in
+  /// [ellipsizeValue] mode (it may take more when the value is short).
+  static const double _ellipsizeLabelMinFraction = 0.6;
 
   @override
   State<SettingsRow> createState() => _SettingsRowState();
@@ -105,6 +117,37 @@ class _SettingsRowState extends State<SettingsRow> {
   static const EdgeInsets _padding = EdgeInsets.all(VelvetSpacing.sm + 4);
 
   static final TextStyle _valueStyle = VelvetText.body14;
+
+  /// [SettingsRow.ellipsizeValue] label cap: the label may take whatever the
+  /// value's intrinsic width leaves free (so a short value such as «Додати»
+  /// keeps the label on one line, as before), but never less than
+  /// [SettingsRow._ellipsizeLabelMinFraction] of the row — beyond that a long
+  /// value (an email) shrinks and ellipsizes, keeping at least the remaining
+  /// share. Always <= `available - gap`, so the row can never overflow.
+  static double _ellipsizeLabelMaxWidth(
+    BuildContext context,
+    String value,
+    double available,
+  ) {
+    const double gap = VelvetSpacing.sm;
+    final TextPainter painter = TextPainter(
+      // Measure with the style the rendered `Text` actually uses: it merges
+      // the ambient DefaultTextStyle (e.g. letterSpacing), so a bare
+      // `_valueStyle` under-measures and «Додати» ellipsizes at the cap.
+      text: TextSpan(
+        text: value,
+        style: DefaultTextStyle.of(context).style.merge(_valueStyle),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final double valueWidth = painter.width.ceilToDouble();
+    painter.dispose();
+    final double floor = available * SettingsRow._ellipsizeLabelMinFraction;
+    final double room = available - valueWidth - gap;
+    return math.max(0, math.min(available - gap, math.max(floor, room)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,40 +192,53 @@ class _SettingsRowState extends State<SettingsRow> {
                 widget.iconWidget ?? Icon(widget.icon, size: 19, color: glyph),
           ),
           const SizedBox(width: VelvetSpacing.md),
-          Expanded(
-            child: widget.subtitle == null
-                ? Text(
-                    widget.label,
-                    style: VelvetText.bodyStrong().copyWith(color: labelColor),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
+          if (value != null && widget.ellipsizeValue) ...<Widget>[
+            Expanded(
+              child: LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints c) => Row(
+                  children: <Widget>[
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: _ellipsizeLabelMaxWidth(
+                          context,
+                          value,
+                          c.maxWidth,
+                        ),
+                      ),
+                      child: Text(
                         widget.label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: VelvetText.bodyStrong().copyWith(
                           color: labelColor,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(widget.subtitle!, style: VelvetText.body12),
-                    ],
-                  ),
-          ),
-          if (value != null) ...<Widget>[
-            if (widget.ellipsizeValue)
-              Flexible(
-                child: Text(
-                  value,
-                  style: _valueStyle,
-                  maxLines: 1,
-                  softWrap: false,
-                  overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(width: VelvetSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        value,
+                        style: _valueStyle,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                      ),
+                    ),
+                  ],
                 ),
-              )
-            else
-              Text(value, style: _valueStyle),
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
+          ] else
+            Expanded(
+              child: Text(
+                widget.label,
+                style: VelvetText.bodyStrong().copyWith(color: labelColor),
+              ),
+            ),
+          if (value != null && !widget.ellipsizeValue) ...<Widget>[
+            Text(value, style: _valueStyle),
             const SizedBox(width: VelvetSpacing.sm),
           ],
           if (loading)

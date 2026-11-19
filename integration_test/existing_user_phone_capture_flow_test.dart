@@ -31,8 +31,9 @@
 //      one → wrong password (old kept) → right password → row shows the new.
 //  11. Client booking-success card: shown once per user id (another account's
 //      flag on the device does not hide it), never on the next booking.
-//  12. Provider home card: «Не зараз» persists for that user id across a
-//      re-login; a different provider on the same device still sees it.
+//  12. Regression (2026-11-19): the provider home email card is gone — an
+//      INDEPENDENT_MASTER / SALON_MASTER without a confirmed email sees no
+//      card on the profile home, and no provider prompt state is written.
 //
 // App Links are delivered through the `flutter/navigation` channel (cold
 // start = `defaultRouteName`), exactly as booking_review_app_link_flow_test
@@ -581,11 +582,12 @@ void main() {
     expect(stored.containsKey('another-client'), isTrue);
   });
 
-  testWidgets('provider home email card: «Не зараз» persists for that user '
-      'across a re-login; another provider still sees it', (tester) async {
+  testWidgets('regression: no provider home email card on any provider '
+      'profile, even without a confirmed email', (tester) async {
     final FakeDiagnosticsStore diagnostics = FakeDiagnosticsStore();
     final FakeBackend fb = FakeBackend();
     _verified(fb);
+    expect(fb.meEmailVerified, isFalse, reason: 'the old card\'s trigger');
     final GoRouter router = await AppHarness.boot(
       tester,
       fb,
@@ -593,26 +595,21 @@ void main() {
     );
 
     await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-    await AppHarness.pumpUntilFound(tester, find.byKey(_kProviderCard));
-    await _tap(tester, _notNow);
+    AppHarness.expectLocation(router, RouteNames.masterProfile);
+    await AppHarness.settle(tester);
     expect(find.byKey(_kProviderCard), findsNothing);
 
     await _container(tester).read(authProvider.notifier).logout();
     await AppHarness.settle(tester);
     await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
     AppHarness.expectLocation(router, RouteNames.salonMasterProfile);
-    await AppHarness.pumpUntilFound(tester, find.byKey(_kProviderCard));
-
-    await _container(tester).read(authProvider.notifier).logout();
-    await AppHarness.settle(tester);
-    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-    AppHarness.expectLocation(router, RouteNames.masterProfile);
     await AppHarness.settle(tester);
     expect(find.byKey(_kProviderCard), findsNothing);
+
     expect(
-      (_promptState(diagnostics)['user-master-1']
-          as Map<String, dynamic>)['providerHiddenAt'],
-      isNotNull,
+      diagnostics.values.containsKey(StorageKeys.emailPrompts),
+      isFalse,
+      reason: 'no provider prompt state is ever written',
     );
   });
 }

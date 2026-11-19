@@ -55,7 +55,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/auth/presentation/widgets/email_prompts.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
@@ -515,9 +514,6 @@ class _ProfileBody extends StatelessWidget {
             ),
           ),
         ),
-        // M517 (AUTH-D17 c) — the provider email card, under the identity card
-        // (zero-size unless due, so the layout is otherwise unchanged).
-        const ProviderEmailPromptCard(),
         const SizedBox(height: VelvetSpacing.xl),
 
         // 2 — 4-up stat cards: bookings / rating / services / reviews (U5 —

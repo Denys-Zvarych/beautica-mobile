@@ -4,13 +4,10 @@
 //       then the address, ellipsized; tap opens the email entry.
 //   (b) claimClientEmailPrompt: CLIENT with an explicitly unconfirmed email,
 //       once ever (claimed on first show); never a provider / unknown state.
-//   (c) ProviderEmailPromptCard: zero-size unless due; «Не зараз» hides it;
-//       shown again once 30 days later; a second hide retires it.
-
-import 'dart:async';
+//
+// The provider home card (former (c)) was removed 2026-11-19.
 
 import 'package:beautica_mobile/core/diagnostics/crash_reporting_enabled_provider.dart';
-import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -20,6 +17,7 @@ import 'package:beautica_mobile/features/master/presentation/widgets/settings_ro
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -56,26 +54,12 @@ final class _H {
       overrides: [
         authProvider.overrideWith(() => _AuthStub(user)),
         diagnosticsStoreProvider.overrideWithValue(this.store),
-        clockProvider.overrideWithValue(() => now),
       ],
     );
   }
 
   final FakeDiagnosticsStore store;
-  DateTime now = DateTime.utc(2026, 11, 18, 9);
   late final ProviderContainer container;
-}
-
-/// A store whose writes block until [gate] completes — models the keystore
-/// round trip the optimistic hide must not wait for.
-final class _GatedStore extends FakeDiagnosticsStore {
-  final Completer<void> gate = Completer<void>();
-
-  @override
-  Future<void> write(String key, String value) async {
-    await gate.future;
-    return super.write(key, value);
-  }
 }
 
 /// A probe that exposes a [WidgetRef] for [claimClientEmailPrompt].
@@ -127,7 +111,6 @@ Future<GoRouter> _pump(WidgetTester tester, _H h, Widget child) async {
 void main() {
   final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
   const Key rowKey = Key('row-notification-email');
-  const Key cardKey = Key('provider-home-email-card');
 
   group('(a) NotificationEmailSettingsRow', () {
     testWidgets('no confirmed email → «Додати»; tap opens the entry', (
@@ -143,7 +126,6 @@ void main() {
 
       final SettingsRow row = tester.widget<SettingsRow>(find.byKey(rowKey));
       expect(row.label, l10n.profileNotificationEmailTitle);
-      expect(row.subtitle, l10n.profileNotificationEmailSubtitle);
       expect(row.value, l10n.emailPromptAdd);
       expect(row.ellipsizeValue, isTrue);
 
@@ -172,6 +154,173 @@ void main() {
     });
   });
 
+  group('(a) row geometry matches a neighbouring SettingsRow', () {
+    const Key neighbourKey = Key('row-neighbour');
+
+    Widget column() => Column(
+      children: <Widget>[
+        SettingsRow(
+          key: neighbourKey,
+          icon: Icons.language,
+          label: 'Language',
+          value: 'Ukrainian',
+          onTap: () {},
+        ),
+        const SizedBox(height: 12),
+        const NotificationEmailSettingsRow(),
+      ],
+    );
+
+    for (final (String name, User u) in <(String, User)>[
+      ('client, no email', _client),
+      ('independent master, no email', _master),
+      ('salon master, no email', _master.copyWith(role: UserRole.salonMaster)),
+      ('owner, no email', _master.copyWith(role: UserRole.salonOwner)),
+      (
+        'master, long confirmed email',
+        _master.copyWith(
+          email: 'olena.kovalenko.beauty.studio@gmail.com',
+          emailVerified: true,
+        ),
+      ),
+    ]) {
+      testWidgets('$name: same height, value + chevron right-aligned', (
+        tester,
+      ) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(360, 800);
+        addTearDown(tester.view.reset);
+        final _H h = _H(u);
+        addTearDown(h.container.dispose);
+        await _pump(tester, h, column());
+
+        expect(find.byKey(rowKey), findsOneWidget);
+        expect(
+          tester.widget(find.byKey(rowKey)),
+          isA<SettingsRow>(),
+          reason: 'the shared row widget, never a bespoke card',
+        );
+        expect(
+          tester.getSize(find.byKey(rowKey)),
+          tester.getSize(find.byKey(neighbourKey)),
+        );
+
+        Finder chevronIn(Key k) => find.descendant(
+          of: find.byKey(k),
+          matching: find.byIcon(Icons.chevron_right_rounded),
+        );
+        expect(
+          tester.getTopRight(chevronIn(rowKey)).dx,
+          tester.getTopRight(chevronIn(neighbourKey)).dx,
+          reason: 'chevron at the far right like every row',
+        );
+        final String value = tester
+            .widget<SettingsRow>(find.byKey(rowKey))
+            .value!;
+        final Finder valueText = find.descendant(
+          of: find.byKey(rowKey),
+          matching: find.text(value),
+        );
+        expect(
+          tester.getRect(valueText).right,
+          moreOrLessEquals(
+            tester
+                .getRect(
+                  find.descendant(
+                    of: find.byKey(neighbourKey),
+                    matching: find.text('Ukrainian'),
+                  ),
+                )
+                .right,
+          ),
+          reason: 'trailing value aligned like the neighbour',
+        );
+        expect(tester.takeException(), isNull, reason: 'no overflow');
+      });
+    }
+  });
+
+  group('(a) long label at textScaler 1.3 (main.dart cap) never overflows', () {
+    const Key scaledKey = Key('row-scaled');
+    for (final String lang in <String>['uk', 'en']) {
+      for (final double width in <double>[320, 360]) {
+        for (final String value in <String>[
+          'Додати',
+          'olena.kovalenko.beauty.studio@gmail.com',
+        ]) {
+          testWidgets('$lang @ ${width.toInt()} dp, value «$value»', (
+            tester,
+          ) async {
+            tester.view.devicePixelRatio = 1;
+            tester.view.physicalSize = Size(width, 800);
+            addTearDown(tester.view.reset);
+            final AppLocalizations t = lookupAppLocalizations(Locale(lang));
+            await tester.pumpWidget(
+              MaterialApp(
+                locale: Locale(lang),
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                builder: (BuildContext context, Widget? child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: const TextScaler.linear(1.3)),
+                  child: child!,
+                ),
+                home: Scaffold(
+                  body: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SettingsRow(
+                      key: scaledKey,
+                      icon: Icons.mail_outline,
+                      label: t.profileNotificationEmailTitle,
+                      value: value,
+                      ellipsizeValue: true,
+                      onTap: () {},
+                    ),
+                  ),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+
+            expect(tester.takeException(), isNull, reason: 'no overflow');
+            final Finder labelText = find.descendant(
+              of: find.byKey(scaledKey),
+              matching: find.text(t.profileNotificationEmailTitle),
+            );
+            final Finder valueText = find.descendant(
+              of: find.byKey(scaledKey),
+              matching: find.text(value),
+            );
+            expect(
+              tester.getRect(labelText).right,
+              lessThan(tester.getRect(valueText).left),
+              reason: 'label and value never overlap',
+            );
+            expect(
+              tester.getSize(valueText).width,
+              greaterThanOrEqualTo(
+                (tester.getRect(valueText).right -
+                        tester.getRect(labelText).right) *
+                    0.5,
+              ),
+              reason: 'value keeps a real share of the row, not «Д…»',
+            );
+            if (value == 'Додати') {
+              expect(
+                tester
+                    .renderObject<RenderParagraph>(valueText)
+                    .didExceedMaxLines,
+                isFalse,
+                reason: 'short value renders in full, never «Додат…»',
+              );
+            }
+          });
+        }
+      }
+    }
+  });
+
   group('(b) claimClientEmailPrompt', () {
     testWidgets('a CLIENT without a confirmed email claims it once, ever', (
       tester,
@@ -196,158 +345,6 @@ void main() {
         late WidgetRef ref;
         await _pump(tester, h, _ClaimProbe((r) => ref = r));
         expect(await claimClientEmailPrompt(ref), isFalse);
-      });
-    }
-  });
-
-  group('(c) ProviderEmailPromptCard', () {
-    testWidgets('due → shown; «Не зараз» hides; back once after 30 days; '
-        'a second hide retires it', (tester) async {
-      final _H h = _H(_master);
-      addTearDown(h.container.dispose);
-      await _pump(tester, h, const ProviderEmailPromptCard());
-
-      expect(find.byKey(cardKey), findsOneWidget);
-      expect(find.text(l10n.providerHomeEmailPromptTitle), findsOneWidget);
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('auth_banner_secondary_action')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byKey(cardKey), findsNothing);
-
-      h.now = h.now.add(const Duration(days: 29));
-      h.container.invalidate(providerEmailCardDueProvider('m1'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(cardKey), findsNothing);
-
-      h.now = h.now.add(const Duration(days: 1));
-      h.container.invalidate(providerEmailCardDueProvider('m1'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(cardKey), findsOneWidget, reason: 're-shown once');
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('auth_banner_secondary_action')),
-      );
-      await tester.pumpAndSettle();
-      h.now = h.now.add(const Duration(days: 400));
-      h.container.invalidate(providerEmailCardDueProvider('m1'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(cardKey), findsNothing, reason: 'then never');
-    });
-
-    // Audit LOW (item 3): the card hides at once, before the store write
-    // completes — it must not linger for a keystore round trip.
-    testWidgets('«Не зараз» hides it before the store write completes', (
-      tester,
-    ) async {
-      final _GatedStore store = _GatedStore();
-      final _H h = _H(_master, store: store);
-      addTearDown(h.container.dispose);
-      await _pump(tester, h, const ProviderEmailPromptCard());
-      expect(find.byKey(cardKey), findsOneWidget);
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('auth_banner_secondary_action')),
-      );
-      await tester.pump();
-      expect(find.byKey(cardKey), findsNothing, reason: 'optimistic hide');
-      expect(store.writes, 0, reason: 'the write is still in flight');
-
-      store.gate.complete();
-      await tester.pumpAndSettle();
-      expect(store.writes, 1);
-      expect(find.byKey(cardKey), findsNothing, reason: 'stays hidden');
-      expect(tester.getSize(find.byType(ProviderEmailPromptCard)), Size.zero);
-    });
-
-    // Audit LOW (item 4): the async-arriving card is revealed by a size +
-    // fade animation, not a one-frame jump.
-    testWidgets('the card is revealed through an AnimatedSize', (tester) async {
-      final _H h = _H(_master);
-      addTearDown(h.container.dispose);
-      await _pump(tester, h, const ProviderEmailPromptCard());
-      expect(
-        find.ancestor(
-          of: find.byKey(cardKey),
-          matching: find.byType(AnimatedSize),
-        ),
-        findsOneWidget,
-      );
-    });
-
-    // CI fix: with animations disabled a zero-duration AnimatedSize threw
-    // "A RenderAnimatedSize was mutated in its own performLayout" on any
-    // relayout (reveal, hide, width change). Reduced motion must not throw.
-    testWidgets('animations disabled: reveal, «Не зараз», resize — no throw', (
-      tester,
-    ) async {
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(disableAnimations: true);
-      addTearDown(
-        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
-      );
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(320, 800);
-      addTearDown(tester.view.reset);
-
-      final _H h = _H(_master);
-      addTearDown(h.container.dispose);
-      await _pump(tester, h, const ProviderEmailPromptCard());
-      expect(tester.takeException(), isNull, reason: 'reveal');
-      expect(find.byKey(cardKey), findsOneWidget);
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('auth_banner_secondary_action')),
-      );
-      await tester.pump();
-      expect(tester.takeException(), isNull, reason: 'optimistic hide');
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull, reason: 'hide settled');
-      expect(find.byKey(cardKey), findsNothing);
-
-      h.now = h.now.add(const Duration(days: 30));
-      h.container.invalidate(providerEmailCardDueProvider('m1'));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull, reason: 're-reveal');
-      expect(find.byKey(cardKey), findsOneWidget);
-
-      tester.view.physicalSize = const Size(414, 800);
-      await tester.pump();
-      expect(tester.takeException(), isNull, reason: 'width change');
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull, reason: 'width change settled');
-      expect(find.byKey(cardKey), findsOneWidget);
-    });
-
-    testWidgets('«Додати» hides it and opens the email entry', (tester) async {
-      final _H h = _H(_master);
-      addTearDown(h.container.dispose);
-      final GoRouter router = await _pump(
-        tester,
-        h,
-        const ProviderEmailPromptCard(),
-      );
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('auth_banner_action')),
-      );
-      await tester.pumpAndSettle();
-      expect(AppHarness.location(router), RouteNames.notificationEmail);
-      expect(h.store.writes, 1);
-    });
-
-    for (final (String name, User u) in <(String, User)>[
-      ('a client', _client),
-      ('a confirmed email', _master.copyWith(emailVerified: true)),
-      ('an unknown email state', _master.copyWith(emailVerified: null)),
-    ]) {
-      testWidgets('zero-size for $name', (tester) async {
-        final _H h = _H(u);
-        addTearDown(h.container.dispose);
-        await _pump(tester, h, const ProviderEmailPromptCard());
-        expect(find.byKey(cardKey), findsNothing);
-        expect(tester.getSize(find.byType(ProviderEmailPromptCard)), Size.zero);
       });
     }
   });

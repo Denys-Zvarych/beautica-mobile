@@ -1,6 +1,6 @@
 // M517 — pure rules: the AUTH-D19 current-password lockout mirror and the
-// AUTH-D17 email-prompt state (client card once; provider card hide → one
-// re-show after 30 days → retired), plus the User getters that gate them.
+// AUTH-D17 email-prompt state (client card once; the provider card was
+// removed 2026-11-19), plus the User getters that gate them.
 // QA additions: both are kept PER USER ID — the prompt store on the device
 // (one secure-storage key, every account's entry kept), the lockout tally for
 // the app session (a second account never inherits the first one's lock).
@@ -73,40 +73,23 @@ void main() {
       expect(fresh.withClientCardShown().clientCardDue, isFalse);
     });
 
-    test('provider card: due until hidden; due again once after 30 days; '
-        'retired after the re-show is hidden', () {
-      const EmailPromptState fresh = EmailPromptState();
-      expect(fresh.providerCardDueAt(t0), isTrue);
-
-      final EmailPromptState hidden = fresh.withProviderCardHidden(t0);
-      expect(hidden.providerCardDueAt(t0), isFalse);
-      expect(
-        hidden.providerCardDueAt(t0.add(const Duration(days: 29, hours: 23))),
-        isFalse,
-      );
-      final DateTime reshowAt = t0.add(kProviderEmailCardReshowAfter);
-      expect(hidden.providerCardDueAt(reshowAt), isTrue);
-
-      final EmailPromptState retired = hidden.withProviderCardHidden(reshowAt);
-      expect(retired.providerRetired, isTrue);
-      expect(
-        retired.providerCardDueAt(reshowAt.add(const Duration(days: 365))),
-        isFalse,
-      );
-    });
-
     test('JSON round-trip keeps every field; junk reads as the default', () {
-      final EmailPromptState s = const EmailPromptState()
-          .withClientCardShown()
-          .withProviderCardHidden(t0);
+      final EmailPromptState s = const EmailPromptState().withClientCardShown();
       final EmailPromptState back = EmailPromptState.fromJson(s.toJson());
       expect(back.clientCardShown, isTrue);
-      expect(back.providerHiddenAt, t0);
-      expect(back.providerRetired, isFalse);
+
+      // A stale entry from the removed provider card (2026-11-19) still
+      // parses: the old keys are ignored, the client flag is kept.
+      final EmailPromptState legacy =
+          EmailPromptState.fromJson(<String, dynamic>{
+            'clientCardShown': true,
+            'providerHiddenAt': '2026-11-18T09:00:00.000Z',
+            'providerRetired': true,
+          });
+      expect(legacy.clientCardShown, isTrue);
 
       final EmailPromptState junk = EmailPromptState.fromJson('nope');
       expect(junk.clientCardDue, isTrue);
-      expect(junk.providerCardDueAt(t0), isTrue);
     });
   });
 
@@ -153,15 +136,10 @@ void main() {
         'client-a',
         const EmailPromptState().withClientCardShown(),
       );
-      await store.write(
-        'master-b',
-        const EmailPromptState().withProviderCardHidden(t0),
-      );
+      await store.write('master-b', const EmailPromptState());
 
       expect((await store.read('client-a')).clientCardDue, isFalse);
       expect((await store.read('master-b')).clientCardDue, isTrue);
-      expect((await store.read('master-b')).providerCardDueAt(t0), isFalse);
-      expect((await store.read('client-a')).providerCardDueAt(t0), isTrue);
       expect((await store.read('someone-new')).clientCardDue, isTrue);
 
       final Object? all = jsonDecode(kv.values[StorageKeys.emailPrompts]!);

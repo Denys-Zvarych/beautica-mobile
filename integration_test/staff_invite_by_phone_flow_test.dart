@@ -230,25 +230,17 @@ void main() {
         expect(find.byType(AcceptInviteScreen), findsNothing);
         AppHarness.expectLocation(router, RouteNames.salonMasterProfile);
 
-        // Device-check 2026-11-19 (AUTH-D17 c): the accept response leaves
-        // `emailVerified` unknown, so acceptInvite re-reads `/users/me` and
-        // the «Email для сповіщень» card shows at once — no restart.
+        // Device-check 2026-11-19: the accept response leaves
+        // `emailVerified` unknown, so acceptInvite re-reads `/users/me`.
         expect(
           fb.getMeCalls,
           greaterThanOrEqualTo(1),
           reason: 'acceptInvite must re-read /users/me',
         );
-        final Finder emailCard = find.byKey(
-          const Key('provider-home-email-card'),
-        );
-        await AppHarness.pumpUntilFound(tester, emailCard);
-        expect(
-          find.descendant(
-            of: emailCard,
-            matching: find.text(l10n.providerHomeEmailPromptTitle),
-          ),
-          findsOneWidget,
-        );
+        // Regression (2026-11-19): the provider home email card was removed —
+        // it must not appear even for an invitee with no confirmed email.
+        await AppHarness.settle(tester);
+        expect(find.byKey(const Key('provider-home-email-card')), findsNothing);
       });
     },
   );

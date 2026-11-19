@@ -2,7 +2,8 @@
 // router, the REAL `mySalonsGuard` on `/profile/owner/settings`, the REAL
 // `GET/PATCH /users/me` and the REAL logout round trip.
 //
-// Journey (master mode is where the owner lives): salon shell -> «Профіль»
+// Journey (master mode is where the owner lives): salon shell (no provider
+// email card — AUTH-51, 2026-11-19) -> «Профіль»
 // (`/owner/master/profile`) -> tune -> the hub (EXACTLY five rows: personal,
 // notification email, account, help, logout — no contacts, no location, no
 // toggle) ->
@@ -19,6 +20,7 @@ import 'package:beautica_mobile/features/master/presentation/personal_info_edit_
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -43,6 +45,9 @@ const Key _navProfile = Key('salon-nav-tile-3');
 
 const Key _tune = Key('btn-owner-own-profile-settings');
 
+/// The removed provider profile-top email card (AUTH-51, 2026-11-19).
+const Key _kProviderEmailCard = Key('provider-home-email-card');
+
 String? _textOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(Key(key))).data;
 
@@ -53,11 +58,18 @@ Future<GoRouter> _enterMasterMode(WidgetTester tester, FakeBackend fb) async {
   await AppHarness.settle(tester);
   AppHarness.expectLocation(router, RouteNames.salonShell(_kOwnerSalonId));
   expect(find.byType(SalonShellScreen), findsOneWidget);
+  // Regression (AUTH-51, 2026-11-19): the owner's salon profile (shell tab 0,
+  // where the card used to sit) shows no email card, although the owner has
+  // no confirmed email — the old card's trigger.
+  expect(fb.meEmailVerified, isNot(isTrue), reason: 'the old card\'s trigger');
+  expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+  expect(find.byKey(_kProviderEmailCard), findsNothing);
 
   await AppHarness.tapVisible(tester, find.byKey(_navProfile));
   await AppHarness.settle(tester);
   AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
   expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
+  expect(find.byKey(_kProviderEmailCard), findsNothing);
   expect(find.byType(VelvetBottomNavBar), findsOneWidget);
   return router;
 }
