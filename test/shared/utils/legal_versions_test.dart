@@ -47,7 +47,7 @@ void main() {
   }
 
   test('current versions equal the website legal docs (phase 443 D5)', () {
-    expect(kTermsVersion, '2026-11-14');
-    expect(kPrivacyPolicyVersion, '2026-11-14');
+    expect(kTermsVersion, '2026-11-19');
+    expect(kPrivacyPolicyVersion, '2026-11-19');
   });
 }
