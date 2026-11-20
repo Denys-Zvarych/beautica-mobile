@@ -95,6 +95,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     expect(chip, findsOneWidget, reason: 'service-type $id must appear');
+    // The option list can extend below the fold on a tall-narrow device (CI
+    // emulator 411x866) — scroll the chip into view before tapping it.
+    await tester.ensureVisible(chip);
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.tap(chip);
     await pumpBounded(tester, ticks: 6);
   }
@@ -160,7 +164,10 @@ void main() {
         findsNothing,
         reason: 'the stale category\'s type must no longer be offered',
       );
-      // Pick the BROWS type from the open sheet.
+      // Pick the BROWS type from the open sheet — scroll it into view first;
+      // on the CI emulator (411x866) it sits below the fold.
+      await tester.ensureVisible(browsChip);
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(browsChip);
       await pumpBounded(tester, ticks: 6);
 
