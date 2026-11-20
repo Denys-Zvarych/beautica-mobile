@@ -13,3 +13,4 @@ android.permission.WAKE_LOCK  # firebase_messaging: keeps the CPU up while a pus
 android.permission.ACCESS_NETWORK_STATE  # firebase-iid / firebase-messaging: connectivity before FCM registration
 com.google.android.c2dm.permission.RECEIVE  # firebase_messaging: receive FCM messages
 com.beautica.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION  # androidx.core: signature-level guard for non-exported runtime receivers (Android 13+)
+com.google.android.providers.gsf.permission.READ_GSERVICES  # com.google.android.recaptcha:recaptcha (via firebase-appcheck-recaptcha): firebase_app_check (M515) — Google Services config read, not a runtime/dangerous permission; no Data safety change
