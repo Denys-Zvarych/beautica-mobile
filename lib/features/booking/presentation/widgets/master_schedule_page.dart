@@ -68,6 +68,7 @@ import '../../domain/salon_master_day_slots_query.dart';
 import '../../domain/salon_master_schedule.dart';
 import '../../domain/working_day.dart';
 import '../../domain/working_days_query.dart';
+import 'master_profile_tap.dart';
 import 'master_strip.dart';
 import 'month_calendar.dart';
 import 'slot_chip.dart';
@@ -452,6 +453,13 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
               showRating: true,
               avatarGradient: widget.avatarGradient,
               avatarBordered: true,
+              // MAS-39 — opens the master's profile in booking context;
+              // `push`, so the salon schedule (provider state) survives.
+              onTap: clientMasterProfileTap(
+                context,
+                ref,
+                widget.schedule.masterId,
+              ),
             ),
           ),
           const SizedBox(height: VelvetSpacing.lg),

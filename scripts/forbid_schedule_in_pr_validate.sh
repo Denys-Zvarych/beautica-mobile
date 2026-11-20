@@ -10,7 +10,8 @@
 # 124 on four consecutive nights (runs 37607733041 ... 38043590964).
 #
 # The nightly now lives in .github/workflows/nightly.yml, which dispatches
-# pr-validate.yml ON dev (workflow + code from the same branch). This gate
+# pr-validate.yml ON main (workflow + code from the same branch; retargeted
+# dev -> main 2026-11-16). This gate
 # keeps the skew from coming back. Fails (exit 1) when pr-validate.yml has, on a
 # non-comment line:
 #   1. a `schedule:` key,
@@ -84,7 +85,7 @@ if [ "$status" -ne 0 ]; then
   printf '%s\n' "$offenders" | sed 's/^/  line /'
   echo
   echo "A schedule run uses main's workflow but a dev checkout -> workflow/code skew."
-  echo "Put the schedule in .github/workflows/nightly.yml (dispatches pr-validate on dev)."
+  echo "Put the schedule in .github/workflows/nightly.yml (dispatches pr-validate on main)."
   exit 1
 fi
 echo "forbid_schedule_in_pr_validate: OK — no schedule coupling in pr-validate.yml."

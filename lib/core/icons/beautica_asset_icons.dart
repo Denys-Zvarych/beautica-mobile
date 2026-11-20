@@ -214,7 +214,17 @@ abstract final class BeauticaAssetIcons {
   /// Author: Flaticon UICONS (free icon font).
   /// Licence: Flaticon Free (attribution required; same release-gate as above —
   /// re-download under 1-month Premium before any store build, keep certificate).
-  /// SHA-256: 5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6
+  /// SHA-256 (original download): 5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6
+  /// MODIFIED 2026-11-16: the download is an OUTLINE glyph (outer contour + an
+  /// inner cut-out subpath), so every tinted copy rendered as a ring and a
+  /// "filled" star never looked filled. The inner subpath was removed; the
+  /// outer contour, viewBox and geometry are unchanged.
+  /// SHA-256 (committed file minus its provenance comment line):
+  /// 46b1fa59a8f893d9d945a109fe76a598fe2e3d64a18d4c0a57c9375ee041f5b9
+  /// RELEASE GATE: when the Flaticon Premium re-download replaces this file,
+  /// the inner cut-out subpath removal MUST be redone (or take Flaticon's
+  /// solid «star» variant instead) — a verbatim outline re-download brings the
+  /// ring back. `star_rating_input_test.dart` pins one subpath and fails on it.
   ///
   /// Monochrome solid silhouette — render TINTED (pass a [AppIcon.color]); never
   /// `multicolor: true`. See `assets/icons/star.svg` and `tool/asset_docs/icons.README.md`.

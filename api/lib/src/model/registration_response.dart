@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:beautica_api/src/model/auth_response.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -13,6 +14,7 @@ part 'registration_response.g.dart';
 /// Properties:
 /// * [message]
 /// * [email]
+/// * [auth] - Present only for phone registration (registrationTicket): the new session.
 @BuiltValue()
 abstract class RegistrationResponse
     implements Built<RegistrationResponse, RegistrationResponseBuilder> {
@@ -21,6 +23,10 @@ abstract class RegistrationResponse
 
   @BuiltValueField(wireName: r'email')
   String? get email;
+
+  /// Present only for phone registration (registrationTicket): the new session.
+  @BuiltValueField(wireName: r'auth')
+  AuthResponse? get auth;
 
   RegistrationResponse._();
 
@@ -65,6 +71,13 @@ class _$RegistrationResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.auth != null) {
+      yield r'auth';
+      yield serializers.serialize(
+        object.auth,
+        specifiedType: const FullType(AuthResponse),
+      );
+    }
   }
 
   @override
@@ -103,6 +116,13 @@ class _$RegistrationResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.email = valueDes;
+          break;
+        case r'auth':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(AuthResponse),
+          ) as AuthResponse;
+          result.auth.replace(valueDes);
           break;
         default:
           unhandled.add(key);

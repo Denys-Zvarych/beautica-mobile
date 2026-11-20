@@ -39,6 +39,8 @@ class ServicesStatTile extends StatelessWidget {
     required this.count,
     required this.valueKey,
     this.hasError = false,
+    this.onTap,
+    this.tapHint,
   });
 
   /// Number of services, or `null` when the catalogue is not resolved.
@@ -49,6 +51,13 @@ class ServicesStatTile extends StatelessWidget {
 
   /// [Key] placed on the value [Text] — the per-screen handle widget tests use.
   final Key valueKey;
+
+  /// Forwarded to [StatTile.onTap] — `null` (default) keeps the tile
+  /// display-only (own profiles); the client-view profile passes a tab jump.
+  final VoidCallback? onTap;
+
+  /// Forwarded to [StatTile.tapHint].
+  final String? tapHint;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +75,8 @@ class ServicesStatTile extends StatelessWidget {
       value: value,
       caption: l10n.masterServicesLabel,
       valueKey: valueKey,
+      onTap: onTap,
+      tapHint: tapHint,
     );
   }
 }

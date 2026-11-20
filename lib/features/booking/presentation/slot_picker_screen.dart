@@ -65,6 +65,7 @@ import '../domain/working_day.dart';
 import '../domain/working_days_query.dart';
 import 'widgets/booking_summary_bar.dart';
 import 'widgets/booking_top_bar.dart';
+import 'widgets/master_profile_tap.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/month_calendar.dart';
 import 'widgets/slot_chip.dart';
@@ -76,6 +77,23 @@ import 'widgets/slot_chip.dart';
 /// "Оберіть дату" — a single-month calendar. Tapping a day fetches that day's
 /// slots (via [SlotPickerNotifier.loadSlots]) so they are ready by the time
 /// the client reaches [SlotTimeScreen]. "Далі" enables once a day is chosen.
+/// MAS-39 — the master strip on the date/time steps opens that master's
+/// public profile in booking context (no book CTA), for a CLIENT's new
+/// booking AND reschedule alike (user, 2026-11-16: every master card at the
+/// top of a page opens the profile). `push`, so the profile's back button /
+/// system back returns here with the picked day and slot intact (the picker
+/// state lives in providers scoped above this route). `null` (inert) on every
+/// provider/staff viewer (`hideMasterIdentity`, or a non-CLIENT session — the
+/// profile route is `clientOnlyGuard`ed) and on an empty master id.
+VoidCallback? _slotMasterTap(
+  BuildContext context,
+  WidgetRef ref,
+  BookingSlotPickerArgs args,
+) {
+  if (args.hideMasterIdentity) return null;
+  return clientMasterProfileTap(context, ref, args.master.id);
+}
+
 class SlotDateScreen extends ConsumerStatefulWidget {
   const SlotDateScreen({super.key, required this.args});
 
@@ -467,14 +485,18 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
                 // at mismatched y-offsets the instant the push settles.
                 child: Hero(
                   tag: 'master-strip-${widget.args.master.id}',
-                  // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
-                  // an in-flight wizard step. It is also the Hero SOURCE of the
-                  // flight into «Час» — a tap that pushed a third route
-                  // mid-gesture would strand that flight.
+                  // TAPPABLE per the policy on `MasterStrip.onTap` (MAS-39).
+                  // Also the Hero SOURCE of the flight into «Час»: the
+                  // profile route carries no `master-strip-*` Hero, so a tap
+                  // flies nothing and the card stays in place under the
+                  // pushed route; a tap cannot land mid-flight (the flying
+                  // copy sits in an `IgnorePointer` overlay and `pushOnce`
+                  // drops a second push while the first is in flight).
                   child: MasterStrip.fromMaster(
                     widget.args.master,
                     showRole: true,
                     showRating: true,
+                    onTap: _slotMasterTap(context, ref, widget.args),
                   ),
                 ),
               ),
@@ -870,14 +892,13 @@ class SlotTimeScreen extends ConsumerWidget {
                     if (!args.hideMasterIdentity) ...<Widget>[
                       Hero(
                         tag: 'master-strip-${args.master.id}',
-                        // INERT (no `onTap`) per the policy on
-                        // `MasterStrip.onTap`: the last in-flight wizard step
-                        // before «Підтвердження», where the strip becomes
-                        // tappable.
+                        // TAPPABLE per the policy on `MasterStrip.onTap`
+                        // (MAS-39); Hero safety as on the date screen.
                         child: MasterStrip.fromMaster(
                           args.master,
                           showRole: true,
                           showRating: true,
+                          onTap: _slotMasterTap(context, ref, args),
                         ),
                       ),
                       const SizedBox(height: VelvetSpacing.lg),

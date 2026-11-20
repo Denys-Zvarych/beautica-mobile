@@ -188,18 +188,35 @@ void main() {
     await tester.ensureVisible(saveBtn);
     await tester.pumpAndSettle();
     await tester.tap(saveBtn);
+
+    // M517 (AUTH-D19) — a different number runs the SMS code + current
+    // password step; the save lands only after it is confirmed.
+    final Finder codeInput = find.byKey(
+      const ValueKey<String>('phone_code_input'),
+    );
+    await AppHarness.pumpUntilFound(tester, codeInput);
+    await tester.enterText(codeInput, '123456');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('phone_code_current_password')),
+      FakeBackend.kCurrentPassword,
+    );
+    await tester.pump();
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const ValueKey<String>('phone_code_submit')),
+    );
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
-    // The phone PATCHed. The field applies UA phone formatting (spaces), so
-    // assert on the digit payload rather than the exact spaced string.
+    // The phone changed through the code step (digits, ignoring spacing).
     final String digits = (fb.masterPhone ?? '').replaceAll(RegExp(r'\D'), '');
     expect(
       digits,
       '380501112233',
-      reason: 'Save must PATCH the phone (digits, ignoring display spacing)',
+      reason: 'the confirmed code step must persist the new phone',
     );
+    expect(fb.userPhoneVerifyBodies.single['phone'], '+380501112233');
 
     // Same landing assertion as Test 1 — the shared `context.go(masterProfile)`
     // handler. location_edit_screen.dart uses the identical save-SUCCESS line.

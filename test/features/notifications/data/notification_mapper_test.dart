@@ -79,6 +79,11 @@ void main() {
     'REVIEW_ABOUT_YOU_REMOVED': AppNotificationType.reviewAboutYouRemoved,
     // Phase 497 (backend 495) — visit reminder.
     'BOOKING_REMINDER': AppNotificationType.bookingReminder,
+    // Phone-first auth (AUTH-D19) — contact-change security notices.
+    'SECURITY_PHONE_CHANGED': AppNotificationType.securityPhoneChanged,
+    'SECURITY_EMAIL_CHANGED': AppNotificationType.securityEmailChanged,
+    // Phone-first hardening (AUTH-D26 a) — password-reset security notice.
+    'SECURITY_PASSWORD_RESET': AppNotificationType.securityPasswordReset,
   };
 
   const bookingTarget = <String, Object?>{
@@ -96,15 +101,17 @@ void main() {
       );
     });
 
-    // Moderation outcomes map their TYPE but never keep a target (phase 428 —
-    // see the 'moderation outcomes force NoTarget' group).
-    for (final e in wire.entries.where((e) => e.value.isModerationOutcome)) {
+    // Moderation outcomes and security notices map their TYPE but never keep
+    // a target (phase 428 / AUTH-D19 — see the '... force NoTarget' groups).
+    bool leadsNowhere(AppNotificationType t) =>
+        t.isModerationOutcome || t.isSecurityNotice;
+    for (final e in wire.entries.where((e) => leadsNowhere(e.value))) {
       test('should_mapType_${e.key}', () {
         expect(_one(_row(type: e.key)).type, e.value);
       });
     }
 
-    for (final e in wire.entries.where((e) => !e.value.isModerationOutcome)) {
+    for (final e in wire.entries.where((e) => !leadsNowhere(e.value))) {
       test('should_mapType_${e.key}_withBookingTarget', () {
         final n = _one(_row(type: e.key, target: bookingTarget));
         expect(n.type, e.value);
@@ -285,6 +292,33 @@ void main() {
     }
   });
 
+  // AUTH-D19 — a security notice never navigates, whatever target the wire
+  // carries (feed AND push).
+  group('security notices force NoTarget', () {
+    for (final String type in <String>[
+      'SECURITY_PHONE_CHANGED',
+      'SECURITY_EMAIL_CHANGED',
+      'SECURITY_PASSWORD_RESET',
+    ]) {
+      test('should_yieldNoTarget_for_${type}_evenWithABookingTarget', () {
+        // RED WHEN `isSecurityNotice` is dropped from `fromDto`.
+        final n = _one(_row(type: type, target: bookingTarget));
+        expect(n.target, const NotificationTarget.none());
+      });
+
+      test('should_yieldNoTarget_for_${type}_pushWithABookingTarget', () {
+        // RED WHEN `isSecurityNotice` is dropped from `pushTapFromData`.
+        final tap = NotificationMapper.pushTapFromData(<String, dynamic>{
+          'notificationId': _idOk,
+          'type': type,
+          'targetKind': 'BOOKING',
+          'bookingId': _bk1,
+        });
+        expect(tap?.target, const NotificationTarget.none());
+      });
+    }
+  });
+
   group('params', () {
     test('should_carrySalonNameAndTrimBlanks', () {
       final n = _one(
@@ -359,6 +393,34 @@ void main() {
       );
       expect(
         _one(_row(type: 'CONTENT_REMOVED', params: {})).params.contentKind,
+        isNull,
+      );
+    });
+
+    // Phone-first auth (AUTH-D19) — the masked new contact on the security
+    // notices; blank / absent → null (the copy then shows the support line).
+    test('should_mapMaskedContact_when_present', () {
+      final n = _one(
+        _row(
+          type: 'SECURITY_PHONE_CHANGED',
+          params: {'maskedContact': '+380 •• ••• •• 67'},
+        ),
+      );
+      expect(n.type, AppNotificationType.securityPhoneChanged);
+      expect(n.params.maskedContact, '+380 •• ••• •• 67');
+    });
+
+    test('should_mapMaskedContact_toNull_when_blankOrAbsent', () {
+      expect(
+        _one(
+          _row(type: 'SECURITY_EMAIL_CHANGED', params: {'maskedContact': '  '}),
+        ).params.maskedContact,
+        isNull,
+      );
+      expect(
+        _one(
+          _row(type: 'SECURITY_EMAIL_CHANGED', params: {}),
+        ).params.maskedContact,
         isNull,
       );
     });

@@ -51,6 +51,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
@@ -840,6 +841,38 @@ void main() {
 
       expect(find.text('booking-stub'), findsOneWidget);
     });
+
+    // MAS-39 — opened from a booking card, the profile hides the book CTA.
+    // Same pump as above (paired: the default renders the CTA), so the
+    // `findsNothing` is pinned to `hideBookCta`, not to a missing shelf.
+    testWidgets('hideBookCta: true renders the loaded profile WITHOUT the '
+        '«Записатись» shelf (MAS-39)', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(
+          masterId: _kMasterId,
+          hideBookCta: true,
+        ),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('public-master-profile-name')),
+        findsOneWidget,
+        reason: 'the profile itself still renders',
+      );
+      expect(find.byKey(const Key('public-master-book-cta')), findsNothing);
+      // Reviews stay reachable from inside the profile.
+      expect(
+        find.byKey(const Key('public-master-profile-tab-2')),
+        findsOneWidget,
+      );
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -986,12 +1019,13 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // User decision 2026-09-26 — the stat cards are DISPLAY-ONLY. Superseded
-  // Phase 351's card → tab mechanism (U6/U7, D15): a card tap must leave the
-  // selected tab and route unchanged, and expose no button semantics. The
-  // «Про майстра» / «Послуги» / «Відгуки» tabs are the only way to switch.
+  // User decision 2026-11-17 (MAS-08/MAS-09) — on this CLIENT view the stat
+  // cards are tappable and switch tabs in place through `onSelectTab`, the
+  // same path a tab-bar tap takes: «Рейтинг» / «Відгуки» → «Відгуки» tab,
+  // «Послуги» → «Послуги» tab. No route push. (Own-profile screens keep the
+  // cards display-only — pinned in their own test files.)
   // ──────────────────────────────────────────────────────────────────────────
-  group('stat cards are display-only (user decision 2026-09-26)', () {
+  group('stat cards switch tabs (user decision 2026-11-17)', () {
     List<Object> overridesWithReviews() => <Object>[
       ..._overrides((ref) => _stubData),
       masterReviewSummaryProvider(_kMasterId).overrideWith(
@@ -1007,52 +1041,71 @@ void main() {
       ).overrideWith((ref) async => const <MasterReviewItem>[]),
     ];
 
-    for (final String cardKey in <String>[
-      'public-master-profile-rating-tile',
-      'public-master-profile-reviews-tile',
-      'public-master-profile-services-tile',
-    ]) {
-      testWidgets(
-        'tapping $cardKey leaves the «Про майстра» tab and route unchanged',
-        (tester) async {
-          tester.view.physicalSize = const Size(800, 2400);
-          tester.view.devicePixelRatio = 1.0;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
+    // cardKey → (expected tab index, expected body is reviews?)
+    const Map<String, int> cardToTab = <String, int>{
+      'public-master-profile-rating-tile': 2,
+      'public-master-profile-reviews-tile': 2,
+      'public-master-profile-services-tile': 1,
+    };
 
-          await tester.pumpApp(
-            const PublicMasterProfileScreen(masterId: _kMasterId),
-            overrides: overridesWithReviews(),
-          );
-          await tester.pumpAndSettle();
+    for (final MapEntry<String, int> entry in cardToTab.entries) {
+      final String cardKey = entry.key;
+      final int expectedTab = entry.value;
+      final bool toReviews = expectedTab == 2;
 
-          // Default tab «Про майстра» is showing — neither tab body is
-          // mounted yet.
-          expect(
-            find.byKey(const Key('public-master-profile-about-tab')),
-            findsOneWidget,
-          );
-          expect(find.byType(MasterReviewsBody), findsNothing);
-          expect(find.byType(ServiceCategoryCardList), findsNothing);
+      testWidgets('tapping $cardKey switches to the '
+          '${toReviews ? '«Відгуки»' : '«Послуги»'} tab, route unchanged', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-          // No InkWell/GestureDetector on the card — warnIfMissed would flag
-          // a real interactive target the tap failed to land on.
-          await tester.tap(find.byKey(Key(cardKey)), warnIfMissed: false);
-          await tester.pumpAndSettle();
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: overridesWithReviews(),
+        );
+        await tester.pumpAndSettle();
 
-          expect(
-            find.byKey(const Key('public-master-profile-about-tab')),
-            findsOneWidget,
-            reason: 'a card tap must never switch the screen\'s own tab',
-          );
-          expect(find.byType(MasterReviewsBody), findsNothing);
-          expect(find.byType(ServiceCategoryCardList), findsNothing);
-          expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
-          expect(find.byType(PublicMasterReviewsScreen), findsNothing);
-        },
-      );
+        // Default tab «Про майстра» — neither tab body mounted yet.
+        expect(
+          find.byKey(const Key('public-master-profile-about-tab')),
+          findsOneWidget,
+        );
+        expect(find.byType(MasterReviewsBody), findsNothing);
+        expect(find.byType(ServiceCategoryCardList), findsNothing);
 
-      testWidgets('$cardKey exposes no button semantics', (tester) async {
+        // Default warnIfMissed: the tap MUST land on a real target.
+        await tester.tap(find.byKey(Key(cardKey)));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-about-tab')),
+          findsNothing,
+          reason: 'a card tap must leave the «Про майстра» tab',
+        );
+        expect(
+          find.byType(MasterReviewsBody),
+          toReviews ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byType(ServiceCategoryCardList),
+          toReviews ? findsNothing : findsOneWidget,
+        );
+        // Same mechanism as the tab bar: the bar's own selection follows.
+        final ProfileTabBar bar = tester.widget<ProfileTabBar>(
+          find.byType(ProfileTabBar),
+        );
+        expect(bar.selected, expectedTab);
+        // In place — no route push.
+        expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+        expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      });
+
+      testWidgets('$cardKey exposes button semantics with a tab tap hint', (
+        tester,
+      ) async {
         tester.view.physicalSize = const Size(800, 2400);
         tester.view.devicePixelRatio = 1.0;
         addTearDown(tester.view.resetPhysicalSize);
@@ -1065,14 +1118,54 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(PublicMasterProfileScreen)),
+        );
+        final String tabLabel = toReviews
+            ? l10n.salonTabReviews
+            : l10n.salonTabServices;
         expect(
           tester.getSemantics(find.byKey(Key(cardKey))),
-          isNot(isSemantics(isButton: true)),
+          isSemantics(
+            isButton: true,
+            hasTapAction: true,
+            onTapHint: l10n.statTileOpenTabHint(tabLabel),
+          ),
         );
+        // ≥ 48 dp touch target.
+        final Size size = tester.getSize(find.byKey(Key(cardKey)));
+        expect(size.width, greaterThanOrEqualTo(48));
+        expect(size.height, greaterThanOrEqualTo(48));
 
         handle.dispose();
       });
     }
+
+    testWidgets('a card tap after a tab-bar switch still lands on its tab', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: overridesWithReviews(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-1')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ServiceCategoryCardList), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('public-master-profile-reviews-tile')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(MasterReviewsBody), findsOneWidget);
+      expect(find.byType(ServiceCategoryCardList), findsNothing);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────

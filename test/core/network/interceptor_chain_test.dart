@@ -689,6 +689,34 @@ void main() {
   // -------------------------------------------------------------------------
   // 4. Replay failure must not be mistaken for a dead session.
   // -------------------------------------------------------------------------
+  // M515 (AUTH-54) — a 403 APP_CHECK_FAILED is a typed failure for the
+  // screen. RefreshInterceptor acts on 401 only: it must never refresh, log
+  // out or replay on it.
+  group('403 APP_CHECK_FAILED', () {
+    test('maps to PhoneIdentityFailure; no refresh, no logout', () async {
+      final _Chain chain = await _bootAuthenticated(<_Reply>[
+        const _Reply(403, <String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{'code': 'APP_CHECK_FAILED'},
+        }),
+      ]);
+
+      final Failure failure = await _expectMappedFailure(
+        () => chain.dio.get<dynamic>(kProtectedPath),
+      );
+
+      expect(failure, isA<PhoneIdentityFailure>());
+      expect(
+        (failure as PhoneIdentityFailure).code,
+        PhoneIdentityErrorCode.appCheckFailed,
+      );
+      chain.expectNoRefresh();
+      expect(chain.logoutCalls, 0);
+      expect(chain.transportCalls, 1);
+      expect(chain.container.read(authProvider).value, isA<Authenticated>());
+    });
+  });
+
   group('replay failure after a successful refresh', () {
     test(
       'does not log out and surfaces the REPLAY error, not the stale 401',

@@ -9,35 +9,38 @@ part of 'register_independent_master_request.dart';
 class _$RegisterIndependentMasterRequest
     extends RegisterIndependentMasterRequest {
   @override
-  final String email;
+  final String? email;
   @override
   final String password;
   @override
   final String firstName;
   @override
-  final String lastName;
+  final String? lastName;
   @override
-  final String phoneNumber;
+  final String? phoneNumber;
   @override
   final bool? termsAccepted;
   @override
   final String? termsVersion;
   @override
   final String? privacyPolicyVersion;
+  @override
+  final String? registrationTicket;
 
   factory _$RegisterIndependentMasterRequest(
           [void Function(RegisterIndependentMasterRequestBuilder)? updates]) =>
       (RegisterIndependentMasterRequestBuilder()..update(updates))._build();
 
   _$RegisterIndependentMasterRequest._(
-      {required this.email,
+      {this.email,
       required this.password,
       required this.firstName,
-      required this.lastName,
-      required this.phoneNumber,
+      this.lastName,
+      this.phoneNumber,
       this.termsAccepted,
       this.termsVersion,
-      this.privacyPolicyVersion})
+      this.privacyPolicyVersion,
+      this.registrationTicket})
       : super._();
   @override
   RegisterIndependentMasterRequest rebuild(
@@ -59,7 +62,8 @@ class _$RegisterIndependentMasterRequest
         phoneNumber == other.phoneNumber &&
         termsAccepted == other.termsAccepted &&
         termsVersion == other.termsVersion &&
-        privacyPolicyVersion == other.privacyPolicyVersion;
+        privacyPolicyVersion == other.privacyPolicyVersion &&
+        registrationTicket == other.registrationTicket;
   }
 
   @override
@@ -73,6 +77,7 @@ class _$RegisterIndependentMasterRequest
     _$hash = $jc(_$hash, termsAccepted.hashCode);
     _$hash = $jc(_$hash, termsVersion.hashCode);
     _$hash = $jc(_$hash, privacyPolicyVersion.hashCode);
+    _$hash = $jc(_$hash, registrationTicket.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -87,7 +92,8 @@ class _$RegisterIndependentMasterRequest
           ..add('phoneNumber', phoneNumber)
           ..add('termsAccepted', termsAccepted)
           ..add('termsVersion', termsVersion)
-          ..add('privacyPolicyVersion', privacyPolicyVersion))
+          ..add('privacyPolicyVersion', privacyPolicyVersion)
+          ..add('registrationTicket', registrationTicket))
         .toString();
   }
 }
@@ -132,6 +138,11 @@ class RegisterIndependentMasterRequestBuilder
   set privacyPolicyVersion(String? privacyPolicyVersion) =>
       _$this._privacyPolicyVersion = privacyPolicyVersion;
 
+  String? _registrationTicket;
+  String? get registrationTicket => _$this._registrationTicket;
+  set registrationTicket(String? registrationTicket) =>
+      _$this._registrationTicket = registrationTicket;
+
   RegisterIndependentMasterRequestBuilder() {
     RegisterIndependentMasterRequest._defaults(this);
   }
@@ -147,6 +158,7 @@ class RegisterIndependentMasterRequestBuilder
       _termsAccepted = $v.termsAccepted;
       _termsVersion = $v.termsVersion;
       _privacyPolicyVersion = $v.privacyPolicyVersion;
+      _registrationTicket = $v.registrationTicket;
       _$v = null;
     }
     return this;
@@ -168,19 +180,17 @@ class RegisterIndependentMasterRequestBuilder
   _$RegisterIndependentMasterRequest _build() {
     final _$result = _$v ??
         _$RegisterIndependentMasterRequest._(
-          email: BuiltValueNullFieldError.checkNotNull(
-              email, r'RegisterIndependentMasterRequest', 'email'),
+          email: email,
           password: BuiltValueNullFieldError.checkNotNull(
               password, r'RegisterIndependentMasterRequest', 'password'),
           firstName: BuiltValueNullFieldError.checkNotNull(
               firstName, r'RegisterIndependentMasterRequest', 'firstName'),
-          lastName: BuiltValueNullFieldError.checkNotNull(
-              lastName, r'RegisterIndependentMasterRequest', 'lastName'),
-          phoneNumber: BuiltValueNullFieldError.checkNotNull(
-              phoneNumber, r'RegisterIndependentMasterRequest', 'phoneNumber'),
+          lastName: lastName,
+          phoneNumber: phoneNumber,
           termsAccepted: termsAccepted,
           termsVersion: termsVersion,
           privacyPolicyVersion: privacyPolicyVersion,
+          registrationTicket: registrationTicket,
         );
     replace(_$result);
     return _$result;

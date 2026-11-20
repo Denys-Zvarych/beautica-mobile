@@ -9,11 +9,11 @@ import 'package:flutter/material.dart';
 /// `KeyedSubtree` mechanism (D2), just factored out so three screens share
 /// ONE implementation instead of three hand-copied `int _tab` fields.
 ///
-/// User decision 2026-09-26: the stat cards («Рейтинг» / «Послуги» /
-/// «Відгуки») are display-only and never call [selectProfileTab] — the
-/// mechanism this mixin previously offered them (a card tap switching tabs
-/// in place, plus a reveal-scroll heuristic when the bar was below the fold)
-/// is gone. See the phase-351 doc's Decisions for the superseded wording.
+/// Stat cards («Рейтинг» / «Послуги» / «Відгуки»): on the client-view
+/// [PublicMasterProfileScreen] a card tap calls [selectProfileTab] — the same
+/// path as a tab-bar tap (user decision 2026-11-17, MAS-08/MAS-09). On the
+/// own-profile screens the cards stay display-only and never call it (user
+/// decision 2026-09-26). No reveal-scroll heuristic either way.
 ///
 /// Usage:
 /// ```dart

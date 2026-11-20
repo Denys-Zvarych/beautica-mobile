@@ -14,11 +14,10 @@
 //      cosmetic one: it is what stops a fifth backend state from rendering a
 //      cancel action the server would 404.
 //
-//   2. mobile-security MEDIUM — `recipientEmail` is ATTACKER-INFLUENCED (a
-//      SALON_ADMIN types it into the invite form; the OWNER reads it back in
-//      the history). `validateEmail`'s `[^@\s]+` local part accepts U+202E,
-//      U+200B, U+2066 and U+200E, and the backend applies no character-class
-//      check either. `salon_mapper.dart:313` runs the address through
+//   2. mobile-security MEDIUM — the recipient was an attacker-influenced
+//      email until M521; since B520 it is `recipientPhone`, backend-normalised,
+//      but still a wire string rendered with `maxLines: 2` + soft wrap, so the
+//      boundary keeps stripping U+202E, U+200B, U+2066 and U+200E. `salon_mapper.dart:313` runs the address through
 //      `sanitizeDisplayText` at the boundary so ONE call covers both the
 //      visible `Text` and the «Скасувати» semantic label built from the same
 //      string. Nothing asserted that call existed.
@@ -29,7 +28,7 @@
 //      invitation the viewer needs to see.
 //
 // MUTATION-PROBED 2026-09-02: deleting the `sanitizeDisplayText(...)` wrapper
-// at `salon_mapper.dart:313` (leaving `dto.recipientEmail ?? ''`) turns the
+// at `salon_mapper.dart:313` (leaving `dto.recipientPhone ?? ''`) turns the
 // sanitization group RED. Restored immediately; the observed failure is in
 // the QA report.
 //
@@ -50,7 +49,7 @@ final DateTime _kExpiresAt = DateTime.utc(2026, 6, 22, 9);
 
 SalonInviteResponse _dto({
   String? inviteId = 'inv-1',
-  String? recipientEmail = 'anna@beautica.ua',
+  String? recipientPhone = '+380671234545',
   String? role = 'SALON_MASTER',
   String? status = 'PENDING',
   DateTime? createdAt,
@@ -60,7 +59,7 @@ SalonInviteResponse _dto({
 }) => SalonInviteResponse(
   (SalonInviteResponseBuilder b) => b
     ..inviteId = inviteId
-    ..recipientEmail = recipientEmail
+    ..recipientPhone = recipientPhone
     ..role = role
     ..status = status
     ..createdAt = omitCreatedAt ? null : (createdAt ?? _kCreatedAt)
@@ -147,17 +146,14 @@ void main() {
     });
   });
 
-  group('recipientEmail is SANITISED at the boundary (mobile-security)', () {
+  group('recipientPhone is SANITISED at the boundary (mobile-security)', () {
     // Written as \uXXXX escapes, never literal characters, so this file does
     // not itself embed the control characters it is asserting are stripped
     // (same convention `sanitize_display_text.dart` follows).
     //
-    // All four of these PASS `validateEmail` — empirically confirmed by the
-    // security audit — so the invite form will happily send them and the
-    // backend will happily store them. The mapper is the only thing between
-    // a hostile address and a `Text` widget that (since the history rework
-    // moved the address to `maxLines: 2` + soft wrap) no longer clips the
-    // payload to one line.
+    // The mapper is the only thing between a hostile wire value and a `Text`
+    // widget that (since the history rework moved the recipient to
+    // `maxLines: 2` + soft wrap) no longer clips the payload to one line.
     const Map<String, String> hostile = <String, String>{
       'U+202E RIGHT-TO-LEFT OVERRIDE': '\u202E',
       'U+200B ZERO WIDTH SPACE': '\u200B',
@@ -167,41 +163,39 @@ void main() {
     hostile.forEach((String name, String payload) {
       test('$name does not survive into the domain object', () {
         final SalonInvite invite = _mapOne(
-          _dto(recipientEmail: 'anna${payload}evil@beautica.ua'),
+          _dto(recipientPhone: '+38067${payload}1234545'),
         );
 
         expect(
-          invite.recipientEmail,
-          'annaevil@beautica.ua',
+          invite.recipientPhone,
+          '+380671234545',
           reason:
               'the control character must be STRIPPED at the mapper, not '
               'passed through to the row Text and the «Скасувати» semantic '
               'label built from the same string',
         );
-        expect(invite.recipientEmail.contains(payload), isFalse);
+        expect(invite.recipientPhone.contains(payload), isFalse);
       });
     });
 
     test('a payload combining all four is stripped in one pass', () {
       expect(
         _mapOne(
-          _dto(recipientEmail: 'a\u202En\u200Bn\u2066a\u200E@beautica.ua'),
-        ).recipientEmail,
-        'anna@beautica.ua',
+          _dto(recipientPhone: '+38\u202E06\u200B71\u20662345\u200E45'),
+        ).recipientPhone,
+        '+380671234545',
       );
     });
 
-    test('a null recipientEmail becomes an empty string, never a crash', () {
-      expect(_mapOne(_dto(recipientEmail: null)).recipientEmail, '');
+    test('a null recipientPhone becomes an empty string, never a crash', () {
+      expect(_mapOne(_dto(recipientPhone: null)).recipientPhone, '');
     });
 
-    test('an ordinary address is passed through byte-for-byte — sanitization '
+    test('an ordinary phone is passed through byte-for-byte — sanitization '
         'must not mangle legitimate input', () {
       expect(
-        _mapOne(
-          _dto(recipientEmail: "o'brien.mc-tavish+staff@beautica.ua"),
-        ).recipientEmail,
-        "o'brien.mc-tavish+staff@beautica.ua",
+        _mapOne(_dto(recipientPhone: '+380501112233')).recipientPhone,
+        '+380501112233',
       );
     });
   });
@@ -236,7 +230,7 @@ void main() {
       final List<SalonInvite> out =
           SalonInviteMapper.fromDtoList(<SalonInviteResponse>[
             _dto(inviteId: 'keep-1'),
-            _dto(inviteId: null, recipientEmail: 'broken@beautica.ua'),
+            _dto(inviteId: null, recipientPhone: '+380990000000'),
             _dto(inviteId: 'keep-2'),
           ]);
 
@@ -245,8 +239,8 @@ void main() {
         'keep-2',
       ]);
       expect(
-        out.map((SalonInvite i) => i.recipientEmail),
-        isNot(contains('broken@beautica.ua')),
+        out.map((SalonInvite i) => i.recipientPhone),
+        isNot(contains('+380990000000')),
         reason: 'one broken row must cost its own row, never the whole list',
       );
     });

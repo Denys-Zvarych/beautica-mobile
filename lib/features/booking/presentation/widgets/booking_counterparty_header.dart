@@ -31,14 +31,13 @@
 
 import 'package:flutter/material.dart';
 
-import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../../application/booking_viewer_role.dart';
 import '../../domain/booking.dart';
 import '../../domain/booking_status.dart';
 import 'booking_client_strip.dart';
+import 'master_profile_tap.dart';
 import 'master_strip.dart';
 
 /// The other side of [booking], as seen by a [viewer].
@@ -87,10 +86,10 @@ class BookingCounterpartyHeader extends StatelessWidget {
 }
 
 /// The MASTER as the client sees them — name, title, ★ rating — and the
-/// client's route into that master's reviews.
+/// client's route into that master's public profile (MAS-39).
 ///
 /// The strip is rendered OUTSIDE «Деталі запису»'s status switch, so making it
-/// tappable gives every status a route to the master's reviews at once —
+/// tappable gives every status a route to the master's profile at once —
 /// including `NOT_COMPLETED`, whose action footer is deliberately empty and
 /// which therefore had no route to the master at all before this.
 class _MasterStrip extends StatelessWidget {
@@ -106,25 +105,29 @@ class _MasterStrip extends StatelessWidget {
 
     // `booking_mapper.dart:119` maps `masterId: dto.masterId ?? ''`, so an
     // empty id is reachable on a partial payload — and it is now a NAVIGATION
-    // TARGET. `/masters//reviews` cannot match `/masters/:masterId/reviews`
+    // TARGET. `/masters/` cannot match `/masters/:masterId`
     // (go_router compiles `:masterId` to `[^/]+`) and `app_router.dart`
     // declares no `errorBuilder`, so the tap would dump the client on
     // go_router's default "page not found" screen. A blank id means "we don't
     // know which master" — the honest affordance is an INERT strip, not a
     // button that breaks.
     final String masterId = booking.masterId;
-    final VoidCallback? openReviews = masterId.isEmpty
-        ? null
-        // TAPPABLE per the policy on `MasterStrip.onTap`: «Деталі запису» is a
-        // terminal screen, so leaving it costs the client nothing. `push` (not
-        // `go`) so the back gesture returns here with this screen's state
-        // intact.
-        : () => context.pushOnce(RouteNames.masterPublicReviews(masterId));
+    // TAPPABLE per the policy on `MasterStrip.onTap`: «Деталі запису» is a
+    // terminal screen, so leaving it costs the client nothing. `push` (not
+    // `go`) so the back gesture returns here with this screen's state
+    // intact. MAS-39 (2026-11-16): the ONE booking entry that keeps the
+    // profile's book CTA — re-booking the same master from a past visit is
+    // exactly the intent here — so no `fromBooking`.
+    final VoidCallback? openProfile = masterProfileTap(
+      context,
+      masterId,
+      fromBooking: false,
+    );
 
     final Widget strip = MasterStrip.fromBooking(
       booking,
       key: const Key('booking-detail-master-strip'),
-      onTap: openReviews,
+      onTap: openProfile,
     );
 
     if (!isDead) return strip;

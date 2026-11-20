@@ -72,7 +72,9 @@
 
 import 'dart:convert';
 
+import 'package:beautica_mobile/core/config/app_check_config.dart';
 import 'package:beautica_mobile/core/config/app_config.dart';
+import 'package:beautica_mobile/core/network/app_check_interceptor.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -240,6 +242,14 @@ const Map<String, dynamic> _salonMasterUserJson = <String, dynamic>{
 /// is a top-level function).
 String? adminSalonIdOverride;
 
+/// Mirror of the backend's `ContactMask.invitePhone` (B520, AUTH-21 D3):
+/// `+380663334455` → `+380 •• ••• •• 55` — only the last two digits stay
+/// visible. Anything but `+380` + 9 digits → `null`, exactly as the backend.
+String? _invitePhoneMask(String? e164) {
+  if (e164 == null || !RegExp(r'^\+380\d{9}$').hasMatch(e164)) return null;
+  return '+380 •• ••• •• ${e164.substring(e164.length - 2)}';
+}
+
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
@@ -301,10 +311,10 @@ const Map<String, dynamic> _okVoid = <String, dynamic>{
 /// by the fixture personas above).
 ///
 /// `salonId` is forwarded when the persona has one. The real backend populates
-/// it on this envelope for an invited `SALON_ADMIN`/`SALON_MASTER`, and
-/// `POST /auth/invite/accept` NEVER follows with `GET /users/me` — so this
-/// envelope is the only place the binding can reach the session, and a fake
-/// that dropped it could not express an invite-accept → salon-home flow at all
+/// it on this envelope for an invited `SALON_ADMIN`/`SALON_MASTER`. Since
+/// AUTH-D17 c `acceptInvite` fires a background `GET /users/me`, but the
+/// session is established from this envelope first — so a fake that dropped
+/// the binding could not express an invite-accept → salon-home flow at all
 /// (it would land on the resolver's incomplete-session arm instead of the
 /// shell). Omitted entirely for personas with no salon so the wire stays the
 /// shape the backend actually sends.
@@ -431,6 +441,7 @@ final class FakeBackend {
     this.wireOwnRowSchedule = false,
     this.listOwnerRowWhenBookable = false,
     this.masterMeNotFound = false,
+    this.meServerError = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
@@ -444,6 +455,12 @@ final class FakeBackend {
     this.loginEmailNotVerified = false,
     this.mediaAvatarUploadStatus,
     this.adminOwnerCatalogueErrorsAndDefinitionPatch403 = false,
+    this.registrationCodeSendFailure,
+    this.registrationCodeVerifyFailure,
+    this.registerFailure,
+    this.acceptInviteFailure,
+    this.appCheckToken,
+    this.checkCurrentPassword = false,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -464,7 +481,102 @@ final class FakeBackend {
     // are deliberately omitted: FakeBackend accepts any token and never replies
     // 401, and RefreshInterceptor would need a live refresh endpoint + retry
     // queue that no flow exercises.
-    dio.interceptors.add(ErrorMapperInterceptor());
+    //
+    // M517 (AUTH-D12) — with the SAME `onPhoneNotVerified` hook `dioProvider`
+    // passes (lib/core/network/dio_provider.dart), forwarded to
+    // [onPhoneNotVerified], which the E2E boot (`e2eProviderOverrides`) binds
+    // lazily to `authProvider.notifier.onPhoneNotVerified` — so the
+    // integration tier exercises the real 409 PHONE_NOT_VERIFIED wiring.
+    dio.interceptors.add(
+      ErrorMapperInterceptor(
+        onPhoneNotVerified: () => onPhoneNotVerified?.call(),
+      ),
+    );
+    // M517 QA — opt-in: the AUTH-D19 current-password check on the phone
+    // CHANGE / email verify steps, answered with the REAL 400
+    // CURRENT_PASSWORD_INVALID envelope through the production mapper. Off by
+    // default, so every other flow's chain is unchanged.
+    if (checkCurrentPassword) {
+      dio.interceptors.insert(
+        0,
+        InterceptorsWrapper(
+          onRequest: (RequestOptions options, RequestInterceptorHandler h) {
+            // A fresh code restarts its 5-try budget (AUTH-03 / AUTH-D19).
+            if (options.path.endsWith('/users/me/phone/otp/send')) {
+              _phoneCodeTries = 0;
+            } else if (options.path.endsWith('/users/me/email/request-code')) {
+              _emailCodeTries = 0;
+            }
+            final bool phoneChange =
+                options.path.endsWith('/users/me/phone/otp/verify') &&
+                mePhoneVerified == true;
+            final bool email = options.path.endsWith('/users/me/email/verify');
+            if (!phoneChange && !email) return h.next(options);
+            final Map<String, dynamic> body = _decodeBody(options.data);
+            void reject(Map<String, dynamic> data) {
+              (email ? notificationEmailVerifyBodies : userPhoneVerifyBodies)
+                  .add(body);
+              h.reject(
+                DioException(
+                  requestOptions: options,
+                  type: DioExceptionType.badResponse,
+                  response: Response<Map<String, dynamic>>(
+                    requestOptions: options,
+                    statusCode: 400,
+                    data: data,
+                  ),
+                ),
+                true,
+              );
+            }
+
+            // The server's 5 tries per code (AUTH-D19): a wrong password
+            // counts as a failed try; once spent the code is gone — the phone
+            // path answers INVALID_CODE, the email path CODE_EXPIRED, whatever
+            // the password, until a new code is sent.
+            final int tries = email ? _emailCodeTries : _phoneCodeTries;
+            if (tries >= kCodeMaxTries) {
+              reject(<String, dynamic>{
+                'success': false,
+                'message': 'FAKE-400',
+                'data': <String, dynamic>{
+                  'code': email ? 'CODE_EXPIRED' : 'INVALID_CODE',
+                },
+              });
+              return;
+            }
+            if (body['currentPassword'] != kCurrentPassword) {
+              if (email) {
+                _emailCodeTries++;
+              } else {
+                _phoneCodeTries++;
+              }
+              reject(_currentPasswordInvalid());
+              return;
+            }
+            h.next(options);
+          },
+        ),
+      );
+    }
+    // M515 QA — opt-in: the PRODUCTION [AppCheckInterceptor] with a fixed
+    // token, followed by a recorder of what reached the wire. Off by default,
+    // so every other flow's chain is unchanged.
+    final String? token = appCheckToken;
+    if (token != null) {
+      dio.interceptors.insertAll(0, <Interceptor>[
+        AppCheckInterceptor(() async => token),
+        InterceptorsWrapper(
+          onRequest: (RequestOptions o, RequestInterceptorHandler h) {
+            appCheckHeaderLog.add((
+              path: o.path,
+              header: o.headers[kAppCheckHeader] as String?,
+            ));
+            h.next(o);
+          },
+        ),
+      ]);
+    }
     _wire();
     _wireNotifications();
     _wireBookingLinks();
@@ -742,6 +854,14 @@ final class FakeBackend {
   /// request, by `replyCallback`), and `_wire()` runs from the constructor —
   /// so this cannot be a mutable field the way the body-level knobs are.
   final bool masterMeNotFound;
+
+  /// When true, `GET /api/v1/users/me` replies **500** (still counted in
+  /// [getMeCalls]). Lets a flow prove a session value came from an auth
+  /// ENVELOPE alone: a failed profile read cannot repair it, and
+  /// `AuthNotifier.refreshUser` swallows the failure and keeps the session.
+  /// Defaults false so every existing flow keeps its 200. CONSTRUCTOR-TIME
+  /// for the same reason as [masterMeNotFound].
+  final bool meServerError;
 
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
   //
@@ -1390,6 +1510,10 @@ final class FakeBackend {
   // ── Call-count telemetry (for assertions in tests) ────────────────────────
 
   int loginCalls = 0;
+
+  /// M515 — the decoded body of the latest `POST /api/v1/auth/login`
+  /// (`identifier` + `password`).
+  Map<String, dynamic>? lastLoginBody;
   int logoutCalls = 0; // POST /api/v1/auth/logout counter
   int registerCalls = 0;
 
@@ -1398,6 +1522,18 @@ final class FakeBackend {
   /// flow prove the consent triple (`termsAccepted` + both versions) the
   /// wizard collected actually reached the wire.
   Map<String, dynamic>? lastRegisterBody;
+
+  /// M515 — `POST /api/v1/auth/register/phone/otp/send` calls and the phone
+  /// of the latest one.
+  int registrationCodeSendCalls = 0;
+  String? lastRegistrationCodePhone;
+
+  /// M515 — `POST /api/v1/auth/register/phone/otp/verify` calls; every code
+  /// mints [kFakeTicket] unless [registrationCodeVerifyFailure] is set.
+  int registrationCodeVerifyCalls = 0;
+
+  /// M515 — the registration ticket the fake mints and accepts.
+  static const String kFakeTicket = 'fake-registration-ticket';
   int verifyEmailCalls = 0;
 
   /// The `email` field of the most recent `POST /api/v1/auth/verify-email`.
@@ -1446,6 +1582,46 @@ final class FakeBackend {
   /// rather than mutating it after boot.
   final int? forgotPasswordFailureStatusCode;
 
+  /// M515 QA — `(status, data.code)` answered by `POST
+  /// /api/v1/auth/register/phone/otp/send` instead of 200 (e.g. `(403,
+  /// 'APP_CHECK_FAILED')`). Read at construction time.
+  final (int, String)? registrationCodeSendFailure;
+
+  /// M515 QA — `(status, data.code)` answered by `POST
+  /// /api/v1/auth/register/phone/otp/verify` instead of the ticket (e.g.
+  /// `(400, 'INVALID_CODE')`, `(409, 'PHONE_ALREADY_REGISTERED')`).
+  final (int, String)? registrationCodeVerifyFailure;
+
+  /// M515 QA — `(status, data.code)` answered by `POST /api/v1/auth/register`
+  /// (CLIENT / SALON_OWNER) instead of 200 (e.g. `(400,
+  /// 'REGISTRATION_TICKET_INVALID')`).
+  final (int, String)? registerFailure;
+
+  /// M521 (B520) — `(status, data.code)` answered by `POST
+  /// /api/v1/auth/invite/accept` instead of the session (e.g. `(400,
+  /// 'INVITE_PHONE_MISMATCH')`). Read at construction time.
+  final (int, String)? acceptInviteFailure;
+
+  /// M521 — the salon name `GET /auth/invite/validate` returns (B520).
+  static const String kInviteSalonName = 'Студія Краси «Камелія»';
+
+  /// M515 QA — when non-null, the production [AppCheckInterceptor] is
+  /// installed with this token and every request is logged into
+  /// [appCheckHeaderLog].
+  final String? appCheckToken;
+
+  /// M515 QA — `(path, X-Firebase-AppCheck header)` per request, in order.
+  /// Empty unless [appCheckToken] is set.
+  final List<({String path, String? header})> appCheckHeaderLog =
+      <({String path, String? header})>[];
+
+  static Map<String, dynamic> _phoneIdentityError((int, String) f) =>
+      <String, dynamic>{
+        'success': false,
+        'message': 'FAKE-${f.$1}',
+        'data': <String, dynamic>{'code': f.$2},
+      };
+
   /// When `true`, `POST /api/v1/auth/login` answers with the REAL prod shape
   /// for an unverified account: HTTP **403**
   /// `{success:false, data:{code:"EMAIL_NOT_VERIFIED", email}, message:"Email
@@ -1458,8 +1634,77 @@ final class FakeBackend {
   final bool loginEmailNotVerified;
 
   /// `POST /api/v1/auth/forgot-password` call count + the last requested email.
+  /// M517 — holds the `identifier` (phone or email as typed) when the app sent
+  /// one, else the legacy `email`.
   int forgotPasswordCalls = 0;
   String? lastForgotPasswordEmail;
+
+  // ── M517 (B516) — existing-user phone + notifications email ─────────────
+
+  /// Merged into EVERY `GET /api/v1/users/me` body when non-null (all `null`
+  /// by default, so every pre-M517 flow's body is byte-identical).
+  /// `mePhoneRequiredBy` + `mePhoneVerified: false` = a legacy account the
+  /// app must hold on the blocking add-phone step (AUTH-D12).
+  bool? mePhoneVerified;
+  String? mePhoneRequiredBy;
+  bool? meEmailVerified;
+
+  /// The confirmed notifications email, served as `email` once set.
+  String? meConfirmedEmail;
+
+  /// M517 QA — installs the AUTH-D19 current-password check (see the
+  /// constructor). Read at construction time.
+  final bool checkCurrentPassword;
+
+  /// The production `onPhoneNotVerified` hook of [dio]'s
+  /// [ErrorMapperInterceptor], bound by the E2E boot to
+  /// `authProvider.notifier.onPhoneNotVerified` (as `dioProvider` does).
+  void Function()? onPhoneNotVerified;
+
+  /// Tries one code allows (AUTH-03 / AUTH-D19), modelled by the opt-in
+  /// [checkCurrentPassword] check.
+  static const int kCodeMaxTries = 5;
+
+  /// Failed tries on the live phone-change / email code ([kCodeMaxTries]);
+  /// reset by a new `phone/otp/send` / `email/request-code`.
+  int _phoneCodeTries = 0;
+  int _emailCodeTries = 0;
+
+  /// The current password the phone-change / email verify steps accept
+  /// (AUTH-D19); anything else is 400 CURRENT_PASSWORD_INVALID.
+  static const String kCurrentPassword = 'Secret1234';
+
+  /// `POST /api/v1/users/me/phone/otp/send` phones, in order.
+  final List<String> userPhoneSendCalls = <String>[];
+
+  /// `POST /api/v1/users/me/phone/otp/verify` bodies, in order.
+  final List<Map<String, dynamic>> userPhoneVerifyBodies =
+      <Map<String, dynamic>>[];
+
+  /// `POST /api/v1/users/me/email/request-code` emails, in order.
+  final List<String> notificationEmailRequestCalls = <String>[];
+
+  /// `POST /api/v1/users/me/email/verify` bodies, in order.
+  final List<Map<String, dynamic>> notificationEmailVerifyBodies =
+      <Map<String, dynamic>>[];
+
+  /// The phone confirmed by the last successful phone verify.
+  String? lastConfirmedPhone;
+
+  static Map<String, dynamic> _currentPasswordInvalid() => <String, dynamic>{
+    'success': false,
+    'message': 'FAKE-400',
+    'data': <String, dynamic>{'code': 'CURRENT_PASSWORD_INVALID'},
+  };
+
+  /// The M517 fields merged into `GET /users/me` (see [mePhoneVerified]).
+  Map<String, dynamic> _m517MeFields() => <String, dynamic>{
+    'phoneVerified': ?mePhoneVerified,
+    'phoneRequiredBy': ?mePhoneRequiredBy,
+    'emailVerified': ?meEmailVerified,
+    'email': ?meConfirmedEmail,
+    'phoneNumber': ?lastConfirmedPhone,
+  };
 
   /// `POST /api/v1/auth/verify-password-reset-otp` call count + the last
   /// email/code submitted. Always succeeds with [resetTicketToIssue] unless
@@ -2275,7 +2520,7 @@ final class FakeBackend {
   final String deleteMyAccountFailureMessage;
 
   /// Phase 21.4 — `POST /api/v1/salons/{salonId}/invite` call count + the
-  /// exact last decoded wire body (email/role), so a flow can assert the
+  /// exact last decoded wire body (phone/role, B520), so a flow can assert the
   /// REAL serialized request reached the network — mirrors
   /// [updateSalonCalls]/[lastUpdateSalonBody]'s shape exactly.
   int inviteStaffCalls = 0;
@@ -2305,8 +2550,8 @@ final class FakeBackend {
   /// /invite` fail with [statusCode]. Call again with `null` to restore the
   /// default 200 success. [errorCode], when given, is nested as
   /// `data: {"code": errorCode}` in the failure envelope — pass
-  /// `'EMAIL_ALREADY_REGISTERED'` with `statusCode: 409` to drive
-  /// [EmailAlreadyRegisteredFailure] end-to-end.
+  /// `'PHONE_ALREADY_REGISTERED'` with `statusCode: 409` (B520) to drive
+  /// [PhoneIdentityFailure] end-to-end.
   void forceInviteStaffFailure(int? statusCode, {String? errorCode}) {
     _inviteStaffFailureStatusCode = statusCode;
     _inviteStaffFailureErrorCode = errorCode;
@@ -2335,7 +2580,7 @@ final class FakeBackend {
   // `formatRelativeDate`, whose `now` defaults to the HOST clock rather than
   // `clockProvider` (pre-existing, app-wide — `ReviewCard` does the same), so
   // that ONE caption is host-relative regardless of what is seeded here. No
-  // flow asserts on it; the assertions are on the invitee email, which is
+  // flow asserts on it; the assertions are on the invitee phone, which is
   // clock-free.
 
   /// Two ready-made PENDING invitation rows — a MASTER and an ADMIN, so a
@@ -2349,7 +2594,7 @@ final class FakeBackend {
       <Map<String, dynamic>>[
         <String, dynamic>{
           'inviteId': 'invite-seed-a',
-          'recipientEmail': 'anna.master@beautica.ua',
+          'recipientPhone': '+380671112201',
           'role': 'SALON_MASTER',
           'status': 'PENDING',
           'createdAt': '2026-06-12T09:00:00Z',
@@ -2357,7 +2602,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-seed-b',
-          'recipientEmail': 'borys.admin@beautica.ua',
+          'recipientPhone': '+380671112202',
           'role': 'SALON_ADMIN',
           'status': 'PENDING',
           'createdAt': '2026-06-13T09:00:00Z',
@@ -2376,7 +2621,7 @@ final class FakeBackend {
       <Map<String, dynamic>>[
         <String, dynamic>{
           'inviteId': 'invite-hist-1',
-          'recipientEmail': 'pending.master@beautica.ua',
+          'recipientPhone': '+380671112211',
           'role': 'SALON_MASTER',
           'status': 'PENDING',
           'createdAt': '2026-06-20T09:00:00Z',
@@ -2384,7 +2629,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-hist-2',
-          'recipientEmail': 'cancelled.admin@beautica.ua',
+          'recipientPhone': '+380671112212',
           'role': 'SALON_ADMIN',
           'status': 'CANCELLED',
           'createdAt': '2026-06-18T09:00:00Z',
@@ -2392,7 +2637,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-hist-3',
-          'recipientEmail': 'expired.master@beautica.ua',
+          'recipientPhone': '+380671112213',
           'role': 'SALON_MASTER',
           'status': 'EXPIRED',
           'createdAt': '2026-06-14T09:00:00Z',
@@ -2400,7 +2645,7 @@ final class FakeBackend {
         },
         <String, dynamic>{
           'inviteId': 'invite-hist-4',
-          'recipientEmail': 'accepted.admin@beautica.ua',
+          'recipientPhone': '+380671112214',
           'role': 'SALON_ADMIN',
           'status': 'ACCEPTED',
           'createdAt': '2026-06-10T09:00:00Z',
@@ -7479,10 +7724,9 @@ final class FakeBackend {
 
   /// (Re-)registers `POST /api/v1/salons/salon-xyz/invite`.
   /// See [forceInviteStaffFailure]. The fake just records the decoded body
-  /// (email/role) and counts the call, mirroring the PATCH/DELETE salon
-  /// handlers above; a real `InviteResponse` only carries
-  /// `invitedEmail`/`expiresAt`, both nullable, so an empty data object is a
-  /// valid success envelope.
+  /// (B520: phone/role) and counts the call, mirroring the PATCH/DELETE salon
+  /// handlers above; a real `InviteResponse` carries `invitedPhone` /
+  /// `expiresAt`, both nullable.
   void _wireInviteStaff() {
     final int? failStatus = _inviteStaffFailureStatusCode;
     _adapter.onRoute(
@@ -7512,7 +7756,7 @@ final class FakeBackend {
         // and a freshly minted invitation is the newest row there is.
         pendingInvites.insert(0, <String, dynamic>{
           'inviteId': 'invite-minted-${++_mintedInviteSeq}',
-          'recipientEmail': body['email'],
+          'recipientPhone': body['phone'],
           'role': body['role'],
           'status': 'PENDING',
           'createdAt': kFixedNow.toUtc().toIso8601String(),
@@ -7522,7 +7766,7 @@ final class FakeBackend {
               .toIso8601String(),
         });
         return _ok(<String, dynamic>{
-          'invitedEmail': body['email'],
+          'invitedPhone': body['phone'],
           'expiresAt': null,
         });
       }),
@@ -8151,6 +8395,38 @@ final class FakeBackend {
     );
   }
 
+  /// M515 (B514) — the phone-first register answer: with a
+  /// `registrationTicket` the real backend creates a phone-only account (no
+  /// email) and returns `{message, email: null, auth: {…tokens…}}` at once.
+  /// `null` for the legacy email shape. Under [modelOwnerAccountLifecycle]
+  /// a SALON_OWNER re-registration after the delete gets the NEW identity
+  /// (the verify-email branch below did this for the email flow).
+  Map<String, dynamic>? _phoneRegistrationResponse(Map<String, dynamic> body) {
+    if (body['registrationTicket'] == null) return null;
+    final Map<String, dynamic> user;
+    if (modelOwnerAccountLifecycle &&
+        ownerAccountDeleted &&
+        body['role'] == 'SALON_OWNER') {
+      ownerFirstName = body['firstName'] as String? ?? '';
+      ownerLastName = body['lastName'] as String? ?? '';
+      user = <String, dynamic>{
+        'id': 'user-owner-2',
+        'email': null,
+        'role': 'SALON_OWNER',
+        'firstName': ownerFirstName,
+        'lastName': ownerLastName,
+        'phoneNumber': lastRegistrationCodePhone,
+      };
+      reRegisteredOwnerJson = user;
+    } else {
+      user = userJsonForRole(currentRole);
+    }
+    return _ok(<String, dynamic>{
+      'message': 'Registration successful.',
+      'auth': _authResponse(user)['data'],
+    });
+  }
+
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
     _adapter.onRoute(
@@ -8158,6 +8434,7 @@ final class FakeBackend {
       (server) =>
           server.replyCallback(loginEmailNotVerified ? 403 : 200, (req) {
             loginCalls++;
+            lastLoginBody = _decodeBody(req.data);
             if (loginEmailNotVerified) {
               return <String, dynamic>{
                 'success': false,
@@ -8185,9 +8462,13 @@ final class FakeBackend {
     // dropped-`salonId` regression could only ever be caught by hand.
     //
     // Branches on [currentRole] exactly like login/accept do, so the invited
-    // email the preview shows and the persona the accept envelope returns are
-    // the SAME account — an E2E that showed one address and signed in as
+    // phone the preview shows and the persona the accept envelope returns are
+    // the SAME account — an E2E that showed one number and signed in as
     // another would be pinning nothing.
+    //
+    // B520 (`InvitePreviewResponse`) replaced `invitedEmail` with
+    // `phoneMasked`, masked by the backend's `ContactMask.invitePhone`
+    // (see [_invitePhoneMask]).
     //
     // `expiresAt` is anchored to [kFixedNow], NOT `DateTime.now()`: the screen
     // renders `expiresInHoursFrom(ref.watch(clockProvider)())`, and the harness
@@ -8203,8 +8484,9 @@ final class FakeBackend {
         );
         final user = userJsonForRole(currentRole);
         return _ok(<String, dynamic>{
-          'invitedEmail': user['email'],
+          'phoneMasked': _invitePhoneMask(user['phoneNumber'] as String?),
           'role': user['role'],
+          'salonName': kInviteSalonName,
           'expiresAt': kFixedNow
               .add(const Duration(hours: 48))
               .toUtc()
@@ -8224,9 +8506,11 @@ final class FakeBackend {
     // only source for that binding.
     _adapter.onRoute(
       '/api/v1/auth/invite/accept',
-      (server) => server.replyCallback(200, (req) {
+      (server) => server.replyCallback(acceptInviteFailure?.$1 ?? 200, (req) {
         acceptInviteCalls++;
         lastAcceptInviteBody = _decodeBody(req.data);
+        final (int, String)? failure = acceptInviteFailure;
+        if (failure != null) return _phoneIdentityError(failure);
         return _authResponse(userJsonForRole(currentRole));
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -8237,9 +8521,15 @@ final class FakeBackend {
     // priority when the DioAdapter walks the list in insertion order.
     _adapter.onRoute(
       '/api/v1/auth/register',
-      (server) => server.replyCallback(200, (req) {
+      (server) => server.replyCallback(registerFailure?.$1 ?? 200, (req) {
         registerCalls++;
         lastRegisterBody = _decodeBody(req.data);
+        final (int, String)? failure = registerFailure;
+        if (failure != null) return _phoneIdentityError(failure);
+        final Map<String, dynamic>? signedIn = _phoneRegistrationResponse(
+          lastRegisterBody!,
+        );
+        if (signedIn != null) return signedIn;
         return _ok(<String, dynamic>{
           'verificationRequired': true,
           'email': modelOwnerAccountLifecycle
@@ -8256,11 +8546,44 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         registerCalls++;
         lastRegisterBody = _decodeBody(req.data);
+        final Map<String, dynamic>? signedIn = _phoneRegistrationResponse(
+          lastRegisterBody!,
+        );
+        if (signedIn != null) return signedIn;
         return _ok(<String, dynamic>{
           'verificationRequired': true,
           'email': 'new@beautica.ua',
         });
       }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M515 (B514) — POST /api/v1/auth/register/phone/otp/send: 200 for any
+    // number (the real backend never reveals whether it is registered).
+    _adapter.onRoute(
+      '/api/v1/auth/register/phone/otp/send',
+      (server) => server.replyCallback(registrationCodeSendFailure?.$1 ?? 200, (
+        req,
+      ) {
+        registrationCodeSendCalls++;
+        lastRegistrationCodePhone = _decodeBody(req.data)['phone'] as String?;
+        final (int, String)? failure = registrationCodeSendFailure;
+        if (failure != null) return _phoneIdentityError(failure);
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M515 (B514) — POST /api/v1/auth/register/phone/otp/verify.
+    _adapter.onRoute(
+      '/api/v1/auth/register/phone/otp/verify',
+      (server) =>
+          server.replyCallback(registrationCodeVerifyFailure?.$1 ?? 200, (req) {
+            registrationCodeVerifyCalls++;
+            final (int, String)? failure = registrationCodeVerifyFailure;
+            if (failure != null) return _phoneIdentityError(failure);
+            return _ok(<String, dynamic>{'registrationTicket': kFakeTicket});
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
@@ -8337,7 +8660,9 @@ final class FakeBackend {
       (server) =>
           server.replyCallback(forgotPasswordFailureStatusCode ?? 200, (req) {
             forgotPasswordCalls++;
-            lastForgotPasswordEmail = _decodeBody(req.data)['email'] as String?;
+            final Map<String, dynamic> forgotBody = _decodeBody(req.data);
+            lastForgotPasswordEmail =
+                (forgotBody['identifier'] ?? forgotBody['email']) as String?;
             if (forgotPasswordFailureStatusCode != null) {
               // The rate-limit FILTER's own body — deliberately NOT the
               // `{success,message,data}` envelope the controllers use.
@@ -8355,7 +8680,8 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         verifyPasswordResetOtpCalls++;
         final body = _decodeBody(req.data);
-        lastVerifyPasswordResetOtpEmail = body['email'] as String?;
+        lastVerifyPasswordResetOtpEmail =
+            (body['identifier'] ?? body['email']) as String?;
         lastVerifyPasswordResetOtpCode = body['code'] as String?;
         return _ok(<String, dynamic>{'resetTicket': resetTicketToIssue});
       }),
@@ -8466,46 +8792,126 @@ final class FakeBackend {
     // the static fixture.
     _adapter.onRoute(
       '/api/v1/users/me',
-      (server) => server.replyCallback(200, (_) {
-        getMeCalls++;
-        // Phase 367 — `avatarUrl` (backend 344, every role) mirrors the
-        // last successful `/media/avatar` write; OMITTED while none happened,
-        // so every pre-existing flow's body is byte-identical.
-        final String? avatar = mediaAvatarUrl;
-        return switch (currentRole) {
-          UserRole.client => _ok(<String, dynamic>{
-            ..._clientProfileBody(),
-            'avatarUrl': ?avatar,
-          }),
-          UserRole.salonAdmin => _ok(<String, dynamic>{
-            ..._adminProfileBody(),
-            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
-            'avatarUrl': ?avatar,
-          }),
-          // Phase 137 — owner identity is mutable (see [ownerFirstName]).
-          UserRole.salonOwner => _ok(<String, dynamic>{
-            ...userJsonForRole(currentRole),
-            ...?reRegisteredOwnerJson,
-            'firstName': ownerFirstName,
-            'lastName': ownerLastName,
-            // Phase 399 — the label lives on the shared `users` row, so the
-            // owner's PATCH /independent-masters/me/profile shows up here.
-            if (masterProfessionalTitle != null)
-              'professionalTitle': masterProfessionalTitle,
-            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
-            'avatarUrl': ?avatar,
-          }),
-          // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
-          // it, so the default body is byte-identical to the pre-21.14 one
-          // and `null` stays a genuine "key absent", not a serialized null.
-          _ => _ok(<String, dynamic>{
-            ...userJsonForRole(currentRole),
-            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
-            'avatarUrl': ?avatar,
-          }),
-        };
-      }),
+      (server) => meServerError
+          ? server.replyCallback(500, (_) {
+              getMeCalls++;
+              return <String, dynamic>{
+                'success': false,
+                'message': 'FAKE-500: /users/me unavailable',
+                'data': null,
+              };
+            })
+          : server.replyCallback(200, (_) {
+              getMeCalls++;
+              // Phase 367 — `avatarUrl` (backend 344, every role) mirrors the
+              // last successful `/media/avatar` write; OMITTED while none happened,
+              // so every pre-existing flow's body is byte-identical.
+              final String? avatar = mediaAvatarUrl;
+              final Map<String, dynamic> reply = switch (currentRole) {
+                UserRole.client => _ok(<String, dynamic>{
+                  ..._clientProfileBody(),
+                  'avatarUrl': ?avatar,
+                }),
+                UserRole.salonAdmin => _ok(<String, dynamic>{
+                  ..._adminProfileBody(),
+                  if (hasMasterProfile != null)
+                    'hasMasterProfile': hasMasterProfile,
+                  'avatarUrl': ?avatar,
+                }),
+                // Phase 137 — owner identity is mutable (see [ownerFirstName]).
+                UserRole.salonOwner => _ok(<String, dynamic>{
+                  ...userJsonForRole(currentRole),
+                  ...?reRegisteredOwnerJson,
+                  'firstName': ownerFirstName,
+                  'lastName': ownerLastName,
+                  // Phase 399 — the label lives on the shared `users` row, so the
+                  // owner's PATCH /independent-masters/me/profile shows up here.
+                  if (masterProfessionalTitle != null)
+                    'professionalTitle': masterProfessionalTitle,
+                  if (hasMasterProfile != null)
+                    'hasMasterProfile': hasMasterProfile,
+                  'avatarUrl': ?avatar,
+                }),
+                // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
+                // it, so the default body is byte-identical to the pre-21.14 one
+                // and `null` stays a genuine "key absent", not a serialized null.
+                _ => _ok(<String, dynamic>{
+                  ...userJsonForRole(currentRole),
+                  if (hasMasterProfile != null)
+                    'hasMasterProfile': hasMasterProfile,
+                  'avatarUrl': ?avatar,
+                }),
+              };
+              // M517 — phone / email verification state (empty by default).
+              final Object? data = reply['data'];
+              if (data is Map<String, dynamic>) data.addAll(_m517MeFields());
+              return reply;
+            }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/phone/otp/send: 200 for any number.
+    _adapter.onRoute(
+      '/api/v1/users/me/phone/otp/send',
+      (server) => server.replyCallback(200, (req) {
+        userPhoneSendCalls.add(_decodeBody(req.data)['phone'] as String? ?? '');
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/phone/otp/verify. Success marks the
+    // phone verified and clears `phoneRequiredBy` on the next /users/me. The
+    // current-password check (AUTH-D19) is the opt-in [checkCurrentPassword]
+    // interceptor — a reply callback cannot choose its status.
+    _adapter.onRoute(
+      '/api/v1/users/me/phone/otp/verify',
+      (server) => server.replyCallback(200, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        userPhoneVerifyBodies.add(body);
+        lastConfirmedPhone = body['phone'] as String?;
+        // The confirmed number replaces the account's phone (B516 — the
+        // only write path for a different number), so the next profile read
+        // of the signed-in role returns it.
+        switch (currentRole) {
+          case UserRole.client:
+            clientPhone = lastConfirmedPhone;
+          case UserRole.salonAdmin:
+            adminPhone = lastConfirmedPhone;
+          default:
+            masterPhone = lastConfirmedPhone;
+        }
+        mePhoneVerified = true;
+        mePhoneRequiredBy = null;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/email/request-code.
+    _adapter.onRoute(
+      '/api/v1/users/me/email/request-code',
+      (server) => server.replyCallback(200, (req) {
+        notificationEmailRequestCalls.add(
+          _decodeBody(req.data)['email'] as String? ?? '',
+        );
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // M517 (B516) — POST /api/v1/users/me/email/verify: success stores the
+    // email (password check: [checkCurrentPassword]).
+    _adapter.onRoute(
+      '/api/v1/users/me/email/verify',
+      (server) => server.replyCallback(200, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        notificationEmailVerifyBodies.add(body);
+        meConfirmedEmail = body['email'] as String?;
+        meEmailVerified = true;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
     // GET /api/v1/salons/mine — Phase 21.1 My Salons Hub (the SALON_OWNER
@@ -8914,6 +9320,43 @@ final class FakeBackend {
         lastGetPublicMasterId = 'master-aaa';
         return _publicMasterDetailEnvelope();
       }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // MAS-39 (2026-11-16) — PUBLIC detail + services + portfolio for the
+    // salon-xyz roster master `master-ccc`, so `salon_booking_flow_test`'s
+    // master-card taps (salon «Час» / confirm / success) land on a RESOLVED
+    // public profile. The book CTA only renders once the profile resolves, so
+    // without these routes its "CTA hidden" assertion would pass vacuously on
+    // the error state. Exact-string routes: no other flow requests them, and
+    // `…/master-ccc/working-days` / `…/slots` are distinct exact paths.
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterCalls++;
+        lastGetPublicMasterId = 'master-ccc';
+        return _ok(<String, dynamic>{
+          'masterId': 'master-ccc',
+          'firstName': 'Марія',
+          'lastName': 'Гриценко',
+          'avatarUrl': 'https://media.test/avatars/master-ccc.png',
+          'avgRating': 4.6,
+          'reviewCount': 9,
+          'masterType': 'SALON_MASTER',
+          'isFavorite': false,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/services',
+      (server) => server.reply(200, _okList(const <dynamic>[])),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/portfolio',
+      (server) =>
+          server.reply(200, _portfolioPage(const <Map<String, dynamic>>[])),
       request: const Request(method: RequestMethods.get),
     );
 
@@ -12512,6 +12955,9 @@ final class FakeBackend {
     // payload): the category / reject reason a catalogue-decision row carries.
     String? categoryName,
     String? decisionReason,
+    // AUTH-D19 — opt-in (default off): the masked new phone / email a
+    // SECURITY_*_CHANGED notice carries.
+    String? maskedContact,
     bool read = false,
     Duration age = const Duration(hours: 1),
   }) {
@@ -12548,6 +12994,7 @@ final class FakeBackend {
         'masterName': ?masterName,
         'categoryName': ?categoryName,
         'decisionReason': ?decisionReason,
+        'maskedContact': ?maskedContact,
       },
     });
     _adapter.onRoute(

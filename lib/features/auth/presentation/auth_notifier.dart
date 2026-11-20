@@ -548,7 +548,10 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
-  /// Authenticates the user with [email] and [password].
+  /// Authenticates the user with [identifier] and [password].
+  ///
+  /// M515 (AUTH-08 / AUTH-46) — [identifier] is an email or a phone already
+  /// normalised to `+380…` by the login screen's classifier.
   ///
   /// On success, state becomes [AsyncData<Authenticated>] with the user profile
   /// and a fresh access token. On failure, state becomes [AsyncError] with the
@@ -561,12 +564,15 @@ class AuthNotifier extends _$AuthNotifier {
   /// does not leave a stale token in memory. This guarantees [firstName] and
   /// [lastName] are populated in the settled [Authenticated] session — callers
   /// such as the home screen and master-profile header see the real name.
-  Future<void> login(String email, String password) async {
+  Future<void> login(String identifier, String password) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       final repo = ref.read(authRepositoryProvider);
       final storage = ref.read(secureStorageProvider);
-      final (_, tokens) = await repo.login(email: email, password: password);
+      final (_, tokens) = await repo.login(
+        identifier: identifier,
+        password: password,
+      );
       await storage.writeRefreshToken(tokens.refreshToken);
       // HIGH-1 pattern: state is AsyncLoading while this guard runs; write the
       // access token to the sentinel so AuthInterceptor injects the Bearer
@@ -626,8 +632,14 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// [termsAccepted] (phase 443) — forwarded to the repository, which sends
   /// the full consent triple when `true` and none of it when `false`.
+  ///
+  /// M515 (AUTH-41 / AUTH-D11) — pass [registrationTicket] (from
+  /// [verifyRegistrationCode]) and no [email] for the phone-first shape: the
+  /// backend answers with a session, so this resolves to
+  /// [AuthenticatedRegisterResult] and loads the full profile (`GET
+  /// /users/me`) before settling, exactly like [login].
   Future<RegisterResult?> register({
-    required String email,
+    String? email,
     required String password,
     required String firstName,
     required String lastName,
@@ -636,6 +648,7 @@ class AuthNotifier extends _$AuthNotifier {
     String? address,
     String? phone,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     state = const AsyncLoading();
     // AsyncValue.guard fixes the [state] for screens that pattern-match on
@@ -655,6 +668,7 @@ class AuthNotifier extends _$AuthNotifier {
             address: address,
             phone: phone,
             termsAccepted: termsAccepted,
+            registrationTicket: registrationTicket,
           );
       result = outcome;
       switch (outcome) {
@@ -674,10 +688,38 @@ class AuthNotifier extends _$AuthNotifier {
           // see the identical reset in [login] for why this is needed on
           // every fresh-session establishment, not just [logout]'s own exits.
           _logoutInFlight = false;
-          return AuthSession.authenticated(
-            user: user,
+          // M515 — the phone-first session: load the full profile (names,
+          // phone) like [login] does. HIGH-1 sentinel so AuthInterceptor
+          // attaches the Bearer while state is still AsyncLoading. A failed
+          // profile load must not undo a created account — fall back to the
+          // register envelope's user.
+          if (registrationTicket == null) {
+            return AuthSession.authenticated(
+              user: user,
+              accessToken: tokens.accessToken,
+            );
+          }
+          coldStartAccessToken = tokens.accessToken;
+          User fullUser;
+          try {
+            fullUser = await ref.read(authRepositoryProvider).me();
+          } on Object catch (e) {
+            if (kDebugMode) {
+              log(
+                'Post-register profile load failed (${e.runtimeType}); '
+                'using the register envelope',
+                name: 'auth',
+                level: 900,
+              );
+            }
+            fullUser = user;
+          }
+          final session = AuthSession.authenticated(
+            user: fullUser,
             accessToken: tokens.accessToken,
           );
+          coldStartAccessToken = null;
+          return session;
         case VerificationRequired(:final email):
           if (kDebugMode) {
             log(
@@ -812,6 +854,21 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
+  /// M515 (AUTH-41) — sends the registration SMS code to the normalised
+  /// [phone]. Does NOT mutate [state] (like [resendCode]); throws the typed
+  /// [Failure] (e.g. [PhoneIdentityFailure]) for the caller to render.
+  Future<void> sendRegistrationCode({required String phone}) =>
+      ref.read(authRepositoryProvider).sendRegistrationCode(phone: phone);
+
+  /// M515 (AUTH-41) — verifies the registration SMS [code] for [phone] and
+  /// returns the single-use registration ticket. Does NOT mutate [state].
+  Future<String> verifyRegistrationCode({
+    required String phone,
+    required String code,
+  }) => ref
+      .read(authRepositoryProvider)
+      .verifyRegistrationCode(phone: phone, code: code);
+
   /// Re-sends the verification code to [email].
   ///
   /// Does NOT mutate [state] — the resend call only triggers a side-effect
@@ -853,20 +910,16 @@ class AuthNotifier extends _$AuthNotifier {
   /// while still showing the generic confirmation on success.
   ///
   /// Throws whatever [AuthRepository.requestPasswordReset] throws.
-  Future<void> requestPasswordReset(String email) async {
+  Future<void> requestPasswordReset(String identifier) async {
     try {
-      await ref.read(authRepositoryProvider).requestPasswordReset(email);
+      await ref.read(authRepositoryProvider).requestPasswordReset(identifier);
       if (kDebugMode) {
-        log(
-          'requestPasswordReset dispatched for ${maskEmail(email)}',
-          name: 'auth.reset',
-          level: 800,
-        );
+        log('requestPasswordReset dispatched', name: 'auth.reset', level: 800);
       }
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'requestPasswordReset failed for ${maskEmail(email)}',
+          'requestPasswordReset failed',
           name: 'auth.reset',
           level: 900,
           error: e,
@@ -923,25 +976,21 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// Throws whatever [AuthRepository.verifyPasswordResetOtp] throws.
   Future<String> verifyPasswordResetOtp({
-    required String email,
+    required String identifier,
     required String code,
   }) async {
     try {
       final ticket = await ref
           .read(authRepositoryProvider)
-          .verifyPasswordResetOtp(email: email, code: code);
+          .verifyPasswordResetOtp(identifier: identifier, code: code);
       if (kDebugMode) {
-        log(
-          'verifyPasswordResetOtp success for ${maskEmail(email)}',
-          name: 'auth.reset',
-          level: 800,
-        );
+        log('verifyPasswordResetOtp success', name: 'auth.reset', level: 800);
       }
       return ticket;
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'verifyPasswordResetOtp failed for ${maskEmail(email)}',
+          'verifyPasswordResetOtp failed',
           name: 'auth.reset',
           level: 900,
           error: e is Failure ? e.runtimeType.toString() : 'non-Failure error',
@@ -1064,8 +1113,10 @@ class AuthNotifier extends _$AuthNotifier {
   /// See the invite-accept post-success design (2026-09-01), Q3, for why
   /// each case below is one of the three unrecoverable outcomes: the
   /// response arrived but was unusable, the response never arrived after the
-  /// request was fully sent, or the server says the invite/email is already
-  /// spent.
+  /// request was fully sent, or the server says the invite / phone is already
+  /// spent or the salon is inactive.
+  static const String _kInviteSalonInactiveCode = 'INVITE_SALON_INACTIVE';
+
   InviteHandoffReason? _inviteHandoffReason(Failure f) => switch (f) {
     ResponseUnusableFailure() => InviteHandoffReason.accountReady,
     NetworkFailure(:final mayHaveReachedServer) when mayHaveReachedServer =>
@@ -1076,10 +1127,16 @@ class AuthNotifier extends _$AuthNotifier {
     // `errors` map, so an empty map here is unambiguous.
     ValidationFailure(:final fieldErrors) when fieldErrors.isEmpty =>
       InviteHandoffReason.inviteNoLongerValid,
+    // M521 (AUTH-17, AUTH-E03) — each 409 code gets its own copy; a 409
+    // `PHONE_ALREADY_REGISTERED` never reaches here (it is a
+    // [PhoneIdentityFailure] the screen sends back to the phone step).
+    ServerFailure(statusCode: 409, :final errorCode)
+        when errorCode == _kInviteSalonInactiveCode =>
+      InviteHandoffReason.salonInactive,
     ServerFailure(statusCode: 409) =>
-      InviteHandoffReason.emailAlreadyRegistered,
+      InviteHandoffReason.phoneAlreadyRegistered,
     EmailAlreadyRegisteredFailure() =>
-      InviteHandoffReason.emailAlreadyRegistered,
+      InviteHandoffReason.phoneAlreadyRegistered,
     _ => null,
   };
 
@@ -1107,6 +1164,7 @@ class AuthNotifier extends _$AuthNotifier {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
@@ -1121,6 +1179,7 @@ class AuthNotifier extends _$AuthNotifier {
               lastName: lastName,
               phoneNumber: phoneNumber,
               termsAccepted: termsAccepted,
+              registrationTicket: registrationTicket,
             );
       } on Failure catch (f) {
         final reason = _inviteHandoffReason(f);
@@ -1150,6 +1209,11 @@ class AuthNotifier extends _$AuthNotifier {
         refreshTokenPersisted: persisted,
       );
     });
+    // The accept-invite response leaves `emailVerified` null (unknown):
+    // re-read `/users/me` so the email prompt card sees a concrete value right
+    // away. Fire-and-forget — [refreshUser] tolerates a `me()` failure and
+    // leaves this Authenticated session in place.
+    if (state.value is Authenticated) unawaited(refreshUser());
   }
 
   /// Updates the in-memory access token without re-fetching the user profile.
@@ -1238,13 +1302,65 @@ class AuthNotifier extends _$AuthNotifier {
   /// A transient [repo.me] failure is tolerated: it is logged (kDebugMode) and
   /// the prior [Authenticated] session is left intact — a refresh hiccup must
   /// never tear down a valid session.
+  ///
+  /// Single-flight: a call made while one is pending returns the pending one
+  /// ([_refreshUserInFlight]), so overlapping callers trigger one `me()` —
+  /// but ONLY when the session still carries the access token that pending
+  /// call started with ([_refreshUserInFlightToken]). A call made after the
+  /// session changed (logout + re-login as another user, token refresh) starts
+  /// its own fetch: joining would hand it a result the stale-result guard
+  /// discards, so the new session's user would never be re-fetched.
+  ///
+  /// Stale-result guard: the fetched user is applied ONLY if, after `me()`,
+  /// no logout is in flight and the session is still [Authenticated] with the
+  /// SAME access token captured before the call. A logout or token refresh
+  /// during `me()` therefore wins — the stale session is never resurrected.
   Future<void> refreshUser() async {
     final s = state.value;
+    final inFlight = _refreshUserInFlight;
+    if (inFlight != null &&
+        s is Authenticated &&
+        s.accessToken == _refreshUserInFlightToken) {
+      return inFlight;
+    }
     if (s is! Authenticated) return;
-    // Preserve the current settled session's access token across the refresh.
-    final accessToken = s.accessToken;
+    final run = _refreshUserOnce(s.accessToken);
+    _refreshUserInFlight = run;
+    _refreshUserInFlightToken = s.accessToken;
+    try {
+      await run;
+    } finally {
+      // Identity check: an older call's cleanup must never clear the slot a
+      // newer call (started after a session change) now owns.
+      if (identical(_refreshUserInFlight, run)) {
+        _refreshUserInFlight = null;
+        _refreshUserInFlightToken = null;
+      }
+    }
+  }
+
+  Future<void>? _refreshUserInFlight;
+
+  /// Access token [_refreshUserInFlight] started with; a call joins the
+  /// pending future only while the session still carries this token.
+  String? _refreshUserInFlightToken;
+
+  Future<void> _refreshUserOnce(String accessToken) async {
     try {
       final freshUser = await ref.read(authRepositoryProvider).me();
+      final current = state.value;
+      if (_logoutInFlight ||
+          current is! Authenticated ||
+          current.accessToken != accessToken) {
+        if (kDebugMode) {
+          log(
+            'refreshUser: session changed during me() — result discarded',
+            name: 'auth',
+            level: 800,
+          );
+        }
+        return;
+      }
       // Keep the interceptor's session-lifetime fallback in lock-step with the
       // preserved token (mirrors setAccessToken) so a mid-rebuild window never
       // replays a stale one.
@@ -1272,6 +1388,73 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
   }
+
+  // ── M517 — phone add / change + notifications email ─────────────────────
+
+  /// M517 (AUTH-44) — sends the SMS code to the new [phone] (first add or
+  /// change). Does NOT mutate [state]; throws the typed [Failure].
+  Future<void> sendPhoneCode({required String phone}) =>
+      ref.read(authRepositoryProvider).sendPhoneCode(phone: phone);
+
+  /// M517 (AUTH-44, AUTH-D19) — confirms [phone] with [code] (plus the
+  /// [currentPassword] on a change). With [refreshSession] (the first add)
+  /// it then refreshes the session user, so the router drops the blocking
+  /// add-phone step (AUTH-D12). A CHANGE passes `false` and its caller
+  /// refreshes after leaving the pushed steps ([refreshUser]). Throws the
+  /// typed [Failure] on a rejected verify; a failed refresh is tolerated.
+  Future<void> verifyPhoneCode({
+    required String phone,
+    required String code,
+    String? currentPassword,
+    bool refreshSession = true,
+  }) async {
+    await ref
+        .read(authRepositoryProvider)
+        .verifyPhoneCode(
+          phone: phone,
+          code: code,
+          currentPassword: currentPassword,
+        );
+    if (refreshSession) await refreshUser();
+  }
+
+  /// M517 (AUTH-50) — emails a code to the new notifications [email]. Does
+  /// NOT mutate [state].
+  Future<void> requestNotificationEmailCode({required String email}) => ref
+      .read(authRepositoryProvider)
+      .requestNotificationEmailCode(email: email);
+
+  /// M517 (AUTH-50, AUTH-D19) — confirms the notifications [email] with
+  /// [code] + [currentPassword]; with [refreshSession] it then refreshes the
+  /// session user (the profile row and every email prompt read
+  /// `emailVerified` from it). The email step passes `false` and refreshes
+  /// after leaving (see [verifyPhoneCode]).
+  Future<void> verifyNotificationEmailCode({
+    required String email,
+    required String code,
+    required String currentPassword,
+    bool refreshSession = true,
+  }) async {
+    await ref
+        .read(authRepositoryProvider)
+        .verifyNotificationEmailCode(
+          email: email,
+          code: code,
+          currentPassword: currentPassword,
+        );
+    if (refreshSession) await refreshUser();
+  }
+
+  /// M517 (AUTH-D12) — the server phone gate answered 409
+  /// `PHONE_NOT_VERIFIED` to some write while the app is open. Re-reads the
+  /// profile (`GET /users/me` is never gated), whose `phoneRequiredBy` makes
+  /// the router redirect to the blocking add-phone step over the open
+  /// screen. Single-flight: a burst of gated 409s refreshes once.
+  Future<void> onPhoneNotVerified() =>
+      _phoneGateRefresh ??= refreshUser().whenComplete(() {
+        _phoneGateRefresh = null;
+      });
+  Future<void>? _phoneGateRefresh;
 
   /// Phase 367 — writes the user's own new avatar [url] (null = removed) into
   /// the settled session [User] in place, with no `GET /users/me` refetch.

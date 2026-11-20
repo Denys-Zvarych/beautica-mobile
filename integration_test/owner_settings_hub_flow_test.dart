@@ -2,9 +2,11 @@
 // router, the REAL `mySalonsGuard` on `/profile/owner/settings`, the REAL
 // `GET/PATCH /users/me` and the REAL logout round trip.
 //
-// Journey (master mode is where the owner lives): salon shell -> «Профіль»
-// (`/owner/master/profile`) -> tune -> the hub (EXACTLY four rows: personal,
-// account, help, logout — no contacts, no location, no toggle) ->
+// Journey (master mode is where the owner lives): salon shell (no provider
+// email card — AUTH-51, 2026-11-19) -> «Профіль»
+// (`/owner/master/profile`) -> tune -> the hub (EXACTLY five rows: personal,
+// notification email, account, help, logout — no contacts, no location, no
+// toggle) ->
 // «Особисті дані» -> change the first name -> save -> back on
 // `/owner/master/profile` WITH the master-mode nav and the new name -> tune ->
 // «Акаунт» shows «Змінити пароль» -> back -> tune -> «Вийти» -> confirm ->
@@ -18,7 +20,9 @@ import 'package:beautica_mobile/features/master/presentation/personal_info_edit_
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
@@ -41,6 +45,9 @@ const Key _navProfile = Key('salon-nav-tile-3');
 
 const Key _tune = Key('btn-owner-own-profile-settings');
 
+/// The removed provider profile-top email card (AUTH-51, 2026-11-19).
+const Key _kProviderEmailCard = Key('provider-home-email-card');
+
 String? _textOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(Key(key))).data;
 
@@ -51,11 +58,18 @@ Future<GoRouter> _enterMasterMode(WidgetTester tester, FakeBackend fb) async {
   await AppHarness.settle(tester);
   AppHarness.expectLocation(router, RouteNames.salonShell(_kOwnerSalonId));
   expect(find.byType(SalonShellScreen), findsOneWidget);
+  // Regression (AUTH-51, 2026-11-19): the owner's salon profile (shell tab 0,
+  // where the card used to sit) shows no email card, although the owner has
+  // no confirmed email — the old card's trigger.
+  expect(fb.meEmailVerified, isNot(isTrue), reason: 'the old card\'s trigger');
+  expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
+  expect(find.byKey(_kProviderEmailCard), findsNothing);
 
   await AppHarness.tapVisible(tester, find.byKey(_navProfile));
   await AppHarness.settle(tester);
   AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
   expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
+  expect(find.byKey(_kProviderEmailCard), findsNothing);
   expect(find.byType(VelvetBottomNavBar), findsOneWidget);
   return router;
 }
@@ -74,7 +88,7 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'SALON_OWNER: master-mode tune -> hub (4 rows) -> edit personal -> back in '
+    'SALON_OWNER: master-mode tune -> hub (5 rows) -> edit personal -> back in '
     'master mode with the new name -> account -> logout',
     (tester) async {
       await mockNetworkImagesFor(() async {
@@ -83,15 +97,30 @@ void main() {
 
         // --- hub shape -------------------------------------------------
         await _openHub(tester, router);
-        expect(find.byType(SettingsRow), findsNWidgets(4));
+        expect(find.byType(SettingsRow), findsNWidgets(5));
         for (final String k in <String>[
           'row-personal',
+          'row-notification-email',
           'row-account',
           'row-help',
           'row-logout',
         ]) {
           expect(find.byKey(Key(k)), findsOneWidget, reason: k);
         }
+        // AUTH-D17 (a) — «Email для сповіщень»; the owner fixture has no
+        // confirmed email, so the row's value is the «Додати» call to action.
+        final Finder emailRow = find.byKey(const Key('row-notification-email'));
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(emailRow),
+        );
+        expect(
+          find.descendant(
+            of: emailRow,
+            matching: find.text(l10n.emailPromptAdd),
+          ),
+          findsOneWidget,
+          reason: 'no confirmed email -> value «Додати», by VALUE',
+        );
         expect(find.byKey(const Key('row-contacts')), findsNothing);
         expect(find.byKey(const Key('row-location')), findsNothing);
         expect(find.byType(SettingsToggleRow), findsNothing);

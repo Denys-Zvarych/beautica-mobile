@@ -184,7 +184,7 @@ void main() {
     when(() => authRepo.me()).thenAnswer((_) async => meUser);
     when(() => authRepo.logout()).thenAnswer((_) async {});
     when(
-      () => authRepo.login(email: _ownerB.email, password: 'pw-b'),
+      () => authRepo.login(identifier: _ownerB.email!, password: 'pw-b'),
     ).thenAnswer((_) async => (_ownerB, _tokensB));
 
     // Manual counter, not a second `verify(...).called(n)` — mocktail's
@@ -257,7 +257,7 @@ void main() {
     // the 5-minute TTL. The REAL `logout()`, not a hand-rolled equivalent.
     await container.read(authProvider.notifier).logout();
     meUser = _ownerB;
-    await container.read(authProvider.notifier).login(_ownerB.email, 'pw-b');
+    await container.read(authProvider.notifier).login(_ownerB.email!, 'pw-b');
     expect(
       container.read(authProvider).value,
       const AuthSession.authenticated(user: _ownerB, accessToken: 'access-b'),
@@ -303,7 +303,7 @@ void main() {
     when(() => authRepo.me()).thenAnswer((_) async => meUser);
     when(() => authRepo.logout()).thenAnswer((_) async {});
     when(
-      () => authRepo.login(email: _ownerB.email, password: 'pw-b'),
+      () => authRepo.login(identifier: _ownerB.email!, password: 'pw-b'),
     ).thenAnswer((_) async => (_ownerB, _tokensB));
 
     // Manual counter, not `verify(...).called(n)` — mocktail's `verify`
@@ -382,7 +382,7 @@ void main() {
     // ── 3. Owner A signs out; owner B signs in, well inside the 5-minute TTL.
     await container.read(authProvider.notifier).logout();
     meUser = _ownerB;
-    await container.read(authProvider.notifier).login(_ownerB.email, 'pw-b');
+    await container.read(authProvider.notifier).login(_ownerB.email!, 'pw-b');
     expect(
       container.read(authProvider).value,
       const AuthSession.authenticated(user: _ownerB, accessToken: 'access-b'),
@@ -543,7 +543,7 @@ void main() {
     when(() => authRepo.me()).thenAnswer((_) async => meUser);
     when(() => authRepo.logout()).thenAnswer((_) async {});
     when(
-      () => authRepo.login(email: _ownerB.email, password: 'pw-b'),
+      () => authRepo.login(identifier: _ownerB.email!, password: 'pw-b'),
     ).thenAnswer((_) async => (_ownerB, _tokensB));
 
     // Manual counters, not `verify(...).called(n)` — mocktail's `verify`
@@ -630,7 +630,7 @@ void main() {
     // ordering decides happens inside this one call.
     await container.read(authProvider.notifier).logout();
     meUser = _ownerB;
-    await container.read(authProvider.notifier).login(_ownerB.email, 'pw-b');
+    await container.read(authProvider.notifier).login(_ownerB.email!, 'pw-b');
     expect(
       container.read(authProvider).value,
       const AuthSession.authenticated(user: _ownerB, accessToken: 'access-b'),

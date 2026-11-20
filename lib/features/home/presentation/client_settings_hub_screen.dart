@@ -25,9 +25,11 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/email_prompts.dart';
 import 'package:beautica_mobile/features/settings/presentation/logout_action.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -66,6 +68,12 @@ class _ClientSettingsHubScreenState
   late final CurvedAnimation _anim6; // hairline
   late final CurvedAnimation _anim7; // logout
 
+  // M517 — the hub shows the full confirmed email in
+  // [NotificationEmailSettingsRow], so it holds the app-switcher guard like
+  // `contacts_edit_screen.dart`. Captured in initState so dispose() never
+  // touches `ref` (Riverpod 3.x throws there).
+  late final ScreenProtectionManager _screenProtection;
+
   static final Tween<Offset> _slideTween = Tween<Offset>(
     begin: const Offset(0, 0.035),
     end: Offset.zero,
@@ -74,6 +82,7 @@ class _ClientSettingsHubScreenState
   @override
   void initState() {
     super.initState();
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -96,6 +105,7 @@ class _ClientSettingsHubScreenState
 
   @override
   void dispose() {
+    _screenProtection.release();
     _anim0.dispose();
     _anim1.dispose();
     _anim2.dispose();
@@ -166,6 +176,10 @@ class _ClientSettingsHubScreenState
               onTap: () => context.pushOnce(RouteNames.clientEditContacts),
             ),
           ),
+          // M517 (AUTH-D17 a, CLI-D09) — «Email для сповіщень», always
+          // visible; reveals with «Контакти».
+          const SizedBox(height: VelvetSpacing.md),
+          _reveal(_anim2, const NotificationEmailSettingsRow()),
           const SizedBox(height: VelvetSpacing.md),
           _reveal(
             _anim3,

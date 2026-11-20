@@ -46,7 +46,17 @@ void main() {
         StorageKeys.pushRevokePending,
         StorageKeys.diagnosticsInstallId,
         StorageKeys.diagnosticsEnabled,
+        StorageKeys.emailPrompts,
+        StorageKeys.passwordLockout,
       ]);
+    });
+
+    test('emailPrompts key has the M517 value', () {
+      expect(StorageKeys.emailPrompts, 'BEAUTICA_EMAIL_PROMPTS');
+    });
+
+    test('passwordLockout key has the M517 value', () {
+      expect(StorageKeys.passwordLockout, 'BEAUTICA_PASSWORD_LOCKOUT');
     });
 
     test('diagnostics keys have the phase-410 values', () {

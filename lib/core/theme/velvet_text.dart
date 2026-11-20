@@ -1743,18 +1743,25 @@ abstract final class VelvetText {
     fontSize: 10.2,
   );
 
-  /// The price figure on the DENSE salon-board card ([MasterBookingCard.dense],
-  /// `TimelineDensity.salon`). 12 sp — [masterCardPricePill]'s 10.2 sp was
-  /// unreadable on a 136-148dp lane, where the dense layout gives the pill a
-  /// row of its own so it no longer has to share (and shrink for) the status
-  /// badge. A separate token, not a bump of [masterCardPricePill], so every
-  /// non-dense card renders byte-identically.
-  static final TextStyle masterCardPricePillDense = _pillStyle.copyWith(
-    fontSize: 12,
-    // Explicit, so the pill's line box (and the dense card's price row, which
-    // is sized from it) does not depend on the font's own metrics.
-    height: 1.2,
-  );
+  /// ROW METRIC ONLY for the DENSE salon-board card's price row
+  /// ([MasterBookingCard.dense], `TimelineDensity.salon`) — no text renders in
+  /// it. The pill itself uses [masterCardPricePill], exactly like the
+  /// non-dense card (user 2026-11-16: the board's price must look the same as
+  /// the master's one-day board; the earlier 12 sp read too big). This token
+  /// keeps the row's line box at an explicit 14.4dp (10.2 sp x 14.4 / 10.2),
+  /// the value [MasterBookingCard.denseCompactNaturalHeight] (67) and
+  /// [MasterBookingCard.denseFullNaturalHeight] (111) are computed from.
+  ///
+  /// Row height ONLY: the pill paints in [masterCardPricePill], whose own
+  /// line box sits inside this 14.4dp row. Raising
+  /// [masterCardPricePill]'s fontSize above ~10.2 sp grows the pill past the
+  /// row and risks clipping the dense card's price — pinned by the pill-size
+  /// checks in `test/features/booking/presentation/
+  /// master_booking_card_dense_test.dart` and the dense-card band heights in
+  /// `integration_test/salon_owner_bookings_board_flow_test.dart` (the
+  /// salon-board goldens render no booking cards).
+  static final TextStyle masterCardPricePillDense = masterCardPricePill
+      .copyWith(height: 14.4 / 10.2);
 
   // Phase 481 — the «3 дні» narrow-column density of `MasterBookingCard`
   // (`column: true`) and of `FreeTimeCard`. Transcribed from the

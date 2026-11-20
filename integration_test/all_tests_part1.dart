@@ -104,6 +104,7 @@ import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'forgot_password_rate_limited_flow_test.dart'
     as forgot_password_rate_limited;
+import 'forgot_password_by_phone_flow_test.dart' as forgot_password_by_phone;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
@@ -133,6 +134,7 @@ import 'salon_owner_unassign_master_service_flow_test.dart'
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
 import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
+import 'staff_invite_by_phone_flow_test.dart' as staff_invite_by_phone;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -339,6 +341,9 @@ void main() {
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
   group('forgot_password_rate_limited_flow', forgot_password_rate_limited.main);
+  // Phone-first hardening — forgot-password by phone end to end, plus the
+  // App Check 403 / 503 answers on the SMS send.
+  group('forgot_password_by_phone_flow', forgot_password_by_phone.main);
   group('logout_flow', logout.main);
   group('push_token_registration_flow', push_token_registration.main);
   // Phase 068 — a foreground FCM message refreshes the bell / merges into the
@@ -423,4 +428,6 @@ void main() {
   // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
   // the five riskiest surfaces opens ONE route / sends ONE request.
   group('tap_reentrancy_flow', tap_reentrancy.main);
+  // M521 — staff invite by phone (SMS link) for owner/admin.
+  group('staff_invite_by_phone_flow', staff_invite_by_phone.main);
 }

@@ -110,9 +110,10 @@ void main() {
 
     test('exactly ${gen.maxSelectedTests} tests -> selected; one more -> '
         'parts (count/tests reset to 0)', () {
-      expect(gen.maxSelectedTests, 74);
-      expect(withTests({'x1': 70, 'x2': 4}).entry, 'selected');
-      expect(withTests({'x1': 70, 'x2': 5}), (
+      expect(gen.maxSelectedTests, 85);
+      const cap = gen.maxSelectedTests;
+      expect(withTests({'x1': cap - 4, 'x2': 4}).entry, 'selected');
+      expect(withTests({'x1': cap - 4, 'x2': 5}), (
         entry: 'parts',
         count: 0,
         tests: 0,
@@ -120,7 +121,7 @@ void main() {
     });
 
     test('the test cap bites with few flows; the flow cap with few tests', () {
-      expect(withTests({'x1': 75}).entry, 'parts');
+      expect(withTests({'x1': gen.maxSelectedTests + 1}).entry, 'parts');
       expect(
         withTests({
           for (var i = 0; i <= gen.maxSelectedFlows; i++) 'y$i': 1,

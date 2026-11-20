@@ -73,16 +73,28 @@ points here with `# why: docs/ci/<topic>.md#<anchor>`.
 
 Moved verbatim from `pr-validate.yml` comments, in file order.
 
+<a id="run-name"></a>
+
+### `run-name`: load-bearing run titles
+
+Cosmetic + load-bearing: an irrelevant-label (noop) event is titled `label-noop ...`
+so ci-gate's mirror mode (tool/ci/mirror.sh) can exclude noop runs when it looks
+up the real run for the same head SHA. A workflow_dispatch run is titled
+`dispatch:<reason>:<token>` so nightly.yml can find exactly the run it dispatched.
+Every other event keeps GitHub's default title ('').
+
 <a id="triggers-no-schedule"></a>
 
 ### Triggers: no `schedule:` (phase 396)
 
 Phase 396 — NO `schedule:` here, deliberately. A `schedule` event always runs
-the workflow file from the DEFAULT branch (main) but the nightly wants to
-test dev's code; the resulting workflow/code skew broke the patrol job for
+the workflow file from the DEFAULT branch (main) while the nightly then
+tested dev's code; the resulting workflow/code skew broke the patrol job for
 four nights running. The nightly is now `.github/workflows/nightly.yml`,
-which dispatches THIS workflow on `dev` so workflow and code come from the
-same branch. Guarded by scripts/forbid_schedule_in_pr_validate.sh.
+which dispatches THIS workflow on `main` (retargeted from `dev` 2026-11-16)
+so workflow and code come from the same branch, then waits for the dispatched
+run (found by its `dispatch:nightly:<token>` run title) and fails when it
+fails. Guarded by scripts/forbid_schedule_in_pr_validate.sh.
 
 <a id="concurrency"></a>
 

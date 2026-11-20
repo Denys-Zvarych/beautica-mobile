@@ -38,9 +38,18 @@ import '../errors/failures.dart';
 /// Must be the last interceptor in the chain (after LoggingInterceptor,
 /// before nothing) so that logging sees the raw error before it is wrapped.
 final class ErrorMapperInterceptor extends Interceptor {
+  /// [onPhoneNotVerified] — M517 (AUTH-D12): called once per 409
+  /// `PHONE_NOT_VERIFIED` (the server phone gate refused a write). The app
+  /// wires it to a session refresh so the router shows the blocking add-phone
+  /// step over whatever screen is open. `null` (every test stack) = no hook.
+  ErrorMapperInterceptor({this.onPhoneNotVerified});
+
+  final void Function()? onPhoneNotVerified;
+
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final failure = _mapError(err);
+    if (failure is PhoneNotVerifiedFailure) onPhoneNotVerified?.call();
 
     // A deliberate cancellation is not worth a WARNING line (security L1) —
     // see the same skip in `LoggingInterceptor.onError`.
@@ -106,6 +115,29 @@ final class ErrorMapperInterceptor extends Interceptor {
     final statusCode = err.response?.statusCode;
     final path = err.requestOptions.path;
     if (statusCode != null) {
+      // M515 (AUTH-41 / AUTH-54) — phone-first identity + App Check codes.
+      // Checked FIRST so a typed `data.code` wins over the generic 400 / 403 /
+      // 409 / 429 / 503 arms below. A 403 APP_CHECK_FAILED is a typed failure
+      // like any other: RefreshInterceptor acts on 401 only, so it never
+      // refreshes or logs out on it.
+      final PhoneIdentityFailure? identity = _phoneIdentityFailure(
+        err,
+        statusCode,
+        path,
+      );
+      if (identity != null) return identity;
+
+      // M517 (AUTH-D19 / AUTH-45) — keyed on the body code (any path): a
+      // wrong current password on the phone-change / email verify step, and
+      // the server phone gate. Checked before the generic 400 / 409 arms.
+      final String? m517Code = _dataCode(err);
+      if (statusCode == 400 && m517Code == 'CURRENT_PASSWORD_INVALID') {
+        return CurrentPasswordInvalidFailure(cause: err);
+      }
+      if (statusCode == 409 && m517Code == 'PHONE_NOT_VERIFIED') {
+        return PhoneNotVerifiedFailure(cause: err);
+      }
+
       // Phase 2.11 — verify-email typed errors (backend Phase 1.5).
       // The backend returns 400 with envelope {success:false, data:{code:"..."}}
       // for INVALID_CODE / CODE_EXPIRED / ALREADY_VERIFIED. Surface as a
@@ -116,7 +148,11 @@ final class ErrorMapperInterceptor extends Interceptor {
       // AppConfig.baseUrl `/api/v1` prefix drift or generated-path change —
       // an exact-literal match silently misses and degrades the typed
       // VerificationFailure to a generic ValidationFailure (silent-submit bug).
-      if (statusCode == 400 && path.endsWith('/auth/verify-email')) {
+      // M517 (AUTH-50) — the notifications-email verify step reuses the
+      // same `INVALID_CODE` / `CODE_EXPIRED` envelope.
+      if (statusCode == 400 &&
+          (path.endsWith('/auth/verify-email') ||
+              path.endsWith(_kNotificationEmailVerifyPath))) {
         final code = _extractVerificationCode(err);
         if (code != null) {
           return VerificationFailure(code: code, cause: err);
@@ -126,7 +162,9 @@ final class ErrorMapperInterceptor extends Interceptor {
       // Phase 2.11 — resend-verification 429 throttle (backend Phase 1.6).
       // Envelope: {success:false, message:"...", data:{retryAfterSeconds:42}}.
       // Suffix match (see verify-email above) — immune to baseUrl prefix drift.
-      if (statusCode == 429 && path.endsWith('/auth/resend-verification')) {
+      if (statusCode == 429 &&
+          (path.endsWith('/auth/resend-verification') ||
+              path.endsWith(_kNotificationEmailRequestPath))) {
         return ResendThrottledFailure(
           retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
           cause: err,
@@ -340,6 +378,88 @@ final class ErrorMapperInterceptor extends Interceptor {
     }
 
     return UnknownFailure(cause: err);
+  }
+
+  /// M515 — maps the phone-first identity / App Check envelope
+  /// `{success:false, data:{code}}` to a [PhoneIdentityFailure], or `null` when
+  /// the response is not one of them. The App Check and identity codes are
+  /// keyed on the body code + status (any path); `INVALID_CODE` and a bare 429
+  /// are scoped to the registration phone-OTP paths, whose siblings
+  /// (`/auth/verify-email`, the reset OTP) keep their own typed failures.
+  PhoneIdentityFailure? _phoneIdentityFailure(
+    DioException err,
+    int statusCode,
+    String path,
+  ) {
+    final String? code = _dataCode(err);
+    final PhoneIdentityErrorCode? mapped = switch ((statusCode, code)) {
+      (403, 'APP_CHECK_FAILED') => PhoneIdentityErrorCode.appCheckFailed,
+      (503, 'APP_CHECK_UNAVAILABLE') =>
+        PhoneIdentityErrorCode.appCheckUnavailable,
+      (400, 'PHONE_NOT_UA_MOBILE') => PhoneIdentityErrorCode.phoneNotUaMobile,
+      (409, 'PHONE_ALREADY_REGISTERED') =>
+        PhoneIdentityErrorCode.phoneAlreadyRegistered,
+      (400, 'REGISTRATION_TICKET_INVALID') =>
+        PhoneIdentityErrorCode.registrationTicketInvalid,
+      // M521 (B520, AUTH-52) — keyed on the body code (any path), like the
+      // identity codes above: both are unique to the phone-invite endpoints.
+      (400, 'INVITE_PHONE_MISMATCH') =>
+        PhoneIdentityErrorCode.invitePhoneMismatch,
+      (429, 'INVITE_SMS_LIMIT') => PhoneIdentityErrorCode.inviteSmsLimit,
+      (400, 'INVALID_CODE')
+          when path.endsWith(_kRegisterPhoneVerifyPath) ||
+              path.endsWith(_kUserPhoneVerifyPath) =>
+        PhoneIdentityErrorCode.invalidCode,
+      (429, _)
+          when path.endsWith(_kRegisterPhoneSendPath) ||
+              path.endsWith(_kUserPhoneSendPath) =>
+        PhoneIdentityErrorCode.rateLimited,
+      _ => null,
+    };
+    return mapped == null
+        ? null
+        : PhoneIdentityFailure(
+            code: mapped,
+            retryAfterSeconds: mapped == PhoneIdentityErrorCode.rateLimited
+                ? _phoneRetryAfterSeconds(err)
+                : null,
+            cause: err,
+          );
+  }
+
+  /// The `Retry-After` of a phone-send 429 for [PhoneIdentityFailure]:
+  /// positive seconds as sent; `null` when absent, 0 or malformed (the
+  /// shared extractor's `0`), so the resend step falls back to its own
+  /// cooldown; `kMaxUxCooldownSeconds + 1` when the server value is over the
+  /// UX ceiling (the extractor's `null`), so the step shows «unavailable»
+  /// instead of a countdown. The shared extractor itself is unchanged.
+  static int? _phoneRetryAfterSeconds(DioException err) {
+    final int? seconds = _extractRetryAfterSecondsNullable(err);
+    if (seconds == null) return kMaxUxCooldownSeconds + 1;
+    return seconds > 0 ? seconds : null;
+  }
+
+  static const String _kRegisterPhoneSendPath = '/auth/register/phone/otp/send';
+
+  /// M517 (B516) — the signed-in phone add / change endpoints.
+  static const String _kUserPhoneSendPath = '/users/me/phone/otp/send';
+  static const String _kUserPhoneVerifyPath = '/users/me/phone/otp/verify';
+
+  /// M517 (B516) — the notifications-email endpoints.
+  static const String _kNotificationEmailRequestPath =
+      '/users/me/email/request-code';
+  static const String _kNotificationEmailVerifyPath = '/users/me/email/verify';
+  static const String _kRegisterPhoneVerifyPath =
+      '/auth/register/phone/otp/verify';
+
+  /// `data.code` of the error envelope, or `null` for any other shape.
+  String? _dataCode(DioException err) {
+    final Object? body = err.response?.data;
+    if (body is! Map<String, dynamic>) return null;
+    final Object? data = body['data'];
+    if (data is! Map<String, dynamic>) return null;
+    final Object? code = data['code'];
+    return code is String ? code : null;
   }
 
   /// Returns `true` when the 409 response body contains the

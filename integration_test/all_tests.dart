@@ -126,6 +126,7 @@ import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
 import 'forgot_password_rate_limited_flow_test.dart'
     as forgot_password_rate_limited;
+import 'forgot_password_by_phone_flow_test.dart' as forgot_password_by_phone;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
@@ -179,9 +180,10 @@ import 'master_own_profile_reviews_tab_flow_test.dart'
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
-import 'register_flow_test.dart' as register;
-import 'register_locality_persistence_flow_test.dart'
-    as register_locality_persistence;
+import 'phone_first_auth_flow_test.dart' as phone_first_auth;
+import 'existing_user_phone_capture_flow_test.dart'
+    as existing_user_phone_capture;
+import 'staff_invite_by_phone_flow_test.dart' as staff_invite_by_phone;
 import 'salon_booking_coverage_retry_flow_test.dart'
     as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
@@ -489,6 +491,9 @@ void main() {
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
   group('forgot_password_rate_limited_flow', forgot_password_rate_limited.main);
+  // Phone-first hardening — forgot-password by phone end to end, plus the
+  // App Check 403 / 503 answers on the SMS send.
+  group('forgot_password_by_phone_flow', forgot_password_by_phone.main);
   // Harness ratchet — pins AppHarness.boot's DEFAULT retry predicate to the
   // production one. Not a user journey: it guards the boot policy every other
   // flow in this file inherits.
@@ -663,11 +668,11 @@ void main() {
   );
   group('public_master_profile_flow', public_master_profile.main);
   group('public_salon_profile_flow', public_salon_profile.main);
-  group('register_flow', register.main);
-  group(
-    'register_locality_persistence_flow',
-    register_locality_persistence.main,
-  );
+  // M515 — phone-first login + 4-step registration (replaces the email
+  // wizard's register_flow + register_locality_persistence_flow).
+  group('phone_first_auth_flow', phone_first_auth.main);
+  group('existing_user_phone_capture_flow', existing_user_phone_capture.main);
+  group('staff_invite_by_phone_flow', staff_invite_by_phone.main);
   group('salon_booking_flow', salon_booking.main);
   // Phase 266 (mobile-qa, Step 2.7 Rule 3b) — the getBookableMasters
   // degraded/retry sibling of `salon_booking_flow`: one selected service's

@@ -47,7 +47,9 @@ import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_3_screen.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
@@ -243,6 +245,18 @@ GoRouter _makeRouter() => GoRouter(
       path: RouteNames.login,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('login-screen'))),
+    ),
+    // M515 — the phone-first path finishes here (no verification hop) and
+    // an expired ticket sends the user back to the phone step.
+    GoRoute(
+      path: RouteNames.done,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('done-screen'))),
+    ),
+    GoRoute(
+      path: RouteNames.register,
+      builder: (context, state) =>
+          Scaffold(body: Center(child: Text('phone-step:${state.extra}'))),
     ),
   ],
 );
@@ -1812,5 +1826,195 @@ void main() {
           'The settlement field must remain in the tree after a failed '
           'warm-up so the user can retry by tapping it.',
     );
+  });
+
+  // ── M515 — phone-first register (ticket, session at once) ─────────────────
+  group('M515 phone-first register', () {
+    const User masterUser = User(
+      id: 'u-1',
+      role: UserRole.independentMaster,
+      firstName: 'Аня',
+    );
+    const AuthTokens tokens = AuthTokens(
+      accessToken: 'access',
+      refreshToken: 'refresh',
+    );
+
+    void stubRegister(_MockAuthRepository authRepo, Object outcome) {
+      final when0 = when(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+          termsAccepted: any(named: 'termsAccepted'),
+          registrationTicket: any(named: 'registrationTicket'),
+        ),
+      );
+      if (outcome is Failure) {
+        when0.thenThrow(outcome);
+      } else {
+        when0.thenAnswer((_) async => outcome as RegisterResult);
+      }
+      when(authRepo.me).thenAnswer((_) async => masterUser);
+    }
+
+    Future<ProviderContainer> pumpMaster(
+      WidgetTester tester,
+      _MockAuthRepository authRepo,
+      _MockMasterRepository masterRepo,
+    ) async {
+      final container = _container(
+        role: UserRole.independentMaster,
+        authRepo: authRepo,
+        masterRepo: masterRepo,
+      );
+      // Phone-first draft: no email, a verified-phone ticket.
+      container.read(registerDraftProvider.notifier)
+        ..updateStep1(
+          email: '',
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        )
+        ..setRegistrationTicket('ticket-1');
+      await tester.pumpWidget(_app(_makeRouter(), container));
+      await tester.pumpAndSettle();
+      await _pickSettlement(tester, 'c1');
+      await _pick(tester, const Key('locality_row_district'), 'Галицький');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_street')),
+        'вул. Тестова',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_building')),
+        '12А',
+      );
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    void stubLocality(_MockMasterRepository repo, {Object? error}) {
+      final when0 = when(
+        () => repo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+      if (error != null) {
+        when0.thenThrow(error);
+      } else {
+        when0.thenAnswer((_) async {});
+      }
+    }
+
+    testWidgets('P1. MASTER: ticket + no email → session → locality saved → '
+        '/done (no verification hop)', (tester) async {
+      final authRepo = _MockAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      stubRegister(
+        authRepo,
+        const RegisterResult.authenticated(user: masterUser, tokens: tokens),
+      );
+      stubLocality(masterRepo);
+      final container = await pumpMaster(tester, authRepo, masterRepo);
+      addTearDown(container.dispose);
+
+      await _tap(tester, const ValueKey<String>('address_submit'));
+
+      verify(
+        () => authRepo.registerIndependentMaster(
+          email: null,
+          password: 'Password1!',
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: UserRole.independentMaster,
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+          termsAccepted: any(named: 'termsAccepted'),
+          registrationTicket: 'ticket-1',
+        ),
+      ).called(1);
+      verify(
+        () => masterRepo.updateLocality(
+          cityId: 'c1',
+          districtId: 'd1',
+          street: 'вул. Тестова',
+          buildingNo: '12А',
+          locationNote: any(named: 'locationNote'),
+        ),
+      ).called(1);
+      expect(find.text('done-screen'), findsOneWidget);
+      expect(container.read(registerDraftProvider)?.password, isEmpty);
+      expect(container.read(registerDraftProvider)?.registrationTicket, isNull);
+    });
+
+    testWidgets('P2. a failed locality save keeps the user here; «Далі» '
+        'retries ONLY the save', (tester) async {
+      final authRepo = _MockAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      stubRegister(
+        authRepo,
+        const RegisterResult.authenticated(user: masterUser, tokens: tokens),
+      );
+      stubLocality(masterRepo, error: const NetworkFailure());
+      final container = await pumpMaster(tester, authRepo, masterRepo);
+      addTearDown(container.dispose);
+
+      await _tap(tester, const ValueKey<String>('address_submit'));
+      expect(find.text('done-screen'), findsNothing);
+      await tester.pump(const Duration(seconds: 5));
+
+      stubLocality(masterRepo);
+      await _tap(tester, const ValueKey<String>('address_submit'));
+
+      verify(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+          termsAccepted: any(named: 'termsAccepted'),
+          registrationTicket: any(named: 'registrationTicket'),
+        ),
+      ).called(1);
+      expect(find.text('done-screen'), findsOneWidget);
+    });
+
+    testWidgets('P3. REGISTRATION_TICKET_INVALID → back to the phone step, '
+        'ticket dropped', (tester) async {
+      final authRepo = _MockAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      stubRegister(
+        authRepo,
+        const PhoneIdentityFailure(
+          code: PhoneIdentityErrorCode.registrationTicketInvalid,
+        ),
+      );
+      final container = await pumpMaster(tester, authRepo, masterRepo);
+      addTearDown(container.dispose);
+
+      await _tap(tester, const ValueKey<String>('address_submit'));
+      await tester.pump(const Duration(seconds: 5));
+
+      expect(
+        find.text(
+          'phone-step:${PhoneIdentityErrorCode.registrationTicketInvalid}',
+        ),
+        findsOneWidget,
+      );
+      expect(container.read(registerDraftProvider)?.registrationTicket, isNull);
+    });
   });
 }

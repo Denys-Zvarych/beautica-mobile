@@ -91,8 +91,15 @@ String? authRedirectForLocation(
   // who taps "Пропустити" on Step 3 from landing on /verification when register
   // auto-logs them in. These routes are therefore excluded from the
   // "authenticated → /home" rule below.
+  //
+  // M515 (AUTH-41) — /register/step-3 (address) joins them: the phone-first
+  // register call there returns a session at once, and the screen must stay
+  // mounted to save the locality / salon with that session and then go to
+  // /done. Bouncing the fresh session to its role home would drop the address.
   final isAtPostRegisterRoute =
-      location == RouteNames.verification || location == RouteNames.done;
+      location == RouteNames.verification ||
+      location == RouteNames.done ||
+      location == RouteNames.registerStep3;
 
   // Strict auth-only routes — valid only while unauthenticated. An authenticated
   // user sitting on any of these is bounced to /home.
@@ -118,8 +125,9 @@ String? authRedirectForLocation(
       location == RouteNames.login ||
       location == RouteNames.register ||
       location == RouteNames.registerRole ||
+      location == RouteNames.registerCode ||
+      location == RouteNames.registerPassword ||
       location == RouteNames.registerStep2 ||
-      location == RouteNames.registerStep3 ||
       location == RouteNames.forgotPassword ||
       location == RouteNames.resetOtpVerification ||
       location == RouteNames.acceptInvite;
@@ -259,6 +267,26 @@ String? authRedirectForLocation(
   // Settled unauthenticated user anywhere (including /splash) → /login.
   if (!isAuthenticated && (!isAtAuthRoute || isAtSplash)) {
     return RouteNames.login;
+  }
+
+  // M517 (AUTH-D12) — the BLOCKING add-phone step. An account whose profile
+  // says `phoneRequiredBy` (every role, no grace) and whose phone is not
+  // verified reaches NOTHING else: every location — splash, an auth route, a
+  // deep link, the screen that was open when a 409 PHONE_NOT_VERIFIED
+  // refreshed the profile — redirects to /auth/add-phone, so no other screen
+  // (and none of its data) is mounted while the step shows. «Вийти» logs out,
+  // which the unauthenticated bounce above then routes to /login. Read
+  // leniently ([isAuthenticated]): the stricter read could only ever ADMIT
+  // more, and this arm only ever blocks.
+  final bool isAtAddPhone =
+      location == RouteNames.addPhone || location == RouteNames.addPhoneVerify;
+  if (isAuthenticated) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.mustAddPhone) {
+      return isAtAddPhone ? null : RouteNames.addPhone;
+    }
+    // Phone confirmed (or never required) — the step has nothing to do.
+    if (isAtAddPhone) return roleHomePath(auth.user.role);
   }
 
   // Authenticated user sitting on a strict auth-only route or splash → send to

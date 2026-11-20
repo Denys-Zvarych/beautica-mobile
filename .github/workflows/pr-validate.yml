@@ -1,9 +1,12 @@
 name: PR Validation
 
-# Cosmetic + load-bearing: an irrelevant-label (noop) event is titled `label-noop ...`
-# so ci-gate's mirror mode (tool/ci/mirror.sh) can exclude noop runs when it looks
-# up the real run for the same head SHA.
-run-name: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol' && format('label-noop PR {0}', github.event.pull_request.number) || '' }}
+# Load-bearing run titles: `label-noop PR <n>` (ci-gate mirror skips it),
+# `dispatch:<reason>:<token>` (nightly.yml finds its run), else default ('').
+# why: docs/ci/README.md#run-name
+run-name: >-
+  ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol' && format('label-noop PR {0}', github.event.pull_request.number)
+  || github.event_name == 'workflow_dispatch' && format('dispatch:{0}:{1}', inputs.reason, inputs.token)
+  || '' }}
 
 on:
   pull_request:
@@ -14,7 +17,7 @@ on:
     types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, dev]
-  # Phase 396: NO `schedule:` here; nightly.yml dispatches this workflow on dev.
+  # Phase 396: NO `schedule:` here; nightly.yml dispatches this workflow on main.
   # why: docs/ci/README.md#triggers-no-schedule
   workflow_dispatch:
     inputs:
@@ -23,6 +26,10 @@ on:
         type: choice
         options: [manual, nightly]
         default: manual
+      token:
+        description: 'Unique marker echoed into the run title so a dispatcher can find exactly this run (nightly.yml)'
+        required: false
+        default: ''
 
 # Least privilege by default: every job needs only to read the repo.
 permissions:
@@ -434,8 +441,9 @@ jobs:
         run: ./scripts/forbid_slash_in_patrol_test_name.sh
 
       # Phase 396 — pr-validate.yml must never regain a `schedule:` trigger (or a
-      # schedule-conditional checkout ref): schedule runs use main's workflow
-      # with dev's code and the skew broke patrol four nights running.
+      # schedule-conditional checkout ref): schedule runs used main's workflow
+      # with dev's code and the skew broke patrol four nights running. The
+      # nightly lives in nightly.yml and dispatches this workflow on main.
       - name: Forbid schedule coupling in pr-validate.yml
         shell: bash
         run: ./scripts/forbid_schedule_in_pr_validate.sh
@@ -553,6 +561,15 @@ jobs:
       - name: Self-test patrol retry gate
         shell: bash
         run: ./scripts/ci/patrol_retry_gate.sh --self-test
+
+      # Identity error-code contract: app copy == backend golden on backend `dev`.
+      # A 404 (backend change not on dev yet; backend PR merges first) warns and passes.
+      # why: docs/ci/static-guards.md#error-codes-contract
+      - name: Error-code contract in sync with backend dev
+        shell: bash
+        run: >-
+          ./scripts/sync_error_codes.sh --check --source
+          https://raw.githubusercontent.com/Denys-Zvarych/beautica-backend/dev/src/test/resources/contract/identity-error-codes.json
 
       # Phase 1.4: go_router-only navigation in lib/features; comment-only lines skipped.
       # why: docs/ci/static-guards.md#direct-navigator
@@ -1387,7 +1404,7 @@ jobs:
             gradle-it-${{ runner.os }}-
 
       # entry=selected only after a clean trusted generator run; else `parts` = the shards (400 D7).
-      # S1/S3 hardening; cap = one shard (19 flows / 74 tests), else the shards;
+      # S1/S3 hardening; cap = one shard (19 flows / 85 tests), else the shards;
       # bound = clamp(480 + 20 * tests, 600, 1500) s (the APK is pre-built; 1500 = the shard bound).
       # why: docs/ci/emulator-integration.md#choose-entry
       - name: Choose integration entry (selected flows or the full suite)
@@ -1409,7 +1426,7 @@ jobs:
               c="$(printf '%s\n' "$out" | sed -n 's/^count=//p')"
               n="$(printf '%s\n' "$out" | sed -n 's/^tests=//p')"
               if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -ge 1 ] && [ "$c" -le 19 ] &&
-                 [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le 74 ]; then
+                 [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le 85 ]; then
                 entry=selected; count="$c"; tests="$n"
               fi
             fi

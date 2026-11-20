@@ -15,6 +15,10 @@ const Set<String> kAuthPaths = {
   '/api/v1/auth/logout',
   '/api/v1/auth/register',
   '/api/v1/auth/register/independent-master',
+  // M515 (B514, AUTH-41) — registration phone step: unauthenticated (no
+  // session exists yet) and PII-bearing (phone + SMS code in the body).
+  '/api/v1/auth/register/phone/otp/send',
+  '/api/v1/auth/register/phone/otp/verify',
   '/api/v1/auth/refresh',
   // Phase 2.11 — OTP verification / resend are unauthenticated endpoints
   // (the user has no session yet when they reach these).
@@ -362,6 +366,9 @@ const Set<String> kSensitiveQueryKeys = <String>{
   'secret',
   'email',
   'phone',
+  'ticket', // M515 registration ticket
+  'registrationticket', // keys are matched lower-cased
+  'identifier', // M515 login phone-or-email
 };
 
 /// Strips any `?query` from [path], returning just the route portion.

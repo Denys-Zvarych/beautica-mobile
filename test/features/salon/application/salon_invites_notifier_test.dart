@@ -44,7 +44,7 @@ final DateTime _kExpiresAt = DateTime.utc(2026, 6, 22, 9);
 
 SalonInvite _invite(String id, InviteStatus status) => SalonInvite(
   inviteId: id,
-  recipientEmail: '$id@beautica.ua',
+  recipientPhone: '+380671112233',
   role: SalonStaffRole.master,
   status: status,
   createdAt: _kSentAt,

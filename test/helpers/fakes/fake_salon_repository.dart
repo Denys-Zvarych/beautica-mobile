@@ -23,7 +23,7 @@
 // Every pre-existing caller that never sets [createError] sees [create]
 // succeed silently, same as before this phase.
 //
-// Phase 21.4 — ADDITIVE: [inviteRequests] records every `(salonId, email,
+// Phase 21.4 — ADDITIVE: [inviteRequests] records every `(salonId, phone,
 // role)` tuple passed to [inviteStaff] and [inviteError] lets a test inject
 // a failure, mirroring [createError]'s shape exactly.
 //
@@ -113,8 +113,8 @@ class FakeSalonRepository implements SalonRepository {
 
   final List<UpdateSalonRequest> updateRequests = <UpdateSalonRequest>[];
   final List<SalonCreateDto> createRequests = <SalonCreateDto>[];
-  final List<({String salonId, String email, UserRole role})> inviteRequests =
-      <({String salonId, String email, UserRole role})>[];
+  final List<({String salonId, String phone, UserRole role})> inviteRequests =
+      <({String salonId, String phone, UserRole role})>[];
 
   /// The invite history `listSalonInvites` returns, in the order given.
   /// Mutable: a successful [cancelInvite] flips the matching entry's status
@@ -212,10 +212,10 @@ class FakeSalonRepository implements SalonRepository {
   @override
   Future<void> inviteStaff({
     required String salonId,
-    required String email,
+    required String phone,
     required UserRole role,
   }) async {
-    inviteRequests.add((salonId: salonId, email: email, role: role));
+    inviteRequests.add((salonId: salonId, phone: phone, role: role));
     if (inviteError != null) throw inviteError!;
   }
 

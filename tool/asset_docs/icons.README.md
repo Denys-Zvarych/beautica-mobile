@@ -44,13 +44,14 @@ Every Flaticon FREE icon's source URL is recorded here at download time (and as 
 comment at the top of the SVG). Before any store build, re-download each under a
 1-month Flaticon Premium and keep the licence certificate. **The release-gate
 obligation applies regardless of whether the committed file is the verbatim
-download or a modified derivative (see the 7 `category_*` rows below) — it is
+download or a modified derivative (see `star.svg` in the table below and the
+7 `category_*` rows further down) — it is
 tied to the original Flaticon asset, not to the exact bytes in this folder.**
 
 | Asset | Source URL | SHA-256 |
 |---|---|---|
 | `location_marker.svg` | https://www.flaticon.com/free-icon-font/marker_3916880 | `71111aa34ced576c936597993e431167ac111ce897203f52b9e05303b74a211c` |
-| `star.svg` | https://www.flaticon.com/free-icon-font/star_3916582 | `5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6` |
+| `star.svg` | https://www.flaticon.com/free-icon-font/star_3916582 | `46b1fa59a8f893d9d945a109fe76a598fe2e3d64a18d4c0a57c9375ee041f5b9` — MODIFIED 2026-11-16: inner cut-out subpath removed (outline → solid star; outer contour unchanged); hash of the file minus its provenance comment line; full-file `sha256sum` (comment included): `9c25fa79561cd5f6e0b56c3967fc3dcc310a1687ac060942e31277fbea1c81fe`. Re-download (release gate): redo the subpath removal or take the solid variant. Original download: `5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6` |
 | `filter.svg` | https://www.flaticon.com/free-icon-font/filter_3914366 | `099791fb4a43ba6d05cdca105e2b9b1bc77898ada7ccc83bf04a3ca5e87ad5fa` |
 | `team_filled.svg` | — (sourced locally, `/media/sf_ubuntu_trash/icons_svg/people-group.svg`; URL not recorded) | `1361953d49b1d7b73edf799512b1923cfcb081d9838c00a2862137f36f1650f6` |
 | `team_outline.svg` | — (sourced locally, `/media/sf_ubuntu_trash/icons_svg/team.svg`; URL not recorded) | `92fdd3170ddc79ce8c6f4efa528360eb464c2f3540fd3aa293f0202d94ac1554` |

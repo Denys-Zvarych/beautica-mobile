@@ -30,13 +30,18 @@ import 'package:beautica_mobile/core/diagnostics/crash_reporting.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../features/auth/presentation/accept_invite_screen.dart';
+import '../features/auth/presentation/add_phone_screen.dart';
 import '../features/auth/presentation/auth_notifier.dart';
+import '../features/auth/presentation/contact_verify_screen.dart';
 import '../features/auth/presentation/done_screen.dart';
 import '../features/auth/presentation/forgot_password_request_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
+import '../features/auth/presentation/notification_email_screen.dart';
 import '../features/auth/presentation/reset_otp_verification_screen.dart';
 import '../features/auth/presentation/reset_password_screen.dart';
+import '../features/auth/presentation/register_code_screen.dart';
 import '../features/auth/presentation/register_flow_shell.dart';
+import '../features/auth/presentation/register_password_screen.dart';
 import '../features/auth/presentation/register_step_1_screen.dart';
 import '../features/auth/presentation/register_step_2_screen.dart';
 import '../features/auth/presentation/register_step_3_screen.dart';
@@ -44,6 +49,7 @@ import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
 import '../features/auth/domain/auth_session.dart';
+import '../features/auth/domain/contact_verify_args.dart';
 import '../features/auth/domain/reset_password_args.dart';
 import '../features/auth/domain/user_role.dart';
 import '../features/booking/domain/booking_confirm_args.dart';
@@ -192,6 +198,24 @@ final Animatable<Offset> _instantPageSecondaryParallax = Tween<Offset>(
 // untransformed and the instant-forward-paint is unchanged. No gesture detector
 // is added (the page above owns its own swipe-back); this is purely the revealed
 // page's reveal motion.
+/// M517 — the shared contact-code step for [kind], built from the route's
+/// [ContactVerifyArgs] `extra`. ALWAYS the same widget type: go_router
+/// re-parses the stack on every redirect-key auth change (`authRouterKey`;
+/// kept as defence in depth now that profile-only emissions no longer
+/// refresh the router) and a restored push loses its
+/// non-codec `extra`, so a placeholder (empty target) must rebuild the SAME
+/// [ContactVerifyScreen] — whose State keeps the args it was opened with —
+/// never swap the page for another screen. Opened with no target at all (a
+/// deep link), the step sends the user back to where the target is entered.
+Widget _contactVerifyFor(GoRouterState state, ContactVerifyKind kind) {
+  final Object? extra = state.extra;
+  return ContactVerifyScreen(
+    args: extra is ContactVerifyArgs && extra.kind == kind
+        ? extra
+        : ContactVerifyArgs(kind: kind, target: ''),
+  );
+}
+
 CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
     CustomTransitionPage<void>(
       key: state.pageKey,
@@ -273,8 +297,8 @@ GoRouter appRouter(Ref ref) {
   // wrong decision that a later re-evaluation cannot un-make, whereas an
   // admission is re-decided the moment the session settles, because
   // `refreshListenable` re-runs every redirect on each `authProvider`
-  // emission. But be precise about what backs the admission, because the two
-  // unresolved states are NOT equivalent:
+  // redirect-key change (`authRouterKey`). But be precise about what backs
+  // the admission, because the two unresolved states are NOT equivalent:
   //
   //   * `AsyncLoading` — [authRedirect] parks the visitor on `/splash` (or
   //     leaves them on an auth route) for the whole window, so nothing under
@@ -315,8 +339,9 @@ GoRouter appRouter(Ref ref) {
   // per-route role guard MORE permissive, inverting the fix. The staleness the
   // selectors fence is harmless on this side: an admission is re-decided the
   // moment the session settles, because `refreshListenable` re-runs every
-  // redirect on each `authProvider` emission (the trade-off spelled out
-  // immediately above). Leave this on the subtype check alone.
+  // redirect on each `authProvider` redirect-key change (`authRouterKey`;
+  // the trade-off spelled out immediately above). Leave this on the subtype
+  // check alone.
   AuthSession? resolvedSession() {
     final AsyncValue<AuthSession> auth = ref.read(authProvider);
     return auth is AsyncData<AuthSession> ? auth.value : null;
@@ -673,20 +698,54 @@ GoRouter appRouter(Ref ref) {
       // with an empty display email (masking degrades gracefully) rather
       // than crashing on a bad cast — mirrors the `/verification` route's
       // own missing-extra tolerance.
+      //
+      // M517 (AUTH-D18) — `extra` is the phone-or-email identifier as typed
+      // (normalised); the screen never shows it (neutral copy).
       GoRoute(
         path: RouteNames.resetOtpVerification,
         builder: (context, state) {
-          final email = (state.extra as String?) ?? '';
+          final identifier = (state.extra as String?) ?? '';
           return ResetOtpVerificationScreen(
-            displayEmail: email,
+            displayEmail: null,
             fromChangePassword: false,
-            onRequestOtp: () =>
-                ref.read(authProvider.notifier).requestPasswordReset(email),
+            onRequestOtp: () => ref
+                .read(authProvider.notifier)
+                .requestPasswordReset(identifier),
             onVerify: (code) => ref
                 .read(authProvider.notifier)
-                .verifyPasswordResetOtp(email: email, code: code),
+                .verifyPasswordResetOtp(identifier: identifier, code: code),
           );
         },
+      ),
+      // M517 (AUTH-D12) — the blocking add-phone step and its code step. Both
+      // are admitted ONLY for a `mustAddPhone` session (auth_redirect.dart);
+      // literal paths under a prefix with no dynamic sibling.
+      GoRoute(
+        path: RouteNames.addPhone,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const AddPhoneScreen()),
+      ),
+      GoRoute(
+        path: RouteNames.addPhoneVerify,
+        builder: (context, state) =>
+            _contactVerifyFor(state, ContactVerifyKind.phoneAdd),
+      ),
+      // M517 (AUTH-D13 / AUTH-D17) — every role's phone-change code step and
+      // the «Email для сповіщень» entry + code step. Missing / foreign
+      // `extra` (a deep link) falls back to the role home instead of a crash.
+      GoRoute(
+        path: RouteNames.phoneChangeVerify,
+        builder: (context, state) =>
+            _contactVerifyFor(state, ContactVerifyKind.phoneChange),
+      ),
+      GoRoute(
+        path: RouteNames.notificationEmail,
+        builder: (context, state) => const NotificationEmailScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.notificationEmailVerify,
+        builder: (context, state) =>
+            _contactVerifyFor(state, ContactVerifyKind.notificationEmail),
       ),
       // Beautica OTP task Phase B5 — the SAME generalized OTP screen,
       // authenticated (settings "change password") entry point. Pushed from
@@ -699,15 +758,24 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.changePassword,
         builder: (context, state) {
           final session = ref.read(authProvider).value;
-          final email = session is Authenticated ? session.user.email : '';
+          final email = session is Authenticated
+              ? session.user.email ?? ''
+              : '';
+          // M517 — the backend resolves the account from `identifier`
+          // (email or phone); a phone-registered account has no email.
+          final String identifier = email.isNotEmpty
+              ? email
+              : (session is Authenticated
+                    ? session.user.phoneNumber ?? ''
+                    : '');
           return ResetOtpVerificationScreen(
-            displayEmail: email,
+            displayEmail: email.isEmpty ? null : email,
             fromChangePassword: true,
             onRequestOtp: () =>
                 ref.read(authProvider.notifier).requestChangePasswordOtp(),
             onVerify: (code) => ref
                 .read(authProvider.notifier)
-                .verifyPasswordResetOtp(email: email, code: code),
+                .verifyPasswordResetOtp(identifier: identifier, code: code),
           );
         },
       ),
@@ -741,8 +809,29 @@ GoRouter appRouter(Ref ref) {
         routes: [
           GoRoute(
             path: RouteNames.register,
+            // M515 — the code step returns here with the 409
+            // PHONE_ALREADY_REGISTERED code as `extra` (never a query
+            // param: no phone / code / ticket in a URL).
+            pageBuilder: (context, state) => _instantPage(
+              state,
+              RegisterStep1Screen(
+                initialSendError: state.extra is PhoneIdentityErrorCode
+                    ? state.extra! as PhoneIdentityErrorCode
+                    : null,
+              ),
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.registerCode,
+            // M515 — SMS code for the phone (shared PhoneCodeStep).
             pageBuilder: (context, state) =>
-                _instantPage(state, const RegisterStep1Screen()),
+                _instantPage(state, const RegisterCodeScreen()),
+          ),
+          GoRoute(
+            path: RouteNames.registerPassword,
+            // M515 — password + confirmation.
+            pageBuilder: (context, state) =>
+                _instantPage(state, const RegisterPasswordScreen()),
           ),
           GoRoute(
             path: RouteNames.registerStep2,
@@ -1059,15 +1148,23 @@ GoRouter appRouter(Ref ref) {
         // that route's comment for the full investigation). This route was
         // the sibling instance of the identical defect, deferred at the time
         // of the salon fix; this is that follow-up.
-        builder: (context, state) => pathIdsGuarded(state, <String>[
-          'masterId',
-        ], (ids) => PublicMasterProfileScreen(masterId: ids[0])),
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['masterId'],
+          (ids) => PublicMasterProfileScreen(
+            masterId: ids[0],
+            // MAS-39 — booking-context entry hides the book CTA; every other
+            // entry (no query) renders exactly as before.
+            hideBookCta:
+                state.uri.queryParameters[kMasterProfileFromBookingQuery] ==
+                '1',
+          ),
+        ),
       ),
       // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Kept
-      // (D7) for its OTHER consumers (`booking_counterparty_header.dart`,
-      // `leave_review_screen.dart`, `booking_confirm_screen.dart`) — the
-      // public master profile itself no longer pushes it (Phase 351: reviews
-      // render inline in its own «Відгуки» tab). Same lifecycle/guard as
+      // (D7); since MAS-39 no in-app surface pushes it (the booking-card
+      // master taps open `/masters/:masterId?fromBooking=1` instead, and the
+      // public master profile renders reviews inline in its «Відгуки» tab). Same lifecycle/guard as
       // `/masters/:masterId` above — CLIENT-guarded, in-app-push-only. This
       // route carries the target masterId as a path param — distinct from
       // the deleted param-less own-master reviews route (D11), which always
@@ -1746,7 +1843,8 @@ GoRouter appRouter(Ref ref) {
               autoAdvance: extra.autoAdvance,
             );
           }
-          return ServiceSelectorSheet(masterId: extra! as String);
+          if (extra is String) return ServiceSelectorSheet(masterId: extra);
+          return const _MissingRouteExtra(fallbackRoute: RouteNames.clientHome);
         },
       ),
       // Booking flow Step 2 — the single date→time picker for the WHOLE visit
@@ -1778,8 +1876,10 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) =>
-            SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
+        builder: (context, state) => switch (state.extra) {
+          final BookingSlotPickerArgs args => SlotDateScreen(args: args),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.bookingNew),
+        },
         routes: [
           GoRoute(
             path: 'time',
@@ -1794,8 +1894,12 @@ GoRouter appRouter(Ref ref) {
               }
               return null;
             },
-            builder: (context, state) =>
-                SlotTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+            builder: (context, state) => switch (state.extra) {
+              final BookingSlotPickerArgs args => SlotTimeScreen(args: args),
+              _ => const _MissingRouteExtra(
+                fallbackRoute: RouteNames.bookingNew,
+              ),
+            },
           ),
         ],
       ),
@@ -1818,8 +1922,10 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) =>
-            BookingConfirmScreen(args: state.extra! as BookingConfirmArgs),
+        builder: (context, state) => switch (state.extra) {
+          final BookingConfirmArgs args => BookingConfirmScreen(args: args),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.bookingNew),
+        },
       ),
       // Phase 14.2 — booking success celebration screen.
       // `BookingConfirmScreen`'s «Записатись» CTA `pushReplacement`s here
@@ -1850,8 +1956,10 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) =>
-            BookingSuccessScreen(args: state.extra! as BookingSuccessArgs),
+        builder: (context, state) => switch (state.extra) {
+          final BookingSuccessArgs args => BookingSuccessScreen(args: args),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.clientHome),
+        },
       ),
       // Phase 14.12 — Salon booking flow step 1 (service selection). The
       // public salon profile's «Записатись на послугу» CTA pushes here with
@@ -1871,8 +1979,10 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) =>
-            SalonServiceSelectionScreen(salonId: state.extra! as String),
+        builder: (context, state) => switch (state.extra) {
+          final String salonId => SalonServiceSelectionScreen(salonId: salonId),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.clientHome),
+        },
       ),
       // Phase 14.13 — Salon booking flow step 2 (master assignment).
       // `SalonServiceSelectionScreen`'s «Далі» CTA pushes here with a
@@ -1892,9 +2002,11 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) => SalonMasterSelectionScreen(
-          args: state.extra! as SalonBookingMasterSelectionArgs,
-        ),
+        builder: (context, state) => switch (state.extra) {
+          final SalonBookingMasterSelectionArgs args =>
+            SalonMasterSelectionScreen(args: args),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.clientHome),
+        },
       ),
       // MO-4 — Salon booking flow step 3 (single date/time picker).
       // `SalonMasterSelectionScreen`'s «Далі» CTA pushes here with a
@@ -1912,8 +2024,10 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) =>
-            SalonTimeScreen(args: state.extra! as SalonBookingTimeArgs),
+        builder: (context, state) => switch (state.extra) {
+          final SalonBookingTimeArgs args => SalonTimeScreen(args: args),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.clientHome),
+        },
       ),
       // MO-4 — Salon booking flow step 4 (confirmation + submit).
       // `SalonTimeScreen`'s «Підтвердити» CTA pushes here with a
@@ -1932,9 +2046,12 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) => SalonBookingConfirmScreen(
-          args: state.extra! as SalonBookingConfirmArgs,
-        ),
+        builder: (context, state) => switch (state.extra) {
+          final SalonBookingConfirmArgs args => SalonBookingConfirmScreen(
+            args: args,
+          ),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.clientHome),
+        },
       ),
       // Phase 14.18 — Salon booking flow step 4b (success recap). Reached ONLY
       // via `SalonBookingConfirmScreen`'s `pushReplacement` once every
@@ -1953,9 +2070,12 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) => SalonBookingSuccessScreen(
-          args: state.extra! as SalonBookingSuccessArgs,
-        ),
+        builder: (context, state) => switch (state.extra) {
+          final SalonBookingSuccessArgs args => SalonBookingSuccessScreen(
+            args: args,
+          ),
+          _ => const _MissingRouteExtra(fallbackRoute: RouteNames.clientHome),
+        },
       ),
       // Phase 4.2 — Master profile (read-only). The INDEPENDENT_MASTER's
       // home/tab-root — always first in its Navigator stack (only ever
@@ -2078,11 +2198,16 @@ GoRouter appRouter(Ref ref) {
                 // how `time` nests under [bookingSlots] elsewhere in this
                 // file: a normal forward push within the already-modal
                 // chain, carrying the theme's swipe-back gesture.
-                builder: (context, state) => WalkInServiceStepScreen(
-                  guest: state.extra! as WalkInGuest,
-                  // Phase 487 — `?at=` forwarded by the guest step.
-                  seed: _createSeedOf(state),
-                ),
+                builder: (context, state) => switch (state.extra) {
+                  final WalkInGuest guest => WalkInServiceStepScreen(
+                    guest: guest,
+                    // Phase 487 — `?at=` forwarded by the guest step.
+                    seed: _createSeedOf(state),
+                  ),
+                  _ => const _MissingRouteExtra(
+                    fallbackRoute: RouteNames.masterBookingNew,
+                  ),
+                },
               ),
             ],
           ),
@@ -2157,7 +2282,10 @@ GoRouter appRouter(Ref ref) {
         },
         pageBuilder: (context, state) => MaterialPage<void>(
           fullscreenDialog: true,
-          child: SalonCreateBookingScreen(salonId: state.extra! as String),
+          child: switch (state.extra) {
+            final String salonId => SalonCreateBookingScreen(salonId: salonId),
+            _ => _MissingRouteExtra(fallbackRoute: _staffLanding(ref)),
+          },
         ),
       ),
       // Phase 344 — /salon/bookings/archive, the salon «Архів» page reached
@@ -2236,20 +2364,24 @@ GoRouter appRouter(Ref ref) {
           }
           return null;
         },
-        builder: (context, state) => MasterArchiveScreen(
-          // Both route builders keep every push from this archive inside the
-          // `/salon/*` subtree. Left null, a row tap would land on
-          // `/master/bookings/:id`, whose INDEPENDENT_MASTER-only gate bounces
-          // an owner clean out of the salon shell to `/salons/mine`.
-          detailRouteBuilder: RouteNames.salonStaffBookingDetail,
-          reviewRouteBuilder: RouteNames.salonStaffClientReview,
-          salonId: state.extra! as String,
-          // Phase 383 — forward the salon id to `/salon/bookings/:id` so a
-          // write from an archive-opened detail drops this salon's board dots.
-          detailExtra: state.extra,
-          showServiceFilter: false,
-          showMasterAttribution: true,
-        ),
+        builder: (context, state) => switch (state.extra) {
+          final String salonId => MasterArchiveScreen(
+            // Both route builders keep every push from this archive inside
+            // the `/salon/*` subtree. Left null, a row tap would land on
+            // `/master/bookings/:id`, whose INDEPENDENT_MASTER-only gate
+            // bounces an owner clean out of the salon shell to `/salons/mine`.
+            detailRouteBuilder: RouteNames.salonStaffBookingDetail,
+            reviewRouteBuilder: RouteNames.salonStaffClientReview,
+            salonId: salonId,
+            // Phase 383 — forward the salon id to `/salon/bookings/:id` so a
+            // write from an archive-opened detail drops this salon's board
+            // dots.
+            detailExtra: state.extra,
+            showServiceFilter: false,
+            showMasterAttribution: true,
+          ),
+          _ => _MissingRouteExtra(fallbackRoute: _staffLanding(ref)),
+        },
       ),
       // Phase 21.12 — /salon/bookings/:bookingId. The owner/admin drill-in
       // from the salon «Записи» board.
@@ -2831,7 +2963,13 @@ GoRouter appRouter(Ref ref) {
                     ? null
                     : RouteNames.ownerMasterBookingNew,
                 builder: (context, state) {
-                  final WalkInGuest guest = state.extra! as WalkInGuest;
+                  final Object? extra = state.extra;
+                  if (extra is! WalkInGuest) {
+                    return const _MissingRouteExtra(
+                      fallbackRoute: RouteNames.ownerMasterBookingNew,
+                    );
+                  }
+                  final WalkInGuest guest = extra;
                   return _OwnMasterRowGate(
                     role: UserRole.salonOwner,
                     builder:
@@ -3934,6 +4072,73 @@ class _RedirectToServicesListState extends State<_RedirectToServicesList> {
   @override
   Widget build(BuildContext context) => const Scaffold(
     key: Key('salon_manage_service_setup_redirect'),
+    backgroundColor: BrandColors.base,
+  );
+}
+
+/// The role-derived landing the salon-staff `extra` routes
+/// ([RouteNames.salonStaffBookingNew], [RouteNames.salonStaffBookingsArchive])
+/// redirect to on a missing `extra` — same expression as their `redirect:`.
+String _staffLanding(Ref ref) {
+  final session = ref.read(authProvider).value;
+  return session is Authenticated
+      ? roleHomePath(session.user.role)
+      : RouteNames.login;
+}
+
+/// Sentry 162160464 — what a route builder renders instead of throwing when
+/// its required `extra` is missing or of the wrong type.
+///
+/// A route's own `redirect:` already rejects a bad `extra` on every normal
+/// navigation, but go_router SKIPS redirects when a `refreshListenable` tick
+/// re-parses the last reported route stack, and that restore drops every
+/// non-JSON `extra` to `null` (no `extraCodec`). The builder then ran with
+/// `extra == null` and crashed on `extra! as X`.
+///
+/// Leaves the broken page once it is the CURRENT route of its navigator:
+/// pops it when there is something beneath (so a restored stack of broken
+/// pages unwinds, one page per frame, back to the first page that still has
+/// its arguments — the master/salon profile for the booking flows), else
+/// `go`es to [fallbackRoute], the same landing the route's `redirect:` uses.
+/// A non-current page waits; it leaves when a pop makes it current.
+class _MissingRouteExtra extends StatefulWidget {
+  const _MissingRouteExtra({required this.fallbackRoute});
+
+  final String fallbackRoute;
+
+  @override
+  State<_MissingRouteExtra> createState() => _MissingRouteExtraState();
+}
+
+class _MissingRouteExtraState extends State<_MissingRouteExtra> {
+  bool _leaving = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Registers a dependency on the route's current-ness, so a page sitting
+    // under another one re-runs this when the page above it pops.
+    if (_leaving || ModalRoute.isCurrentOf(context) != true) return;
+    _leaving = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final GoRouter router = GoRouter.of(context);
+      log(
+        'route extra missing at ${router.state.matchedLocation}; leaving',
+        name: 'routing.extra',
+        level: 900,
+      );
+      if (router.canPop()) {
+        router.pop();
+      } else {
+        router.go(widget.fallbackRoute);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    key: Key('route_missing_extra_fallback'),
     backgroundColor: BrandColors.base,
   );
 }

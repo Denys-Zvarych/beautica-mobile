@@ -1306,4 +1306,222 @@ void main() {
       expect(seconds('30'), 30);
     });
   });
+
+  // M515 (AUTH-41 / AUTH-54) — phone-first identity + App Check codes.
+  group('PhoneIdentityFailure mapping (M515)', () {
+    Map<String, dynamic> body(String code) => <String, dynamic>{
+      'success': false,
+      'data': <String, dynamic>{'code': code},
+    };
+    PhoneIdentityErrorCode? mapped(int status, String path, String? code) {
+      final Object? error = _captureRejected(
+        _httpError(status, path: path, body: code == null ? null : body(code)),
+      ).error;
+      return error is PhoneIdentityFailure ? error.code : null;
+    }
+
+    const String send = '/api/v1/auth/register/phone/otp/send';
+    const String verify = '/api/v1/auth/register/phone/otp/verify';
+
+    test('403 APP_CHECK_FAILED on any path → appCheckFailed', () {
+      expect(
+        mapped(403, send, 'APP_CHECK_FAILED'),
+        PhoneIdentityErrorCode.appCheckFailed,
+      );
+      expect(
+        mapped(403, '/api/v1/salons/s1/invite', 'APP_CHECK_FAILED'),
+        PhoneIdentityErrorCode.appCheckFailed,
+      );
+    });
+
+    test('503 APP_CHECK_UNAVAILABLE → appCheckUnavailable', () {
+      expect(
+        mapped(503, send, 'APP_CHECK_UNAVAILABLE'),
+        PhoneIdentityErrorCode.appCheckUnavailable,
+      );
+    });
+
+    test('400 PHONE_NOT_UA_MOBILE / REGISTRATION_TICKET_INVALID, '
+        '409 PHONE_ALREADY_REGISTERED', () {
+      expect(
+        mapped(400, send, 'PHONE_NOT_UA_MOBILE'),
+        PhoneIdentityErrorCode.phoneNotUaMobile,
+      );
+      expect(
+        mapped(400, '/api/v1/auth/register', 'REGISTRATION_TICKET_INVALID'),
+        PhoneIdentityErrorCode.registrationTicketInvalid,
+      );
+      expect(
+        mapped(409, verify, 'PHONE_ALREADY_REGISTERED'),
+        PhoneIdentityErrorCode.phoneAlreadyRegistered,
+      );
+    });
+
+    test('400 INVALID_CODE maps only on the registration verify path', () {
+      expect(
+        mapped(400, verify, 'INVALID_CODE'),
+        PhoneIdentityErrorCode.invalidCode,
+      );
+      expect(
+        mapped(400, '/api/v1/auth/verify-email', 'INVALID_CODE'),
+        isNull,
+        reason: 'verify-email keeps its VerificationFailure',
+      );
+    });
+
+    test('429 maps to rateLimited only on the registration send path', () {
+      expect(mapped(429, send, null), PhoneIdentityErrorCode.rateLimited);
+      expect(mapped(429, '/test', null), isNull);
+    });
+
+    test('a 403 without the App Check code is not a PhoneIdentityFailure', () {
+      expect(mapped(403, send, 'SOMETHING_ELSE'), isNull);
+    });
+
+    // M521 (B520, AUTH-52) — without these the invite accept's mismatch fell
+    // into the empty-fieldErrors ValidationFailure arm and handed off to
+    // /login as «invite no longer valid».
+    test('400 INVITE_PHONE_MISMATCH on accept → invitePhoneMismatch', () {
+      expect(
+        mapped(400, '/api/v1/auth/invite/accept', 'INVITE_PHONE_MISMATCH'),
+        PhoneIdentityErrorCode.invitePhoneMismatch,
+      );
+    });
+
+    test('429 INVITE_SMS_LIMIT on invite create → inviteSmsLimit; a bare 429 '
+        'there stays unmapped', () {
+      expect(
+        mapped(429, '/api/v1/salons/s1/invite', 'INVITE_SMS_LIMIT'),
+        PhoneIdentityErrorCode.inviteSmsLimit,
+      );
+      expect(mapped(429, '/api/v1/salons/s1/invite', null), isNull);
+    });
+  });
+
+  // M517 (B516) — signed-in phone add / change, notifications email, the
+  // current-password check and the server phone gate.
+  group('M517 contact + phone-gate mapping', () {
+    Map<String, dynamic> body(String code) => <String, dynamic>{
+      'success': false,
+      'data': <String, dynamic>{'code': code},
+    };
+    Object? mapped(int status, String path, String? code) => _captureRejected(
+      _httpError(status, path: path, body: code == null ? null : body(code)),
+    ).error;
+
+    const String phoneSend = '/api/v1/users/me/phone/otp/send';
+    const String phoneVerify = '/api/v1/users/me/phone/otp/verify';
+    const String emailRequest = '/api/v1/users/me/email/request-code';
+    const String emailVerify = '/api/v1/users/me/email/verify';
+
+    test('400 CURRENT_PASSWORD_INVALID → CurrentPasswordInvalidFailure on '
+        'both verify paths (never 401 → never a refresh / logout)', () {
+      expect(
+        mapped(400, phoneVerify, 'CURRENT_PASSWORD_INVALID'),
+        isA<CurrentPasswordInvalidFailure>(),
+      );
+      expect(
+        mapped(400, emailVerify, 'CURRENT_PASSWORD_INVALID'),
+        isA<CurrentPasswordInvalidFailure>(),
+      );
+    });
+
+    test(
+      'phone verify INVALID_CODE + send 429 map to PhoneIdentityFailure',
+      () {
+        final Object? code = mapped(400, phoneVerify, 'INVALID_CODE');
+        expect(
+          code is PhoneIdentityFailure ? code.code : null,
+          PhoneIdentityErrorCode.invalidCode,
+        );
+        final Object? limited = mapped(429, phoneSend, null);
+        expect(
+          limited is PhoneIdentityFailure ? limited.code : null,
+          PhoneIdentityErrorCode.rateLimited,
+        );
+      },
+    );
+
+    test('email verify INVALID_CODE / CODE_EXPIRED → VerificationFailure; '
+        'email request 429 → ResendThrottledFailure', () {
+      final Object? invalid = mapped(400, emailVerify, 'INVALID_CODE');
+      expect(
+        invalid is VerificationFailure ? invalid.code : null,
+        VerificationErrorCode.invalidCode,
+      );
+      final Object? expired = mapped(400, emailVerify, 'CODE_EXPIRED');
+      expect(
+        expired is VerificationFailure ? expired.code : null,
+        VerificationErrorCode.codeExpired,
+      );
+      expect(mapped(429, emailRequest, null), isA<ResendThrottledFailure>());
+    });
+
+    test('409 PHONE_NOT_VERIFIED → PhoneNotVerifiedFailure and fires the '
+        'gate hook exactly once; other 409s do not', () {
+      int calls = 0;
+      final List<DioException> rejected = <DioException>[];
+      final handler = _MockErrorInterceptorHandler();
+      when(() => handler.reject(any())).thenAnswer((inv) {
+        rejected.add(inv.positionalArguments.first as DioException);
+      });
+      final ErrorMapperInterceptor mapper = ErrorMapperInterceptor(
+        onPhoneNotVerified: () => calls++,
+      );
+
+      mapper.onError(
+        _httpError(
+          409,
+          path: '/api/v1/appointments',
+          body: body('PHONE_NOT_VERIFIED'),
+        ),
+        handler,
+      );
+      expect(rejected.single.error, isA<PhoneNotVerifiedFailure>());
+      expect(calls, 1);
+
+      mapper.onError(
+        _httpError(409, path: '/api/v1/appointments', body: body('SLOT_TAKEN')),
+        handler,
+      );
+      expect(rejected.last.error, isNot(isA<PhoneNotVerifiedFailure>()));
+      expect(calls, 1);
+    });
+  });
+
+  // Audit cycle 1 (phone-first hardening) — a phone-send 429's Retry-After:
+  // absent / 0 / negative → null (the step's own 60 s fallback), positive →
+  // as sent, over the 600 s UX ceiling → kMaxUxCooldownSeconds + 1 («unavailable»).
+  group('PhoneIdentityFailure rateLimited Retry-After', () {
+    int? retryAfter(String? header) {
+      final RequestOptions o = _opts(path: '/api/v1/users/me/phone/otp/send');
+      final Object? error = _captureRejected(
+        DioException(
+          requestOptions: o,
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: o,
+            statusCode: 429,
+            data: <String, dynamic>{'success': false},
+            headers: Headers.fromMap(<String, List<String>>{
+              if (header != null) 'retry-after': <String>[header],
+            }),
+          ),
+        ),
+      ).error;
+      expect(error, isA<PhoneIdentityFailure>());
+      final PhoneIdentityFailure f = error! as PhoneIdentityFailure;
+      expect(f.code, PhoneIdentityErrorCode.rateLimited);
+      return f.retryAfterSeconds;
+    }
+
+    test('absent → null', () => expect(retryAfter(null), isNull));
+    test('0 → null', () => expect(retryAfter('0'), isNull));
+    test('negative → null', () => expect(retryAfter('-5'), isNull));
+    test('42 → 42', () => expect(retryAfter('42'), 42));
+    test('600 (at the ceiling) → 600', () => expect(retryAfter('600'), 600));
+    test('over the ceiling → kMaxUxCooldownSeconds + 1', () {
+      expect(retryAfter('3600'), kMaxUxCooldownSeconds + 1);
+    });
+  });
 }

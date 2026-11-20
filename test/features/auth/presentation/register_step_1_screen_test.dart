@@ -1,44 +1,28 @@
-// Phase 2.16 — Widget tests for [RegisterStep1Screen] (VelvetTouch redesign).
-//
-// Step 1 is the credentials form ONLY — email + password + confirm-password.
-// Fields are `NeumorphicTextField` instances (not TextFormField) keyed by
-// ValueKey<String>.
+// Phase 2.16 / M515 — Widget tests for [RegisterStep1Screen], the PHONE step
+// of the phone-first registration wizard (AUTH-D11 / AUTH-41).
 //
 // Covered scenarios:
-//   1. The three inputs (email, password, confirm-password) render.
-//   2. Invalid email shows errEmailInvalid after submit.
-//   3. Empty password on submit shows errPasswordRequired.
-//   4. Confirm-password mismatch shows errPasswordsMismatch after submit.
-//   5. Valid submit writes the slice to the draft and navigates to /step-2.
-//   6. Draft persists when stepping out and back in (initState pre-fills
-//      controllers from the draft).
-//   7. Step 1 does NOT call AuthNotifier.register (deferred to Step 3).
-//   8. top-left back button (auth_scaffold_back) PRESERVES the draft and navigates to /register/role.
-//   9. Login link (step1_login_link) navigates to /login and resets draft.
-//  10. auth_scaffold_back navigates to /register/role (not /login).
-//  11. Weak password "asd" shows errPasswordTooShort and does NOT advance.
-//  12. Strong password "Abcde123" passes the validator and advances to step-2.
-//  13. Password with no digit shows errPasswordNoDigit and does NOT advance
-//      (validateNewPassword gate — Phase 2.16 _submit() change).
-//  14. Password with no uppercase shows errPasswordNoUppercase and does NOT
-//      advance (validateNewPassword gate — Phase 2.16 _submit() change).
-//  15. Terms Text.rich renders all four l10n segments (prefix, terms link,
-//      conjunction, privacy link) — Phase 2.16 terms redesign.
-//  16. key_outlined icon tile is present at the top of the screen (72×72
-//      neumorphic, VelvetTouch icon tile consistency).
-//  17. 129-char password satisfies all checklist rows but is blocked by
-//      validateNewPassword (errPasswordLength) — max-128 hard gate.
-//  18. Tapping the «Умовами» span launches https://beautica.app/terms in the
-//      external browser (LaunchMode.externalApplication).
-//  19. Tapping the «Політикою конфіденційності» span launches
-//      https://beautica.app/privacy in the external browser.
-//  20. A failed launch shows the externalLinkOpenError error snack.
-//  21. Both link spans carry their stable semanticsIdentifier.
+//   1. Phone field + 1/4 wizard chrome + phone icon tile render; no email or
+//      password field (those moved / were dropped).
+//   2. A non-UA-mobile number shows «Потрібен український мобільний номер»
+//      inline and sends NOTHING (AUTH-D15).
+//   3. A valid number is normalised to +380…, the code is sent, the draft
+//      holds the phone + tick, and the wizard advances to /register/code.
+//   4. 429 / 403 APP_CHECK_FAILED / 503 APP_CHECK_UNAVAILABLE render the
+//      preview's inline banner copy and stay on step 1.
+//   5. 409 PHONE_ALREADY_REGISTERED arrival banner carries «Увійти» → /login.
+//   6. Step 1 never registers (the POST runs on the address step).
+//   7. auth_scaffold_back → /register/role; step1_login_link → /login + reset.
+//  18-21. Terms / privacy links (unchanged).
+//  22-25. Consent gate (phase 443).
 
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/app_check_prefetch.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/register_flow_shell.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_1_screen.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -70,9 +54,9 @@ GoRouter _makeRouter() => GoRouter(
       builder: (context, state) => const RegisterStep1Screen(),
     ),
     GoRoute(
-      path: RouteNames.registerStep2,
+      path: RouteNames.registerCode,
       builder: (context, state) =>
-          const Scaffold(body: Center(child: Text('step-2'))),
+          const Scaffold(body: Center(child: Text('code-step'))),
     ),
     GoRoute(
       path: RouteNames.registerRole,
@@ -187,842 +171,220 @@ TextSpan? _linkSpan(WidgetTester tester, String identifier) {
 // Tests
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
+  final router = _makeRouter();
+  addTearDown(router.dispose);
+  await tester.pumpWidget(_buildApp(router: router, container: container));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _submitPhone(WidgetTester tester, String phone) async {
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('step1_phone')),
+    phone,
+  );
+  await _tickTerms(tester);
+  await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  group('RegisterStep1Screen (VelvetTouch credentials)', () {
-    testWidgets('1. three inputs render: email, password, confirm-password', (
-      tester,
-    ) async {
+  final l10n = lookupAppLocalizations(const Locale('uk'));
+
+  group('RegisterStep1Screen (M515 phone step)', () {
+    testWidgets('1. phone field, 1-of-4 chrome and phone tile; no email / '
+        'password fields', (tester) async {
       final container = _makeContainer();
       addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+      await _pump(tester, container);
 
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey<String>('step1_email')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('step1_phone')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('step1_email')), findsNothing);
       expect(
         find.byKey(const ValueKey<String>('step1_password')),
-        findsOneWidget,
+        findsNothing,
       );
+      expect(find.text(l10n.registerPhoneHelper), findsOneWidget);
+      expect(find.text(l10n.registerSendCode), findsOneWidget);
+      expect(find.byKey(const Key('step1_icon_tile')), findsOneWidget);
       expect(
-        find.byKey(const ValueKey<String>('step1_confirm')),
+        find.descendant(
+          of: find.byKey(const Key('step1_icon_tile')),
+          matching: find.byIcon(Icons.phone_iphone_rounded),
+        ),
         findsOneWidget,
       );
+      // 4 progress dots (phone -> code -> password -> name).
       expect(
-        find.byKey(const ValueKey<String>('step1_submit')),
-        findsOneWidget,
+        find.descendant(
+          of: find.byType(WizardStepChrome),
+          matching: find.byType(AnimatedContainer),
+        ),
+        findsNWidgets(4),
       );
-
-      // Step 1 must NOT render Step 2 / Step 3 fields.
-      expect(find.byKey(const Key('field-firstName')), findsNothing);
-      expect(find.byKey(const Key('field-lastName')), findsNothing);
-      expect(find.byKey(const Key('field-phone')), findsNothing);
-      expect(find.byKey(const Key('field-businessName')), findsNothing);
     });
 
-    testWidgets('2. invalid email shows errEmailInvalid after submit', (
+    testWidgets('2. a non-UA-mobile number is refused inline, nothing sent', (
+      tester,
+    ) async {
+      final h = _makeContainerWithRepo();
+      addTearDown(h.container.dispose);
+      await _pump(tester, h.container);
+
+      await _submitPhone(tester, '+48 512 345 678');
+
+      expect(find.text(l10n.errPhoneNotUaMobile), findsOneWidget);
+      expect(h.repo.sendRegistrationCodeCalls, isEmpty);
+      expect(find.text('code-step'), findsNothing);
+    });
+
+    testWidgets('3. a valid number is normalised, sent, stored and the wizard '
+        'advances to /register/code', (tester) async {
+      final h = _makeContainerWithRepo();
+      addTearDown(h.container.dispose);
+      await _pump(tester, h.container);
+
+      await _submitPhone(tester, '0671234567');
+
+      expect(h.repo.sendRegistrationCodeCalls, <String>['+380671234567']);
+      expect(find.text('code-step'), findsOneWidget);
+      final draft = h.container.read(registerDraftProvider);
+      expect(draft?.phone, '+380671234567');
+      expect(draft?.termsAccepted, isTrue);
+      _assertNoRegisterPostFired(h.repo);
+    });
+
+    for (final (PhoneIdentityErrorCode code, String copy)
+        in <(PhoneIdentityErrorCode, String)>[
+          (
+            PhoneIdentityErrorCode.rateLimited,
+            'Забагато запитів коду. Спробуйте пізніше.',
+          ),
+          (
+            PhoneIdentityErrorCode.appCheckFailed,
+            'Не вдалося підтвердити, що запит надіслано із застосунку Beautica. '
+                'Оновіть застосунок із Google Play і спробуйте ще раз.',
+          ),
+          (
+            PhoneIdentityErrorCode.appCheckUnavailable,
+            'Перевірка тимчасово недоступна. Спробуйте за хвилину.',
+          ),
+        ]) {
+      testWidgets('4. ${code.name} shows the preview copy and stays', (
+        tester,
+      ) async {
+        final h = _makeContainerWithRepo();
+        addTearDown(h.container.dispose);
+        h.repo.sendRegistrationCodeFailure = PhoneIdentityFailure(code: code);
+        await _pump(tester, h.container);
+
+        await _submitPhone(tester, '0671234567');
+
+        expect(
+          find.byKey(const ValueKey<String>('phone_send_error')),
+          findsOneWidget,
+        );
+        expect(find.text(copy), findsOneWidget);
+        expect(find.text('code-step'), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('auth_banner_action')),
+          findsNothing,
+        );
+      });
+    }
+
+    testWidgets('5. 409 PHONE_ALREADY_REGISTERED banner offers «Увійти» → '
+        '/login', (tester) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      final router = GoRouter(
+        initialLocation: RouteNames.register,
+        routes: [
+          GoRoute(
+            path: RouteNames.register,
+            builder: (context, state) => const RegisterStep1Screen(
+              initialSendError: PhoneIdentityErrorCode.phoneAlreadyRegistered,
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.login,
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('login'))),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.errPhoneAlreadyRegistered), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('auth_banner_action')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('login'), findsOneWidget);
+      expect(container.read(registerDraftProvider), isNull);
+    });
+
+    testWidgets('7a. auth_scaffold_back → /register/role, draft kept', (
       tester,
     ) async {
       final container = _makeContainer();
       addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+      await _pump(tester, container);
 
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-
-      // Enter invalid email, leave password empty, tap submit.
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_email')),
-        'not-an-email',
-      );
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('step1_submit')),
-      );
-      await _tickTerms(tester);
-      await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-      await tester.pump();
-
-      final l10n = lookupAppLocalizations(const Locale('uk'));
-      expect(find.text(l10n.errEmailInvalid), findsOneWidget);
-    });
-
-    testWidgets('3. empty password on submit shows errPasswordRequired', (
-      tester,
-    ) async {
-      final container = _makeContainer();
-      addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_email')),
-        'a@b.com',
-      );
-      // Leave password blank.
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('step1_submit')),
-      );
-      await _tickTerms(tester);
-      await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-      await tester.pump();
-
-      final l10n = lookupAppLocalizations(const Locale('uk'));
-      // The error is shown inline next to the password NeumorphicTextField.
-      expect(find.text(l10n.errPasswordRequired), findsAtLeast(1));
-    });
-
-    testWidgets('4. mismatched confirm-password shows errPasswordsMismatch', (
-      tester,
-    ) async {
-      final container = _makeContainer();
-      addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_email')),
-        'a@b.com',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_password')),
-        'SecurePass1',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_confirm')),
-        'WRONG',
-      );
-
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('step1_submit')),
-      );
-      await _tickTerms(tester);
-      await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-      await tester.pump();
-
-      final l10n = lookupAppLocalizations(const Locale('uk'));
-      expect(find.text(l10n.errPasswordsMismatch), findsOneWidget);
-      // Step did NOT advance.
-      expect(find.text('step-2'), findsNothing);
-    });
-
-    testWidgets(
-      '5. valid submit writes the slice to the draft and navigates to /step-2 '
-      '(NO register POST fired)',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_email')),
-          'anya@example.com',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_password')),
-          'SecurePass1',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_confirm')),
-          'SecurePass1',
-        );
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_submit')),
-        );
-        await _tickTerms(tester);
-        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-        await tester.pumpAndSettle();
-
-        // Navigation occurred.
-        expect(find.text('step-2'), findsOneWidget);
-
-        // Draft contains the submitted slice (Step 1 only).
-        final draft = container.read(registerDraftProvider);
-        expect(draft, isNotNull);
-        expect(draft!.email, equals('anya@example.com'));
-        expect(draft.password, equals('SecurePass1'));
-        expect(draft.confirmPassword, equals('SecurePass1'));
-        // Role from the role-selection step is preserved.
-        expect(draft.role, equals(UserRole.client));
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    testWidgets('6. controllers re-hydrate from the draft on remount (back-nav '
-        'persistence)', (tester) async {
-      final container = _makeContainer();
-      addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      // Pre-seed the draft as if the user already filled Step 1 once.
-      container
-          .read(registerDraftProvider.notifier)
-          .updateStep1(
-            email: 'pre-filled@example.com',
-            password: 'PrePass1',
-            confirmPassword: 'PrePass1',
-          );
-
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-
-      // All three TextField controllers must re-hydrate. We inspect the
-      // TextField descendants of each NeumorphicTextField key.
-      final emailField = tester.widget<TextField>(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>('step1_email')),
-          matching: find.byType(TextField),
-        ),
-      );
-      expect(emailField.controller?.text, equals('pre-filled@example.com'));
-
-      final passwordField = tester.widget<TextField>(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>('step1_password')),
-          matching: find.byType(TextField),
-        ),
-      );
-      expect(passwordField.controller?.text, equals('PrePass1'));
-
-      final confirmField = tester.widget<TextField>(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>('step1_confirm')),
-          matching: find.byType(TextField),
-        ),
-      );
-      expect(confirmField.controller?.text, equals('PrePass1'));
-    });
-
-    testWidgets(
-      '7. Step 1 does NOT call AuthNotifier.register on submit (deferred '
-      'to Step 3 / Phase 2.19) — INDEPENDENT_MASTER role variant',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo(
-          role: UserRole.independentMaster,
-        );
-        addTearDown(container.dispose);
-
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_email')),
-          'a@b.com',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_password')),
-          'SecurePass1',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_confirm')),
-          'SecurePass1',
-        );
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_submit')),
-        );
-        await _tickTerms(tester);
-        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-        await tester.pumpAndSettle();
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    testWidgets('8. tapping auth_scaffold_back PRESERVES the draft (role '
-        'survives) AND navigates to /register/role — the top-left back button '
-        'goes one wizard step back so the role-selection screen can '
-        're-highlight the chosen role', (tester) async {
-      final (:container, :repo) = _makeContainerWithRepo();
-      addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-
-      // Pre-seed credentials so we can verify the back button does NOT wipe them.
-      container
-          .read(registerDraftProvider.notifier)
-          .updateStep1(
-            email: 'pre-fill@example.com',
-            password: 'PrePass1',
-            confirmPassword: 'PrePass1',
-          );
-      // Sanity check: the draft is populated (default role = client).
-      final beforeTap = container.read(registerDraftProvider)!;
-      expect(beforeTap.role, equals(UserRole.client));
-      expect(beforeTap.email, equals('pre-fill@example.com'));
-      expect(beforeTap.password, equals('PrePass1'));
-
-      // Tap the top-left back button.
       await tester.tap(
         find.byKey(const ValueKey<String>('auth_scaffold_back')),
       );
       await tester.pumpAndSettle();
 
-      // (1) Draft is PRESERVED — going one wizard step back must keep the
-      // chosen role (and in-progress credentials).
-      final afterTap = container.read(registerDraftProvider);
-      expect(
-        afterTap,
-        isNotNull,
-        reason:
-            'Tapping the back link on Step 1 must NOT reset() the draft — '
-            'the role must survive a single-step back.',
-      );
-      expect(afterTap!.role, equals(UserRole.client));
-
-      // (2) Navigation landed on /register/role.
-      expect(
-        router.routerDelegate.currentConfiguration.fullPath,
-        equals(RouteNames.registerRole),
-      );
       expect(find.text('role-selection'), findsOneWidget);
-
-      // (3) No registration POST was fired.
-      _assertNoRegisterPostFired(repo);
+      expect(container.read(registerDraftProvider), isNotNull);
     });
 
-    testWidgets(
-      '9. step1_login_link navigates to /login and resets the draft',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
+    testWidgets('7b. step1_login_link → /login and resets the draft', (
+      tester,
+    ) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      await _pump(tester, container);
 
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
+      final Finder link = find.byKey(
+        const ValueKey<String>('step1_login_link'),
+      );
+      await tester.ensureVisible(link);
+      await tester.tap(link);
+      await tester.pumpAndSettle();
 
-        // Scroll to make the login link visible (it lives below the form).
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_login_link')),
-        );
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(const ValueKey<String>('step1_login_link')),
-        );
-        await tester.pumpAndSettle();
+      expect(find.text('login'), findsOneWidget);
+      expect(container.read(registerDraftProvider), isNull);
+    });
 
-        // (1) Navigated to /login.
-        expect(
-          router.routerDelegate.currentConfiguration.fullPath,
-          equals(RouteNames.login),
-          reason:
-              'step1_login_link must navigate to RouteNames.login, '
-              'not to registerRole or any other route',
-        );
-        expect(find.text('login'), findsOneWidget);
+    testWidgets('7c. AUTH-D28 — the login row reads «Вже маєте акаунт з '
+        'email? Увійдіть»', (tester) async {
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      await _pump(tester, container);
 
-        // (2) Draft was reset.
-        expect(
-          container.read(registerDraftProvider),
-          isNull,
-          reason: 'step1_login_link must reset() the draft before navigating',
-        );
-
-        // (3) No registration POST was fired.
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    testWidgets(
-      '10. auth_scaffold_back navigates to /register/role (not /login)',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        await tester.tap(
-          find.byKey(const ValueKey<String>('auth_scaffold_back')),
-        );
-        await tester.pumpAndSettle();
-
-        expect(
-          router.routerDelegate.currentConfiguration.fullPath,
-          equals(RouteNames.registerRole),
-          reason:
-              'auth_scaffold_back on Step 1 must navigate to registerRole, '
-              'not to /login',
-        );
-        expect(find.text('role-selection'), findsOneWidget);
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    testWidgets(
-      '11. weak password "asd" shows errPasswordTooShort and does NOT advance '
-      'or fire a registration POST',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_email')),
-          'anya@example.com',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_password')),
-          'asd',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_confirm')),
-          'asd',
-        );
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_submit')),
-        );
-        await _tickTerms(tester);
-        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-        await tester.pump();
-
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        expect(
-          find.text(l10n.errPasswordTooShort),
-          findsOneWidget,
-          reason:
-              'step1_password must show errPasswordTooShort when "asd" is '
-              'submitted — password < 8 chars must be blocked',
-        );
-
-        // The step did NOT advance.
-        expect(
-          find.text('step-2'),
-          findsNothing,
-          reason: 'A weak password must block navigation to step-2',
-        );
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    testWidgets(
-      '12. strong password "Abcde123" passes the registration validator and '
-      'advances to step-2 without a registration POST',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_email')),
-          'anya@example.com',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_password')),
-          'Abcde123',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_confirm')),
-          'Abcde123',
-        );
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_submit')),
-        );
-        await _tickTerms(tester);
-        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-        await tester.pumpAndSettle();
-
-        // Navigation occurred — the password was accepted.
-        expect(
-          find.text('step-2'),
-          findsOneWidget,
-          reason:
-              '"Abcde123" meets all registration criteria; the step must advance',
-        );
-
-        // Draft holds the correct password value.
-        final draft = container.read(registerDraftProvider);
-        expect(draft?.password, equals('Abcde123'));
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 13. No-digit password — validateNewPassword gate (Phase 2.16)
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '13. password with no digit shows errPasswordNoDigit and does NOT '
-      'advance (validateNewPassword gate)',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_email')),
-          'anya@example.com',
-        );
-        // "ABCDEFGH" — 8 chars, has uppercase, but NO digit.
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_password')),
-          'ABCDEFGH',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_confirm')),
-          'ABCDEFGH',
-        );
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_submit')),
-        );
-        await _tickTerms(tester);
-        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-        await tester.pump();
-
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        expect(
-          find.text(l10n.errPasswordNoDigit),
-          findsOneWidget,
-          reason:
-              '"ABCDEFGH" has no digit — the validateNewPassword gate must '
-              'show errPasswordNoDigit and block navigation to step-2',
-        );
-        expect(
-          find.text('step-2'),
-          findsNothing,
-          reason: 'Navigation must be blocked when password has no digit',
-        );
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 14. No-uppercase password — validateNewPassword gate (Phase 2.16)
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '14. password with no uppercase shows errPasswordNoUppercase and does '
-      'NOT advance (validateNewPassword gate)',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_email')),
-          'anya@example.com',
-        );
-        // "abcdefg1" — 8 chars, has digit, but NO uppercase letter.
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_password')),
-          'abcdefg1',
-        );
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_confirm')),
-          'abcdefg1',
-        );
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_submit')),
-        );
-        await _tickTerms(tester);
-        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-        await tester.pump();
-
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        expect(
-          find.text(l10n.errPasswordNoUppercase),
-          findsOneWidget,
-          reason:
-              '"abcdefg1" has no uppercase — the validateNewPassword gate must '
-              'show errPasswordNoUppercase and block navigation to step-2',
-        );
-        expect(
-          find.text('step-2'),
-          findsNothing,
-          reason: 'Navigation must be blocked when password has no uppercase',
-        );
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 16. Credentials icon tile (key_outlined, 72×72 neumorphic)
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '16. key_outlined icon tile is present (VelvetTouch icon tile consistency)',
-      (tester) async {
-        final container = _makeContainer();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('step1_icon_tile')),
-            matching: find.byIcon(Icons.key_outlined),
+      final Finder link = find.byKey(
+        const ValueKey<String>('step1_login_link'),
+      );
+      expect(
+        find.descendant(
+          of: link,
+          // i18n-finder-ok: pins the AUTH-D28 uk copy verbatim (uk locale).
+          matching: find.text(
+            'Вже маєте акаунт з email? Увійдіть',
+            findRichText: true,
           ),
-          findsOneWidget,
-          reason:
-              'RegisterStep1Screen must render Icons.key_outlined inside the '
-              '72×72 neumorphic icon tile (key: step1_icon_tile) at the top '
-              'of the screen.',
-        );
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 17. Over-max-128 password — validateNewPassword gate (Phase 2.16)
-    //
-    // The live PasswordChecklist shows only 3 rows (min-8, digit, uppercase).
-    // The max-128 rule has NO checklist row — it is enforced by maxLength on
-    // the TextField AND by validateNewPassword() in _submit(). This test
-    // verifies that a 129-char password (which satisfies all 3 visible
-    // checklist rows) is still blocked by the hard gate in _submit() with
-    // errPasswordLength, and that navigation does NOT advance.
-    //
-    // Because NeumorphicTextField has maxLength: 128, tester.enterText() is
-    // clamped to 128 chars. We bypass this by locating the inner TextField
-    // and setting its controller's text directly before tapping submit —
-    // exactly as the _submit() hard gate would see it if the maxLength were
-    // absent or circumvented.
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '17. 129-char password satisfies all checklist rows but is blocked by '
-      'validateNewPassword (errPasswordLength) and does NOT advance',
-      (tester) async {
-        final (:container, :repo) = _makeContainerWithRepo();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        // 129 chars: 'A' (uppercase) + '1' (digit) + 127 lowercase 'a's.
-        // Satisfies all 3 checklist predicates but exceeds the 128-char hard limit.
-        final overlong = 'A1${'a' * 127}'; // 2 + 127 = 129 chars
-        assert(overlong.length == 129);
-
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('step1_email')),
-          'anya@example.com',
-        );
-
-        // Locate the inner TextField inside the password NeumorphicTextField
-        // (the first TextField child under the step1_password key) and set
-        // its controller text directly, bypassing the maxLength clamp.
-        final pwTextField = tester.widget<TextField>(
-          find.descendant(
-            of: find.byKey(const ValueKey<String>('step1_password')),
-            matching: find.byType(TextField),
-          ),
-        );
-        pwTextField.controller!.text = overlong;
-        await tester.pump(); // let the onChanged listener fire
-
-        final confirmTextField = tester.widget<TextField>(
-          find.descendant(
-            of: find.byKey(const ValueKey<String>('step1_confirm')),
-            matching: find.byType(TextField),
-          ),
-        );
-        confirmTextField.controller!.text = overlong;
-        await tester.pump();
-
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('step1_submit')),
-        );
-        await _tickTerms(tester);
-        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-        await tester.pump();
-
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        expect(
-          find.text(l10n.errPasswordLength),
-          findsOneWidget,
-          reason:
-              'A 129-char password passes all 3 checklist rows but must be '
-              'blocked by the validateNewPassword hard gate with '
-              'errPasswordLength — the checklist has no max-128 row so '
-              'this tests the gate that the UI cannot communicate live.',
-        );
-        expect(
-          find.text('step-2'),
-          findsNothing,
-          reason: 'Navigation must be blocked when password exceeds 128 chars',
-        );
-
-        _assertNoRegisterPostFired(repo);
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 18. BackdropFilter ceiling — VelvetTouch design has zero blur layers
-    //
-    // Guards against a regression to the glassmorphism design (which used up
-    // to four BackdropFilter layers). Any commit that reintroduces a
-    // BackdropFilter on this screen will fail this test and force an explicit
-    // render-budget decision.
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '18. BackdropFilter count ceiling — zero layers on RegisterStep1Screen '
-      '(VelvetTouch: no glassmorphism)',
-      (tester) async {
-        final container = _makeContainer();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byType(BackdropFilter).evaluate().length,
-          lessThanOrEqualTo(0),
-          reason:
-              'Guards against render-budget BackdropFilter accumulation. '
-              'RegisterStep1Screen uses the VelvetTouch neumorphic design — '
-              'no BackdropFilter layers are expected. Reintroducing any blur '
-              'layer requires an explicit render-budget decision.',
-        );
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 15. Terms Text.rich — all four l10n segments present (Phase 2.16)
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '15. terms Text.rich renders all four l10n segments: prefix, terms '
-      'link, conjunction, privacy link',
-      (tester) async {
-        final container = _makeContainer();
-        addTearDown(container.dispose);
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-
-        // The terms line is a single Text.rich that produces one RichText
-        // widget. find.textContaining on the full paragraph can match the whole
-        // RichText for multiple substrings. We instead locate the single
-        // RichText that contains all four segments and assert each is present
-        // within its combined plaintext, extracted by visiting the InlineSpan
-        // tree. This avoids false-positives from other Text.rich widgets in the
-        // screen that might share short substrings like " та ".
-        final richTexts = tester.widgetList<RichText>(find.byType(RichText));
-
-        // Build a combined plain string from every RichText in the tree, then
-        // find the one paragraph that contains the terms prefix. That is the
-        // terms line.
-        String extractText(InlineSpan span) {
-          if (span is TextSpan) {
-            final buf = StringBuffer(span.text ?? '');
-            if (span.children != null) {
-              for (final child in span.children!) {
-                buf.write(extractText(child));
-              }
-            }
-            return buf.toString();
-          }
-          return '';
-        }
-
-        final termsParagraph = richTexts
-            .map((rt) => extractText(rt.text))
-            .firstWhere(
-              (text) => text.contains(l10n.registerTermsPrefix),
-              orElse: () => '',
-            );
-
-        expect(
-          termsParagraph,
-          isNotEmpty,
-          reason: 'A RichText containing registerTermsPrefix must be present',
-        );
-        expect(
-          termsParagraph.contains(l10n.registerTermsTerms),
-          isTrue,
-          reason:
-              'registerTermsTerms link segment must be in the terms paragraph',
-        );
-        expect(
-          termsParagraph.contains(l10n.registerTermsConjunction.trim()),
-          isTrue,
-          reason: 'registerTermsConjunction must be in the terms paragraph',
-        );
-        expect(
-          termsParagraph.contains(l10n.registerTermsPrivacy),
-          isTrue,
-          reason:
-              'registerTermsPrivacy link segment must be in the terms paragraph',
-        );
-      },
-    );
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
   group('RegisterStep1Screen — terms / privacy links', () {
@@ -1138,24 +500,40 @@ void main() {
         'unticking disables it again', (tester) async {
       final container = _makeContainer();
       addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
+      await _pump(tester, container);
 
-      expect(submit(tester).onPressed, isNull);
-
+      expect(submit(tester).onPressedAsync, isNull);
       await _tickTerms(tester);
-      expect(submit(tester).onPressed, isNotNull);
-
+      expect(submit(tester).onPressedAsync, isNotNull);
       await tester.tap(
         find.byKey(const ValueKey<String>('step1_terms_checkbox')),
       );
       await tester.pump();
-      expect(submit(tester).onPressed, isNull);
+      expect(submit(tester).onPressedAsync, isNull);
     });
 
-    testWidgets('23. tapping the disabled submit does not navigate', (
+    testWidgets('23. tapping the disabled submit sends nothing', (
+      tester,
+    ) async {
+      final h = _makeContainerWithRepo();
+      addTearDown(h.container.dispose);
+      await _pump(tester, h.container);
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step1_phone')),
+        '0671234567',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('step1_submit')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('code-step'), findsNothing);
+      expect(h.repo.sendRegistrationCodeCalls, isEmpty);
+    });
+
+    testWidgets('24. the tick and phone survive a back-navigation to Step 1', (
       tester,
     ) async {
       final container = _makeContainer();
@@ -1165,55 +543,8 @@ void main() {
       await tester.pumpWidget(_buildApp(router: router, container: container));
       await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_email')),
-        'a@b.ua',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_password')),
-        'Password1',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_confirm')),
-        'Password1',
-      );
-      await tester.tap(
-        find.byKey(const ValueKey<String>('step1_submit')),
-        warnIfMissed: false,
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('step-2'), findsNothing);
-      expect(container.read(registerDraftProvider)?.termsAccepted, isFalse);
-    });
-
-    testWidgets('24. the tick is written to the draft on submit and survives '
-        'a back-navigation to Step 1', (tester) async {
-      final container = _makeContainer();
-      addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_email')),
-        'a@b.ua',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_password')),
-        'Password1',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_confirm')),
-        'Password1',
-      );
-      await _tickTerms(tester);
-      await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('step-2'), findsOneWidget);
-      expect(container.read(registerDraftProvider)?.termsAccepted, isTrue);
+      await _submitPhone(tester, '0671234567');
+      expect(find.text('code-step'), findsOneWidget);
 
       router.go(RouteNames.register);
       await tester.pumpAndSettle();
@@ -1226,36 +557,55 @@ void main() {
             .value,
         isTrue,
       );
-      expect(submit(tester).onPressed, isNotNull);
+      expect(find.text('+380 67 123 45 67'), findsOneWidget);
+      expect(submit(tester).onPressedAsync, isNotNull);
     });
 
     testWidgets('25. disabled submit carries the consent-required semantics '
         'hint; it is gone once ticked', (tester) async {
       final container = _makeContainer();
       addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
-      final l10n = lookupAppLocalizations(const Locale('uk'));
+      await _pump(tester, container);
 
-      expect(
-        find.byWidgetPredicate(
-          (Widget w) =>
-              w is Semantics &&
-              w.properties.hint == l10n.termsConsentRequiredHint,
-        ),
-        findsOneWidget,
+      Finder hint() => find.byWidgetPredicate(
+        (Widget w) =>
+            w is Semantics &&
+            w.properties.hint == l10n.termsConsentRequiredHint,
       );
+      expect(hint(), findsOneWidget);
       await _tickTerms(tester);
-      expect(
-        find.byWidgetPredicate(
-          (Widget w) =>
-              w is Semantics &&
-              w.properties.hint == l10n.termsConsentRequiredHint,
-        ),
-        findsNothing,
+      expect(hint(), findsNothing);
+    });
+  });
+
+  group('RegisterStep1Screen — App Check prefetch (AUTH-D27 d, P2)', () {
+    testWidgets('opening step 1 starts exactly one App Check prefetch, '
+        'before any send', (tester) async {
+      int fetches = 0;
+      final AppCheckTokenPrefetcher prefetcher = AppCheckTokenPrefetcher(
+        fetch: () async => 'tok-${++fetches}',
+        canPrefetch: () => true,
+        clock: () => DateTime.utc(2026, 11, 19, 10),
       );
+      final repo = FakeAuthRepository();
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          appCheckTokenPrefetcherProvider.overrideWithValue(prefetcher),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(registerDraftProvider.notifier).start(UserRole.client);
+
+      await _pump(tester, container);
+
+      expect(fetches, 1, reason: 'initState prefetches once');
+      expect(repo.sendRegistrationCodeCalls, isEmpty);
+      // The SMS send consumes the prefetched token (no second fetch).
+      expect(await prefetcher.take(), 'tok-1');
+      expect(fetches, 1);
     });
   });
 }

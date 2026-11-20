@@ -22,11 +22,12 @@
 // -------------------------
 //   1. Home hub → burger (btn-menu-client) → /client/menu hub renders.
 //   2. Hub → Contacts edit (row-contacts) → change phone → Save
-//      (btn-save-contacts) → the PATCH hits the fake `/users/me`, the body
-//      carries the new phone and NEVER an `instagram` key, and the value
-//      round-trips (the next GET /users/me reflects it). The save then lands
+//      (btn-save-contacts) → M517 (AUTH-D19): the SMS code goes to the NEW
+//      number and the shared code step confirms it with the current password;
+//      no `PATCH /users/me` carries the new number, and the value round-trips
+//      (the next GET /users/me reflects it). The save then lands
 //      back on the home hub and the profile card shows the NEW phone WITHOUT a
-//      restart (refreshUser() re-fetched /users/me) — the stale-home-card
+//      restart (the session refresh re-fetched /users/me) — the stale-home-card
 //      regression guard (a profile edit used to surface on the card only after
 //      a cold start).
 //   3. Hub → Location edit (row-location) → the three free-text address fields
@@ -102,8 +103,8 @@ void main() {
   // ── Test 1 — Contacts edit: change phone → save → PATCH round-trips ───────
 
   testWidgets(
-    'CLIENT edits phone on the Contacts screen → PATCH /users/me persists the '
-    'new phone (no instagram) and the value round-trips',
+    'CLIENT edits phone on the Contacts screen → the SMS code + current '
+    'password step confirms the new phone (no PATCH) and the value round-trips',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       // Seed a known starting phone so the field is dirty after we change it.
@@ -144,47 +145,58 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('btn-save-contacts')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-save-contacts')));
+
+      // M517 (AUTH-D19) — a different number opens the shared code step; the
+      // code went to the NEW number and nothing is written yet.
+      final Finder codeInput = find.byKey(
+        const ValueKey<String>('phone_code_input'),
+      );
+      await AppHarness.pumpUntilFound(tester, codeInput);
+      expect(fb.userPhoneSendCalls, <String>['+380671112233']);
+      expect(
+        fb.clientPhone,
+        '+380 50 000 00 00',
+        reason: 'the old number stays until the code is confirmed',
+      );
+
+      await tester.enterText(codeInput, '123456');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('phone_code_current_password')),
+        FakeBackend.kCurrentPassword,
+      );
+      await tester.pump();
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const ValueKey<String>('phone_code_submit')),
+      );
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      // The PATCH must have fired exactly once for this save.
+      // The confirm carried the new number + current password; a different
+      // number never rides a PATCH (B516 PhoneChangeGuard).
+      expect(fb.userPhoneVerifyBodies, hasLength(1));
+      expect(fb.userPhoneVerifyBodies.single['phone'], '+380671112233');
+      expect(
+        fb.userPhoneVerifyBodies.single['currentPassword'],
+        FakeBackend.kCurrentPassword,
+      );
       expect(
         fb.patchMeCalls,
-        equals(patchesBefore + 1),
-        reason: 'Save must issue exactly one PATCH /users/me',
+        equals(patchesBefore),
+        reason: 'a phone change must not issue PATCH /users/me',
       );
 
-      // The body carried the new phone and NEVER an instagram key.
-      final body = fb.lastPatchMeBody;
-      expect(body, isNotNull, reason: 'PATCH /users/me body must be captured');
-      expect(
-        body!['phoneNumber'],
-        contains('67 111 22 33'),
-        reason: 'the PATCH body must carry the edited phone',
-      );
-      expect(
-        body.containsKey('instagram'),
-        isFalse,
-        reason:
-            'ClientProfileRepository must NEVER send instagram — the key must '
-            'be absent from the wire body',
-      );
-      // The name + location slices are NOT owned by the Contacts screen, so they
-      // must be omitted (merge-onto-cache preserves them server-side).
-      expect(body.containsKey('cityId'), isFalse);
-      expect(body.containsKey('firstName'), isFalse);
-
-      // Save navigated home; the new phone round-trips through the fake state.
+      // Confirmed → navigated home; the new phone round-trips through the fake.
       AppHarness.expectLocation(router, RouteNames.clientHome);
       expect(
         fb.clientPhone,
-        '+380 67 111 22 33',
-        reason: 'the fake /users/me state must reflect the persisted phone',
+        '+380671112233',
+        reason: 'the fake /users/me state must reflect the confirmed phone',
       );
 
       // ── REGRESSION (stale home card) ─────────────────────────────────────
-      // The home-hub profile card derives from the auth session User. The save
-      // path calls AuthNotifier.refreshUser() (→ GET /users/me) BEFORE
-      // invalidating the profile providers, so the freshly-persisted phone must
+      // The home-hub profile card derives from the /users/me profile. The
+      // confirmed change refreshes the session (→ GET /users/me) and
+      // invalidates the profile providers, so the freshly-confirmed phone must
       // surface on the home card WITHOUT restarting the app. Before the fix this
       // showed the STALE phone until a cold start.
       await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -193,8 +205,9 @@ void main() {
         findsOneWidget,
         reason: 'save must land back on the home hub',
       );
+      // The confirmed number is stored as `+380…` (the code step's form).
       expect(
-        find.textContaining('67 111 22 33'),
+        find.textContaining('+380671112233'),
         findsOneWidget,
         reason:
             'the home-hub profile card must show the NEW phone in-session '

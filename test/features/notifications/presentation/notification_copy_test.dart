@@ -1219,4 +1219,145 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  // Phone-first auth (AUTH-D19) — contact-change security notices: locked UK
+  // copy, the masked new contact when present, the support line otherwise.
+  group('security notices (AUTH-D19)', () {
+    final AppLocalizationsUk uk = AppLocalizationsUk();
+    final AppLocalizationsEn en = AppLocalizationsEn();
+    const String support = 'Якщо це не ви — зверніться в підтримку.';
+
+    AppNotification row(AppNotificationType type, String? masked) =>
+        AppNotification(
+          id: '00000000-0000-4000-8000-000000000519',
+          type: type,
+          createdAt: DateTime.utc(2026, 11, 18, 10),
+          read: false,
+          target: const NotificationTarget.none(),
+          params: NotificationParams(maskedContact: masked),
+        );
+
+    const Map<AppNotificationType, String> titles =
+        <AppNotificationType, String>{
+          AppNotificationType.securityPhoneChanged: 'Номер телефону змінено',
+          AppNotificationType.securityEmailChanged:
+              'Email для сповіщень змінено',
+        };
+
+    for (final MapEntry<AppNotificationType, String> e in titles.entries) {
+      test('${e.key.name}: title and security glyph — same for every role', () {
+        for (final bool isClient in <bool>[true, false]) {
+          expect(
+            NotificationCopy.title(uk, e.key, isClient: isClient),
+            e.value,
+          );
+          expect(
+            NotificationCopy.title(en, e.key, isClient: isClient),
+            isNot(en.notificationTitleUnknown),
+          );
+        }
+        expect(NotificationCopy.glyph(e.key), Icons.security_rounded);
+      });
+
+      test('${e.key.name}: body is the support line when maskedContact is '
+          'null', () {
+        for (final bool isClient in <bool>[true, false]) {
+          expect(
+            NotificationCopy.body(uk, row(e.key, null), isClient: isClient),
+            support,
+          );
+        }
+        expect(
+          NotificationCopy.body(en, row(e.key, null), isClient: true),
+          en.notificationBodySecuritySupport,
+        );
+      });
+    }
+
+    test('securityPhoneChanged: body names the masked new number', () {
+      const String masked = '+380 •• ••• •• 67';
+      expect(
+        NotificationCopy.body(
+          uk,
+          row(AppNotificationType.securityPhoneChanged, masked),
+          isClient: false,
+        ),
+        'Новий номер: ${_iso(masked)}. Якщо це не ви — зверніться в '
+        'підтримку.',
+      );
+    });
+
+    test('securityEmailChanged: body names the masked new email', () {
+      const String masked = 'o•••@gmail.com';
+      expect(
+        NotificationCopy.body(
+          uk,
+          row(AppNotificationType.securityEmailChanged, masked),
+          isClient: true,
+        ),
+        'Новий email для сповіщень: ${_iso(masked)}. Якщо це не ви — '
+        'зверніться в підтримку.',
+      );
+    });
+
+    // Phone-first hardening (AUTH-D26 a) — the password-reset notice: same
+    // glyph, never navigates, fixed body with no contact value, title equal
+    // to the backend PushCopy title.
+    test('securityPasswordReset: title, glyph, fixed body; no target, no '
+        'footer', () {
+      for (final bool isClient in <bool>[true, false]) {
+        expect(
+          NotificationCopy.title(
+            uk,
+            AppNotificationType.securityPasswordReset,
+            isClient: isClient,
+          ),
+          'Пароль змінено',
+        );
+        expect(
+          NotificationCopy.body(
+            uk,
+            row(AppNotificationType.securityPasswordReset, null),
+            isClient: isClient,
+          ),
+          'Пароль до вашого акаунта змінено. $support',
+        );
+      }
+      // A stray maskedContact is never shown on this notice.
+      expect(
+        NotificationCopy.body(
+          uk,
+          row(AppNotificationType.securityPasswordReset, '+380 •• 67'),
+          isClient: true,
+        ),
+        'Пароль до вашого акаунта змінено. $support',
+      );
+      expect(
+        NotificationCopy.title(
+          en,
+          AppNotificationType.securityPasswordReset,
+          isClient: true,
+        ),
+        en.notificationTitleSecurityPasswordReset,
+      );
+      expect(
+        NotificationCopy.body(
+          en,
+          row(AppNotificationType.securityPasswordReset, null),
+          isClient: true,
+        ),
+        en.notificationBodySecurityPasswordReset,
+      );
+      expect(
+        NotificationCopy.glyph(AppNotificationType.securityPasswordReset),
+        Icons.security_rounded,
+      );
+      // isSecurityNotice drives NoTarget in the mapper and hides the tile
+      // footer (notification_tile.dart).
+      expect(
+        AppNotificationType.securityPasswordReset.isSecurityNotice,
+        isTrue,
+      );
+    });
+  });
 }

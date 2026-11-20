@@ -72,6 +72,13 @@ abstract final class NotificationCopy {
       l10n.notificationTitleReviewAboutYouRemoved,
     AppNotificationType.bookingReminder =>
       l10n.notificationTitleBookingReminder,
+    // Phone-first auth (AUTH-D19) — contact-change security notices.
+    AppNotificationType.securityPhoneChanged =>
+      l10n.notificationTitleSecurityPhoneChanged,
+    AppNotificationType.securityEmailChanged =>
+      l10n.notificationTitleSecurityEmailChanged,
+    AppNotificationType.securityPasswordReset =>
+      l10n.notificationTitleSecurityPasswordReset,
     AppNotificationType.unknown => l10n.notificationTitleUnknown,
   };
 
@@ -131,6 +138,21 @@ abstract final class NotificationCopy {
         };
       case AppNotificationType.reviewAboutYouRemoved:
         return l10n.notificationBodyReviewAboutYouRemoved;
+      // Phone-first auth (AUTH-D19) — the masked new contact when the wire
+      // carries it, the support line alone otherwise (never «params gone»).
+      case AppNotificationType.securityPhoneChanged:
+        final String? phone = sanitize(p.maskedContact);
+        return phone == null
+            ? l10n.notificationBodySecuritySupport
+            : l10n.notificationBodySecurityPhoneChanged(phone);
+      case AppNotificationType.securityEmailChanged:
+        final String? email = sanitize(p.maskedContact);
+        return email == null
+            ? l10n.notificationBodySecuritySupport
+            : l10n.notificationBodySecurityEmailChanged(email);
+      // AUTH-D26 a — fixed copy, no contact value.
+      case AppNotificationType.securityPasswordReset:
+        return l10n.notificationBodySecurityPasswordReset;
       default:
         break;
     }
@@ -499,6 +521,9 @@ abstract final class NotificationCopy {
     AppNotificationType.contentRemoved => Icons.gpp_maybe_rounded,
     AppNotificationType.reviewAboutYouRemoved => Icons.reviews_rounded,
     AppNotificationType.bookingReminder => Icons.alarm_rounded,
+    AppNotificationType.securityPhoneChanged ||
+    AppNotificationType.securityEmailChanged ||
+    AppNotificationType.securityPasswordReset => Icons.security_rounded,
     AppNotificationType.unknown => Icons.notifications_rounded,
   };
 

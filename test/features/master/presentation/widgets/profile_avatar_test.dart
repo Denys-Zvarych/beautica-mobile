@@ -226,12 +226,10 @@ void main() {
       expect(find.byType(Semantics), findsWidgets);
     });
 
-    // ── User decision 2026-09-26 — the stat cards are display-only ──────────
-    // `StatTile` no longer has an `onTap` param at all (Phase 351's additive
-    // `onTap` was removed with no remaining caller). This pins the tile is
-    // unconditionally non-interactive: no `InkWell`, no button semantics, and
-    // a tap on it is a no-op.
-    group('display-only (user decision 2026-09-26)', () {
+    // ── Default (onTap == null) is display-only ─────────────────────────────
+    // Every own-profile caller omits `onTap` (user decision 2026-09-26): no
+    // `InkWell`, no gesture, no button semantics, and a tap is a no-op.
+    group('display-only when onTap is null (default)', () {
       testWidgets('no InkWell, no button semantics', (tester) async {
         // Disposed explicitly at the END of the body, not via addTearDown:
         // `_verifySemanticsHandlesWereDisposed` runs BEFORE tear-downs.
@@ -272,6 +270,121 @@ void main() {
 
         expect(find.byType(StatTile), findsOneWidget);
         expect(find.text('4.8'), findsOneWidget);
+      });
+
+      testWidgets('no GestureDetector or AnimatedScale in the tree', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          const StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          find.descendant(
+            of: find.byType(StatTile),
+            matching: find.byType(GestureDetector),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(StatTile),
+            matching: find.byType(AnimatedScale),
+          ),
+          findsNothing,
+        );
+      });
+    });
+
+    // ── onTap set (client-view master profile, user decision 2026-11-17) ───
+    group('tappable when onTap is set', () {
+      testWidgets('a tap by the tile Key fires onTap exactly once', (
+        tester,
+      ) async {
+        int taps = 0;
+        await tester.pumpApp(
+          StatTile(
+            key: const Key('tile'),
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+            onTap: () => taps++,
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('tile')));
+        await tester.pumpAndSettle();
+
+        expect(taps, 1);
+      });
+
+      testWidgets('button semantics, composed label and tap hint', (
+        tester,
+      ) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await tester.pumpApp(
+          StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+            onTap: () {},
+            tapHint: 'Відкрити вкладку «Відгуки»',
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          tester.getSemantics(find.byType(StatTile)),
+          isSemantics(
+            isButton: true,
+            hasTapAction: true,
+            label: '4.8 Рейтинг',
+            onTapHint: 'Відкрити вкладку «Відгуки»',
+          ),
+        );
+        expect(find.byType(InkWell), findsNothing, reason: 'no ripple');
+
+        handle.dispose();
+      });
+
+      testWidgets('press depresses to 0.97 and releases back to 1', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+            onTap: () {},
+          ),
+        );
+        await tester.pump();
+
+        double scale() => tester
+            .widget<AnimatedScale>(
+              find.descendant(
+                of: find.byType(StatTile),
+                matching: find.byType(AnimatedScale),
+              ),
+            )
+            .scale;
+
+        expect(scale(), 1);
+        final TestGesture gesture = await tester.startGesture(
+          tester.getCenter(find.byType(StatTile)),
+        );
+        await tester.pump();
+        expect(scale(), 0.97);
+
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(scale(), 1);
       });
     });
   });

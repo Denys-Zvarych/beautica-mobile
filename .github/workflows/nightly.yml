@@ -1,13 +1,36 @@
 name: Nightly
 
-# Phase 396 — a `schedule` event always runs the workflow file from the default
-# branch (main), while the nightly must test dev. Running pr-validate.yml
-# straight from a schedule therefore paired main's workflow with dev's code
-# (workflow/code skew: dev's patrol test needed a gallery-seed step that main's
-# workflow lacked). Instead this tiny workflow dispatches pr-validate.yml on
-# `dev`, so the dispatched run uses dev's workflow AND dev's code.
+# Nightly full run on main (phase 396; retargeted dev -> main 2026-11-16, "only main",
+# mirroring beautica-backend's nightly.yml).
 #
-# This file must live on the default branch (main) for the schedule to fire.
+# GitHub runs `schedule:` triggers from the DEFAULT branch's copy of a workflow file,
+# so this file (the only one with a schedule) lives on main. It merely dispatches
+# pr-validate.yml on `main`, so the dispatched run uses main's workflow AND main's
+# code (no workflow/code skew, phase 396). pr-validate.yml itself has no `schedule:`
+# (guarded by scripts/forbid_schedule_in_pr_validate.sh).
+#
+# Takes effect only once it is on main (via the dev -> main release PR; never a hotfix),
+# and needs main's pr-validate.yml to accept the `token` dispatch input, which ships in
+# the same release. Requires the repo setting "Workflow permissions" to allow the
+# GITHUB_TOKEN `actions: write` scope below.
+#
+# Failure notification: a dispatched run is fire-and-forget, so a red nightly would be
+# invisible. This job therefore finds the run it dispatched and WAITS for it, failing
+# when it fails or is cancelled. A failed run of THIS workflow is what GitHub notifies.
+# Cost: one idle runner for the length of the dispatched run.
+#
+# Skip rule: a scheduled run is skipped when the newest NIGHTLY run on main (run title
+# `dispatch:nightly:*`) succeeded on the current main HEAD. Manual dispatches of
+# pr-validate (reason=manual) never satisfy it. A manual run of THIS workflow never skips.
+#
+# Identifying the dispatched run: pr-validate.yml titles dispatched runs
+# `dispatch:<reason>:<token>` and gives each dispatch its own concurrency group
+# (run_id suffix), so this job passes token=<this run id>-<attempt> and finds the run
+# by that exact title. No clock comparison, and no other run can replace or cancel it.
+#
+# Timeout: 270 min = the dispatched run's slowest ceiling path, plan 10 + integration
+# 120 + integration-shard 120 + integration-verify 5 + ci-gate verdict, plus slack.
+# Stays under GitHub's 360-min job limit.
 
 on:
   schedule:
@@ -16,29 +39,61 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  actions: write
-  contents: read # dev HEAD lookup for the already-tested skip
+  contents: read
 
 jobs:
   dispatch:
-    name: Dispatch pr-validate on dev
+    name: Dispatch pr-validate on main
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 270
+    permissions:
+      actions: write
+      contents: read # main HEAD lookup for the already-tested skip
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - name: Dispatch pr-validate.yml on dev
+      # No checkout needed anywhere: GH_REPO names the repo.
+      - name: Skip when main HEAD already passed a nightly run
+        id: gate
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
-          # Skip when the last successful nightly dispatch already tested the
-          # current dev HEAD. FAIL OPEN: any API/parse error -> dispatch.
-          if head="$(gh api "repos/$GH_REPO/commits/dev" -q .sha 2>/dev/null)" && [ -n "$head" ] &&
-             last="$(gh run list --workflow pr-validate.yml --branch dev --event workflow_dispatch \
-                       --status success --limit 30 --json headSha,displayTitle 2>/dev/null)" &&
-             printf '%s' "$last" | jq -e --arg h "$head" \
-                 'any(.[]; .headSha == $h)' >/dev/null 2>&1; then
-            echo "dev HEAD $head already has a successful dispatch run; skipping nightly"
-            exit 0
+          set -euo pipefail
+          skip=false
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            head=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+            last_ok=$(gh run list --workflow pr-validate.yml --event workflow_dispatch --branch main --limit 30 \
+              --json headSha,conclusion,displayTitle,createdAt \
+              --jq 'map(select(.displayTitle | startswith("dispatch:nightly:"))) | sort_by(.createdAt) | last
+                    | select(. != null and .conclusion == "success") | .headSha // empty')
+            if [[ "$last_ok" == "$head" ]]; then
+              skip=true
+              echo "main HEAD $head already passed the last nightly run; skipping." | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
           fi
-          gh workflow run pr-validate.yml --ref dev -f reason=nightly
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+      # GITHUB_TOKEN is allowed to trigger workflow_dispatch (the one exception to the
+      # "no recursive workflow triggers" rule).
+      - name: Dispatch pr-validate on main and wait for it
+        if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          title="dispatch:nightly:$token"
+          gh workflow run pr-validate.yml --ref main -f reason=nightly -f token="$token"
+          id=""
+          for _ in $(seq 1 20); do
+            id=$(gh run list --workflow pr-validate.yml --event workflow_dispatch --branch main --limit 30 \
+              --json databaseId,displayTitle \
+              --jq "map(select(.displayTitle == \"$title\")) | first | .databaseId // empty")
+            [[ -n "$id" ]] && break
+            sleep 6
+          done
+          [[ -n "$id" ]] || { echo "::error::dispatched run '$title' did not appear"; exit 1; }
+          echo "Dispatched run: https://github.com/$GH_REPO/actions/runs/$id" | tee -a "$GITHUB_STEP_SUMMARY"
+          # --exit-status: non-zero when the dispatched run fails or is cancelled, which fails this job.
+          gh run watch "$id" --interval 60 --exit-status >/dev/null

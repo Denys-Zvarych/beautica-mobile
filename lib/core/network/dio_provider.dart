@@ -18,6 +18,8 @@
 //   5. ClockSkewWarningInterceptor — debug-only device/server clock-skew log
 //      (2026-08-02) — diagnostics only, see that file's header; no code path
 //      trusts or applies the value.
+//   5b. AppCheckInterceptor      — M515: `X-Firebase-AppCheck` on the
+//                                  SMS-sending paths only.
 //   6. RefreshInterceptor        — handles 401 retry with silent token refresh.
 //   7. ErrorMapperInterceptor    — converts DioException → typed Failure.
 //
@@ -123,14 +125,18 @@
 import 'dart:developer';
 import 'dart:io';
 
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../app_version/app_version_info.dart';
 import '../config/app_config.dart';
+import 'app_check_prefetch.dart';
+import 'app_check_interceptor.dart';
 import 'app_version_interceptor.dart';
 import 'auth_interceptor.dart';
 import 'clock_skew_warning_interceptor.dart';
@@ -244,6 +250,42 @@ bool _logRejectedCertificate(X509Certificate cert, String host, int port) {
 // Authenticated Dio provider
 // ---------------------------------------------------------------------------
 
+/// Upper bound on the WHOLE App Check token fetch (Firebase init wait +
+/// `getLimitedUseToken()`). An SMS-sending request must never hang on attestation: past
+/// this bound it goes out without the header and the backend decides.
+const Duration kAppCheckTokenTimeout = Duration(seconds: 5);
+
+/// M515 (AUTH-D14) — the production [AppCheckTokenSource]: `null` while
+/// Firebase is not initialised (push-less build), else a fresh LIMITED-USE
+/// token (AUTH-D27 d): one per SMS-sending request, never the SDK-cached
+/// standard token, so the backend can refuse a replayed `jti`.
+///
+/// The whole fetch is capped by [timeout]; a timeout or any error yields
+/// `null` (request proceeds without the header). [firebaseReady] and
+/// [getToken] are seams — production passes the push-available future and
+/// leaves [getToken] to the SDK.
+Future<String?> appCheckToken({
+  required Future<bool> Function() firebaseReady,
+  Future<String?> Function()? getToken,
+  Duration timeout = kAppCheckTokenTimeout,
+}) async {
+  Future<String?> fetch() async {
+    if (!await firebaseReady()) return null;
+    return (getToken ?? FirebaseAppCheck.instance.getLimitedUseToken)();
+  }
+
+  try {
+    return await fetch().timeout(timeout);
+  } on Object catch (e) {
+    log(
+      'App Check token fetch failed (${e.runtimeType}); sending without it',
+      name: 'core.appcheck',
+      level: 900,
+    );
+    return null;
+  }
+}
+
 /// Authenticated [Dio] client wired with the full interceptor chain.
 ///
 /// Kept alive for the lifetime of the app — a single instance is reused
@@ -287,10 +329,22 @@ Dio dio(Ref ref) {
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
     if (kDebugMode) ClockSkewWarningInterceptor(),
+    // M515 (AUTH-D14) — App Check token on the SMS-sending paths only. AFTER
+    // the debug logger so the token never reaches a log line.
+    // Phone-first hardening P2: a token prefetched when the phone / code step
+    // opened is used once, else one is fetched on demand (same 5 s cap).
+    AppCheckInterceptor(() => ref.read(appCheckTokenPrefetcherProvider).take()),
     // Order is load-bearing — see the header. RefreshInterceptor must run
     // BEFORE ErrorMapperInterceptor, whose `handler.reject` ends the error flow.
     RefreshInterceptor(ref, d),
-    ErrorMapperInterceptor(),
+    // M517 (AUTH-D12) — a 409 PHONE_NOT_VERIFIED refreshes the session user
+    // (GET /users/me is not gated), whose `phoneRequiredBy` makes the router
+    // show the blocking add-phone step over the open screen. Read lazily,
+    // like RefreshInterceptor's logout, so there is no construction cycle.
+    ErrorMapperInterceptor(
+      onPhoneNotVerified: () =>
+          ref.read(authProvider.notifier).onPhoneNotVerified(),
+    ),
   ]);
 
   // Wire cert-pinning via IOHttpClientAdapter when the cached SecurityContext

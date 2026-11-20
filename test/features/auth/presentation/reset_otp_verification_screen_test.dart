@@ -41,7 +41,7 @@ ResetPasswordArgs? capturedArgs;
 GoRouter _makeRouter({
   required Future<void> Function() onRequestOtp,
   required Future<String> Function(String code) onVerify,
-  String displayEmail = _kEmail,
+  String? displayEmail = _kEmail,
   bool fromChangePassword = false,
 }) {
   capturedArgs = null;
@@ -73,7 +73,7 @@ Future<void> _pump(
   WidgetTester tester, {
   required Future<void> Function() onRequestOtp,
   required Future<String> Function(String code) onVerify,
-  String displayEmail = _kEmail,
+  String? displayEmail = _kEmail,
   bool fromChangePassword = false,
 }) async {
   final router = _makeRouter(
@@ -420,6 +420,26 @@ void main() {
       );
 
       expect(find.textContaining('@example.com'), findsWidgets);
+    });
+
+    // M517 (AUTH-D18) — the forgot-password entry passes no email: neutral
+    // copy, no target, the channel never named.
+    testWidgets('M517: displayEmail null → neutral copy, no address', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        onRequestOtp: () async {},
+        onVerify: (code) async => 'ticket',
+        displayEmail: null,
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ResetOtpVerificationScreen)),
+      );
+
+      expect(find.textContaining(l10n.resetCodeSentNeutral), findsOneWidget);
+      expect(find.textContaining('@'), findsNothing);
+      expect(find.textContaining(l10n.resetOtpCardDesc), findsNothing);
     });
 
     testWidgets('8. top-left back button pops the route', (tester) async {

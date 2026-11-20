@@ -40,3 +40,12 @@ e887d89933c7d70a2ddbe18006f76ec1d67bd465:test/core/diagnostics/crash_scrubber_te
 # a fake test value, not a credential.
 60b28bcf66b04548503d6467c88307852a3cfe0e:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3290
 60b28bcf66b04548503d6467c88307852a3cfe0e:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3302
+
+# Phone-first auth (2026-11-19): four more auth_notifier_test.dart acceptInvite
+# stubs in commit c93ee9b used the same fake fixture invite token
+# 'invite-abc123' next to a `token:` key; a test value, not a credential.
+# The literals were later renamed to 'invite-xyz'.
+c93ee9b6eb4f16b3a01defb2c85c0217e6ac5582:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3935
+c93ee9b6eb4f16b3a01defb2c85c0217e6ac5582:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3959
+c93ee9b6eb4f16b3a01defb2c85c0217e6ac5582:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3980
+c93ee9b6eb4f16b3a01defb2c85c0217e6ac5582:test/features/auth/presentation/auth_notifier_test.dart:generic-api-key:3996

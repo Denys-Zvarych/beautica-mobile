@@ -3,6 +3,9 @@
 // Owns every field collected across the four-pill registration wizard:
 //   • Step 1 (Account)       — email + password + confirmPassword +
 //                              termsAccepted
+//   • M515 phone-first order: phone (+ termsAccepted) -> SMS code
+//     (registrationTicket) -> password -> name -> address. `email` stays
+//     empty on that path (no email field for any role, AUTH-D11).
 //   • Step 2 (Profile)       — firstName + lastName + phone + salonName
 //   • Step 3 (Address)       — cityId + districtId + street/...
 //
@@ -34,6 +37,11 @@ sealed class RegisterDraft with _$RegisterDraft {
     // Phase 443 — the required terms + privacy checkbox on Step 1. Sent as
     // the consent triple by Step 3's `register()` call.
     @Default(false) bool termsAccepted,
+    // M515 (AUTH-41) — the single-use, 15-minute ticket from
+    // `POST /auth/register/phone/otp/verify` (the phone is proven by SMS).
+    // A credential: wiped by [RegisterDraftNotifier.clearCredentials] and
+    // [RegisterDraftNotifier.updatePhone], never persisted.
+    String? registrationTicket,
     // Step 2 — Profile
     @Default('') String firstName,
     @Default('') String lastName,
@@ -56,4 +64,29 @@ sealed class RegisterDraft with _$RegisterDraft {
     @Default('') String buildingNo,
     @Default('') String locationNote,
   }) = _RegisterDraft;
+
+  const RegisterDraft._();
+
+  /// Credentials and PII never print (logs, crash reports, test failure
+  /// output): [password], [confirmPassword] and [registrationTicket] are
+  /// redacted to a set / unset marker, and so are the personal fields
+  /// [email], [phone], [firstName], [lastName], [street], [buildingNo] and
+  /// [locationNote]. Freezed skips its own `toString` for this class.
+  @override
+  String toString() =>
+      'RegisterDraft(role: $role, email: ${_presence(email)}, '
+      'password: ${_redact(password)}, '
+      'confirmPassword: ${_redact(confirmPassword)}, '
+      'termsAccepted: $termsAccepted, '
+      'registrationTicket: ${_redact(registrationTicket)}, '
+      'firstName: ${_presence(firstName)}, '
+      'lastName: ${_presence(lastName)}, phone: ${_presence(phone)}, '
+      'salonName: $salonName, cityId: $cityId, districtId: $districtId, '
+      'street: ${_presence(street)}, buildingNo: ${_presence(buildingNo)}, '
+      'locationNote: ${_presence(locationNote)})';
+
+  static String _presence(String value) => value.isEmpty ? '<empty>' : '<set>';
+
+  static String _redact(String? secret) =>
+      secret == null || secret.isEmpty ? '<empty>' : '<redacted>';
 }

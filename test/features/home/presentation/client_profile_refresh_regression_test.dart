@@ -24,8 +24,11 @@
 //   • the client profile repo's `getMyProfile()` (the `/users/me` source for
 //     clientProfile) returns the OLD profile on the cold-start fetch and the NEW
 //     profile on the post-save `invalidate(clientEditProfileProvider)` re-fetch.
-//   • a real `ClientContactsEditScreen` drives the real `_save()` path through a
-//     mocked `clientProfileRepository.updateMyProfile` (success).
+//   • a real `ClientContactsEditScreen` drives the real `_save()` path. Since
+//     M517 (AUTH-D19) a changed phone runs the shared SMS code + current
+//     password step (`ContactVerifyScreen`, mocked `sendPhoneCode` /
+//     `verifyPhoneCode`) and the session refresh follows the confirmation —
+//     no `PATCH /users/me` carries a different number.
 // After the save it reads `clientProfileProvider` IN THE SAME container and pumps
 // the real `HomeProfileCard` with that summary, asserting the NEW name / city /
 // phone are surfaced WITHOUT any restart.
@@ -44,9 +47,11 @@ import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
+import 'package:beautica_mobile/features/auth/domain/contact_verify_args.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/contact_verify_screen.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
@@ -124,6 +129,13 @@ GoRouter _buildRouter() => GoRouter(
       pageBuilder: (_, _) =>
           const NoTransitionPage<void>(child: ClientContactsEditScreen()),
     ),
+    // M517 (AUTH-D19) — a changed phone goes through the shared code +
+    // current-password step before anything is written.
+    GoRoute(
+      path: RouteNames.phoneChangeVerify,
+      builder: (_, state) =>
+          ContactVerifyScreen(args: state.extra! as ContactVerifyArgs),
+    ),
     GoRoute(
       path: RouteNames.clientHome,
       pageBuilder: (_, _) => const NoTransitionPage<void>(
@@ -132,6 +144,38 @@ GoRouter _buildRouter() => GoRouter(
     ),
   ],
 );
+
+/// The NEW phone in the `+380…` form the screen sends to the code step.
+const String _newPhoneNormalized = '+380671112233';
+
+/// Changes the phone, taps Save, then confirms the SMS code with the current
+/// password on the shared code step (AUTH-D19) — the only way a client's
+/// phone changes now (no `PATCH /users/me` carries a different number).
+Future<void> _changePhoneAndConfirm(WidgetTester tester) async {
+  await tester.enterText(_phoneField(), '+380 67 111 22 33');
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('btn-save-contacts')));
+  await tester.pumpAndSettle();
+
+  // The code step is open over the edit screen.
+  expect(
+    find.byKey(const ValueKey<String>('phone_code_input')),
+    findsOneWidget,
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('phone_code_input')),
+    '123456',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey<String>('phone_code_current_password')),
+    'Current1',
+  );
+  await tester.pump();
+  final Finder submit = find.byKey(const ValueKey<String>('phone_code_submit'));
+  await tester.ensureVisible(submit);
+  await tester.tap(submit);
+  await tester.pumpAndSettle();
+}
 
 Finder _phoneField() => find.descendant(
   of: find.byKey(const Key('field-phone')),
@@ -183,6 +227,17 @@ void main() {
     });
     // The save itself succeeds (200) — we are testing the post-save refresh.
     when(() => profileRepo.updateMyProfile(any())).thenAnswer((_) async {});
+    // M517 (AUTH-D19) — the phone-change code send + confirm succeed.
+    when(
+      () => authRepo.sendPhoneCode(phone: any(named: 'phone')),
+    ).thenAnswer((_) async {});
+    when(
+      () => authRepo.verifyPhoneCode(
+        phone: any(named: 'phone'),
+        code: any(named: 'code'),
+        currentPassword: any(named: 'currentPassword'),
+      ),
+    ).thenAnswer((_) async {});
 
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
@@ -228,18 +283,30 @@ void main() {
       expect(before.phone, '+380 50 000 00 00');
       expect(before.firstName, 'Old');
 
-      // Drive a real save: change the phone so the form is dirty, tap Save.
-      await tester.enterText(_phoneField(), '+380 67 111 22 33');
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('btn-save-contacts')));
-      await tester.pumpAndSettle();
+      // Drive a real save: change the phone, tap Save, confirm the code with
+      // the current password (AUTH-D19).
+      await _changePhoneAndConfirm(tester);
 
-      // The save persisted and navigated home (proves the success path ran).
-      verify(() => profileRepo.updateMyProfile(any())).called(1);
+      // The code went to the NEW number and was confirmed with the password;
+      // a different number is never PATCHed (B516 PhoneChangeGuard).
+      verify(
+        () => authRepo.sendPhoneCode(phone: _newPhoneNormalized),
+      ).called(1);
+      verify(
+        () => authRepo.verifyPhoneCode(
+          phone: _newPhoneNormalized,
+          code: '123456',
+          currentPassword: 'Current1',
+        ),
+      ).called(1);
+      verifyNever(() => profileRepo.updateMyProfile(any()));
+      // The confirmed change navigated home (proves the success path ran).
+      expect(find.byKey(const Key('stub-home')), findsOneWidget);
 
       // REGRESSION ASSERTION — the SAME container now derives the NEW user.
-      // Without the refreshUser() call in _save(), the session User would still
-      // be the cold-start OLD snapshot and these would read OldCity/OldPhone.
+      // Without the session refresh after the confirmed change, the session
+      // User would still be the cold-start OLD snapshot and these would read
+      // OldCity/OldPhone.
       final after = await container.read(clientProfileProvider.future);
       expect(
         after.city,
@@ -266,10 +333,7 @@ void main() {
     (tester) async {
       final container = await bootAuthenticated(tester);
 
-      await tester.enterText(_phoneField(), '+380 67 111 22 33');
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('btn-save-contacts')));
-      await tester.pumpAndSettle();
+      await _changePhoneAndConfirm(tester);
 
       final ClientProfileSummary summary = await container.read(
         clientProfileProvider.future,

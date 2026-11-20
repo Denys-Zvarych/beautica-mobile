@@ -99,9 +99,11 @@ class _$InvitePreviewResponseRoleEnumSerializer
 
 class _$InvitePreviewResponse extends InvitePreviewResponse {
   @override
-  final String? invitedEmail;
+  final String? phoneMasked;
   @override
   final InvitePreviewResponseRoleEnum? role;
+  @override
+  final String? salonName;
   @override
   final DateTime? expiresAt;
 
@@ -109,7 +111,8 @@ class _$InvitePreviewResponse extends InvitePreviewResponse {
           [void Function(InvitePreviewResponseBuilder)? updates]) =>
       (InvitePreviewResponseBuilder()..update(updates))._build();
 
-  _$InvitePreviewResponse._({this.invitedEmail, this.role, this.expiresAt})
+  _$InvitePreviewResponse._(
+      {this.phoneMasked, this.role, this.salonName, this.expiresAt})
       : super._();
   @override
   InvitePreviewResponse rebuild(
@@ -124,16 +127,18 @@ class _$InvitePreviewResponse extends InvitePreviewResponse {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is InvitePreviewResponse &&
-        invitedEmail == other.invitedEmail &&
+        phoneMasked == other.phoneMasked &&
         role == other.role &&
+        salonName == other.salonName &&
         expiresAt == other.expiresAt;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, invitedEmail.hashCode);
+    _$hash = $jc(_$hash, phoneMasked.hashCode);
     _$hash = $jc(_$hash, role.hashCode);
+    _$hash = $jc(_$hash, salonName.hashCode);
     _$hash = $jc(_$hash, expiresAt.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -142,8 +147,9 @@ class _$InvitePreviewResponse extends InvitePreviewResponse {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'InvitePreviewResponse')
-          ..add('invitedEmail', invitedEmail)
+          ..add('phoneMasked', phoneMasked)
           ..add('role', role)
+          ..add('salonName', salonName)
           ..add('expiresAt', expiresAt))
         .toString();
   }
@@ -153,13 +159,17 @@ class InvitePreviewResponseBuilder
     implements Builder<InvitePreviewResponse, InvitePreviewResponseBuilder> {
   _$InvitePreviewResponse? _$v;
 
-  String? _invitedEmail;
-  String? get invitedEmail => _$this._invitedEmail;
-  set invitedEmail(String? invitedEmail) => _$this._invitedEmail = invitedEmail;
+  String? _phoneMasked;
+  String? get phoneMasked => _$this._phoneMasked;
+  set phoneMasked(String? phoneMasked) => _$this._phoneMasked = phoneMasked;
 
   InvitePreviewResponseRoleEnum? _role;
   InvitePreviewResponseRoleEnum? get role => _$this._role;
   set role(InvitePreviewResponseRoleEnum? role) => _$this._role = role;
+
+  String? _salonName;
+  String? get salonName => _$this._salonName;
+  set salonName(String? salonName) => _$this._salonName = salonName;
 
   DateTime? _expiresAt;
   DateTime? get expiresAt => _$this._expiresAt;
@@ -172,8 +182,9 @@ class InvitePreviewResponseBuilder
   InvitePreviewResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _invitedEmail = $v.invitedEmail;
+      _phoneMasked = $v.phoneMasked;
       _role = $v.role;
+      _salonName = $v.salonName;
       _expiresAt = $v.expiresAt;
       _$v = null;
     }
@@ -196,8 +207,9 @@ class InvitePreviewResponseBuilder
   _$InvitePreviewResponse _build() {
     final _$result = _$v ??
         _$InvitePreviewResponse._(
-          invitedEmail: invitedEmail,
+          phoneMasked: phoneMasked,
           role: role,
+          salonName: salonName,
           expiresAt: expiresAt,
         );
     replace(_$result);

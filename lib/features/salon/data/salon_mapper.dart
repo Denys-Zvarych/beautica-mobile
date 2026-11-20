@@ -345,16 +345,13 @@ abstract final class SalonInviteMapper {
           // semantic label built from the same string (mirrors
           // `FavoriteMapper`'s own precedent).
           //
-          // The address is attacker-influenced: a SALON_ADMIN types it into
-          // the invite form and the OWNER reads it back in the history.
-          // `validateEmail`'s `[^@\s]+` local part ACCEPTS U+202E, U+200B,
-          // U+2066 and U+200E (only U+FEFF is caught, incidentally via `\s`),
-          // and the backend applies no character-class check either. Until
-          // this screen the payload was accidentally bounded by a
-          // `maxLines: 1` clip; the history rework moved the address to
-          // `maxLines: 2` + soft wrap and removed that bound — verbatim the
-          // regression `sanitizeDisplayText`'s own header documents.
-          recipientEmail: sanitizeDisplayText(dto.recipientEmail ?? ''),
+          // Kept although the value is now a backend-normalised phone (B520,
+          // SAL-48: `recipientPhone`; pre-deploy email rows are no longer
+          // listed): the row renders it with `maxLines: 2` + soft wrap, so a
+          // wire value is never trusted to be free of bidi / zero-width
+          // characters — the regression `sanitizeDisplayText`'s own header
+          // documents.
+          recipientPhone: sanitizeDisplayText(dto.recipientPhone ?? ''),
           role: _inviteRoleFromWire(dto.role),
           status: _statusFromWire(dto.status),
           createdAt:

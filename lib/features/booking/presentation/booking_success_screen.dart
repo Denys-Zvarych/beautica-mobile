@@ -28,6 +28,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/email_prompts.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
@@ -146,10 +147,19 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
     return (trimmed?.isNotEmpty ?? false) ? trimmed : null;
   }
 
+  /// M517 (AUTH-D17 b) — whether the email card is in the recap. Claimed
+  /// once in [initState] (client create only, never a reschedule / walk-in).
+  bool _showEmailCard = false;
+
   @override
   void initState() {
     super.initState();
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    if (!widget.args.isReschedule && !widget.args.isWalkIn) {
+      claimClientEmailPrompt(ref).then((bool show) {
+        if (show && mounted) setState(() => _showEmailCard = true);
+      });
+    }
   }
 
   @override
@@ -361,6 +371,12 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
                   onTap: () => _onAddToCalendar(context),
                 ),
         ),
+        // M517 (AUTH-D17 b, CLI-D09) — the once-ever email card after a
+        // CLIENT's booking; a recap entry only while shown.
+        if (_showEmailCard)
+          ClientEmailPromptCard(
+            onDismiss: () => setState(() => _showEmailCard = false),
+          ),
       ],
     );
   }

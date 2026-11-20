@@ -8,14 +8,14 @@ part of 'invite_response.dart';
 
 class _$InviteResponse extends InviteResponse {
   @override
-  final String? invitedEmail;
+  final String? invitedPhone;
   @override
   final DateTime? expiresAt;
 
   factory _$InviteResponse([void Function(InviteResponseBuilder)? updates]) =>
       (InviteResponseBuilder()..update(updates))._build();
 
-  _$InviteResponse._({this.invitedEmail, this.expiresAt}) : super._();
+  _$InviteResponse._({this.invitedPhone, this.expiresAt}) : super._();
   @override
   InviteResponse rebuild(void Function(InviteResponseBuilder) updates) =>
       (toBuilder()..update(updates)).build();
@@ -27,14 +27,14 @@ class _$InviteResponse extends InviteResponse {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is InviteResponse &&
-        invitedEmail == other.invitedEmail &&
+        invitedPhone == other.invitedPhone &&
         expiresAt == other.expiresAt;
   }
 
   @override
   int get hashCode {
     var _$hash = 0;
-    _$hash = $jc(_$hash, invitedEmail.hashCode);
+    _$hash = $jc(_$hash, invitedPhone.hashCode);
     _$hash = $jc(_$hash, expiresAt.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -43,7 +43,7 @@ class _$InviteResponse extends InviteResponse {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'InviteResponse')
-          ..add('invitedEmail', invitedEmail)
+          ..add('invitedPhone', invitedPhone)
           ..add('expiresAt', expiresAt))
         .toString();
   }
@@ -53,9 +53,9 @@ class InviteResponseBuilder
     implements Builder<InviteResponse, InviteResponseBuilder> {
   _$InviteResponse? _$v;
 
-  String? _invitedEmail;
-  String? get invitedEmail => _$this._invitedEmail;
-  set invitedEmail(String? invitedEmail) => _$this._invitedEmail = invitedEmail;
+  String? _invitedPhone;
+  String? get invitedPhone => _$this._invitedPhone;
+  set invitedPhone(String? invitedPhone) => _$this._invitedPhone = invitedPhone;
 
   DateTime? _expiresAt;
   DateTime? get expiresAt => _$this._expiresAt;
@@ -68,7 +68,7 @@ class InviteResponseBuilder
   InviteResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
-      _invitedEmail = $v.invitedEmail;
+      _invitedPhone = $v.invitedPhone;
       _expiresAt = $v.expiresAt;
       _$v = null;
     }
@@ -91,7 +91,7 @@ class InviteResponseBuilder
   _$InviteResponse _build() {
     final _$result = _$v ??
         _$InviteResponse._(
-          invitedEmail: invitedEmail,
+          invitedPhone: invitedPhone,
           expiresAt: expiresAt,
         );
     replace(_$result);

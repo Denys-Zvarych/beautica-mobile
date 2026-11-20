@@ -107,6 +107,7 @@ import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -124,6 +125,42 @@ import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
+
+/// MAS-39 (2026-11-16) — a salon booking screen's master card opens the
+/// master's public profile in BOOKING CONTEXT: exact URI (fixed string, not
+/// the `RouteNames` helper, so a mutation inside it is red too), the profile
+/// RESOLVED (the book CTA only renders on a resolved profile, so "CTA absent"
+/// is not vacuous), and «Записатись до майстра» hidden.
+void _expectBookingContextProfile(WidgetTester tester, GoRouter router) {
+  expect(AppHarness.location(router), '/masters/master-ccc?fromBooking=1');
+  expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+  expect(
+    find.byKey(const Key('public-master-profile-name')),
+    findsOneWidget,
+    reason: 'the profile must RESOLVE, else the CTA check below is vacuous',
+  );
+  expect(
+    find.byKey(const Key('public-master-book-cta')),
+    findsNothing,
+    reason:
+        'opened from a salon booking screen, the profile must not offer '
+        '«Записатись до майстра» (MAS-39)',
+  );
+}
+
+/// Taps the profile's own top-bar back chevron (MAS-39: a visible way back,
+/// not only the system gesture) — mirrors
+/// `client_booking_rating_visibility_flow_test.dart`'s `tapProfileBack`.
+Future<void> _tapProfileBack(WidgetTester tester) async {
+  final Finder back = find.descendant(
+    of: find.byType(PublicMasterProfileScreen),
+    matching: find.byIcon(Icons.arrow_back_ios_new_rounded),
+  );
+  expect(back, findsOneWidget, reason: 'the profile shows a back button');
+  await tester.tap(back);
+  await AppHarness.settle(tester);
+  expect(find.byType(PublicMasterProfileScreen), findsNothing);
+}
 
 /// mobile-qa audit-fix cycle 2: taps the pinned step-3 CTA
 /// (`schedule-confirm-cta`) and settles. Commit `92644d2e` retired the old
@@ -1028,6 +1065,26 @@ void main() {
       );
       expect(fb.lastMasterCccSlotsServiceId, isNot('salon-svc-shared'));
 
+      // ── MAS-39 — the «Час» slide's master card opens master-ccc's public
+      // profile in booking context (no book CTA); the profile's VISIBLE back
+      // button returns to «Час» with master-ccc's date + slot intact (the
+      // CTA press right below only advances to master-ddd because
+      // master-ccc is still fully scheduled). ──────────────────────────────
+      // The slot tap above scrolled the slide, parking the strip under the
+      // top bar — scroll it back into view first.
+      final Finder cccTimeStrip = withinSlide(
+        'master-ccc',
+        find.byType(MasterStrip),
+      );
+      await tester.ensureVisible(cccTimeStrip);
+      await AppHarness.settle(tester);
+      await tester.tap(cccTimeStrip);
+      await AppHarness.settle(tester);
+      _expectBookingContextProfile(tester, router);
+      await _tapProfileBack(tester);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingTime);
+      expect(ccdMorningSlot, findsOneWidget, reason: 'still on the TIME phase');
+
       // ── CTA-driven pager advance (mobile-qa audit-fix cycle 2 — commit
       // 92644d2e retired the old auto-advance-off-a-slot-tap contract):
       // master-ccc now has both a date and a time, so this SECOND CTA
@@ -1264,6 +1321,42 @@ void main() {
       await AppHarness.settle(tester);
       expect(confirmCccCard, findsOneWidget);
 
+      // ── MAS-39 — master-ccc's card opens its profile in booking context;
+      // SYSTEM back returns to the confirm screen with the typed comment
+      // intact (`push`), and that comment still reaches the write below. ──
+      final Finder cccCommentField = find.byKey(
+        const Key('salon-confirm-comment-field-master-ccc'),
+      );
+      await tester.enterText(cccCommentField, 'MAS-39 коментар');
+      await AppHarness.settle(tester);
+      // Dismiss the keyboard and bring the strip (scrolled up by the field
+      // focus) back into view before tapping it.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await AppHarness.settle(tester);
+      final Finder cccConfirmStrip = find.descendant(
+        of: confirmCccCard,
+        matching: find.byType(MasterStrip),
+      );
+      await tester.ensureVisible(cccConfirmStrip);
+      await AppHarness.settle(tester);
+      await tester.tap(cccConfirmStrip);
+      await AppHarness.settle(tester);
+      _expectBookingContextProfile(tester, router);
+      expect(await tester.binding.handlePopRoute(), isTrue);
+      await AppHarness.settle(tester);
+      expect(find.byType(PublicMasterProfileScreen), findsNothing);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingConfirm);
+      expect(confirmCccCard, findsOneWidget);
+      expect(
+        find.descendant(
+          of: cccCommentField,
+          // i18n-finder-ok: comment text typed by this test (fixture), not UI copy.
+          matching: find.text('MAS-39 коментар'),
+        ),
+        findsOneWidget,
+        reason: 'the typed comment survives the profile round-trip',
+      );
+
       // ── Submit: one `POST /appointments` per master → all succeed →
       // success screen. This is the booking-WRITE the flow performs end to
       // end (Step 2.7 Rule 3b). ─────────────────────────────────────────────
@@ -1288,6 +1381,11 @@ void main() {
       expect(repo.requestsFor('master-ddd').single.masterServiceIds, <String>[
         'assign-master-ddd-salon-svc-exclusive',
       ]);
+      expect(
+        repo.requestsFor('master-ccc').single.clientComment,
+        'MAS-39 коментар',
+        reason: 'the comment typed before the profile detour is submitted',
+      );
 
       // ── Success screen: same pager rework — one master's recap + its OWN
       // «Додати в календар» pill(s) at a time, no visit-wide grand total. ──
@@ -1341,6 +1439,17 @@ void main() {
         find.byKey(const ValueKey<String>('salon-success-add-calendar-0')),
         findsOneWidget,
       );
+
+      // ── MAS-39 — the confirmed recap's master card opens the profile in
+      // booking context too; the visible back returns to the recap. ───────
+      await tester.tap(
+        find.descendant(of: successCccCard, matching: find.byType(MasterStrip)),
+      );
+      await AppHarness.settle(tester);
+      _expectBookingContextProfile(tester, router);
+      await _tapProfileBack(tester);
+      AppHarness.expectShellLocation(router, RouteNames.salonBookingSuccess);
+      expect(successCccCard, findsOneWidget);
 
       await tester.tap(successNext);
       await AppHarness.settle(tester);

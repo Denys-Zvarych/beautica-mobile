@@ -88,7 +88,7 @@ void main() {
     when(() => authRepo.me()).thenAnswer((_) async => meUser);
     when(() => authRepo.logout()).thenAnswer((_) async {});
     when(
-      () => authRepo.login(email: _ownerB.email, password: 'pw-b'),
+      () => authRepo.login(identifier: _ownerB.email!, password: 'pw-b'),
     ).thenAnswer((_) async => (_ownerB, _tokensB));
 
     var fetches = 0;
@@ -122,7 +122,7 @@ void main() {
 
     await container.read(authProvider.notifier).logout();
     meUser = _ownerB;
-    await container.read(authProvider.notifier).login(_ownerB.email, 'pw-b');
+    await container.read(authProvider.notifier).login(_ownerB.email!, 'pw-b');
 
     final pageB = await container.read(
       salonServiceCatalogProvider(_salonId).future,

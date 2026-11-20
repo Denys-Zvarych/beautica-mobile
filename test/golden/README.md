@@ -17,7 +17,8 @@ Every golden covers: **{320, 360, 414} dp × {textScale 1.0, 1.3}**
 | Test file | Screens / widgets goldened | PNGs |
 |---|---|---|
 | `auth_login_golden_test.dart` | LoginScreen | 6 |
-| `auth_register_golden_test.dart` | RegisterStep1Screen, RegisterStep2Screen (INDEPENDENT_MASTER + SALON_OWNER) | 18 |
+| `auth_register_golden_test.dart` | RegisterStep1Screen, RegisterCodeScreen (+ filled / INVALID_CODE error at 360dp × 1.0), RegisterPasswordScreen, RegisterStep2Screen (INDEPENDENT_MASTER + SALON_OWNER) | 32 |
+| `auth_add_phone_golden_test.dart` | AddPhoneScreen (default + AUTH-D28 duplicate), ContactVerifyScreen (phoneAdd) | 18 |
 | `services_pricing_field_golden_test.dart` | PricingField (FIXED + RANGE) | 12 |
 | `services_form_golden_test.dart` | ServiceForm (CREATE + EDIT) | 12 |
 | `calendar_working_hours_golden_test.dart` | WorkingHoursScreen (LOADED + LOADING) | 12 |

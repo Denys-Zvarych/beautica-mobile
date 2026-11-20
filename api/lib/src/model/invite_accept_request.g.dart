@@ -16,13 +16,15 @@ class _$InviteAcceptRequest extends InviteAcceptRequest {
   @override
   final String lastName;
   @override
-  final String phoneNumber;
+  final String? phoneNumber;
   @override
   final bool? termsAccepted;
   @override
   final String? termsVersion;
   @override
   final String? privacyPolicyVersion;
+  @override
+  final String? registrationTicket;
 
   factory _$InviteAcceptRequest(
           [void Function(InviteAcceptRequestBuilder)? updates]) =>
@@ -33,10 +35,11 @@ class _$InviteAcceptRequest extends InviteAcceptRequest {
       required this.password,
       required this.firstName,
       required this.lastName,
-      required this.phoneNumber,
+      this.phoneNumber,
       this.termsAccepted,
       this.termsVersion,
-      this.privacyPolicyVersion})
+      this.privacyPolicyVersion,
+      this.registrationTicket})
       : super._();
   @override
   InviteAcceptRequest rebuild(
@@ -58,7 +61,8 @@ class _$InviteAcceptRequest extends InviteAcceptRequest {
         phoneNumber == other.phoneNumber &&
         termsAccepted == other.termsAccepted &&
         termsVersion == other.termsVersion &&
-        privacyPolicyVersion == other.privacyPolicyVersion;
+        privacyPolicyVersion == other.privacyPolicyVersion &&
+        registrationTicket == other.registrationTicket;
   }
 
   @override
@@ -72,6 +76,7 @@ class _$InviteAcceptRequest extends InviteAcceptRequest {
     _$hash = $jc(_$hash, termsAccepted.hashCode);
     _$hash = $jc(_$hash, termsVersion.hashCode);
     _$hash = $jc(_$hash, privacyPolicyVersion.hashCode);
+    _$hash = $jc(_$hash, registrationTicket.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -86,7 +91,8 @@ class _$InviteAcceptRequest extends InviteAcceptRequest {
           ..add('phoneNumber', phoneNumber)
           ..add('termsAccepted', termsAccepted)
           ..add('termsVersion', termsVersion)
-          ..add('privacyPolicyVersion', privacyPolicyVersion))
+          ..add('privacyPolicyVersion', privacyPolicyVersion)
+          ..add('registrationTicket', registrationTicket))
         .toString();
   }
 }
@@ -129,6 +135,11 @@ class InviteAcceptRequestBuilder
   set privacyPolicyVersion(String? privacyPolicyVersion) =>
       _$this._privacyPolicyVersion = privacyPolicyVersion;
 
+  String? _registrationTicket;
+  String? get registrationTicket => _$this._registrationTicket;
+  set registrationTicket(String? registrationTicket) =>
+      _$this._registrationTicket = registrationTicket;
+
   InviteAcceptRequestBuilder() {
     InviteAcceptRequest._defaults(this);
   }
@@ -144,6 +155,7 @@ class InviteAcceptRequestBuilder
       _termsAccepted = $v.termsAccepted;
       _termsVersion = $v.termsVersion;
       _privacyPolicyVersion = $v.privacyPolicyVersion;
+      _registrationTicket = $v.registrationTicket;
       _$v = null;
     }
     return this;
@@ -173,11 +185,11 @@ class InviteAcceptRequestBuilder
               firstName, r'InviteAcceptRequest', 'firstName'),
           lastName: BuiltValueNullFieldError.checkNotNull(
               lastName, r'InviteAcceptRequest', 'lastName'),
-          phoneNumber: BuiltValueNullFieldError.checkNotNull(
-              phoneNumber, r'InviteAcceptRequest', 'phoneNumber'),
+          phoneNumber: phoneNumber,
           termsAccepted: termsAccepted,
           termsVersion: termsVersion,
           privacyPolicyVersion: privacyPolicyVersion,
+          registrationTicket: registrationTicket,
         );
     replace(_$result);
     return _$result;

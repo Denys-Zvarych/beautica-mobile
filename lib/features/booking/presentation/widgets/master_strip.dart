@@ -187,24 +187,22 @@ class MasterStrip extends StatelessWidget {
 
   /// Makes the card tappable; `null` leaves it inert.
   ///
-  /// ## Tappability policy (locked)
+  /// ## Tappability policy (locked — MAS-39, widened 2026-11-16)
   ///
-  /// The strip is mounted on nine screens and the answer is NOT the same on
-  /// all of them, because the tap always means "leave this screen and go read
-  /// the master's reviews":
+  /// Every CLIENT booking screen whose top carries this card — service
+  /// selection, date, time (new booking AND reschedule), confirm, «Деталі
+  /// запису», «Залишити відгук», salon «Час» / confirm / success — makes it
+  /// TAPPABLE via `masterProfileTap` / `clientMasterProfileTap`
+  /// (`master_profile_tap.dart`): a `push` of the master's public profile,
+  /// whose back button / system back returns with the screen's state intact.
+  /// The profile hides its book CTA from every entry except «Деталі запису».
   ///
-  ///  * **INERT** on the three in-flight wizard steps — service selection,
-  ///    date, time. A stray tap mid-wizard would yank the client out of a
-  ///    half-made booking; the cost of an accidental tap there is losing
-  ///    work, and the strip sits directly above the content the client is
-  ///    reaching for.
-  ///  * **TAPPABLE** on confirm, «Деталі запису» and «Залишити відгук» —
-  ///    terminal or review-shaped screens where leaving costs nothing and a
-  ///    back-swipe restores the state exactly.
+  ///  * INERT for a provider/staff viewer (the profile route is
+  ///    `clientOnlyGuard`ed) and on an empty master id.
   ///  * The salon master PICKER passes its own selection callback instead:
   ///    there the tap CHOOSES the master, it does not navigate away.
   ///
-  /// Booking details is also the only route to a master's reviews for a
+  /// Booking details is also the only route to a master's profile for a
   /// `NOT_COMPLETED` booking, whose action footer is deliberately empty.
   final VoidCallback? onTap;
 

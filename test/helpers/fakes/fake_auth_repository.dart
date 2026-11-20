@@ -166,9 +166,23 @@ final class FakeAuthRepository implements AuthRepository {
       String? businessName,
       String? address,
       String? phone,
+      String? registrationTicket,
     })
   >
   registerCalls = [];
+
+  /// M515 — captured `sendRegistrationCode` phones.
+  final List<String> sendRegistrationCodeCalls = [];
+
+  /// M515 — a [Failure] to throw from `sendRegistrationCode`; `null` = OK.
+  Failure? sendRegistrationCodeFailure;
+
+  /// M515 — captured `verifyRegistrationCode` calls.
+  final List<({String phone, String code})> verifyRegistrationCodeCalls = [];
+
+  /// M515 — `verifyRegistrationCode` result: a [Failure] to throw, else the
+  /// ticket string (default `ticket-1`).
+  Object verifyRegistrationCodeResult = 'ticket-1';
   int logoutCallCount = 0;
 
   /// Captured call count for [me] (cold-start profile load + [refreshUser]).
@@ -182,14 +196,38 @@ final class FakeAuthRepository implements AuthRepository {
   /// Tests can assert `resendCalls.first.email` (backlog row 164).
   final List<({String email})> resendCalls = [];
 
-  /// Captured arguments for each [requestPasswordReset] call.
+  /// Captured arguments for each [requestPasswordReset] call. The field is
+  /// still named `email` (pre-M517 tests read it); since M517 it holds the
+  /// phone-or-email identifier as typed.
   final List<({String email})> requestPasswordResetCalls = [];
 
   /// Captured call count for [requestChangePasswordOtp].
   int requestChangePasswordOtpCallCount = 0;
 
-  /// Captured arguments for each [verifyPasswordResetOtp] call.
+  /// Captured arguments for each [verifyPasswordResetOtp] call (`email` holds
+  /// the M517 identifier — see [requestPasswordResetCalls]).
   final List<({String email, String code})> verifyPasswordResetOtpCalls = [];
+
+  /// M517 — captured `sendPhoneCode` phones; [sendPhoneCodeFailure] is thrown
+  /// when set.
+  final List<String> sendPhoneCodeCalls = [];
+  Failure? sendPhoneCodeFailure;
+
+  /// M517 — captured `verifyPhoneCode` calls; [verifyPhoneCodeFailure] is
+  /// thrown when set (else the verify succeeds and, when
+  /// [userAfterPhoneVerify] is set, [me] returns it from then on).
+  final List<({String phone, String code, String? currentPassword})>
+  verifyPhoneCodeCalls = [];
+  Failure? verifyPhoneCodeFailure;
+  User? userAfterPhoneVerify;
+
+  /// M517 — captured notifications-email calls + their failures.
+  final List<String> requestNotificationEmailCodeCalls = [];
+  Failure? requestNotificationEmailCodeFailure;
+  final List<({String email, String code, String currentPassword})>
+  verifyNotificationEmailCodeCalls = [];
+  Failure? verifyNotificationEmailCodeFailure;
+  User? userAfterEmailVerify;
 
   /// Captured arguments for each [confirmPasswordReset] call.
   final List<({String resetTicket, String newPassword})>
@@ -218,12 +256,17 @@ final class FakeAuthRepository implements AuthRepository {
   /// (index-aligned with [acceptInviteCalls]).
   final List<bool> acceptInviteTermsAcceptedCalls = [];
 
+  /// M521 — `registrationTicket` captured per [acceptInvite] call
+  /// (index-aligned with [acceptInviteCalls]).
+  final List<String?> acceptInviteTicketCalls = [];
+
   // ---------------------------------------------------------------------------
   // AuthRepository
   // ---------------------------------------------------------------------------
 
   static final _defaultInvite = InviteDetails(
-    email: 'invited@salon.ua',
+    phoneMasked: '+380 •• ••• •• 45',
+    salonName: 'Salon Lumière',
     role: UserRole.salonMaster,
     expiresAt: DateTime.now().add(const Duration(hours: 48)),
   );
@@ -243,10 +286,10 @@ final class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<(User, AuthTokens)> login({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
-    loginCalls.add((email: email, password: password));
+    loginCalls.add((email: identifier, password: password));
     final result = loginResult;
     if (result is Failure) throw result;
     if (result is (User, AuthTokens)) return result;
@@ -255,7 +298,7 @@ final class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<RegisterResult> registerIndependentMaster({
-    required String email,
+    String? email,
     required String password,
     required String firstName,
     required String lastName,
@@ -264,10 +307,11 @@ final class FakeAuthRepository implements AuthRepository {
     String? address,
     String? phone,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     registerTermsAcceptedCalls.add(termsAccepted);
     registerCalls.add((
-      email: email,
+      email: email ?? '',
       password: password,
       firstName: firstName,
       lastName: lastName,
@@ -275,6 +319,7 @@ final class FakeAuthRepository implements AuthRepository {
       businessName: businessName,
       address: address,
       phone: phone,
+      registrationTicket: registrationTicket,
     ));
     final result = registerResult;
     if (result is Failure) throw result;
@@ -286,7 +331,25 @@ final class FakeAuthRepository implements AuthRepository {
       return RegisterResult.authenticated(user: user, tokens: tokens);
     }
     // Default: verification-required (matches the current backend default).
-    return RegisterResult.verificationRequired(email: email);
+    return RegisterResult.verificationRequired(email: email ?? '');
+  }
+
+  @override
+  Future<void> sendRegistrationCode({required String phone}) async {
+    sendRegistrationCodeCalls.add(phone);
+    final Failure? failure = sendRegistrationCodeFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<String> verifyRegistrationCode({
+    required String phone,
+    required String code,
+  }) async {
+    verifyRegistrationCodeCalls.add((phone: phone, code: code));
+    final Object result = verifyRegistrationCodeResult;
+    if (result is Failure) throw result;
+    return result as String;
   }
 
   @override
@@ -336,8 +399,8 @@ final class FakeAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> requestPasswordReset(String email) async {
-    requestPasswordResetCalls.add((email: email));
+  Future<void> requestPasswordReset(String identifier) async {
+    requestPasswordResetCalls.add((email: identifier));
     if (requestPasswordResetDelay != null) await requestPasswordResetDelay!;
     final result = requestPasswordResetResult;
     if (result is Failure) throw result;
@@ -355,14 +418,62 @@ final class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<String> verifyPasswordResetOtp({
-    required String email,
+    required String identifier,
     required String code,
   }) async {
-    verifyPasswordResetOtpCalls.add((email: email, code: code));
+    verifyPasswordResetOtpCalls.add((email: identifier, code: code));
     final result = verifyPasswordResetOtpResult;
     if (result is Failure) throw result;
     if (result is String) return result;
     return 'default-reset-ticket';
+  }
+
+  @override
+  Future<void> sendPhoneCode({required String phone}) async {
+    sendPhoneCodeCalls.add(phone);
+    final Failure? failure = sendPhoneCodeFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<void> verifyPhoneCode({
+    required String phone,
+    required String code,
+    String? currentPassword,
+  }) async {
+    verifyPhoneCodeCalls.add((
+      phone: phone,
+      code: code,
+      currentPassword: currentPassword,
+    ));
+    final Failure? failure = verifyPhoneCodeFailure;
+    if (failure != null) throw failure;
+    final User? next = userAfterPhoneVerify;
+    if (next != null) meResult = next;
+  }
+
+  @override
+  Future<void> requestNotificationEmailCode({required String email}) async {
+    requestNotificationEmailCodeCalls.add(email);
+    final Failure? failure = requestNotificationEmailCodeFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
+  Future<void> verifyNotificationEmailCode({
+    required String email,
+    required String code,
+    required String currentPassword,
+  }) async {
+    verifyNotificationEmailCodeCalls.add((
+      email: email,
+      code: code,
+      currentPassword: currentPassword,
+    ));
+    final Failure? failure = verifyNotificationEmailCodeFailure;
+    if (failure != null) throw failure;
+    final User? next = userAfterEmailVerify;
+    if (next != null) meResult = next;
   }
 
   @override
@@ -396,8 +507,10 @@ final class FakeAuthRepository implements AuthRepository {
     required String lastName,
     String? phoneNumber,
     bool termsAccepted = false,
+    String? registrationTicket,
   }) async {
     acceptInviteTermsAcceptedCalls.add(termsAccepted);
+    acceptInviteTicketCalls.add(registrationTicket);
     acceptInviteCalls.add((
       token: token,
       password: password,

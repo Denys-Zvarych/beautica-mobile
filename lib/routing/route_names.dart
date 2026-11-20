@@ -15,10 +15,18 @@ abstract final class RouteNames {
   /// `registerDraftProvider` before the user advances to `/register`.
   static const String registerRole = '/register/role';
 
-  /// Step 1 — credentials (email + password + confirm-password). Phase 2.16.
+  /// Step 1 — phone + terms consent (M515; was email + password until the
+  /// phone-first identity, AUTH-D11). Phase 2.16.
   static const String register = '/register';
 
-  /// Step 2 — profile (name + surname + phone + salonName). Phase 2.17.
+  /// M515 — step 2 of the phone-first wizard: the SMS code for the phone.
+  static const String registerCode = '/register/code';
+
+  /// M515 — step 3 of the phone-first wizard: password + confirmation.
+  static const String registerPassword = '/register/password';
+
+  /// Step 4 — profile (name + surname + salonName; the phone moved to step 1
+  /// in M515). Phase 2.17.
   static const String registerStep2 = '/register/step-2';
 
   /// Step 3 — address (oblast/city/district + street/building/note). Phase 2.19.
@@ -29,6 +37,32 @@ abstract final class RouteNames {
   // registration email-verification pattern.
   /// Step 1 — request a reset OTP by email (anti-enumeration confirmation).
   static const String forgotPassword = '/forgot-password';
+
+  /// M517 (AUTH-D12) — the BLOCKING «Додайте номер телефону» step for an
+  /// account without a verified phone (every role). The auth redirect sends
+  /// such a session here from ANY location (app open, or over an open app
+  /// after a 409 `PHONE_NOT_VERIFIED`) and keeps it here until the phone is
+  /// confirmed; «Вийти» is the only other action. Literal `/auth/...` paths —
+  /// no dynamic sibling can shadow them.
+  static const String addPhone = '/auth/add-phone';
+
+  /// M517 — the SMS-code step of [addPhone] (code only, no current password:
+  /// a first add, AUTH-D19). The phone rides in `extra`, never the URL.
+  static const String addPhoneVerify = '/auth/add-phone/verify';
+
+  /// M517 (AUTH-D13, AUTH-D19) — the SMS-code + current-password step of a
+  /// phone CHANGE, pushed from every «Контакти» screen. The new phone rides
+  /// in `extra` ([PhoneVerifyArgs]).
+  static const String phoneChangeVerify = '/account/phone/verify';
+
+  /// M517 (AUTH-D17) — «Email для сповіщень» entry (add / change), reached
+  /// from the profile row and the two email prompt cards. Every role.
+  static const String notificationEmail = '/account/notification-email';
+
+  /// M517 (AUTH-50, AUTH-D19) — the email-code + current-password step of
+  /// [notificationEmail]. The email rides in `extra`.
+  static const String notificationEmailVerify =
+      '/account/notification-email/verify';
 
   /// Step 2 — the generalized password-reset OTP screen
   /// ([ResetOtpVerificationScreen]) for the UNAUTHENTICATED forgot-password
@@ -134,15 +168,28 @@ abstract final class RouteNames {
   /// The screen itself ships in Phase 13.5; until then the route may not be
   /// registered, but the path constant is the single source of truth for the
   /// card's nav target. Pushed onto the search branch navigator.
-  static String masterPublicProfile(String masterId) =>
-      '/masters/${Uri.encodeComponent(masterId)}';
+  ///
+  /// [fromBooking] (MAS-39, additive, default `false`): appends
+  /// `?[kMasterProfileFromBookingQuery]=1` — the booking-context entry (a
+  /// CLIENT tapping the master on a booking-details / reschedule / review
+  /// card). `app_router.dart` parses it into
+  /// `PublicMasterProfileScreen.hideBookCta`. A query string never changes
+  /// which route matches (`/masters/:masterId` vs `/masters/:masterId/reviews`
+  /// is decided on the path alone), and `pushOnce`'s probe compares paths.
+  static String masterPublicProfile(
+    String masterId, {
+    bool fromBooking = false,
+  }) =>
+      '/masters/${Uri.encodeComponent(masterId)}'
+      '${fromBooking ? '?$kMasterProfileFromBookingQuery=1' : ''}';
 
   /// Phase 4.x — public master reviews. CLIENT-guarded like
   /// [masterPublicProfile] (same `clientOnlyGuard` in `app_router.dart`).
-  /// Kept (D7, Phase 351) for its other consumers
-  /// (`booking_counterparty_header.dart`, `leave_review_screen.dart`,
-  /// `booking_confirm_screen.dart`) — the public master profile itself no
-  /// longer pushes it (its own «Відгуки» tab renders inline instead). The
+  /// Kept (D7, Phase 351). Since MAS-39 (2026-11-16) no in-app surface
+  /// pushes it: the booking-screen master cards (`master_profile_tap.dart`)
+  /// open [masterPublicProfile] instead — `fromBooking: true` everywhere but
+  /// «Деталі запису», which keeps the book CTA — and the
+  /// public master profile renders reviews inline in its «Відгуки» tab. The
   /// param-less own-master equivalent («Мої відгуки») was deleted in the
   /// same phase — its content now lives inline in the master's own profile
   /// tabs (`MasterProfileScreen` / `SalonMasterProfileScreen`).
@@ -1336,3 +1383,10 @@ const String kSalonShellTabTeam = 'team';
 
 /// Phase 391 — `?tab=reviews` opens the shell on «Відгуки».
 const String kSalonShellTabReviews = 'reviews';
+
+/// MAS-39 — query key [RouteNames.masterPublicProfile] appends when
+/// `fromBooking: true`; `app_router.dart` reads it into
+/// `PublicMasterProfileScreen.hideBookCta`. Top-level (not a `RouteNames`
+/// member) because it is a query KEY, not a route — `navigation_links_test`'s
+/// NL-R01 ledger checks every `RouteNames` member resolves to a GoRoute.
+const String kMasterProfileFromBookingQuery = 'fromBooking';

@@ -18,7 +18,10 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/contact_verify_args.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/contact_verify_screen.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -33,7 +36,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
@@ -67,7 +72,9 @@ const _salonMasterCachedMaster = Master(
   firstName: 'Марія',
   lastName: 'Бондар',
   bio: 'Перукар-стиліст.',
-  phoneNumber: '+380 67 111 22 33',
+  // E.164 as stored (M517: the phone-only save below re-spells the SAME
+  // number, which still saves through the PATCH).
+  phoneNumber: '+380671112233',
   instagram: '@masha_style',
   avgRating: 4.9,
   reviewCount: 22,
@@ -177,7 +184,9 @@ void main() {
     );
   });
 
-  testWidgets('renders the MASTER phone privacy note (not the client one)', (
+  // M517 (approved PhoneFirstAuth `ContactsPhoneScreen`) — the helper names
+  // the number in force until the new one is confirmed by SMS.
+  testWidgets('renders the phone-change helper with the current number', (
     tester,
   ) async {
     await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
@@ -190,12 +199,10 @@ void main() {
     final AppLocalizations l10n = AppLocalizations.of(ctx);
 
     expect(
-      find.text(l10n.phonePrivacyNote),
+      find.text(l10n.contactsPhoneChangeHelper('+380 50 123 45 67')),
       findsOneWidget,
-      reason:
-          'the master phone field shows the master-context privacy note '
-          '(clients do not see the master number)',
     );
+    expect(find.text(l10n.phonePrivacyNote), findsNothing);
     expect(
       find.text(l10n.clientPhonePrivacyNote),
       findsNothing,
@@ -441,8 +448,10 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        // Edit ONLY the phone — Instagram is never on screen to edit.
-        await tester.enterText(_field('field-phone'), '+380 67 999 88 77');
+        // Edit ONLY the phone — Instagram is never on screen to edit. M517:
+        // the SAME number re-spelled (a different one goes through the SMS
+        // code step instead — see the M517 group).
+        await tester.enterText(_field('field-phone'), '067 111 22 33');
         await tester.pump();
 
         await tester.tap(find.byKey(const Key('btn-save-contacts')));
@@ -496,6 +505,72 @@ void main() {
         );
       },
     );
+  });
+
+  // M517 (AUTH-D13 / AUTH-D19) — a new number + an Instagram edit: the PATCH
+  // saves Instagram with the ORIGINAL phone, then the SMS code step changes
+  // the number.
+  testWidgets('M517: new phone + Instagram → PATCH keeps the old phone, then '
+      'SMS code + current password', (tester) async {
+    MasterUpdate? patched;
+    when(() => repo.updateMyProfile(any())).thenAnswer((invocation) async {
+      patched = invocation.positionalArguments.first as MasterUpdate;
+    });
+    final FakeAuthRepository auth = FakeAuthRepository();
+    final GoRouter router = GoRouter(
+      initialLocation: RouteNames.masterEditContacts,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.masterEditContacts,
+          builder: (_, _) => const ContactsEditScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.phoneChangeVerify,
+          builder: (_, state) =>
+              ContactVerifyScreen(args: state.extra! as ContactVerifyArgs),
+        ),
+        GoRoute(
+          path: RouteNames.masterProfile,
+          builder: (_, _) =>
+              const Scaffold(body: SizedBox(key: Key('stub-profile'))),
+        ),
+      ],
+    );
+    await tester.pumpRoutedApp(
+      router,
+      overrides: <Object>[
+        ..._overrides(repo),
+        authRepositoryProvider.overrideWithValue(auth),
+      ],
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.enterText(_field('field-phone'), '093 111 22 33');
+    await tester.enterText(_field('field-instagram'), '@olena_new');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('btn-save-contacts')));
+    await tester.pumpAndSettle();
+
+    expect(patched?.contactPhone, '+380 50 123 45 67');
+    expect(patched?.instagram, '@olena_new');
+    expect(auth.sendPhoneCodeCalls, <String>['+380931112233']);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('phone_code_input')),
+      '123456',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('phone_code_current_password')),
+      'Secret1',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('phone_code_submit')));
+    await pumpVelvetSnackIn(tester);
+
+    expect(auth.verifyPhoneCodeCalls.single.currentPassword, 'Secret1');
+    expect(find.byKey(const Key('stub-profile')), findsOneWidget);
+    await pumpPastVelvetSnack(tester);
   });
 }
 

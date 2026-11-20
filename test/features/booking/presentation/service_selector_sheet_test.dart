@@ -18,6 +18,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/service_catalogue_accordion.dart'
     show CatalogueRow, CatalogueServiceTile;
 import 'package:beautica_mobile/features/discovery/presentation/widgets/favorite_heart_button.dart';
@@ -202,6 +203,13 @@ GoRouter _router() => GoRouter(
             .join(',');
         return Scaffold(body: Text('slots-stub:${args.masterId}:$ids'));
       },
+    ),
+    // MAS-39 — stub profile that renders the received URI, so the
+    // booking-context query is pinned exactly.
+    GoRoute(
+      path: '/masters/:masterId',
+      builder: (context, state) =>
+          Scaffold(body: Text('profile-stub:${state.uri}')),
     ),
   ],
 );
@@ -616,6 +624,76 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('slots-stub:$_kMasterId:svc-mani'), findsOneWidget);
+    });
+
+    // MAS-39 (2026-11-16) — the top master card opens the master's profile in
+    // booking context (no book CTA); back returns with the pick intact.
+    testWidgets('CLIENT: tapping the top MasterStrip pushes '
+        '/masters/<id>?fromBooking=1 and back keeps the selection', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides((ref) => _twoCategoryData),
+          isClientProvider.overrideWith((ref) => true),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('booking_category_MANICURE')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking_service_tile_svc-mani')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(MasterStrip));
+      await tester.pumpAndSettle();
+      final Finder stub = find.text(
+        'profile-stub:/masters/$_kMasterId?fromBooking=1',
+      );
+      expect(stub, findsOneWidget);
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(stub, findsNothing);
+
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('slots-stub:$_kMasterId:svc-mani'),
+        findsOneWidget,
+        reason: 'the picked service survives the profile round-trip',
+      );
+    });
+
+    testWidgets('non-CLIENT: tapping the top MasterStrip navigates nowhere', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides((ref) => _twoCategoryData),
+          isClientProvider.overrideWith((ref) => false),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(MasterStrip), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('profile-stub:'), findsNothing);
+      expect(find.byType(ServiceSelectorSheet), findsOneWidget);
     });
   });
 

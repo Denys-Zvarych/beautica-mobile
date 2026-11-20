@@ -3,7 +3,8 @@
 // Transcribed from the approved preview
 // `docs/signup-designs/SalonManagementDesign/lib/widgets/salon_widgets.dart`
 // (`PendingInviteRow`, `:513`): a recessed well holding a camel-tinted
-// circular mail glyph, the recipient address, a [RoleChip] + "надіслано …"
+// circular mail glyph, the recipient phone (M521; was the address), a
+// [RoleChip] + "надіслано …"
 // meta line, and a destructive «Скасувати» ghost text button.
 // `VelvetColors.*` → `BrandColors.*`; the preview's inline type-size
 // `.copyWith`s become the equivalent production `VelvetText` tokens (the
@@ -61,6 +62,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/relative_date.dart';
+import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 
 import '../../../master/presentation/widgets/profile_avatar.dart';
 import '../../domain/invite_status.dart';
@@ -189,6 +191,11 @@ class SalonInviteRow extends StatelessWidget {
       'for why the key belongs here and not one level down.',
     );
     final Widget? statusChip = _statusChip(l10n);
+    // M521 (SAL-48) — the invited phone in the input mask
+    // («+380 67 123 45 45»), the same transform every phone field applies.
+    final String recipient = UaPhoneInputFormatter.display(
+      invite.recipientPhone,
+    );
     return NeumorphicInset(
       radius: VelvetRadii.card,
       child: Padding(
@@ -210,7 +217,7 @@ class SalonInviteRow extends StatelessWidget {
                     children: <Widget>[
                       Expanded(
                         child: Text(
-                          invite.recipientEmail,
+                          recipient,
                           style: VelvetText.bodyStrong(),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -229,7 +236,7 @@ class SalonInviteRow extends StatelessWidget {
                           label: l10n.salonPendingInvitesCancelCta,
                           semanticLabel: l10n
                               .salonPendingInvitesCancelSemanticLabel(
-                                invite.recipientEmail,
+                                recipient,
                               ),
                           busy: cancelling,
                           onCancel: onCancel,

@@ -75,6 +75,7 @@ import '../application/pending_service_preselection_provider.dart';
 import '../domain/booking_slot_picker_args.dart';
 import '../domain/pending_service_preselection.dart';
 import 'widgets/booking_summary_bar.dart';
+import 'widgets/master_profile_tap.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/service_catalogue_accordion.dart';
 
@@ -804,14 +805,14 @@ class _CatalogueBodyState extends ConsumerState<_CatalogueBody> {
               children: <Widget>[
                 Text(l10n.bookingServiceSelectIntro, style: VelvetText.body14),
                 const SizedBox(height: VelvetSpacing.lg),
-                // INERT (no `onTap`) per the policy on `MasterStrip.onTap`:
-                // this is an in-flight wizard step, and the strip sits
-                // directly above the service list the client is reaching for.
-                // A stray tap here would push them out of a half-made booking.
+                // TAPPABLE per the policy on `MasterStrip.onTap` (MAS-39):
+                // `push`, so back returns here with the picked services
+                // intact. Inert for a non-CLIENT viewer / empty master id.
                 MasterStrip.fromMaster(
                   widget.master,
                   showRole: true,
                   showRating: true,
+                  onTap: clientMasterProfileTap(context, ref, widget.master.id),
                 ),
                 const SizedBox(height: VelvetSpacing.xl),
               ],

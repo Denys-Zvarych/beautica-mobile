@@ -19,13 +19,14 @@ part 'register_independent_master_request.g.dart';
 /// * [termsAccepted]
 /// * [termsVersion]
 /// * [privacyPolicyVersion]
+/// * [registrationTicket]
 @BuiltValue()
 abstract class RegisterIndependentMasterRequest
     implements
         Built<RegisterIndependentMasterRequest,
             RegisterIndependentMasterRequestBuilder> {
   @BuiltValueField(wireName: r'email')
-  String get email;
+  String? get email;
 
   @BuiltValueField(wireName: r'password')
   String get password;
@@ -34,10 +35,10 @@ abstract class RegisterIndependentMasterRequest
   String get firstName;
 
   @BuiltValueField(wireName: r'lastName')
-  String get lastName;
+  String? get lastName;
 
   @BuiltValueField(wireName: r'phoneNumber')
-  String get phoneNumber;
+  String? get phoneNumber;
 
   @BuiltValueField(wireName: r'termsAccepted')
   bool? get termsAccepted;
@@ -47,6 +48,9 @@ abstract class RegisterIndependentMasterRequest
 
   @BuiltValueField(wireName: r'privacyPolicyVersion')
   String? get privacyPolicyVersion;
+
+  @BuiltValueField(wireName: r'registrationTicket')
+  String? get registrationTicket;
 
   RegisterIndependentMasterRequest._();
 
@@ -78,11 +82,13 @@ class _$RegisterIndependentMasterRequestSerializer
     RegisterIndependentMasterRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'email';
-    yield serializers.serialize(
-      object.email,
-      specifiedType: const FullType(String),
-    );
+    if (object.email != null) {
+      yield r'email';
+      yield serializers.serialize(
+        object.email,
+        specifiedType: const FullType(String),
+      );
+    }
     yield r'password';
     yield serializers.serialize(
       object.password,
@@ -93,16 +99,20 @@ class _$RegisterIndependentMasterRequestSerializer
       object.firstName,
       specifiedType: const FullType(String),
     );
-    yield r'lastName';
-    yield serializers.serialize(
-      object.lastName,
-      specifiedType: const FullType(String),
-    );
-    yield r'phoneNumber';
-    yield serializers.serialize(
-      object.phoneNumber,
-      specifiedType: const FullType(String),
-    );
+    if (object.lastName != null) {
+      yield r'lastName';
+      yield serializers.serialize(
+        object.lastName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.phoneNumber != null) {
+      yield r'phoneNumber';
+      yield serializers.serialize(
+        object.phoneNumber,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.termsAccepted != null) {
       yield r'termsAccepted';
       yield serializers.serialize(
@@ -121,6 +131,13 @@ class _$RegisterIndependentMasterRequestSerializer
       yield r'privacyPolicyVersion';
       yield serializers.serialize(
         object.privacyPolicyVersion,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.registrationTicket != null) {
+      yield r'registrationTicket';
+      yield serializers.serialize(
+        object.registrationTicket,
         specifiedType: const FullType(String),
       );
     }
@@ -204,6 +221,13 @@ class _$RegisterIndependentMasterRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.privacyPolicyVersion = valueDes;
+          break;
+        case r'registrationTicket':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.registrationTicket = valueDes;
           break;
         default:
           unhandled.add(key);

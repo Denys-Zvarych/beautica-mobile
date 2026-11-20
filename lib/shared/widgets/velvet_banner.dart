@@ -27,6 +27,8 @@ class VelvetBanner extends StatelessWidget {
     this.actionLabel,
     this.onAction,
     this.iconSize,
+    this.secondaryActionLabel,
+    this.onSecondaryAction,
   });
 
   final IconData icon;
@@ -38,6 +40,13 @@ class VelvetBanner extends StatelessWidget {
   /// ADDITIVE (phase 424): glyph size. `null` keeps the auth banner's 20; the
   /// report sheet passes 24 (the website `.banner` icon).
   final double? iconSize;
+
+  /// ADDITIVE (PhoneFirstAuth, M515 port for M517): a second, muted action
+  /// («Не зараз») next to [actionLabel]. Shown only when both this and
+  /// [onSecondaryAction] are set AND the primary action is shown; `null` keeps
+  /// the banner exactly as before.
+  final String? secondaryActionLabel;
+  final VoidCallback? onSecondaryAction;
 
   @override
   Widget build(BuildContext context) {
@@ -64,14 +73,28 @@ class VelvetBanner extends StatelessWidget {
                   ),
                   if (actionLabel != null && onAction != null) ...<Widget>[
                     const SizedBox(height: VelvetSpacing.sm),
-                    GestureDetector(
-                      key: const ValueKey<String>('auth_banner_action'),
-                      onTap: onAction,
-                      child: Text(
-                        actionLabel!,
-                        style: VelvetText.link().copyWith(color: color),
-                      ),
-                    ),
+                    if (secondaryActionLabel != null &&
+                        onSecondaryAction != null)
+                      Wrap(
+                        spacing: VelvetSpacing.lg,
+                        children: <Widget>[
+                          _primaryAction(),
+                          GestureDetector(
+                            key: const ValueKey<String>(
+                              'auth_banner_secondary_action',
+                            ),
+                            onTap: onSecondaryAction,
+                            child: Text(
+                              secondaryActionLabel!,
+                              style: VelvetText.link().copyWith(
+                                color: BrandColors.muted,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      _primaryAction(),
                   ],
                 ],
               ),
@@ -81,4 +104,10 @@ class VelvetBanner extends StatelessWidget {
       ),
     );
   }
+
+  Widget _primaryAction() => GestureDetector(
+    key: const ValueKey<String>('auth_banner_action'),
+    onTap: onAction,
+    child: Text(actionLabel!, style: VelvetText.link().copyWith(color: color)),
+  );
 }

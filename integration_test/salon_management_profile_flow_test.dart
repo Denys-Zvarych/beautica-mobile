@@ -654,8 +654,8 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_email')),
-          'new.admin@beautica.ua',
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0501234567',
         );
         await tester.pump();
 
@@ -672,7 +672,7 @@ void main() {
           reason: 'submit must fire the REAL POST /salons/{salonId}/invite',
         );
         final body = fb.lastInviteStaffBody!;
-        expect(body['email'], 'new.admin@beautica.ua');
+        expect(body['phone'], '+380501234567');
         expect(body['role'], 'SALON_ADMIN');
 
         expect(find.text(l10n.inviteStaffSuccess), findsOneWidget);
@@ -714,8 +714,8 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
         await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_email')),
-          'blocked@beautica.ua',
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0501234568',
         );
         await tester.pump();
 
@@ -734,22 +734,18 @@ void main() {
     },
   );
 
-  // Phase 303 — mobile half of backend Phase 287: `POST /invite` now returns
-  // 409 `EMAIL_ALREADY_REGISTERED` instead of a synthetic 201 when the
-  // invited email already has an account. Uses `forceInviteStaffFailure`'s
-  // `errorCode` param (Phase 303 ADDITIVE widening — see its own doc), NOT
-  // the register-time `inviteStaffFailureStatusCode` field alone, since a
-  // bare status code cannot express the `data.code` sub-code
-  // `_isEmailAlreadyRegistered` keys on
-  // (`error_mapper_interceptor.dart:186`).
+  // M521 (B520, AUTH-18) — `POST /invite` answers 409
+  // `PHONE_ALREADY_REGISTERED` when the invited phone is verified on any
+  // account. Uses `forceInviteStaffFailure`'s `errorCode` param so the REAL
+  // `data.code` envelope goes through `ErrorMapperInterceptor`.
   testWidgets(
-    'a REAL 409 EMAIL_ALREADY_REGISTERED from POST /invite renders the '
-    'dedicated inline error on the email field and does NOT pop',
+    'a REAL 409 PHONE_ALREADY_REGISTERED from POST /invite renders the '
+    'dedicated inline error on the phone field and does NOT pop',
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend()..currentRole = UserRole.salonOwner;
         _seedSalonXyzIntoMySalons(fb);
-        fb.forceInviteStaffFailure(409, errorCode: 'EMAIL_ALREADY_REGISTERED');
+        fb.forceInviteStaffFailure(409, errorCode: 'PHONE_ALREADY_REGISTERED');
         final GoRouter router = await AppHarness.boot(tester, fb);
 
         await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
@@ -765,8 +761,8 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
         await tester.enterText(
-          find.byKey(const ValueKey<String>('invite_email')),
-          'already.registered@beautica.ua',
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0501234569',
         );
         await tester.pump();
 
@@ -779,12 +775,12 @@ void main() {
 
         expect(fb.inviteStaffCalls, 1);
         expect(
-          find.text(l10n.inviteStaffErrorEmailAlreadyRegistered),
+          find.text(l10n.inviteStaffErrorPhoneAlreadyRegistered),
           findsOneWidget,
           reason:
-              'the REAL 409 EMAIL_ALREADY_REGISTERED envelope must map to '
-              'EmailAlreadyRegisteredFailure end to end and render inline '
-              'on the email field, not the generic copy',
+              'the REAL 409 PHONE_ALREADY_REGISTERED envelope must map to '
+              'PhoneIdentityFailure end to end and render inline on the '
+              'phone field, not the generic copy',
         );
         expect(find.text(l10n.inviteStaffErrorGeneric), findsNothing);
         // A failed submit must NOT pop the form.

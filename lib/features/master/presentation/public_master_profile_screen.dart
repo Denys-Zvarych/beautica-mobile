@@ -104,10 +104,20 @@ import 'widgets/services_stat_tile.dart';
 
 /// CLIENT-facing read-only profile of the master identified by [masterId].
 class PublicMasterProfileScreen extends ConsumerStatefulWidget {
-  const PublicMasterProfileScreen({super.key, required this.masterId});
+  const PublicMasterProfileScreen({
+    super.key,
+    required this.masterId,
+    this.hideBookCta = false,
+  });
 
   /// Backend Master-row UUID of the profile being viewed.
   final String masterId;
+
+  /// MAS-39 (additive, default `false`): `true` when opened from a booking
+  /// context (`RouteNames.masterPublicProfile(id, fromBooking: true)`) — the
+  /// pinned «Записатись до майстра» shelf (this screen's only book entry) is
+  /// not built. Search / favourites / salon entries keep MAS-10.
+  final bool hideBookCta;
 
   /// Phase 425 — the top bar's «⋯» (report this profile).
   static const Key reportKey = Key('public-master-report');
@@ -322,10 +332,13 @@ class _PublicMasterProfileScreenState
       // (Phase 358 — restores the pre-351 behaviour; `RouteNames.bookingNew`
       // works end to end for a salon master, see the file header's Phase 358
       // note).
-      bottomNavBar: async.maybeWhen(
-        data: (_) => _BookingShelf(masterId: widget.masterId),
-        orElse: () => null,
-      ),
+      // MAS-39 — a booking-context entry builds no shelf at all.
+      bottomNavBar: widget.hideBookCta
+          ? null
+          : async.maybeWhen(
+              data: (_) => _BookingShelf(masterId: widget.masterId),
+              orElse: () => null,
+            ),
       child: async.when(
         loading: () => const _PublicProfileSkeleton(),
         error: (Object e, _) => ErrorState(
@@ -396,8 +409,9 @@ class _PublicProfileBody extends StatelessWidget {
   final ValueNotifier<int> tabNotifier;
 
   /// [ProfileTabSelection.selectProfileTab] — passed to [ProfileTabBar]'s
-  /// `onSelect`, the only way to switch tabs (the stat cards are
-  /// display-only, user decision 2026-09-26).
+  /// `onSelect` AND to the stat cards' `onTap` — one tab mechanism, two
+  /// entry points (stat cards tappable on this client view, user decision
+  /// 2026-11-17).
   final ValueChanged<int> onSelectTab;
 
   final Animation<double> anim0;
@@ -546,10 +560,11 @@ class _PublicProfileBody extends StatelessWidget {
         const SizedBox(height: VelvetSpacing.xl),
 
         // 2 — Stat cards: «Рейтинг» / «Послуги» / «Відгуки» (D9 — «Досвід»
-        // removed, it always showed «—» with no backing field). Display-only
-        // (user decision 2026-09-26) — no tap, no ripple, no button
-        // semantics. The «Про майстра» / «Послуги» / «Відгуки» tabs below are
-        // the only way to switch tabs.
+        // removed, it always showed «—» with no backing field). Tappable on
+        // this client view (MAS-08/MAS-09, user decision 2026-11-17):
+        // «Рейтинг» and «Відгуки» switch to the «Відгуки» tab, «Послуги» to
+        // the «Послуги» tab — via `onSelectTab`, the same path a tab-bar tap
+        // takes. Own-profile screens keep these tiles display-only.
         RevealTransition(
           key: const Key('public-master-profile-reveal-1'),
           fade: anim1,
@@ -573,6 +588,8 @@ class _PublicProfileBody extends StatelessWidget {
                     value: master.displayRating?.toStringAsFixed(1) ?? '—',
                     caption: l10n.masterRatingLabel,
                     valueKey: const Key('public-master-profile-rating-value'),
+                    onTap: () => onSelectTab(MasterProfileTab.reviews.index),
+                    tapHint: l10n.statTileOpenTabHint(l10n.salonTabReviews),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -581,6 +598,8 @@ class _PublicProfileBody extends StatelessWidget {
                     key: const Key('public-master-profile-services-tile'),
                     count: services.length,
                     valueKey: const Key('public-master-profile-services-value'),
+                    onTap: () => onSelectTab(MasterProfileTab.services.index),
+                    tapHint: l10n.statTileOpenTabHint(l10n.salonTabServices),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -591,6 +610,8 @@ class _PublicProfileBody extends StatelessWidget {
                     value: hasReviews ? master.reviewCount.toString() : '—',
                     caption: l10n.masterStatsReviewsLabel,
                     valueKey: const Key('public-master-profile-reviews-value'),
+                    onTap: () => onSelectTab(MasterProfileTab.reviews.index),
+                    tapHint: l10n.statTileOpenTabHint(l10n.salonTabReviews),
                   ),
                 ),
               ],
@@ -611,8 +632,8 @@ class _PublicProfileBody extends StatelessWidget {
               // widget the public salon profile uses, own `keyPrefix` so its
               // finders read as this screen's own
               // (`public-master-profile-tab-0` etc.), not borrowed from the
-              // salon's `salon-tab-*`. The only way to switch tabs — the stat
-              // cards above are display-only (user decision 2026-09-26).
+              // salon's `salon-tab-*`. The stat cards above switch tabs through
+              // the same `onSelectTab` (user decision 2026-11-17).
               RevealTransition(
                 key: const Key('public-master-profile-reveal-2'),
                 fade: anim2,

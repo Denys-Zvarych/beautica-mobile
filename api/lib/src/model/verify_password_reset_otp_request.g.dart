@@ -8,15 +8,18 @@ part of 'verify_password_reset_otp_request.dart';
 
 class _$VerifyPasswordResetOtpRequest extends VerifyPasswordResetOtpRequest {
   @override
-  final String email;
+  final String? email;
   @override
   final String code;
+  @override
+  final String? identifier;
 
   factory _$VerifyPasswordResetOtpRequest(
           [void Function(VerifyPasswordResetOtpRequestBuilder)? updates]) =>
       (VerifyPasswordResetOtpRequestBuilder()..update(updates))._build();
 
-  _$VerifyPasswordResetOtpRequest._({required this.email, required this.code})
+  _$VerifyPasswordResetOtpRequest._(
+      {this.email, required this.code, this.identifier})
       : super._();
   @override
   VerifyPasswordResetOtpRequest rebuild(
@@ -32,7 +35,8 @@ class _$VerifyPasswordResetOtpRequest extends VerifyPasswordResetOtpRequest {
     if (identical(other, this)) return true;
     return other is VerifyPasswordResetOtpRequest &&
         email == other.email &&
-        code == other.code;
+        code == other.code &&
+        identifier == other.identifier;
   }
 
   @override
@@ -40,6 +44,7 @@ class _$VerifyPasswordResetOtpRequest extends VerifyPasswordResetOtpRequest {
     var _$hash = 0;
     _$hash = $jc(_$hash, email.hashCode);
     _$hash = $jc(_$hash, code.hashCode);
+    _$hash = $jc(_$hash, identifier.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -48,7 +53,8 @@ class _$VerifyPasswordResetOtpRequest extends VerifyPasswordResetOtpRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'VerifyPasswordResetOtpRequest')
           ..add('email', email)
-          ..add('code', code))
+          ..add('code', code)
+          ..add('identifier', identifier))
         .toString();
   }
 }
@@ -67,6 +73,10 @@ class VerifyPasswordResetOtpRequestBuilder
   String? get code => _$this._code;
   set code(String? code) => _$this._code = code;
 
+  String? _identifier;
+  String? get identifier => _$this._identifier;
+  set identifier(String? identifier) => _$this._identifier = identifier;
+
   VerifyPasswordResetOtpRequestBuilder() {
     VerifyPasswordResetOtpRequest._defaults(this);
   }
@@ -76,6 +86,7 @@ class VerifyPasswordResetOtpRequestBuilder
     if ($v != null) {
       _email = $v.email;
       _code = $v.code;
+      _identifier = $v.identifier;
       _$v = null;
     }
     return this;
@@ -97,10 +108,10 @@ class VerifyPasswordResetOtpRequestBuilder
   _$VerifyPasswordResetOtpRequest _build() {
     final _$result = _$v ??
         _$VerifyPasswordResetOtpRequest._(
-          email: BuiltValueNullFieldError.checkNotNull(
-              email, r'VerifyPasswordResetOtpRequest', 'email'),
+          email: email,
           code: BuiltValueNullFieldError.checkNotNull(
               code, r'VerifyPasswordResetOtpRequest', 'code'),
+          identifier: identifier,
         );
     replace(_$result);
     return _$result;

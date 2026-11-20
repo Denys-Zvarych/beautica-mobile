@@ -112,6 +112,9 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // 429 from the per-user block-write budget (backend 397, phase 425).
   'ClientBlockRateLimitedFailure': false,
   'EmailAlreadyRegisteredFailure': false,
+  'PhoneIdentityFailure': false,
+  'CurrentPasswordInvalidFailure': false,
+  'PhoneNotVerifiedFailure': false,
   'ProviderMissingCityFailure': false,
   'CategoryAlreadyExistsFailure': false,
   'SupportAttachmentTooLargeFailure': false,
@@ -195,6 +198,11 @@ Map<String, Failure> _instances() {
     'PasswordResetRateLimitedFailure': const PasswordResetRateLimitedFailure(),
     'ClientBlockRateLimitedFailure': const ClientBlockRateLimitedFailure(),
     'EmailAlreadyRegisteredFailure': const EmailAlreadyRegisteredFailure(),
+    'PhoneIdentityFailure': const PhoneIdentityFailure(
+      code: PhoneIdentityErrorCode.appCheckFailed,
+    ),
+    'CurrentPasswordInvalidFailure': const CurrentPasswordInvalidFailure(),
+    'PhoneNotVerifiedFailure': const PhoneNotVerifiedFailure(),
     'ProviderMissingCityFailure': const ProviderMissingCityFailure(),
     'CategoryAlreadyExistsFailure': const CategoryAlreadyExistsFailure(),
     'SupportAttachmentTooLargeFailure':

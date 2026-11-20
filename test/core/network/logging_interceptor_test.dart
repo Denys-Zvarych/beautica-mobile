@@ -30,6 +30,7 @@
 // options.data`) in logging_interceptor.dart turns these tests red. Restored
 // immediately; not committed.
 
+import 'package:beautica_mobile/core/config/app_check_config.dart';
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:beautica_mobile/core/network/logging_interceptor.dart';
 import 'package:dio/dio.dart';
@@ -122,6 +123,32 @@ void main() {
       );
       verify(() => handler.next(any())).called(1);
     });
+
+    // Audit cycle 2 (AUTH-D27 d) — the limited-use App Check token is a
+    // credential: redacted in the logged COPY (any header casing), untouched
+    // on the live options.
+    for (final String key in <String>[
+      kAppCheckHeader,
+      kAppCheckHeader.toLowerCase(),
+    ]) {
+      test('App Check header "$key" is redacted in the log', () {
+        final sink = _CapturingSink();
+        final interceptor = LoggingInterceptor(sink: sink.call);
+        final handler = MockRequestHandler();
+        final opts = buildOpts(
+          '/api/v1/auth/forgot-password',
+          headers: {key: 'app-check-secret-token'},
+        );
+
+        interceptor.onRequest(opts, handler);
+
+        final String logged = sink.only;
+        expect(logged, contains('***REDACTED***'));
+        expect(logged, isNot(contains('app-check-secret-token')));
+        expect(opts.headers[key], 'app-check-secret-token');
+        verify(() => handler.next(any())).called(1);
+      });
+    }
 
     // FIXTURE FIX (2026-07-22 audit): this test used to drive the path
     // '/auth/login' — WITHOUT the `/api/v1` prefix every real request carries
