@@ -10,6 +10,11 @@
          "does not use advertising ID"). The full merged release set is pinned by
          android/release-permissions.allow and checked by scripts/verify_release_aab.sh. -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove"/>
+    <!-- UCropActivity below is locked to portrait, so Play implies a REQUIRED
+         android.hardware.screen.portrait feature and filters out tablets, desktop
+         (ChromeOS) and Android XR. Only the crop screen is portrait-locked; the
+         app itself needs no portrait screen, so the feature is optional. -->
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
