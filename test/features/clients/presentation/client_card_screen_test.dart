@@ -16,6 +16,8 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
@@ -28,10 +30,17 @@ import 'package:beautica_mobile/features/clients/presentation/widgets/blocked_ta
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_readout.dart';
+import 'package:beautica_mobile/features/moderation/data/block_repository.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:dio/dio.dart' show CancelToken;
+import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
@@ -44,6 +53,8 @@ import '../../../helpers/fakes/fake_notification_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/route_pump.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
+import '../../moderation/support/fake_client_block_repository.dart';
+import '../../moderation/support/fake_content_report_repository.dart';
 
 final DateTime _now = DateTime.utc(2026, 11, 20, 12);
 
@@ -179,9 +190,15 @@ class _FakeClipboard implements ClipboardService {
 }
 
 class _Harness {
-  _Harness(this.repo, {this.client = _reg, this.role});
+  _Harness(
+    this.repo, {
+    this.client = _reg,
+    this.role,
+    this.extra = const <Object>[],
+  });
 
   final _Repo repo;
+  final List<Object> extra;
   final ClientRef client;
   final UserRole? role;
   final _FakeClipboard clipboard = _FakeClipboard();
@@ -230,6 +247,7 @@ class _Harness {
     ),
     clockProvider.overrideWithValue(() => _now),
     clipboardServiceProvider.overrideWithValue(clipboard),
+    ...extra,
   ];
 }
 
@@ -240,6 +258,7 @@ Future<_Harness> _pump(
   UserRole? role,
   double width = 360,
   double? textScale,
+  List<Object> extra = const <Object>[],
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1.0;
@@ -249,7 +268,7 @@ Future<_Harness> _pump(
     tester.platformDispatcher.textScaleFactorTestValue = textScale;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   }
-  final _Harness h = _Harness(repo, client: client, role: role);
+  final _Harness h = _Harness(repo, client: client, role: role, extra: extra);
   await tester.pumpRoutedApp(
     h.router,
     overrides: h.overrides,
@@ -302,6 +321,8 @@ void main() {
       );
       expect(avatar.size, 96);
       expect(avatar.imageUrl, isNotNull);
+      expect(avatar.previewOnTap, isTrue, reason: 'the card opts in (CLI-69)');
+      expect(find.byType(ProfilePhotoPreviewTap), findsOneWidget);
       expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
       // i18n-finder-ok: asserts the exact data value
       expect(find.text('Оксана Мельник'), findsOneWidget);
@@ -311,6 +332,19 @@ void main() {
     testWidgets('no photo → 68 dp monogram with the initials', (tester) async {
       await _pump(tester, _Repo(card: (ref) => _card(ref)));
       expect(tester.widget<ClientAvatar>(find.byType(ClientAvatar)).size, 68);
+      // The inert wrapper builds NO gesture / button semantics for a monogram.
+      expect(
+        find.descendant(
+          of: find.byType(ProfilePhotoPreviewTap),
+          matching: find.byType(GestureDetector),
+        ),
+        findsNothing,
+        reason: 'a monogram is not tappable',
+      );
+      expect(
+        find.bySemanticsLabel(_l10n(tester).profilePhotoViewAction),
+        findsNothing,
+      );
       // i18n-finder-ok: asserts the exact data value
       expect(find.text('ОМ'), findsOneWidget);
     });
@@ -910,5 +944,232 @@ void main() {
         });
       }
     }
+  });
+
+  // ── 2026-11-21 — the top bar «⋯»: the SAME report / block / unblock flow
+  //    as the provider «Деталі запису» client strip, through ONE booking of
+  //    the client (guest: the card's anchor; registered: the newest visit).
+  group('«⋯» client actions', () {
+    Booking anchor(
+      String id, {
+      String? clientId = 'u-1',
+      bool blocked = false,
+      bool blockable = true,
+    }) {
+      final DateTime start = _now.subtract(const Duration(days: 3));
+      return Booking(
+        id: id,
+        masterId: 'm1',
+        masterFirstName: 'Марія',
+        masterLastName: 'Іванюк',
+        masterType: 'INDEPENDENT_MASTER',
+        clientId: clientId,
+        clientFirstName: 'Оксана',
+        clientLastName: 'Мельник',
+        serviceId: 's1',
+        serviceName: 'Манікюр',
+        durationMinutes: 60,
+        price: 500,
+        startAt: start,
+        endAt: start.add(const Duration(minutes: 60)),
+        status: BookingStatus.completed,
+        canReview: false,
+        clientBlocked: blocked,
+        clientBlockId: blocked ? 'block-1' : null,
+        clientBlockable: !blocked && blockable,
+      );
+    }
+
+    final Finder more = find.byKey(ClientCardScreen.moreKey);
+
+    _Repo regRepo({bool blocked = false}) => _Repo(
+      card: (ClientRef r) => _card(r, blocked: blocked),
+      pages: <List<ClientVisit>>[
+        <ClientVisit>[_visit('bk-1', _now.subtract(const Duration(days: 3)))],
+      ],
+    );
+
+    List<Object> env(
+      Booking b, {
+      FakeClientBlockRepository? blocks,
+      FakeContentReportRepository? reports,
+    }) => <Object>[
+      bookingDetailProvider(b.id).overrideWith((ref) async => b),
+      clientBlockRepositoryProvider.overrideWithValue(
+        blocks ?? FakeClientBlockRepository(),
+      ),
+      contentReportRepositoryProvider.overrideWithValue(
+        reports ?? FakeContentReportRepository(),
+      ),
+    ];
+
+    Future<void> openSheet(WidgetTester tester) async {
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.byType(ClientActionsSheet), findsOne);
+    }
+
+    for (final UserRole role in <UserRole>[
+      UserRole.independentMaster,
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+    ]) {
+      testWidgets('$role, registered: report + block', (tester) async {
+        await _pump(tester, regRepo(), role: role, extra: env(anchor('bk-1')));
+        await openSheet(tester);
+        expect(find.byKey(ClientActionsSheet.reportKey), findsOne);
+        expect(find.byKey(ClientActionsSheet.blockKey), findsOne);
+        expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
+      });
+    }
+
+    testWidgets('salon master, registered: report only', (tester) async {
+      await _pump(
+        tester,
+        regRepo(),
+        role: UserRole.salonMaster,
+        extra: env(anchor('bk-1', blockable: false)),
+      );
+      await openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsOne);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
+    });
+
+    testWidgets('salon master, guest: no «⋯» at all', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: (ClientRef r) => _card(r)),
+        client: _gst,
+        role: UserRole.salonMaster,
+        extra: env(anchor('b-1', clientId: null, blockable: false)),
+      );
+      expect(more, findsNothing);
+    });
+
+    testWidgets('independent master, guest: block only, through the card\'s '
+        'own anchor booking', (tester) async {
+      final FakeClientBlockRepository blocks = FakeClientBlockRepository();
+      await _pump(
+        tester,
+        _Repo(card: (ClientRef r) => _card(r)),
+        client: _gst,
+        extra: env(anchor('b-1', clientId: null), blocks: blocks),
+      );
+      await openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      await tester.tap(find.byKey(ClientActionsSheet.blockKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(BlockClientDialog.confirmKey));
+      await tester.pumpAndSettle();
+      expect(blocks.calls, <String>['block:b-1']);
+    });
+
+    testWidgets('block → «Заблоковано» tag after the card refreshes', (
+      tester,
+    ) async {
+      bool blockedNow = false;
+      final _Repo repo = _Repo(
+        card: (ClientRef r) => _card(r, blocked: blockedNow),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_visit('bk-1', _now.subtract(const Duration(days: 3)))],
+        ],
+      );
+      final FakeClientBlockRepository blocks = FakeClientBlockRepository();
+      await _pump(tester, repo, extra: env(anchor('bk-1'), blocks: blocks));
+      expect(find.byKey(BlockedTag.tagKey), findsNothing);
+
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.blockKey));
+      await tester.pumpAndSettle();
+      blockedNow = true;
+      await tester.tap(find.byKey(BlockClientDialog.confirmKey));
+      await tester.pump();
+      await pumpUntilFound(tester, find.byKey(BlockedTag.tagKey));
+
+      expect(blocks.calls, <String>['block:bk-1']);
+      expect(find.byKey(BlockedTag.tagKey), findsOne);
+      expect(find.text(_l10n(tester).clientBlockedSnack), findsOne);
+    });
+
+    testWidgets('an already-blocked client offers «Розблокувати»', (
+      tester,
+    ) async {
+      final FakeClientBlockRepository blocks = FakeClientBlockRepository();
+      await _pump(
+        tester,
+        regRepo(blocked: true),
+        extra: env(anchor('bk-1', blocked: true), blocks: blocks),
+      );
+      await openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+      await tester.tap(find.byKey(ClientActionsSheet.unblockKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(UnblockClientDialog.confirmKey));
+      await tester.pumpAndSettle();
+      expect(blocks.calls, <String>['unblock:block-1']);
+    });
+
+    testWidgets('report opens the existing report sheet for the client '
+        'profile', (tester) async {
+      final FakeContentReportRepository reports = FakeContentReportRepository();
+      await _pump(
+        tester,
+        regRepo(),
+        extra: env(anchor('bk-1'), reports: reports),
+      );
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.reportKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(ReportSheet), findsOne);
+      await tester.tap(find.byKey(ReportSheet.reasonKey(ReportReason.spam)));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(ReportSheet.submitKey));
+      await tester.tap(find.byKey(ReportSheet.submitKey));
+      await tester.pumpAndSettle();
+      expect(
+        reports.requests.single.targetType,
+        ReportTargetType.clientProfile,
+      );
+      expect(reports.requests.single.targetId, 'u-1');
+    });
+
+    testWidgets('registered: the anchor booking belongs to ANOTHER client → '
+        '«⋯» does nothing (no sheet, no report / block, no snack)', (
+      tester,
+    ) async {
+      final FakeClientBlockRepository blocks = FakeClientBlockRepository();
+      final FakeContentReportRepository reports = FakeContentReportRepository();
+      await _pump(
+        tester,
+        regRepo(),
+        extra: env(
+          anchor('bk-1', clientId: 'u-other'),
+          blocks: blocks,
+          reports: reports,
+        ),
+      );
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.byType(ClientActionsSheet), findsNothing);
+      expect(find.byType(ReportSheet), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(blocks.calls, isEmpty);
+      expect(reports.requests, isEmpty);
+    });
+
+    testWidgets('registered: a null-client anchor booking → «⋯» does nothing', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        regRepo(),
+        extra: env(anchor('bk-1', clientId: null)),
+      );
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.byType(ClientActionsSheet), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    });
   });
 }

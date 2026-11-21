@@ -20,6 +20,7 @@ import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 
 /// A small raised circular avatar glyph — a two-stop diagonal [gradient] wash
 /// behind a white `person_rounded` icon, lifted by the small extruded shadow.
@@ -32,6 +33,7 @@ class MasterAvatarBadge extends StatelessWidget {
     this.imageUrl,
     this.initials,
     this.imageKey,
+    this.previewOnTap = false,
   }) : assert(size > 0, 'size must be positive');
 
   /// Two-stop diagonal gradient; defaults to the independent-master flow's
@@ -71,6 +73,11 @@ class MasterAvatarBadge extends StatelessWidget {
   /// Key forwarded to the photo's [RemoteImage]. `null` by default.
   final Key? imageKey;
 
+  /// ADDITIVE (2026-11-21): `true` → a tap on the PHOTO opens it full
+  /// screen ([ProfilePhotoPreviewTap]); no photo → inert. `false` (the
+  /// default) renders and behaves exactly as before.
+  final bool previewOnTap;
+
   static const List<Color> _defaultGradient = <Color>[
     Color(0xFFD8BE9C),
     Color(0xFF6A4A28),
@@ -98,7 +105,7 @@ class MasterAvatarBadge extends StatelessWidget {
           );
     final double ring = bordered ? size / 24 : 0;
     final double photo = size - 2 * ring;
-    return Container(
+    final Widget badge = Container(
       height: size,
       width: size,
       decoration: BoxDecoration(
@@ -132,5 +139,7 @@ class MasterAvatarBadge extends StatelessWidget {
               fallback: fallback,
             ),
     );
+    if (!previewOnTap) return badge;
+    return ProfilePhotoPreviewTap(imageUrl: imageUrl, child: badge);
   }
 }

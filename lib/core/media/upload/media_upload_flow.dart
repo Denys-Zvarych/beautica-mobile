@@ -206,6 +206,8 @@ mixin MediaUploadFlow {
     AvatarPrecache? precache,
   }) async {
     if (source == ImageSourceChoice.remove) return remove();
+    // [ImageSourceChoice.view] picks nothing (the caller opens the viewer).
+    if (source == ImageSourceChoice.view) return const AvatarChangeCancelled();
     // A tap that lands while Android recovery is still probing queues behind
     // it instead of being silently dropped.
     // Everything that reads `ref` / `state` is captured BEFORE the wait: both

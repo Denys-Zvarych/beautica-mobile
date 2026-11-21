@@ -15,7 +15,7 @@ import 'package:url_launcher/url_launcher.dart' show LaunchMode;
 
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -44,11 +44,7 @@ class PhoneLink extends StatelessWidget {
           // transform the add-phone field and the booking detail apply.
           child: Text(
             UaPhoneInputFormatter.display(phone),
-            style: clientBody(
-              14,
-              weight: FontWeight.w700,
-              color: BrandColors.accentDeep,
-            ),
+            style: VelvetText.feedbackAccentSm,
           ),
         ),
       ],

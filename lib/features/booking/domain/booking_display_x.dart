@@ -17,11 +17,21 @@ import '../../auth/domain/user_role.dart';
 import 'booking.dart';
 import 'booking_status.dart';
 
+/// Backend `GuestPii.ANONYMISED_NAME` — the name an anonymised guest/walk-in
+/// row carries (GST-51). Server data, not UI copy.
+// raw-ui-string-ok: server sentinel, compared, never shown
+const String kAnonymisedGuestName = 'Гість';
+
+/// Backend `ClientAccountDeletionService.DETACHED_CLIENT_LABEL` — the name a
+/// self-deleted client's detached booking carries (CLI-24). Server data.
+// raw-ui-string-ok: server sentinel, compared, never shown
+const String kDetachedClientName = 'Видалений клієнт';
+
 /// M510 — the ONE role gate for a client's phone on a provider surface:
 /// independent master, salon owner, salon admin. NEVER a salon master, a
-/// client, or an unresolved session (fail closed). Extracted from
-/// [BookingDisplayX.guestPhoneFor] so booking detail and the client card
-/// cannot drift apart.
+/// client, or an unresolved session (fail closed). Read by the client card
+/// only: «Деталі запису» shows no phone since 2026-11-21 (the phone lives on
+/// the card's phone chip).
 bool canSeeClientPhone(UserRole? role) => switch (role) {
   UserRole.independentMaster ||
   UserRole.salonOwner ||
@@ -67,35 +77,17 @@ extension BookingDisplayX on Booking {
   /// a guest booking almost always has one.
   bool get isGuestBooking => clientId == null;
 
-  /// Phase 417 — the GUEST's phone, or `null` when it must not be shown.
-  ///
-  /// HARD RULE (user, 2026-10-22): the phone row exists only for a GUEST
-  /// booking (`clientId == null`) and only for an independent master / salon
-  /// owner / salon admin. NEVER for a salon master (even the performing one),
-  /// a client, or an unresolved session (fail closed), and never a registered
-  /// client's phone. The backend already nulls [Booking.guestPhone] in every
-  /// such case; this is the defence-in-depth gate, and the ONLY place the
-  /// value is read for display. PII — do not log.
-  String? guestPhoneFor(UserRole? role) {
-    final String? phone = guestPhone;
-    if (phone == null || phone.isEmpty || clientId != null) return null;
-    return canSeeClientPhone(role) ? phone : null;
-  }
-
-  /// M519 — the client's phone for the provider's tap-to-call on «Деталі
-  /// запису», or `null` when it must not be shown. The ONLY place booking
-  /// detail reads a phone for display.
-  ///
-  /// Reads [Booking.clientPhone] (B518: guest phone OR a registered client's
-  /// verified phone) and, when a pre-B518 server sent none, falls back to
-  /// [guestPhoneFor] — unchanged, so an old server keeps the exact Phase 417
-  /// guest-only behaviour. Either way the role gate is [canSeeClientPhone]:
-  /// independent master / salon owner / salon admin only, NEVER a salon
-  /// master, a client or an unresolved session. PII — do not log.
-  String? clientPhoneFor(UserRole? role) {
-    final String? phone = clientPhone;
-    if (phone == null || phone.isEmpty) return guestPhoneFor(role);
-    return canSeeClientPhone(role) ? phone : null;
+  /// 2026-11-21 — whether the provider's client strip on «Деталі запису» may
+  /// open the client card. `false` for the two server sentinels a card can
+  /// never be found for (CLI-42 / CLI-E06 404): an anonymised guest
+  /// ([kAnonymisedGuestName], GST-51) and a self-deleted, detached client
+  /// ([kDetachedClientName], CLI-24) — both guest-shaped rows (`clientId`
+  /// null) whose whole name is the sentinel. The wire carries no explicit
+  /// anonymised flag, so the sentinel is the only signal.
+  bool get clientCardReachable {
+    if (clientId != null) return true;
+    final String? name = clientName;
+    return name != kAnonymisedGuestName && name != kDetachedClientName;
   }
 
   /// Two-letter avatar-fallback initials — "МІ".

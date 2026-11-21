@@ -2377,6 +2377,8 @@ GoRouter appRouter(Ref ref) {
               (bid) => BookingDetailScreen(
                 bookingId: bid,
                 onUnavailable: notificationUnavailableHandler(context, state),
+                // The client strip opens the master's own client card.
+                clientCardBase: (_) => RouteNames.masterClients,
               ),
             ),
           ),
@@ -2581,6 +2583,10 @@ GoRouter appRouter(Ref ref) {
             bookingId: bid,
             clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
             onUnavailable: notificationUnavailableHandler(context, state),
+            // The client strip opens the salon-scoped client card (the
+            // board's salon from `extra`, else the booking's own salon).
+            clientCardBase: (String? salonId) =>
+                salonId == null ? null : RouteNames.salonClients(salonId),
             // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
             // `widget.salonId`, carried on `extra` because NOTHING on this
             // route's path holds it (`/salon/bookings/:bookingId`) and
@@ -3345,6 +3351,8 @@ GoRouter appRouter(Ref ref) {
             bookingId: bid,
             clientReviewRouteBuilder: RouteNames.salonMasterClientReview,
             onUnavailable: notificationUnavailableHandler(context, state),
+            // The client strip opens the salon master's own client card.
+            clientCardBase: (_) => RouteNames.salonMasterClients,
           ),
         ),
       ),

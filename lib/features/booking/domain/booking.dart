@@ -49,8 +49,9 @@ abstract class Booking with _$Booking {
     ///
     /// Null for an `INDEPENDENT_MASTER` booking. Exists to key salon-side cache
     /// invalidation after a review (`invalidateSalonReviewSurfaces` in
-    /// `features/review/presentation/review_surface_invalidation.dart`) — and
-    /// for nothing else. It is the id whose `avgRating` / `reviewCount` the
+    /// `features/review/presentation/review_surface_invalidation.dart`) (and
+    /// see the second use below). It is the id whose `avgRating` /
+    /// `reviewCount` the
     /// backend just moved: `ReviewService#createReview` stamps the review with
     /// the BOOKING's salon, and `ReviewEventListener` recalculates THAT salon.
     ///
@@ -62,6 +63,10 @@ abstract class Booking with _$Booking {
     /// pre-242 contract can send one without the other. `atSalon` stays
     /// `salonName != null` — do not re-express it on this field, and do not
     /// derive either field from the other at the mapping boundary.
+    ///
+    /// Second use (2026-11-21): the fallback salon of the provider detail's
+    /// salon-scoped client-card route when the mount got no board salon id
+    /// (`BookingDetailScreen.clientCardBase`).
     String? salonId,
 
     // ── The COUNTERPARTY as the PROVIDER sees it (Phase 7.2) ──────────────
@@ -76,25 +81,23 @@ abstract class Booking with _$Booking {
     /// registered client from a guest; never render it.
     String? clientId,
 
-    /// The GUEST's E.164 phone, for the provider's tap-to-call (Phase 417).
+    /// The GUEST's E.164 phone (Phase 417 wire field).
     ///
     /// **Guest bookings only** (`clientId == null`) — the legacy wire field a
     /// pre-B518 server still sends. Non-null only on the detail read
     /// (`GET /bookings/{id}`) for an independent master / salon owner /
     /// salon admin; null on every list row and for a salon master, a client
-    /// or an anonymised booking. Read for display ONLY as the old-server
-    /// fallback of `BookingDisplayX.clientPhoneFor` (via `guestPhoneFor`).
-    /// PII — never log, never route-param.
+    /// or an anonymised booking. NOT rendered anywhere since 2026-11-21
+    /// («Деталі запису» dropped the phone row; the client card reads its own
+    /// phone). Mapped only. PII — never log, never route-param.
     String? guestPhone,
 
-    /// M519 / backend B518 — the CLIENT's E.164 phone for the provider's
-    /// tap-to-call: the guest's phone on a guest booking, or a registered
+    /// M519 / backend B518 — the CLIENT's E.164 phone: the guest's phone on a guest booking, or a registered
     /// client's SMS-VERIFIED phone (never an unverified one). Same audience as
     /// [guestPhone] (detail read only; independent master / salon owner /
-    /// salon admin; never a salon master). Null from a pre-B518 server, in
-    /// which case `BookingDisplayX.clientPhoneFor` falls back to [guestPhone].
-    /// The render gate is `BookingDisplayX.clientPhoneFor`. PII — never log,
-    /// never route-param.
+    /// salon admin; never a salon master). NOT rendered anywhere since
+    /// 2026-11-21 (see [guestPhone]); mapped only. PII — never log, never
+    /// route-param.
     String? clientPhone,
 
     /// The client's first name.

@@ -527,7 +527,7 @@ void main() {
   // scaffolding it shares.
   group('master_create_booking_flow', master_create_booking.main);
   // Phase 231 (mobile-qa, Step 2.7 Rule 3b) — the master «Архів» page: past
-  // bookings including an elapsed-unclosed row, filtering to «Підтверджено»,
+  // bookings including an elapsed-unclosed row, filtering to «Заплановано»,
   // closing via «Виконано» on the real HTTP boundary, the client-side-filter
   // auto-continue past a zero-match raw page, and the terminal empty state.
   // Registered beside `master_bookings_flow`, whose login/router scaffolding

@@ -64,6 +64,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarBordered = false,
     this.avatarImageUrl,
     this.onTap,
+    this.avatarPreviewOnTap = false,
   });
 
   /// Builds the strip from the independent flow's [Master] domain entity.
@@ -82,6 +83,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarGradient,
     this.avatarBordered = false,
     this.onTap,
+    this.avatarPreviewOnTap = false,
   }) : name = '${master.firstName} ${master.lastName}'.trim(),
        type = master.type,
        professionalTitle = master.professionalTitle,
@@ -100,6 +102,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarGradient,
     this.avatarBordered = false,
     this.onTap,
+    this.avatarPreviewOnTap = false,
   }) : name = '${schedule.firstName} ${schedule.lastName}'.trim(),
        type = schedule.type,
        professionalTitle = schedule.professionalTitle,
@@ -131,6 +134,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarGradient,
     this.avatarBordered = false,
     this.onTap,
+    this.avatarPreviewOnTap = false,
   }) : name = booking.masterName,
        type = booking.atSalon
            ? MasterType.salonMaster
@@ -184,6 +188,11 @@ class MasterStrip extends StatelessWidget {
   /// Phase 9.7 — the master's photo URL. Derived by the `from*` factories from
   /// their source model; `null` renders the gradient glyph as before.
   final String? avatarImageUrl;
+
+  /// ADDITIVE (2026-11-21): forwarded to
+  /// [MasterStripShell.avatarPreviewOnTap]; `false` (the default) changes
+  /// nothing.
+  final bool avatarPreviewOnTap;
 
   /// Makes the card tappable; `null` leaves it inert.
   ///
@@ -243,6 +252,7 @@ class MasterStrip extends StatelessWidget {
       avatarGradient: avatarGradient,
       avatarBordered: avatarBordered,
       avatarImageUrl: avatarImageUrl,
+      avatarPreviewOnTap: avatarPreviewOnTap,
       middleLine: showRole
           ? Text(
               subtitle,

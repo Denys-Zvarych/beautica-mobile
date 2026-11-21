@@ -851,6 +851,7 @@ class _SalonHeroCard extends StatelessWidget {
                       diameter: _logoDiameter,
                       monogram: monogram,
                       imageUrl: salon.avatarUrl,
+                      previewOnTap: true,
                     ),
                     const SizedBox(width: VelvetSpacing.md),
                     Expanded(

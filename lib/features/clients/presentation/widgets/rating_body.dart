@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart'
@@ -88,11 +89,8 @@ class RatingBody extends StatelessWidget {
                   Text(
                     avg == null ? '—' : formatClientRatingAvg(avg),
                     key: averageKey,
-                    style: clientHeading(
-                      44,
-                      color: BrandColors.accentDeep,
-                      height: 1.05,
-                    ),
+                    // The shipped `RatingSummaryCard` average.
+                    style: VelvetText.salonReviewAverage,
                   ),
                   const SizedBox(height: 4),
                   StarRow(stars: (avg ?? 0).round(), size: 14),
@@ -102,7 +100,7 @@ class RatingBody extends StatelessWidget {
                         ? l10n.clientRatingEmpty
                         : l10n.clientRatingCount(total),
                     key: countKey,
-                    style: clientBody(12, color: BrandColors.muted),
+                    style: VelvetText.feedbackMutedSm,
                   ),
                 ],
               ),
@@ -123,7 +121,7 @@ class RatingBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 22),
-        Text(l10n.clientOwnRatingsTitle, style: clientHeading(16)),
+        Text(l10n.clientOwnRatingsTitle, style: VelvetText.sectionLabel()),
         const SizedBox(height: 10),
       ],
     );
@@ -150,7 +148,7 @@ class RatingBody extends StatelessWidget {
               child: Text(
                 l10n.clientRatingPrivacyNote,
                 key: privacyNoteKey,
-                style: clientBody(12, color: BrandColors.muted),
+                style: VelvetText.feedbackMutedSm,
               ),
             ),
           ],
@@ -176,7 +174,7 @@ class RatingBody extends StatelessWidget {
             child: Text(
               l10n.clientOwnRatingsEmpty,
               key: ownEmptyKey,
-              style: clientBody(14, color: BrandColors.muted),
+              style: VelvetText.feedbackMutedSm,
             ),
           );
         }
@@ -258,11 +256,8 @@ class _DistributionBar extends StatelessWidget {
             width: 12,
             child: Text(
               '$stars',
-              style: clientBody(
-                12,
-                weight: FontWeight.w700,
-                color: BrandColors.textSecondary,
-              ),
+              // `RatingSummaryCard`'s distribution star number.
+              style: VelvetText.bodyStrong12,
             ),
           ),
           const RatingStar(rating: 5, size: 12, showLabel: false),
@@ -301,7 +296,7 @@ class _DistributionBar extends StatelessWidget {
             child: Text(
               '$count',
               textAlign: TextAlign.right,
-              style: clientBody(12, color: BrandColors.muted),
+              style: VelvetText.feedbackMutedXs,
             ),
           ),
         ],
@@ -333,13 +328,13 @@ class _OwnRatingRow extends StatelessWidget {
               children: <Widget>[
                 Text(
                   rating.serviceName,
-                  style: clientBody(14, weight: FontWeight.w700),
+                  style: VelvetText.masterCardServiceFull,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
                   _date(rating.visitAt),
-                  style: clientBody(12, color: BrandColors.muted),
+                  style: VelvetText.masterCardDateFull,
                 ),
               ],
             ),

@@ -4723,7 +4723,7 @@
       "text": { "type": "String" }
     }
   },
-  "bookingStatusConfirmed": "Confirmed",
+  "bookingStatusConfirmed": "Scheduled",
   "@bookingStatusConfirmed": {
     "description": "Booking status badge label — CONFIRMED."
   },
@@ -5985,18 +5985,6 @@
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
   },
-  "bookingDetailGuestPhone": "Guest phone",
-  "@bookingDetailGuestPhone": {
-    "description": "Caption above the guest's phone number on the provider view of «Деталі запису» (guest/LINK bookings only; independent master, salon owner, salon admin)."
-  },
-  "bookingDetailClientPhone": "Client phone",
-  "@bookingDetailClientPhone": {
-    "description": "M519 — Caption above a REGISTERED client's verified phone on the provider view of «Деталі запису» (independent master, salon owner, salon admin; never a salon master). Guests keep bookingDetailGuestPhone."
-  },
-  "bookingDetailCallGuest": "Call",
-  "@bookingDetailCallGuest": {
-    "description": "Accessibility label of the tap-to-call guest phone row on «Деталі запису»; tapping opens the phone dialer."
-  },
   "bookingDetailGuestBookingLabel": "Booked via link",
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
@@ -7130,6 +7118,14 @@
   "portfolioDeleteFailed": "Couldn't delete the photo. Try again",
   "@portfolioDeleteFailed": {
     "description": "Phase 405 (9.10, D5) — error snack when a portfolio photo delete fails (the photo reappears)."
+  },
+  "profilePhotoViewAction": "View photo",
+  "@profilePhotoViewAction": {
+    "description": "Spoken label of a tappable profile photo and the photo source sheet row that opens it full screen."
+  },
+  "profilePhotoViewerSemantics": "Profile photo",
+  "@profilePhotoViewerSemantics": {
+    "description": "Spoken label of the single photo in the full-screen profile photo viewer."
   },
   "portfolioViewerClose": "Close photo viewer",
   "@portfolioViewerClose": {

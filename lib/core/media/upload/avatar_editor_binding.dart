@@ -33,6 +33,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 
 /// The signed-in user's own avatar URL, or `null` (no photo / not signed in).
 /// A `.select` narrowing: a token refresh does not rebuild the avatar.
@@ -331,8 +332,16 @@ final class MediaEditActions {
     final ImageSourceChoice? choice = await showImageSourceSheet(
       host.context,
       canRemove: currentUrl != null,
+      canView: currentUrl != null,
     );
     if (choice == null || !host.mounted) return;
+    if (choice == ImageSourceChoice.view) {
+      // 2026-11-21 — view the own photo full screen (the shared viewer).
+      if (currentUrl != null) {
+        await showProfilePhotoViewer(host.context, currentUrl);
+      }
+      return;
+    }
     final CropLabels labels = _labels();
     final MediaUploadFlow flow = readFlow();
     final AvatarChangeResult result = choice == ImageSourceChoice.remove

@@ -909,6 +909,12 @@ final class FakeBackend {
   /// no account behind it). False (default) = the registered `client-1`.
   bool bookingClientIsGuest = false;
 
+  /// The registered client id the seeded `booking-1` detail carries when not
+  /// [bookingClientIsGuest]. Default `client-1` (every existing flow); a flow
+  /// that opens the client card from the detail sets a `u-…` id so
+  /// [wireClientCard] serves it under `…/users/`.
+  String bookingRegisteredClientId = 'client-1';
+
   /// Phase 417 — opt-in: the `guestPhone` (E.164) the seeded `booking-1`'s
   /// DETAIL response carries (the backend gates it to guest bookings viewed
   /// by an independent master / salon owner / salon admin; the fake serves it
@@ -4183,6 +4189,11 @@ final class FakeBackend {
   /// pre-existing flow's heart starts empty exactly as before.
   bool publicMasterIsFavorite = false;
 
+  /// 2026-11-21 (CLI-69 photo preview) — `master-aaa`'s public detail wires
+  /// `avatarUrl: <this>` when non-null. Defaults to `null` (key omitted), so
+  /// every pre-existing flow renders the monogram exactly as before.
+  String? publicMasterAvatarUrl;
+
   /// Moderation takedown seam — ids of `master-aaa`'s seeded public reviews
   /// the moderator has removed. Removed rows are dropped from every
   /// `GET /masters/master-aaa/reviews` response from then on (the summary is
@@ -4214,6 +4225,7 @@ final class FakeBackend {
         : kPublicMasterReviewCountBeforeReview,
     'masterType': publicMasterTypeSalon ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
     'isFavorite': publicMasterIsFavorite,
+    'avatarUrl': ?publicMasterAvatarUrl,
   });
 
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
@@ -6222,7 +6234,7 @@ final class FakeBackend {
     // so the master's booking detail shows the client whose session the client
     // flows drive; a divergence here would let the provider-view flow pass
     // against a name no other surface uses.
-    'clientId': bookingClientIsGuest ? null : 'client-1',
+    'clientId': bookingClientIsGuest ? null : bookingRegisteredClientId,
     if (includeReviewByClient && bookingGuestPhone != null)
       'guestPhone': bookingGuestPhone,
     if (includeReviewByClient && bookingClientPhone != null)
@@ -11350,7 +11362,7 @@ final class FakeBackend {
     // CONFIRMED row come back — the write would appear to succeed (200,
     // `completeBookingCalls` climbs) while the list silently kept showing
     // stale data, which is a materially weaker proof than "the booking
-    // actually left the «Підтверджено» filter after closing". Every other
+    // actually left the «Заплановано» filter after closing". Every other
     // field on the row is preserved via spread; only `status` moves. Mirrors
     // [declineChild]'s existing per-row mutation for the non-dataset seeded
     // booking.
@@ -12662,7 +12674,7 @@ final class FakeBackend {
           // `/bookings/me` dataset. The salon archive re-reads
           // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
           // this, that re-read would hand back the unchanged CONFIRMED row and
-          // "the closed row left the «Підтверджено» filter" would be
+          // "the closed row left the «Заплановано» filter" would be
           // unprovable at the salon host while passing at the master host —
           // a fake-fidelity divergence between two callers of one write.
           final int salonIdx = salonArchiveBookings.indexWhere(

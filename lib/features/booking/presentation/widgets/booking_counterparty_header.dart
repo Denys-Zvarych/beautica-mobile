@@ -47,7 +47,7 @@ class BookingCounterpartyHeader extends StatelessWidget {
     required this.booking,
     required this.viewer,
     this.showPerformingMaster = false,
-    this.onMore,
+    this.onOpenClient,
   });
 
   final Booking booking;
@@ -58,26 +58,31 @@ class BookingCounterpartyHeader extends StatelessWidget {
   /// booking performed by another master; default `false` changes nothing.
   final bool showPerformingMaster;
 
-  /// ADDITIVE (phase 425 D2): provider branch only — renders a quiet «⋯» at
-  /// the end of the client strip that opens the client actions sheet (report
-  /// / block / unblock). `null` (the default) renders the strip exactly as
-  /// before; ignored on the client branch.
-  final VoidCallback? onMore;
-
-  /// Widget key of the client strip's «⋯» hit target.
-  static const Key clientMoreKey = BookingClientStrip.moreKey;
+  /// ADDITIVE (2026-11-21): provider branch only — makes the client strip
+  /// tappable (press wash, like the «Клієнти» list rows) to open the client
+  /// card. `null` (the default) leaves the strip inert; ignored on the client
+  /// branch.
+  final VoidCallback? onOpenClient;
 
   @override
   Widget build(BuildContext context) {
     if (!viewer.isProvider) return _MasterStrip(booking: booking);
     if (!showPerformingMaster || booking.masterId.isEmpty) {
-      return BookingClientStrip.fromBooking(booking, onMore: onMore);
+      return BookingClientStrip.fromBooking(
+        booking,
+        onTap: onOpenClient,
+        avatarPreviewOnTap: true,
+      );
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        BookingClientStrip.fromBooking(booking, onMore: onMore),
+        BookingClientStrip.fromBooking(
+          booking,
+          onTap: onOpenClient,
+          avatarPreviewOnTap: true,
+        ),
         const SizedBox(height: VelvetSpacing.sm),
         _PerformingMasterStrip(booking: booking),
       ],
@@ -128,6 +133,7 @@ class _MasterStrip extends StatelessWidget {
       booking,
       key: const Key('booking-detail-master-strip'),
       onTap: openProfile,
+      avatarPreviewOnTap: true,
     );
 
     if (!isDead) return strip;
@@ -174,6 +180,7 @@ class _PerformingMasterStrip extends StatelessWidget {
       child: MasterStrip.fromBooking(
         booking,
         key: const Key('booking-detail-performing-master-strip'),
+        avatarPreviewOnTap: true,
       ),
     );
   }

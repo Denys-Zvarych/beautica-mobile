@@ -19,10 +19,8 @@ lib/features/home/presentation/widgets/home_profile_card.dart:72     # HubAvatar
 lib/features/home/presentation/widgets/favorite_masters_card.dart:171 # HubPhoto(fontSize:) ctor arg
 #
 # --- Runtime-computed (cannot be a compile-time VelvetText token) ------------
-lib/features/salon/presentation/widgets/salon_cover_widgets.dart:131  # diameter * 0.44 monogram glyph — shifted 82→81 by Phase 351 (SalonTabBar promoted out to shared/widgets/profile_tab_bar.dart), 81→131 by Phase 369 (SalonLogo photo params; glyph moved into _monogram())
+lib/features/salon/presentation/widgets/salon_cover_widgets.dart:142  # diameter * 0.44 monogram glyph — shifted 82→81 by Phase 351 (SalonTabBar promoted out to shared/widgets/profile_tab_bar.dart), 81→131 by Phase 369 (SalonLogo photo params; glyph moved into _monogram()), 131→142 by the 2026-11-21 previewOnTap param
 lib/features/home/presentation/widgets/hub_widgets.dart:106          # HubAvatar EXPLICIT-override path only; the default scale is size-derived
 lib/features/home/presentation/widgets/hub_widgets.dart:193          # fontSize pass-through into cached HubPhoto style
 lib/features/home/presentation/widgets/hub_widgets.dart:625          # size * 0.5 fallback-avatar glyph
 lib/shared/widgets/master_mark.dart:94  # size * 0.32 master-mark initials glyph
-lib/features/clients/presentation/widgets/client_card_text.dart:17   # M510 ClientCardVariants `comfortaa(size)` — one parameterised size over VelvetText.heading() (7 sizes + the monogram glyph size * 0.34)
-lib/features/clients/presentation/widgets/client_card_text.dart:29   # M510 ClientCardVariants `nunito(size)` — one parameterised size over VelvetText.body()

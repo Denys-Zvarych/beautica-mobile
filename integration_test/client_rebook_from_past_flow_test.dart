@@ -543,7 +543,7 @@ void main() {
   // Test 5 — QASE CASE #24 STEP 3, END TO END: the client rides the rebook
   // ALL THE WAY through date → time → confirm → submit, and the created
   // booking carries the pre-checked service. The OLD booking stays visible
-  // (COMPLETED) in Минулі while the NEW one shows «Підтверджено» in Майбутні.
+  // (COMPLETED) in Минулі while the NEW one shows «Заплановано» in Майбутні.
   //
   // Tests 1-4 above prove the CTA pushes the right args and the sheet seeds
   // correctly; NONE of them reach an actual `POST /appointments` or check
@@ -556,7 +556,7 @@ void main() {
   testWidgets(
     'CLIENT rebooks a COMPLETED booking end to end: the submitted request '
     'carries the pre-checked masterServiceId, and afterwards the OLD booking '
-    'stays COMPLETED in Минулі while the NEW one is «Підтверджено» in '
+    'stays COMPLETED in Минулі while the NEW one is «Заплановано» in '
     'Майбутні (Qase case #24 step 3)',
     (tester) async {
       final fb = FakeBackend()
@@ -656,7 +656,7 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // Back to «Мої записи» — the OLD booking stays in Минулі (COMPLETED);
-      // the NEW one shows «Підтверджено» in the default Майбутні tab.
+      // the NEW one shows «Заплановано» in the default Майбутні tab.
       await tester.tap(find.byKey(const Key('booking-success-home-cta')));
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.clientHome);

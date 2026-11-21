@@ -9,8 +9,9 @@ import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
+import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 
 class ClientAvatar extends StatelessWidget {
   const ClientAvatar({
@@ -18,6 +19,7 @@ class ClientAvatar extends StatelessWidget {
     required this.size,
     this.imageUrl,
     this.initials,
+    this.previewOnTap = false,
   });
 
   /// Face diameter (the ring adds its padding around it).
@@ -27,7 +29,21 @@ class ClientAvatar extends StatelessWidget {
   /// Monogram letters; `null` (a nameless guest) shows a person glyph.
   final String? initials;
 
+  /// ADDITIVE (2026-11-21): `true` → a tap on the PHOTO opens it full
+  /// screen ([ProfilePhotoPreviewTap]); no photo → inert. `false` (the
+  /// default) — every list row / navigating card — renders and behaves
+  /// exactly as before.
+  final bool previewOnTap;
+
   static const Key avatarKey = Key('client-avatar');
+
+  /// From this size up the monogram uses the profile display-name token.
+  static const double _heroMin = 48;
+  static final TextStyle _heroInitials = VelvetText.displayName().copyWith(
+    color: BrandColors.white,
+  );
+  static final TextStyle _smallInitials = VelvetText.masterCardInitials
+      .copyWith(color: BrandColors.white);
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +64,9 @@ class ClientAvatar extends StatelessWidget {
             )
           : Text(
               letters,
-              style: clientHeading(size * 0.34, color: BrandColors.white),
+              // Standard tokens: the profile display name on the card's
+              // hero monogram, the strip's initials on a small avatar.
+              style: size >= _heroMin ? _heroInitials : _smallInitials,
               textScaler: TextScaler.noScaling,
             ),
     );
@@ -63,7 +81,7 @@ class ClientAvatar extends StatelessWidget {
             excludeFromSemantics: true,
             fallback: monogram,
           );
-    return Container(
+    final Widget avatar = Container(
       key: avatarKey,
       padding: EdgeInsets.all(size >= 72 ? 4 : 3),
       decoration: const BoxDecoration(
@@ -73,5 +91,7 @@ class ClientAvatar extends StatelessWidget {
       ),
       child: face,
     );
+    if (!previewOnTap) return avatar;
+    return ProfilePhotoPreviewTap(imageUrl: url, child: avatar);
   }
 }

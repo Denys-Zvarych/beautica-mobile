@@ -17,8 +17,8 @@ import 'package:beautica_mobile/features/clients/application/client_card_control
 import 'package:beautica_mobile/features/clients/application/client_own_ratings_controller.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
-import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_scaffold.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -85,13 +85,14 @@ class ClientRatingScreen extends ConsumerWidget {
                   size: 32,
                   imageUrl: c.avatarUrl,
                   initials: c.initials,
+                  previewOnTap: true,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     c.displayName ?? l10n.bookingDetailGuestClient,
                     key: nameKey,
-                    style: clientBody(15, weight: FontWeight.w700),
+                    style: VelvetText.masterStripName,
                   ),
                 ),
               ],

@@ -1,14 +1,12 @@
-// Phase 417 — pixel lock for the guest-phone ContactTile row on the PROVIDER
-// view of «Деталі запису» (guest booking, independent master).
+// Pixel lock for the PROVIDER view of «Деталі запису»'s client block.
 //
-// NEW baselines only. `ContactTile` itself is UNCHANGED in this phase (its
-// `onTap` was already a constructor parameter), so every existing ContactTile
-// golden is re-run untouched as the regression proof.
-//
-// M519 (GST-81) — NEW baselines for a REGISTERED client's verified phone
-// (`clientPhone`): the row («Телефон клієнта») for independent master, salon
-// owner and salon admin; no row for a salon master. The Phase 417 guest
-// baseline above is untouched.
+// History: Phase 417 / M519 locked a guest-phone / client-phone ContactTile
+// row here. 2026-11-21 (user) the detail shows NO phone for any role (the
+// phone lives on the client card), so these baselines now lock the NO-PHONE
+// layout even though every fixture still carries a phone on the wire. The
+// client strip is tappable (→ client card) but pixel-identical at rest: the
+// `salon_master` baseline (which never had a row) passed UNCHANGED through
+// that change and is the regression proof.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -75,7 +73,7 @@ void main() {
   const double width = 360;
 
   goldenTest(
-    'booking detail — guest phone row (independent master)',
+    'booking detail — guest, no phone row (independent master)',
     fileName: 'booking_detail_guest_phone_360_1x',
     constraints: BoxConstraints.tight(const Size(width, 900)),
     pumpWidget: goldenPumpWidget(
@@ -100,7 +98,7 @@ void main() {
       ];
   for (final (String slug, UserRole role, Booking booking) in registeredCases) {
     goldenTest(
-      'booking detail — registered client phone ($slug)',
+      'booking detail — registered client, no phone row ($slug)',
       fileName: 'booking_detail_client_phone_${slug}_360_1x',
       constraints: BoxConstraints.tight(const Size(width, 1000)),
       pumpWidget: goldenPumpWidget(

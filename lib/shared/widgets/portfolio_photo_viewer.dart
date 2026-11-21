@@ -61,6 +61,28 @@ Future<void> showPortfolioPhotoViewer(
   );
 }
 
+/// 2026-11-21 — opens the SAME full-screen viewer on ONE profile photo (a
+/// person's avatar or a salon's logo): no counter, no report button, spoken
+/// as «Фото профілю». [url] is the full-size photo when the model has one.
+/// Same root-navigator, single-flight push as [showPortfolioPhotoViewer].
+Future<void> showProfilePhotoViewer(BuildContext context, String url) {
+  final String label = AppLocalizations.of(context).profilePhotoViewerSemantics;
+  final MaterialPageRoute<void> route = MaterialPageRoute<void>(
+    fullscreenDialog: true,
+    builder: (BuildContext _) => PortfolioPhotoViewer(
+      photos: <PortfolioPhoto>[PortfolioPhoto(id: 'profile', url: url)],
+      showIndicator: false,
+      pageSemanticsLabel: label,
+    ),
+  );
+  return runOnce<void>(
+    context,
+    () => Navigator.of(context, rootNavigator: true).push<void>(route),
+    present: () =>
+        route.isActive ? true : (route.navigator == null ? null : false),
+  );
+}
+
 /// Phase 424 D3 — reports the photo currently shown. [context] is the
 /// VIEWER's context (the viewer sits on the root navigator, so a sheet must be
 /// shown from it to appear above the photo).
@@ -114,6 +136,8 @@ class PortfolioPhotoViewer extends StatefulWidget {
     this.initialIndex = 0,
     this.onReport,
     this.isReported,
+    this.showIndicator = true,
+    this.pageSemanticsLabel,
   });
 
   /// The photos to page through, in rail order.
@@ -130,6 +154,15 @@ class PortfolioPhotoViewer extends StatefulWidget {
   /// a photo the viewer already reported. `null` (the default) → the flag
   /// shows for every photo, chrome unchanged.
   final PortfolioPhotoReportedCheck? isReported;
+
+  /// ADDITIVE (2026-11-21, profile-photo preview): `false` hides the «n / N»
+  /// counter (a single profile photo has nothing to count). `true` (the
+  /// default) keeps the chrome unchanged.
+  final bool showIndicator;
+
+  /// ADDITIVE (2026-11-21): the spoken label of every page. `null` (the
+  /// default) keeps the portfolio's «Фото n» label.
+  final String? pageSemanticsLabel;
 
   static const Key pagerKey = Key('portfolio-viewer-pager');
   static const Key closeKey = Key('portfolio-viewer-close');
@@ -328,7 +361,9 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
                         key: PortfolioPhotoViewer.pageKey(photos[i].id),
                         url: photos[i].url,
                         box: box,
-                        semanticLabel: l10n.portfolioPhotoSemantics(i + 1),
+                        semanticLabel:
+                            widget.pageSemanticsLabel ??
+                            l10n.portfolioPhotoSemantics(i + 1),
                         onZoomChanged: _onZoomChanged,
                       );
                     },
@@ -348,7 +383,7 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
                   padding: const EdgeInsets.all(VelvetSpacing.sm),
                   child: Row(
                     children: <Widget>[
-                      if (total > 0)
+                      if (total > 0 && widget.showIndicator)
                         ValueListenableBuilder<int>(
                           valueListenable: _index,
                           builder: (BuildContext _, int index, Widget? _) =>

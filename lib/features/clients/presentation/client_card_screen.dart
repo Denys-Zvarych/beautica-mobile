@@ -27,9 +27,12 @@ import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
@@ -41,11 +44,15 @@ import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/blocked_tag.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
-import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_readout.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_scaffold.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
+import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/client_actions_flow.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
@@ -76,6 +83,10 @@ class ClientCardScreen extends ConsumerStatefulWidget {
 
   static const Key screenKey = Key('client-card-screen');
   static const Key backKey = Key('btn-back-client-card');
+
+  /// The top bar's «⋯» — report / block / unblock (R3), the same flow as the
+  /// provider «Деталі запису» client strip.
+  static const Key moreKey = Key('client-card-more');
   static const Key nameKey = Key('client-card-name');
   static const Key phoneChipKey = Key('phone-link');
   static const Key ratingChipKey = Key('rating-link');
@@ -125,6 +136,97 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
       await ref.read(_cardProvider.future);
     } catch (_) {
       // The error state renders it; the indicator just stops.
+    }
+  }
+
+  /// Single-flight for the «⋯»: the anchor booking read + sheet.
+  bool _moreInFlight = false;
+
+  /// The booking the «⋯» acts through (`POST /blocks { bookingId }`, the
+  /// detail's `clientBlockId` / `clientBlockable`): a guest card's own anchor
+  /// booking; for a registered client, the newest loaded visit's booking.
+  String? _anchorBookingId() => switch (widget.client) {
+    GuestClientRef(:final String bookingId) => bookingId,
+    RegisteredClientRef() => switch (ref.read(_visitsProvider).value?.visits) {
+      final List<ClientVisit> v when v.isNotEmpty => v.first.firstBookingId,
+      _ => null,
+    },
+  };
+
+  /// Whether the «⋯» has anything to offer [role] before the anchor read:
+  /// report a registered client not yet reported, or a role that may block.
+  /// The exact gate (server `clientBlockable` / `clientBlocked`) is
+  /// [clientActionsGateFor] on tap. Called from build.
+  bool _showMore(UserRole? role) {
+    if (role == null || role == UserRole.client) return false;
+    final bool canReport = switch (widget.client) {
+      RegisteredClientRef(:final String userId) => !watchIsReported(
+        ref,
+        ReportTargetType.clientProfile,
+        userId,
+      ),
+      GuestClientRef() => false,
+    };
+    return canReport || clientBlocksAllowedFor(role);
+  }
+
+  Future<void> _onMore(UserRole? role) async {
+    if (_moreInFlight) return;
+    final String? anchor = _anchorBookingId();
+    if (anchor == null) return;
+    _moreInFlight = true;
+    try {
+      final Booking booking;
+      // The detail provider is autoDispose: hold it across the await.
+      final ProviderSubscription<AsyncValue<Booking>> hold = ref.listenManual(
+        bookingDetailProvider(anchor),
+        (_, _) {},
+      );
+      try {
+        booking = await ref.read(bookingDetailProvider(anchor).future);
+      } on Failure catch (f) {
+        if (mounted) showErrorSnack(context, f.userMessage(context));
+        return;
+      } finally {
+        hold.close();
+      }
+      if (!mounted) return;
+      final String? clientId = booking.clientId;
+      // A registered card acts through its newest visit; if that booking no
+      // longer belongs to the route's client, act on nothing (no snack).
+      if (widget.client case RegisteredClientRef(
+        :final String userId,
+      ) when clientId != userId) {
+        return;
+      }
+      final ClientActionsGate? gate = clientActionsGateFor(
+        booking,
+        role,
+        reported:
+            clientId != null &&
+            ref.read(myReportedTargetsProvider).value?.contains((
+                  type: ReportTargetType.clientProfile,
+                  id: clientId,
+                )) ==
+                true,
+      );
+      if (gate == null) return;
+      await runClientActions(
+        context,
+        ref,
+        booking: booking,
+        gate: gate,
+        salonId: switch (widget.scope) {
+          SalonClientListScope(:final String salonId) => salonId,
+          MyClientListScope() => null,
+        },
+        // The «Заблоковано» tag (and any visit the block cancelled).
+        onChanged: () => ref
+          ..invalidate(_cardProvider)
+          ..invalidate(_visitsProvider),
+      );
+    } finally {
+      _moreInFlight = false;
     }
   }
 
@@ -193,6 +295,14 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
         title: l10n.clientCardTitle,
         backKey: ClientCardScreen.backKey,
         backSemanticLabel: l10n.registerBackStep,
+        trailing: card.hasValue && _showMore(role)
+            ? NeumorphicIconButton(
+                key: ClientCardScreen.moreKey,
+                icon: Icons.more_horiz_rounded,
+                semanticLabel: l10n.clientMoreActions,
+                onTap: () => _onMore(role),
+              )
+            : null,
         onRefresh: _refresh,
         slivers: slivers,
         child: body,
@@ -249,6 +359,7 @@ class _CardHeader extends StatelessWidget {
             size: hasPhoto ? 96 : 68,
             imageUrl: card.avatarUrl,
             initials: card.initials,
+            previewOnTap: true,
           ),
         ),
         SizedBox(height: hasPhoto ? 12 : 10),
@@ -256,7 +367,7 @@ class _CardHeader extends StatelessWidget {
           card.displayName ?? l10n.bookingDetailGuestClient,
           key: ClientCardScreen.nameKey,
           textAlign: TextAlign.center,
-          style: clientHeading(22),
+          style: VelvetText.displayName(),
         ),
         if (card.blocked) ...<Widget>[
           const SizedBox(height: 6),
@@ -529,13 +640,9 @@ class _Label extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(strong ? 0 : 26, strong ? 10 : 6, 0, 6),
       child: Text(
         text,
-        style: strong
-            ? clientHeading(16)
-            : clientBody(
-                13,
-                weight: FontWeight.w800,
-                color: BrandColors.accent,
-              ),
+        // Section title = the profile section label; month = the accent
+        // caption.
+        style: strong ? VelvetText.sectionLabel() : VelvetText.feedbackAccentSm,
       ),
     );
   }
@@ -551,6 +658,10 @@ class _Node extends StatelessWidget {
     required this.onOpen,
     this.upcoming = false,
   });
+
+  /// [VelvetText.masterCardDateFull] in the upcoming visit's accent.
+  static final TextStyle _upcomingWhenStyle = VelvetText.masterCardDateFull
+      .copyWith(color: BrandColors.accentDeep);
 
   final ClientVisit visit;
   final bool upcoming;
@@ -639,13 +750,11 @@ class _Node extends StatelessWidget {
                         Expanded(
                           child: Text(
                             when,
-                            style: clientBody(
-                              13,
-                              weight: FontWeight.w700,
-                              color: upcoming
-                                  ? BrandColors.accentDeep
-                                  : BrandColors.muted,
-                            ),
+                            // The booking card's date caption; the upcoming
+                            // visit keeps its accent.
+                            style: upcoming
+                                ? _upcomingWhenStyle
+                                : VelvetText.masterCardDateFull,
                           ),
                         ),
                         const SizedBox(width: 6),
@@ -664,14 +773,11 @@ class _Node extends StatelessWidget {
                             booking.serviceName,
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
-                            style: clientBody(15, weight: FontWeight.w700),
+                            style: VelvetText.masterCardServiceFull,
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          price,
-                          style: clientBody(15, weight: FontWeight.w800),
-                        ),
+                        Text(price, style: VelvetText.masterCardPricePill),
                       ],
                     ),
                   ],

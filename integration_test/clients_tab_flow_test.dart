@@ -17,11 +17,13 @@
 //   (a)  card → next visit / history → phone sheet → copy → rating page → back;
 //   (a2) the guest card: `/guests/{bookingId}`, phone, unrated chip not a link;
 //   (c)  SALON_MASTER: the server sends a phone, the card shows none (D5);
-//   (g)  blocked tag, visit → booking detail → back, visit timeline page 2 on
+//   (g)  blocked tag, monogram not tappable, visit → booking detail → back, visit timeline page 2 on
 //        scroll, empty own ratings,
 //        an unknown client → the uniform not-found;
+//   (i)  card «⋯» → block → «Заблоковано» (2026-11-21);
 //   (h)  two bookings made together → two rows (BOOK-05), each opening its
-//        own booking detail; phone formatted on card + detail, tel: canonical.
+//        own booking detail; phone formatted on the card (none on the
+//        detail), tel: canonical.
 //
 // Search: `q` is sent only for a trimmed 2–50-char term; the 300 ms debounce
 // is a `Timer`, driven with an explicit `pump(kClientSearchDebounce)`
@@ -31,6 +33,10 @@
 // NO PATROL FLOW: nothing here touches an OS permission dialog, deep link,
 // notification, WebView or biometric (mobile-qa explicit statement).
 
+import 'dart:async';
+
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
@@ -38,13 +44,18 @@ import 'package:beautica_mobile/features/clients/presentation/client_card_screen
 import 'package:beautica_mobile/features/clients/presentation/client_rating_screen.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/blocked_tag.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
 import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
+import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
@@ -56,7 +67,9 @@ import 'package:network_image_mock/network_image_mock.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/rendered_image_url.dart';
 import 'support/app_harness.dart';
 import 'support/fake_backend.dart';
 
@@ -117,6 +130,9 @@ const String _kNextVisitAt = '2026-06-20T12:00:00Z';
 /// registered client (phone, 12 ratings, an upcoming visit, one own rating)
 /// and the guest (phone, no ratings, one past visit). [more] adds entries
 /// before the routes are wired.
+/// The registered card's photo (allow-listed in test (a) only).
+const String _kOksanaPhoto = 'https://media.test/avatars/u-oksana.jpg';
+
 void _seedCards(FakeBackend fb, {void Function()? more}) {
   fb.clientCards
     ..clear()
@@ -415,6 +431,16 @@ void main() {
         const Offset(0, 6000),
       );
       await AppHarness.settle(tester);
+      // 2026-11-21 — the card carries a photo (allow-listed fixture host,
+      // decodable image) so the avatar → full-screen viewer step below runs
+      // on the real wire URL. Set before the tap: the card is fetched then.
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      fb.clientCards['u-oksana']!['avatarUrl'] = _kOksanaPhoto;
       await AppHarness.tapVisible(tester, _row('u-oksana'));
       await AppHarness.pumpUntilFound(
         tester,
@@ -488,6 +514,32 @@ void main() {
         fb.clientCardCalls.where((String c) => c.startsWith('card ')).length,
         1,
         reason: 'the rating page reuses the card — no refetch (D7)',
+      );
+
+      // ── avatar photo → full-screen viewer → back to the card ─────────
+      await AppHarness.tapVisible(tester, find.byType(ProfilePhotoPreviewTap));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(PortfolioPhotoViewer),
+      );
+      expect(
+        renderedImageUrls(
+          tester,
+          within: find.byKey(PortfolioPhotoViewer.pageKey('profile')),
+        ),
+        <String>[_kOksanaPhoto],
+      );
+      expect(find.byKey(PortfolioPhotoViewer.indicatorKey), findsNothing);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(PortfolioPhotoViewer.closeKey),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
+      AppHarness.expectLocation(
+        router,
+        '/salons/$_kSalonId/clients/user/u-oksana',
       );
 
       await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
@@ -804,6 +856,20 @@ void main() {
       );
       AppHarness.expectLocation(router, '/master/clients/user/u-2');
       expect(find.byKey(BlockedTag.tagKey), findsOneWidget);
+      // No photo → the monogram: no preview wrapper, a tap opens nothing.
+      expect(find.byType(ClientAvatar), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ProfilePhotoPreviewTap),
+          matching: find.byType(GestureDetector),
+        ),
+        findsNothing,
+        reason: 'a monogram is not tappable',
+      );
+      await tester.tap(find.byType(ClientAvatar), warnIfMissed: false);
+      await AppHarness.settle(tester);
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
       expect(find.byKey(ClientCardScreen.phoneChipKey), findsOneWidget);
       await AppHarness.pumpUntilFound(
         tester,
@@ -898,8 +964,8 @@ void main() {
   });
 
   testWidgets('(h) two bookings made together show as TWO rows, each opening '
-      'its OWN booking detail; the phone is formatted on the card and the '
-      'detail, tel: stays canonical', (tester) async {
+      'its OWN booking detail; the phone is formatted on the card only (none '
+      'on the detail), tel: stays canonical', (tester) async {
     await mockNetworkImagesFor(() async {
       final _MockUrlLauncher launcher = _MockUrlLauncher();
       final UrlLauncherPlatform original = UrlLauncherPlatform.instance;
@@ -1001,31 +1067,20 @@ void main() {
         reason: 'the 11:00 booking sits above the 10:00 one',
       );
       expect(
+        // i18n-finder-ok: fixture service name (server data, not UI copy)
         find.descendant(of: row1, matching: find.text('Дизайн нігтів')),
         findsNothing,
       );
 
-      // ── row 1 → ITS detail (formatted phone, canonical tel:) → back ───
+      // ── row 1 → ITS detail (no phone there since 2026-11-21) → back ───
       await AppHarness.tapVisible(tester, row1);
       await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
       AppHarness.expectLocation(router, '/master/bookings/booking-1');
       await AppHarness.settle(tester);
-      const Key phoneRow = Key('booking-detail-guest-phone');
-      await AppHarness.pumpUntilFound(tester, find.byKey(phoneRow));
-      expect(
-        find.descendant(
-          of: find.byKey(phoneRow),
-          matching: find.text(phoneShown),
-        ),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('booking-detail-guest-phone')), findsNothing);
+      expect(find.text(phoneShown), findsNothing);
       expect(find.text(phone), findsNothing);
-      await AppHarness.tapVisible(tester, find.byKey(phoneRow));
-      await AppHarness.settle(tester);
-      expect(
-        verify(() => launcher.launchUrl(captureAny(), any())).captured.single,
-        'tel:$phone',
-      );
+      verifyNever(() => launcher.launchUrl(any(), any()));
       expect(fb.getSiblingBookingDetailCalls, 0);
       await AppHarness.tapVisible(
         tester,
@@ -1058,6 +1113,89 @@ void main() {
       );
       await AppHarness.pumpUntilFound(tester, row1);
       AppHarness.expectLocation(router, '/master/clients/user/u-4');
+    });
+  });
+
+  testWidgets('(i) INDEPENDENT_MASTER card «⋯» → block → «Заблоковано» '
+      '(through the newest visit\'s booking, the detail\'s own flow)', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      const String userId = 'u-blk';
+      final FakeBackend fb = FakeBackend()..bookingRegisteredClientId = userId;
+      _seedCards(
+        fb,
+        more: () {
+          fb.clientCards[userId] = <String, dynamic>{
+            'kind': 'REGISTERED',
+            'userId': userId,
+            'displayName': 'Клієнтка Блок',
+            'blocked': false,
+            'ratingCount': 0,
+            'ratingDistribution': <Map<String, int>>[],
+          };
+          // `booking-1` is the fake's seeded detail (its client = [userId]).
+          fb.clientVisits[userId] = <Map<String, dynamic>>[
+            <String, dynamic>{
+              'visitKey': 'booking-1',
+              'startsAt': '2026-06-10T10:00:00Z',
+              'items': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'bookingId': 'booking-1',
+                  'serviceName': 'Манікюр',
+                  'status': 'COMPLETED',
+                  'startsAt': '2026-06-10T10:00:00Z',
+                  'priceAtBooking': 650,
+                },
+              ],
+            },
+          ];
+        },
+      );
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      unawaited(router.push('/master/clients/user/$userId'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nameKey),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byKey(BlockedTag.tagKey), findsNothing);
+
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.moreKey));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientActionsSheet.blockKey),
+      );
+      expect(find.byKey(ClientActionsSheet.reportKey), findsOneWidget);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientActionsSheet.blockKey),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(BlockClientDialog.confirmKey),
+      );
+      // The fake card body is static: the server now reports the block.
+      fb.clientCards[userId]!['blocked'] = true;
+      final int cardReads = fb.clientCardCalls
+          .where((String c) => c.startsWith('card '))
+          .length;
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(BlockClientDialog.confirmKey),
+      );
+      await AppHarness.pumpUntilFound(tester, find.byKey(BlockedTag.tagKey));
+      await AppHarness.settle(tester);
+
+      expect(fb.blockPostBookingIds, <String>['booking-1']);
+      expect(
+        fb.clientCardCalls.where((String c) => c.startsWith('card ')).length,
+        greaterThan(cardReads),
+        reason: 'the card re-read after the block',
+      );
+      expect(find.byKey(BlockedTag.tagKey), findsOneWidget);
     });
   });
 

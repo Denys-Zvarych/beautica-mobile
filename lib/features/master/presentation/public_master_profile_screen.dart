@@ -487,7 +487,7 @@ class _PublicProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                ProfileAvatar(imageUrl: master.avatarUrl),
+                ProfileAvatar(imageUrl: master.avatarUrl, previewOnTap: true),
                 const SizedBox(width: VelvetSpacing.md),
                 Expanded(
                   child: Column(
