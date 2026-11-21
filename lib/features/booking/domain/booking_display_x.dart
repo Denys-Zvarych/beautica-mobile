@@ -82,6 +82,22 @@ extension BookingDisplayX on Booking {
     return canSeeClientPhone(role) ? phone : null;
   }
 
+  /// M519 — the client's phone for the provider's tap-to-call on «Деталі
+  /// запису», or `null` when it must not be shown. The ONLY place booking
+  /// detail reads a phone for display.
+  ///
+  /// Reads [Booking.clientPhone] (B518: guest phone OR a registered client's
+  /// verified phone) and, when a pre-B518 server sent none, falls back to
+  /// [guestPhoneFor] — unchanged, so an old server keeps the exact Phase 417
+  /// guest-only behaviour. Either way the role gate is [canSeeClientPhone]:
+  /// independent master / salon owner / salon admin only, NEVER a salon
+  /// master, a client or an unresolved session. PII — do not log.
+  String? clientPhoneFor(UserRole? role) {
+    final String? phone = clientPhone;
+    if (phone == null || phone.isEmpty) return guestPhoneFor(role);
+    return canSeeClientPhone(role) ? phone : null;
+  }
+
   /// Two-letter avatar-fallback initials — "МІ".
   String get masterInitials {
     final String f = masterFirstName.isNotEmpty ? masterFirstName[0] : '';

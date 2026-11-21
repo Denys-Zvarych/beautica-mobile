@@ -5985,6 +5985,10 @@
   "@bookingDetailGuestPhone": {
     "description": "Caption above the guest's phone number on the provider view of «Деталі запису» (guest/LINK bookings only; independent master, salon owner, salon admin)."
   },
+  "bookingDetailClientPhone": "Client phone",
+  "@bookingDetailClientPhone": {
+    "description": "M519 — Caption above a REGISTERED client's verified phone on the provider view of «Деталі запису» (independent master, salon owner, salon admin; never a salon master). Guests keep bookingDetailGuestPhone."
+  },
   "bookingDetailCallGuest": "Call",
   "@bookingDetailCallGuest": {
     "description": "Accessibility label of the tap-to-call guest phone row on «Деталі запису»; tapping opens the phone dialer."

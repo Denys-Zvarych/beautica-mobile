@@ -649,6 +649,49 @@ void main() {
     });
   });
 
+  // M519 / B518 — `clientPhone` is mapped verbatim and INDEPENDENTLY of
+  // `guestPhone`; the old-server fallback lives in
+  // `BookingDisplayX.clientPhoneFor` (covered in
+  // booking_detail_guest_phone_test.dart). Serialised through
+  // `standardSerializers` so the wire name is pinned too.
+  group('BookingMapper.fromDto — clientPhone (M519)', () {
+    BookingDetailResponse dto({String? clientPhone, String? guestPhone}) =>
+        (_validDto(id: 'b-phone').toBuilder()
+              ..clientPhone = clientPhone
+              ..guestPhone = guestPhone)
+            .build();
+
+    test('a present clientPhone maps through verbatim', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(clientPhone: '+380501112233'),
+      );
+      expect(b.clientPhone, '+380501112233');
+      expect(b.guestPhone, isNull, reason: 'never copied into guestPhone');
+    });
+
+    test('a pre-B518 payload (guestPhone only) leaves clientPhone null', () {
+      final Booking b = BookingMapper.fromDto(dto(guestPhone: '+380671234567'));
+      expect(b.clientPhone, isNull);
+      expect(b.guestPhone, '+380671234567');
+    });
+
+    test('the clientPhone wire key is bound', () {
+      final Object? wire = standardSerializers.serializeWith(
+        BookingDetailResponse.serializer,
+        _validDto(id: 'b-wire'),
+      );
+      final BookingDetailResponse? parsed = standardSerializers.deserializeWith(
+        BookingDetailResponse.serializer,
+        <String, Object?>{
+          ...(wire! as Map<String, Object?>),
+          'clientPhone': '+380509998877',
+        },
+      );
+      expect(parsed, isNotNull);
+      expect(BookingMapper.fromDto(parsed!).clientPhone, '+380509998877');
+    });
+  });
+
   group('BookingMapper.fromDto — client block state (phase 425 / 397)', () {
     BookingDetailResponse dto({
       bool? blocked,

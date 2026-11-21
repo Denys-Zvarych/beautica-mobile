@@ -522,6 +522,19 @@ void _guestPhoneToStringTests() {
       expect('${b('+380671234567')}', isNot(contains('1234567')));
     });
 
+    test('M519: toString never contains the clientPhone digits', () {
+      final String out = b(
+        null,
+      ).copyWith(clientPhone: '+380501112233').toString();
+      expect(out, isNot(contains('501112233')));
+      expect(out, contains('clientPhone: <redacted>'));
+      expect(b(null).toString(), contains('clientPhone: null'));
+    });
+
+    test('M519: equality considers clientPhone', () {
+      expect(b(null).copyWith(clientPhone: '+380501112233'), isNot(b(null)));
+    });
+
     test('equality and hashCode still consider guestPhone', () {
       expect(b('+380671234567'), b('+380671234567'));
       expect(b('+380671234567').hashCode, b('+380671234567').hashCode);

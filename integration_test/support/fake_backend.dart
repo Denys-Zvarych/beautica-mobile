@@ -916,6 +916,14 @@ final class FakeBackend {
   /// by seeding it onto a registered-client booking). Never on a listing.
   String? bookingGuestPhone;
 
+  /// M519 / backend B518 — opt-in: the `clientPhone` (E.164) the seeded
+  /// `booking-1`'s DETAIL response carries — a registered client's VERIFIED
+  /// phone (or a guest's). The real backend sends it only to an independent
+  /// master / salon owner / salon admin; the fake serves it verbatim to every
+  /// role so a flow can prove the APP's own role gate. Never on a listing.
+  /// Null (default) = the pre-B518 wire, byte-identical for every older flow.
+  String? bookingClientPhone;
+
   /// Phase 425 — backend 397 `clientBlockable` on the seeded `booking-1`'s
   /// DETAIL response. Null (default) = derived like the server: `true` for a
   /// blocker-role viewer (independent master / salon owner / salon admin),
@@ -6217,6 +6225,8 @@ final class FakeBackend {
     'clientId': bookingClientIsGuest ? null : 'client-1',
     if (includeReviewByClient && bookingGuestPhone != null)
       'guestPhone': bookingGuestPhone,
+    if (includeReviewByClient && bookingClientPhone != null)
+      'clientPhone': bookingClientPhone,
     // Phase 425 / backend 397 — the block state, DETAIL-only (every list row
     // and non-blocker viewer gets false/null/false on the real wire).
     if (includeReviewByClient) ...<String, dynamic>{

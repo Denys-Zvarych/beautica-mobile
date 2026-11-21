@@ -4,6 +4,11 @@
 // NEW baselines only. `ContactTile` itself is UNCHANGED in this phase (its
 // `onTap` was already a constructor parameter), so every existing ContactTile
 // golden is re-run untouched as the regression proof.
+//
+// M519 (GST-81) — NEW baselines for a REGISTERED client's verified phone
+// (`clientPhone`): the row («Телефон клієнта») for independent master, salon
+// owner and salon admin; no row for a salon master. The Phase 417 guest
+// baseline above is untouched.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -50,6 +55,22 @@ final Booking _guest = Booking(
   clientBlockable: true,
 );
 
+// M519 — a registered client (clientId set) whose verified phone arrives as
+// `clientPhone`; `guestPhone` stays null exactly as B518 serves it.
+final Booking _registered = _guest.copyWith(
+  clientId: 'c1',
+  guestPhone: null,
+  clientPhone: '+380501112233',
+);
+
+// The same registered client on a SALON booking — the owner / admin / salon
+// master views.
+final Booking _registeredSalon = _registered.copyWith(
+  masterType: 'SALON_MASTER',
+  salonName: 'Студія Ліра',
+  salonId: 'salon-1',
+);
+
 void main() {
   const double width = 360;
 
@@ -69,4 +90,28 @@ void main() {
     ),
     builder: () => const BookingDetailScreen(bookingId: 'b1'),
   );
+
+  final List<(String, UserRole, Booking)> registeredCases =
+      <(String, UserRole, Booking)>[
+        ('independent_master', UserRole.independentMaster, _registered),
+        ('salon_owner', UserRole.salonOwner, _registeredSalon),
+        ('salon_admin', UserRole.salonAdmin, _registeredSalon),
+        ('salon_master', UserRole.salonMaster, _registeredSalon),
+      ];
+  for (final (String slug, UserRole role, Booking booking) in registeredCases) {
+    goldenTest(
+      'booking detail — registered client phone ($slug)',
+      fileName: 'booking_detail_client_phone_${slug}_360_1x',
+      constraints: BoxConstraints.tight(const Size(width, 1000)),
+      pumpWidget: goldenPumpWidget(
+        width: width,
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          authProvider.overrideWith(() => FixedRoleAuth(role)),
+          bookingDetailProvider('b1').overrideWith((ref) async => booking),
+        ],
+      ),
+      builder: () => const BookingDetailScreen(bookingId: 'b1'),
+    );
+  }
 }

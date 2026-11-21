@@ -78,13 +78,24 @@ abstract class Booking with _$Booking {
 
     /// The GUEST's E.164 phone, for the provider's tap-to-call (Phase 417).
     ///
-    /// **Guest bookings only** (`clientId == null`): a registered client's
-    /// phone is NEVER shown to a provider. Non-null only on the detail read
+    /// **Guest bookings only** (`clientId == null`) — the legacy wire field a
+    /// pre-B518 server still sends. Non-null only on the detail read
     /// (`GET /bookings/{id}`) for an independent master / salon owner /
     /// salon admin; null on every list row and for a salon master, a client
-    /// or an anonymised booking. The render gate is
-    /// `BookingDisplayX.guestPhoneFor`. PII — never log, never route-param.
+    /// or an anonymised booking. Read for display ONLY as the old-server
+    /// fallback of `BookingDisplayX.clientPhoneFor` (via `guestPhoneFor`).
+    /// PII — never log, never route-param.
     String? guestPhone,
+
+    /// M519 / backend B518 — the CLIENT's E.164 phone for the provider's
+    /// tap-to-call: the guest's phone on a guest booking, or a registered
+    /// client's SMS-VERIFIED phone (never an unverified one). Same audience as
+    /// [guestPhone] (detail read only; independent master / salon owner /
+    /// salon admin; never a salon master). Null from a pre-B518 server, in
+    /// which case `BookingDisplayX.clientPhoneFor` falls back to [guestPhone].
+    /// The render gate is `BookingDisplayX.clientPhoneFor`. PII — never log,
+    /// never route-param.
+    String? clientPhone,
 
     /// The client's first name.
     ///
@@ -349,10 +360,12 @@ abstract class Booking with _$Booking {
   /// Phase 417 (mobile-security LOW) — redacting `toString`. The freezed
   /// default prints EVERY field, so a stray `log('$booking')` would leak the
   /// guest's E.164 [guestPhone] (and the free-text notes / names). Only
-  /// non-PII identity fields are printed; [guestPhone] shows presence only.
-  /// `==` / `hashCode` stay freezed-generated and still include [guestPhone].
+  /// non-PII identity fields are printed; [guestPhone] and (M519)
+  /// [clientPhone] show presence only. `==` / `hashCode` stay
+  /// freezed-generated and still include both.
   @override
   String toString() =>
       'Booking(id: $id, masterId: $masterId, status: $status, '
-      'guestPhone: ${guestPhone == null ? 'null' : '<redacted>'})';
+      'guestPhone: ${guestPhone == null ? 'null' : '<redacted>'}, '
+      'clientPhone: ${clientPhone == null ? 'null' : '<redacted>'})';
 }

@@ -759,9 +759,10 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           // Phase 390 — the same owner/admin read also hides the client's
           // review: they read it in the salon «Відгуки» tab instead.
           hideClientReview: hideClientReview,
-          // Phase 417 — guest phone, gated by role + guest-only (see
-          // `BookingDisplayX.guestPhoneFor`). Null → no row.
-          guestPhone: booking.guestPhoneFor(role),
+          // Phase 417 / M519 — the client's phone (guest, or a registered
+          // client's verified phone), gated by role (see
+          // `BookingDisplayX.clientPhoneFor`). Null → no row.
+          clientPhone: booking.clientPhoneFor(role),
           onCallGuest: (String phone) => _callGuest(context, phone),
           transitionsEnabled: transitionsEnabled,
           // Injected clock seam — the PROVIDER footer's start-time gate reads
@@ -795,7 +796,7 @@ class _DetailBody extends StatelessWidget {
     required this.viewer,
     required this.showPerformingMaster,
     required this.hideClientReview,
-    required this.guestPhone,
+    required this.clientPhone,
     required this.onCallGuest,
     required this.transitionsEnabled,
     required this.now,
@@ -825,11 +826,12 @@ class _DetailBody extends StatelessWidget {
   /// Reuses the owning state's single role read; never re-derived here.
   final bool hideClientReview;
 
-  /// Phase 417 — the guest's E.164 phone, already gated by
-  /// `BookingDisplayX.guestPhoneFor` in the owning state. Non-null renders the
-  /// tap-to-call [ContactTile] under the counterparty header. REQUIRED for the
-  /// same reason as [transitionsEnabled]. PII — never log.
-  final String? guestPhone;
+  /// Phase 417 / M519 — the client's E.164 phone (a guest's, or a registered
+  /// client's verified one), already gated by `BookingDisplayX.clientPhoneFor`
+  /// in the owning state. Non-null renders the tap-to-call [ContactTile] under
+  /// the counterparty header. REQUIRED for the same reason as
+  /// [transitionsEnabled]. PII — never log.
+  final String? clientPhone;
 
   /// Opens the dialer for the tapped phone (the owning state's `_callGuest`).
   final void Function(String phone) onCallGuest;
@@ -880,7 +882,7 @@ class _DetailBody extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
-    final String? guestPhoneValue = guestPhone;
+    final String? phoneValue = clientPhone;
 
     // Phase 334 — the client's review of the master, PROVIDER branch only.
     // Resolved here (rather than inline in `recapCards`) so the render site
@@ -956,7 +958,7 @@ class _DetailBody extends StatelessWidget {
           // Branch point 1 of 2 (locked decision D5) — the counterparty. A
           // client sees the master; a provider sees the client. Everything
           // else on this screen is shared verbatim.
-          masterCard: guestPhoneValue == null
+          masterCard: phoneValue == null
               ? BookingCounterpartyHeader(
                   booking: booking,
                   viewer: viewer,
@@ -978,10 +980,14 @@ class _DetailBody extends StatelessWidget {
                     ContactTile(
                       key: const Key('booking-detail-guest-phone'),
                       icon: Icons.phone_outlined,
-                      label: l10n.bookingDetailGuestPhone,
-                      value: guestPhoneValue,
+                      // M519 — a registered client's row is captioned
+                      // «Телефон клієнта»; a guest's keeps «Телефон гостя».
+                      label: booking.isGuestBooking
+                          ? l10n.bookingDetailGuestPhone
+                          : l10n.bookingDetailClientPhone,
+                      value: phoneValue,
                       semanticLabel: l10n.bookingDetailCallGuest,
-                      onTap: () => onCallGuest(guestPhoneValue),
+                      onTap: () => onCallGuest(phoneValue),
                     ),
                   ],
                 ),
