@@ -34,6 +34,10 @@ class _Call {
 /// Serves `total` rows in pages of `pageSize`; a per-call hook can delay or
 /// fail a request.
 class _FakeClientRepository implements ClientRepository {
+  // M510 — the card reads are not exercised here.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
   _FakeClientRepository({this.total = 45});
 
   final int total;

@@ -80,7 +80,9 @@ import '../features/booking/presentation/slot_picker_screen.dart';
 import '../features/booking/presentation/walk_in_guest_step_screen.dart';
 import '../features/booking/presentation/walk_in_service_step_screen.dart';
 import '../features/clients/domain/client_summary.dart';
-import '../features/clients/presentation/client_card_placeholder_screen.dart';
+import '../shared/validators/uuid_validator.dart';
+import '../features/clients/presentation/client_card_screen.dart';
+import '../features/clients/presentation/client_rating_screen.dart';
 import '../features/clients/presentation/clients_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
@@ -363,6 +365,23 @@ GoRouter appRouter(Ref ref) {
       return roleHomePath(session.user.role);
     }
     return null;
+  }
+
+  /// M510 — the salon-scoped client scope for [salonId]. `?masterId=` narrows
+  /// the salon endpoint to the owner's OWN master row (owner master mode,
+  /// B507 D2) and is honoured ONLY for a SALON_OWNER session and ONLY when it
+  /// is a canonical UUID (it is put in the request query); anything else is
+  /// ignored, so the card reads the whole-salon scope — the server stays the
+  /// authority (M509 audit carry-over).
+  ClientListScope salonClientScope(GoRouterState state, String salonId) {
+    final String? raw = state.uri.queryParameters[kClientCardMasterIdQuery];
+    final session = ref.read(authProvider).value;
+    final bool ownerSession =
+        session is Authenticated && session.user.role == UserRole.salonOwner;
+    final String? masterId = (raw != null && isUuid(raw) && ownerSession)
+        ? raw
+        : null;
+    return ClientListScope.salon(salonId: salonId, masterId: masterId);
   }
 
   // Phase 21.2 — per-route SALON_OWNER/SALON_ADMIN gate for the owner/admin
@@ -1800,27 +1819,67 @@ GoRouter appRouter(Ref ref) {
           },
         ),
       ),
-      // M509 — a client's card from the salon shell's «Клієнти» tab (owner /
-      // admin) or from owner master mode (`?masterId=`). STANDALONE like the
-      // shell above, guarded by the SAME [salonManageGuard]; M510 replaces the
-      // placeholder. `user` / `guest` are literal segments below the
-      // already-captured `:salonId`, so nothing shadows them.
+      // M509/M510 — a client's card (and «Рейтинг клієнта») from the salon
+      // shell's «Клієнти» tab (owner / admin) or from owner master mode
+      // (`?masterId=`). STANDALONE like the shell above, guarded by the SAME
+      // [salonManageGuard]. `user` / `guest` are literal segments below the
+      // already-captured `:salonId`, and `rating` is a literal below the id.
       GoRoute(
         path: '/salons/:salonId/clients/user/:userId',
         redirect: salonManageGuard,
-        builder: (context, state) => pathIdsGuarded(state, <String>[
-          'salonId',
-          'userId',
-        ], (ids) => const ClientCardPlaceholderScreen()),
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['salonId', 'userId'],
+          (ids) => ClientCardScreen(
+            scope: salonClientScope(state, ids[0]),
+            client: ClientRef.registered(ids[1]),
+            cardBase: RouteNames.salonClients(ids[0]),
+            bookingRoute: RouteNames.salonStaffBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/clients/user/:userId/rating',
+        redirect: salonManageGuard,
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['salonId', 'userId'],
+          (ids) => ClientRatingScreen(
+            scope: salonClientScope(state, ids[0]),
+            client: ClientRef.registered(ids[1]),
+          ),
+        ),
       ),
       GoRoute(
         path: '/salons/:salonId/clients/guest/:bookingId',
         redirect: salonManageGuard,
         builder: (context, state) => bookingIdGuarded(
           state,
-          (_) => pathIdsGuarded(state, <String>[
-            'salonId',
-          ], (ids) => const ClientCardPlaceholderScreen()),
+          (bookingId) => pathIdsGuarded(
+            state,
+            <String>['salonId'],
+            (ids) => ClientCardScreen(
+              scope: salonClientScope(state, ids[0]),
+              client: ClientRef.guest(bookingId),
+              cardBase: RouteNames.salonClients(ids[0]),
+              bookingRoute: RouteNames.salonStaffBookingDetail,
+            ),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/clients/guest/:bookingId/rating',
+        redirect: salonManageGuard,
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => pathIdsGuarded(
+            state,
+            <String>['salonId'],
+            (ids) => ClientRatingScreen(
+              scope: salonClientScope(state, ids[0]),
+              client: ClientRef.guest(bookingId),
+            ),
+          ),
         ),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
@@ -2134,21 +2193,55 @@ GoRouter appRouter(Ref ref) {
           ),
         ),
       ),
-      // The client card (M510 replaces the placeholder at these paths).
+      // The client card + «Рейтинг клієнта» (M510).
       // STANDALONE siblings, not children of the list route: a nested child
       // would mount a second, hidden `ClientsScreen` (a duplicate fetch) under
       // the card — the reason `/master/bookings/:id/review` is a sibling too.
       // `user` / `guest` are literal segments, so neither shadows the other.
       GoRoute(
         path: '${RouteNames.masterClients}/user/:userId',
-        builder: (context, state) => pathIdsGuarded(state, <String>[
-          'userId',
-        ], (ids) => const ClientCardPlaceholderScreen()),
+        builder: (context, state) =>
+            pathIdsGuarded(state, <String>['userId'], (ids) {
+              return ClientCardScreen(
+                scope: const ClientListScope.me(),
+                client: ClientRef.registered(ids[0]),
+                cardBase: RouteNames.masterClients,
+                bookingRoute: RouteNames.masterBookingDetail,
+              );
+            }),
+      ),
+      GoRoute(
+        path: '${RouteNames.masterClients}/user/:userId/rating',
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['userId'],
+          (ids) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.registered(ids[0]),
+          ),
+        ),
       ),
       GoRoute(
         path: '${RouteNames.masterClients}/guest/:bookingId',
-        builder: (context, state) =>
-            bookingIdGuarded(state, (_) => const ClientCardPlaceholderScreen()),
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientCardScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+            cardBase: RouteNames.masterClients,
+            bookingRoute: RouteNames.masterBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.masterClients}/guest/:bookingId/rating',
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+          ),
+        ),
       ),
       // Phase 7.6 — the master's «Мої записи», the bottom-nav tab-1 destination
       // that had no route until this phase (see `profile_avatar.dart`).
@@ -2768,18 +2861,53 @@ GoRouter appRouter(Ref ref) {
           ),
         ],
       ),
-      // M509 — the SALON_MASTER's client card (M510 replaces the placeholder).
-      // Outside the tabs shell like `/staff/settings`: a pushed drill-in.
+      // M509/M510 — the SALON_MASTER's client card + «Рейтинг клієнта». Outside
+      // the tabs shell like `/staff/settings`: a pushed drill-in.
       GoRoute(
         path: '${RouteNames.salonMasterClients}/user/:userId',
-        builder: (context, state) => pathIdsGuarded(state, <String>[
-          'userId',
-        ], (ids) => const ClientCardPlaceholderScreen()),
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['userId'],
+          (ids) => ClientCardScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.registered(ids[0]),
+            cardBase: RouteNames.salonMasterClients,
+            bookingRoute: RouteNames.salonMasterBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.salonMasterClients}/user/:userId/rating',
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['userId'],
+          (ids) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.registered(ids[0]),
+          ),
+        ),
       ),
       GoRoute(
         path: '${RouteNames.salonMasterClients}/guest/:bookingId',
-        builder: (context, state) =>
-            bookingIdGuarded(state, (_) => const ClientCardPlaceholderScreen()),
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientCardScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+            cardBase: RouteNames.salonMasterClients,
+            bookingRoute: RouteNames.salonMasterBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.salonMasterClients}/guest/:bookingId/rating',
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+          ),
+        ),
       ),
       // ═══════════════════════════════════════════════════════════════════
       // Phase 379 (24.1b) — the SALON_OWNER's «master mode» tab set

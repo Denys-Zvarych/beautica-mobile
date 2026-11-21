@@ -17,6 +17,18 @@ import '../../auth/domain/user_role.dart';
 import 'booking.dart';
 import 'booking_status.dart';
 
+/// M510 — the ONE role gate for a client's phone on a provider surface:
+/// independent master, salon owner, salon admin. NEVER a salon master, a
+/// client, or an unresolved session (fail closed). Extracted from
+/// [BookingDisplayX.guestPhoneFor] so booking detail and the client card
+/// cannot drift apart.
+bool canSeeClientPhone(UserRole? role) => switch (role) {
+  UserRole.independentMaster ||
+  UserRole.salonOwner ||
+  UserRole.salonAdmin => true,
+  UserRole.salonMaster || UserRole.client || null => false,
+};
+
 extension BookingDisplayX on Booking {
   /// Joined display name — "Марія Іванюк".
   String get masterName => '$masterFirstName $masterLastName'.trim();
@@ -67,12 +79,7 @@ extension BookingDisplayX on Booking {
   String? guestPhoneFor(UserRole? role) {
     final String? phone = guestPhone;
     if (phone == null || phone.isEmpty || clientId != null) return null;
-    return switch (role) {
-      UserRole.independentMaster ||
-      UserRole.salonOwner ||
-      UserRole.salonAdmin => phone,
-      UserRole.salonMaster || UserRole.client || null => null,
-    };
+    return canSeeClientPhone(role) ? phone : null;
   }
 
   /// Two-letter avatar-fallback initials — "МІ".

@@ -948,6 +948,24 @@ final class FakeBackend {
   /// JSON). Filled by the caller before [wireClientList]. Rows carry no phone.
   final List<Map<String, dynamic>> clientRows = <Map<String, dynamic>>[];
 
+  /// M510 — card bodies for [wireClientCard], keyed by the client id (a
+  /// registered `userId` or a guest's `bookingId`): B508/B526 `ClientCardResponse`
+  /// JSON. An id with no entry answers the uniform 404.
+  final Map<String, Map<String, dynamic>> clientCards =
+      <String, Map<String, dynamic>>{};
+
+  /// M510 — `…/visits` rows (B508 `ClientVisitResponse` JSON) per client id.
+  final Map<String, List<Map<String, dynamic>>> clientVisits =
+      <String, List<Map<String, dynamic>>>{};
+
+  /// M510 — `…/ratings` rows (B526 `ClientOwnRatingResponse` JSON) per client id.
+  final Map<String, List<Map<String, dynamic>>> clientOwnRatings =
+      <String, List<Map<String, dynamic>>>{};
+
+  /// M510 — every card-family request (`card`, `visits`, `ratings`) as
+  /// `<kind> <path> page=<n> masterId=<m>`, newest last.
+  final List<String> clientCardCalls = <String>[];
+
   /// M509 QA — pages (0-based) for which [wireClientList] answers with an
   /// unusable envelope (`success: false`, no `data`) → the app's
   /// `ResponseUnusableFailure`. The request is still recorded.
@@ -13284,6 +13302,100 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) => serve(req, mePath)),
       request: const Request(method: RequestMethods.get),
     );
+  }
+
+  /// M510 — backend B508/B526 client-card reads for every salon in [salonIds]
+  /// and `/masters/me`, for the ids in [clientCards] / [clientVisits] /
+  /// [clientOwnRatings]: `…/clients/{users|guests}/{id}`, `…/visits`,
+  /// `…/ratings`. An unknown id answers the uniform 404. Visits and ratings
+  /// page by the FLAT `page` / `size` query. Recorded in [clientCardCalls].
+  /// Call AFTER filling the maps.
+  void wireClientCard({
+    List<String> salonIds = const <String>['salon-owner-1'],
+  }) {
+    Map<String, dynamic> pageOf(
+      List<Map<String, dynamic>> all,
+      RequestOptions req,
+    ) {
+      final int page = int.parse('${req.queryParameters['page'] ?? 0}');
+      final int size = int.parse('${req.queryParameters['size'] ?? 20}');
+      final int from = page * size;
+      final List<Map<String, dynamic>> slice = from >= all.length
+          ? <Map<String, dynamic>>[]
+          : all.sublist(
+              from,
+              (from + size) > all.length ? all.length : from + size,
+            );
+      return <String, dynamic>{
+        'success': true,
+        'message': 'ok',
+        'data': <String, dynamic>{
+          'success': true,
+          'data': slice,
+          'page': page,
+          'size': size,
+          'totalElements': all.length,
+          'totalPages': (all.length / size).ceil(),
+        },
+      };
+    }
+
+    void register(String base) {
+      final Set<String> ids = <String>{
+        ...clientCards.keys,
+        ...clientVisits.keys,
+        ...clientOwnRatings.keys,
+      };
+      for (final String id in ids) {
+        final bool guest = !id.startsWith('u-');
+        final String root = '$base/${guest ? 'guests' : 'users'}/$id';
+        void record(String kind, RequestOptions req) => clientCardCalls.add(
+          '$kind $root page=${req.queryParameters['page']} '
+          'masterId=${req.queryParameters['masterId']}',
+        );
+        _adapter.onRoute(root, (server) {
+          if (clientCards[id] == null) {
+            server.reply(404, <String, dynamic>{
+              'success': false,
+              'message': 'CLIENT_NOT_FOUND',
+            });
+            return;
+          }
+          server.replyCallback(200, (req) {
+            record('card', req);
+            return <String, dynamic>{
+              'success': true,
+              'message': 'ok',
+              'data': clientCards[id],
+            };
+          });
+        }, request: const Request(method: RequestMethods.get));
+        _adapter.onRoute(
+          '$root/visits',
+          (server) => server.replyCallback(200, (req) {
+            record('visits', req);
+            return pageOf(clientVisits[id] ?? <Map<String, dynamic>>[], req);
+          }),
+          request: const Request(method: RequestMethods.get),
+        );
+        _adapter.onRoute(
+          '$root/ratings',
+          (server) => server.replyCallback(200, (req) {
+            record('ratings', req);
+            return pageOf(
+              clientOwnRatings[id] ?? <Map<String, dynamic>>[],
+              req,
+            );
+          }),
+          request: const Request(method: RequestMethods.get),
+        );
+      }
+    }
+
+    for (final String salonId in salonIds) {
+      register('/api/v1/salons/$salonId/clients');
+    }
+    register('/api/v1/masters/me/clients');
   }
 
   /// Phase 438 — `GET /api/v1/app/config` fails at the transport (the

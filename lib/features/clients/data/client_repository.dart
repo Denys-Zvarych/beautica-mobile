@@ -14,6 +14,11 @@
 // `/api/v1/masters/me/clients` are redacted prefixes in `LoggingInterceptor`
 // (`kPiiPathPrefixes`), and only transport metadata is ever logged here.
 // B507 sends no phone and no comment text.
+//
+// M510 adds the card reads (B508 `…/clients/{users|guests}/{id}` + `/visits`,
+// B526 `/ratings`) on the SAME seam, with the same flat-paging wire format.
+// The card carries the client's PHONE (B518) — the redacted prefixes above
+// cover these paths, and nothing here ever logs a body or a path id.
 
 import 'dart:developer';
 
@@ -28,7 +33,11 @@ import 'package:beautica_mobile/core/network/api_enum_names.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/network/path_segment.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
+import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 
 part 'client_repository.g.dart';
 
@@ -67,6 +76,32 @@ abstract interface class ClientRepository {
   Future<PageResponse<ClientSummary>> list(
     ClientListScope scope, {
     String? q,
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  });
+
+  /// The card of [client] within [scope]. Throws [NotFoundFailure] for an
+  /// unknown or out-of-scope client (the uniform 404, CLI-48).
+  Future<ClientCard> getCard(
+    ClientListScope scope,
+    ClientRef client, {
+    CancelToken? cancelToken,
+  });
+
+  /// One page of [client]'s visits, newest first (B508, size 20).
+  Future<PageResponse<ClientVisit>> getVisits(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  });
+
+  /// One page of the viewer's OWN ratings of [client] (B526), newest first.
+  Future<PageResponse<ClientOwnRating>> getOwnRatings(
+    ClientListScope scope,
+    ClientRef client, {
     int page = 0,
     int size = kClientPageSize,
     CancelToken? cancelToken,
@@ -121,6 +156,111 @@ final class HttpClientRepository implements ClientRepository {
         // Transport metadata only — never the body (names) or the query (`q`).
         log(
           'list failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw mapClientDioException(e);
+    }
+  }
+
+  @override
+  Future<ClientCard> getCard(
+    ClientListScope scope,
+    ClientRef client, {
+    CancelToken? cancelToken,
+  }) async => clientCardFromBody(
+    await _read(
+      _cardPath(scope, client, ''),
+      scope: scope,
+      cancelToken: cancelToken,
+    ),
+    client: client,
+  );
+
+  @override
+  Future<PageResponse<ClientVisit>> getVisits(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async => clientVisitsFromBody(
+    await _read(
+      _cardPath(scope, client, '/visits'),
+      scope: scope,
+      page: page,
+      size: size,
+      cancelToken: cancelToken,
+    ),
+    requestedPage: page,
+  );
+
+  @override
+  Future<PageResponse<ClientOwnRating>> getOwnRatings(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async => clientOwnRatingsFromBody(
+    await _read(
+      _cardPath(scope, client, '/ratings'),
+      scope: scope,
+      page: page,
+      size: size,
+      cancelToken: cancelToken,
+    ),
+    requestedPage: page,
+  );
+
+  /// `…/clients/{users|guests}/{id}{suffix}` below [scope]'s base.
+  String _cardPath(ClientListScope scope, ClientRef client, String suffix) {
+    final String base = switch (scope) {
+      SalonClientListScope(:final String salonId) =>
+        '/api/v1/salons/${encodePathSegment(salonId, 'salonId', logTag: _tag)}/clients',
+      MyClientListScope() => '/api/v1/masters/me/clients',
+    };
+    final String tail = switch (client) {
+      RegisteredClientRef(:final String userId) =>
+        'users/${encodePathSegment(userId, 'userId', logTag: _tag)}',
+      GuestClientRef(:final String bookingId) =>
+        'guests/${encodePathSegment(bookingId, 'bookingId', logTag: _tag)}',
+    };
+    return '$base/$tail$suffix';
+  }
+
+  Future<Object?> _read(
+    String path, {
+    required ClientListScope scope,
+    int? page,
+    int? size,
+    CancelToken? cancelToken,
+  }) async {
+    final String? masterId = switch (scope) {
+      SalonClientListScope(:final String? masterId) => masterId,
+      MyClientListScope() => null,
+    };
+    try {
+      final Response<Object?> response = await _dio.get<Object?>(
+        path,
+        queryParameters: <String, dynamic>{
+          'page': ?page,
+          'size': ?size,
+          'masterId': ?masterId,
+        },
+        cancelToken: cancelToken,
+      );
+      return response.data;
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (CancelToken.isCancel(e)) rethrow;
+      if (kDebugMode) {
+        // Transport metadata only — never the body, the path or an id.
+        log(
+          'card read failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -211,6 +351,176 @@ ClientSummary? clientSummaryFromDto(ClientListItemResponse? dto) {
           }
         : 0,
     blocked: dto.blocked ?? false,
+  );
+}
+
+/// Deserializes a card body into a [ClientCard] for the REQUESTED [client].
+/// Throws [ResponseUnusableFailure] when the envelope is unreadable.
+@visibleForTesting
+ClientCard clientCardFromBody(Object? body, {required ClientRef client}) {
+  final ApiResponseClientCardResponse? envelope;
+  try {
+    envelope = body == null
+        ? null
+        : standardSerializers.deserialize(
+                body,
+                specifiedType: const FullType(ApiResponseClientCardResponse),
+              )
+              as ApiResponseClientCardResponse?;
+  } catch (_) {
+    throw const ResponseUnusableFailure();
+  }
+  final ClientCardResponse? dto = envelope?.data;
+  if (dto == null) throw const ResponseUnusableFailure();
+  return clientCardFromDto(dto, client: client);
+}
+
+/// Maps a generated [ClientCardResponse]. No `kind` branch (CLI-D07): the
+/// server decides what a guest or registered client has. `stats` /
+/// `firstVisitAt` are ignored (D3).
+@visibleForTesting
+ClientCard clientCardFromDto(
+  ClientCardResponse dto, {
+  required ClientRef client,
+}) {
+  final List<int> distribution = List<int>.filled(kClientRatingBuckets, 0);
+  for (final RatingBucket b in dto.ratingDistribution ?? <RatingBucket>[]) {
+    final int? stars = b.rating;
+    if (stars == null || stars < 1 || stars > kClientRatingBuckets) continue;
+    final int count = b.count ?? 0;
+    distribution[kClientRatingBuckets - stars] = count > 0 ? count : 0;
+  }
+  final int ratingCount = switch (dto.ratingCount) {
+    final int n when n > 0 => n,
+    _ => 0,
+  };
+  return ClientCard(
+    ref: client,
+    displayName: _nonBlank(dto.displayName)?.trim(),
+    avatarUrl: _nonBlank(dto.avatarUrl),
+    phone: _nonBlank(dto.phone)?.trim(),
+    blocked: dto.blocked ?? false,
+    ratingAvg: dto.ratingAvg?.toDouble(),
+    ratingCount: ratingCount,
+    ratingDistribution: List<int>.unmodifiable(distribution),
+    nextVisitAt: dto.nextVisitAt,
+  );
+}
+
+/// Deserializes a `…/visits` page, dropping visits / items the app cannot use.
+@visibleForTesting
+PageResponse<ClientVisit> clientVisitsFromBody(
+  Object? body, {
+  required int requestedPage,
+}) {
+  final ApiResponsePageResponseClientVisitResponse? envelope;
+  try {
+    envelope = body == null
+        ? null
+        : standardSerializers.deserialize(
+                body,
+                specifiedType: const FullType(
+                  ApiResponsePageResponseClientVisitResponse,
+                ),
+              )
+              as ApiResponsePageResponseClientVisitResponse?;
+  } catch (_) {
+    throw const ResponseUnusableFailure();
+  }
+  final PageResponseClientVisitResponse? dto = envelope?.data;
+  final Iterable<ClientVisitResponse>? rows = dto?.data;
+  if (dto == null || rows == null) throw const ResponseUnusableFailure();
+  final List<ClientVisit> items = <ClientVisit>[];
+  for (final ClientVisitResponse row in rows) {
+    final ClientVisit? visit = clientVisitFromDto(row);
+    if (visit != null) items.add(visit);
+  }
+  return PageResponse<ClientVisit>(
+    items: List<ClientVisit>.unmodifiable(items),
+    page: dto.page ?? requestedPage,
+    totalPages: dto.totalPages ?? 0,
+    totalElements: dto.totalElements ?? items.length,
+  );
+}
+
+/// Maps one visit; `null` when it has no key / start or no usable item.
+/// `masterId` / `masterDisplayName` are not mapped (D2).
+@visibleForTesting
+ClientVisit? clientVisitFromDto(ClientVisitResponse? dto) {
+  if (dto == null) return null;
+  final String? key = _nonBlank(dto.visitKey);
+  final DateTime? startsAt = dto.startsAt;
+  if (key == null || startsAt == null) return null;
+  final List<ClientVisitItem> items = <ClientVisitItem>[];
+  for (final Item i in dto.items ?? <Item>[]) {
+    final String? bookingId = _nonBlank(i.bookingId);
+    final DateTime? at = i.startsAt;
+    if (bookingId == null || at == null) continue;
+    final String? wire = knownEnumName(i.status);
+    items.add(
+      ClientVisitItem(
+        bookingId: bookingId,
+        serviceName: _nonBlank(i.serviceName)?.trim() ?? '',
+        status: wire == null
+            ? BookingStatus.unknown
+            : BookingStatus.fromWire(wire),
+        startsAt: at,
+        price: i.priceAtBooking?.toDouble(),
+        priceMax: i.priceMaxAtBooking?.toDouble(),
+      ),
+    );
+  }
+  if (items.isEmpty) return null;
+  return ClientVisit(
+    visitKey: key,
+    startsAt: startsAt,
+    items: List<ClientVisitItem>.unmodifiable(items),
+  );
+}
+
+/// Deserializes a `…/ratings` page (B526) — stars only, no comment field.
+@visibleForTesting
+PageResponse<ClientOwnRating> clientOwnRatingsFromBody(
+  Object? body, {
+  required int requestedPage,
+}) {
+  final ApiResponsePageResponseClientOwnRatingResponse? envelope;
+  try {
+    envelope = body == null
+        ? null
+        : standardSerializers.deserialize(
+                body,
+                specifiedType: const FullType(
+                  ApiResponsePageResponseClientOwnRatingResponse,
+                ),
+              )
+              as ApiResponsePageResponseClientOwnRatingResponse?;
+  } catch (_) {
+    throw const ResponseUnusableFailure();
+  }
+  final PageResponseClientOwnRatingResponse? dto = envelope?.data;
+  final Iterable<ClientOwnRatingResponse>? rows = dto?.data;
+  if (dto == null || rows == null) throw const ResponseUnusableFailure();
+  final List<ClientOwnRating> items = <ClientOwnRating>[];
+  for (final ClientOwnRatingResponse r in rows) {
+    final String? bookingId = _nonBlank(r.bookingId);
+    final DateTime? at = r.visitAt;
+    final int? stars = r.stars;
+    if (bookingId == null || at == null || stars == null) continue;
+    items.add(
+      ClientOwnRating(
+        bookingId: bookingId,
+        visitAt: at,
+        serviceName: _nonBlank(r.serviceName)?.trim() ?? '',
+        stars: stars.clamp(0, kClientRatingBuckets),
+      ),
+    );
+  }
+  return PageResponse<ClientOwnRating>(
+    items: List<ClientOwnRating>.unmodifiable(items),
+    page: dto.page ?? requestedPage,
+    totalPages: dto.totalPages ?? 0,
+    totalElements: dto.totalElements ?? items.length,
   );
 }
 

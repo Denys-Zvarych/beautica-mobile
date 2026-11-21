@@ -4,8 +4,8 @@
 //   /master/clients          INDEPENDENT_MASTER   (`/master/*` prefix gate)
 //   /staff/clients           SALON_MASTER         (`/staff/*` prefix gate)
 //   /owner/master/clients    SALON_OWNER          (`/owner/master/*` prefix gate)
-//   <each>/user/:userId, <each>/guest/:bookingId  the M510 card (placeholder
-//   until M510), plus the salon-scoped pair /salons/:salonId/clients/{user,guest}/:id
+//   <each>/user/:userId, <each>/guest/:bookingId  the M510 card and
+//   <each>/user/:userId/rating, plus the salon-scoped pair /salons/:salonId/clients/{user,guest}/:id
 //
 // No new role rule was added — each tab rides the gate of its sibling tabs —
 // so the matrix below is what pins "same redirect rules as the sibling tabs".
@@ -20,6 +20,8 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
+import 'package:flutter/widgets.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -80,6 +82,13 @@ void main() {
       '${RouteNames.salonClients('s1')}/user/u1',
       '${RouteNames.salonClients('s1')}/guest/b1',
       '${RouteNames.salonClients('s1')}/user/u1?masterId=m1',
+      // M510 — «Рейтинг клієнта» below every card route.
+      '${RouteNames.masterClients}/user/u1/rating',
+      '${RouteNames.masterClients}/guest/b1/rating',
+      '${RouteNames.salonMasterClients}/user/u1/rating',
+      '${RouteNames.salonMasterClients}/guest/b1/rating',
+      '${RouteNames.salonClients('s1')}/user/u1/rating',
+      '${RouteNames.salonClients('s1')}/guest/b1/rating?masterId=m1',
     ];
 
     test('every list route and every card route resolves to a GoRoute', () {
@@ -99,6 +108,8 @@ void main() {
         '${RouteNames.masterClients}/guest/b1',
         '${RouteNames.salonMasterClients}/user/u1',
         '${RouteNames.salonClients('s1')}/guest/b1',
+        '${RouteNames.masterClients}/user/u1/rating',
+        '${RouteNames.salonClients('s1')}/guest/b1/rating',
       ]) {
         final RouteMatchList match = router.configuration.findMatch(
           Uri.parse(card),
@@ -269,6 +280,132 @@ void main() {
         clientCardRoute(RouteNames.masterClients, const ClientRef.guest('a/b')),
         '/master/clients/guest/a%2Fb',
       );
+    });
+  });
+
+  group('clientRatingRoute', () {
+    test('below the card, same ?masterId= rule, ids URL-encoded', () {
+      expect(
+        clientRatingRoute(
+          RouteNames.masterClients,
+          const ClientRef.registered('u1'),
+        ),
+        '/master/clients/user/u1/rating',
+      );
+      expect(
+        clientRatingRoute(
+          RouteNames.salonClients('s1'),
+          const ClientRef.guest('b1'),
+          masterId: 'm-7',
+        ),
+        '/salons/s1/clients/guest/b1/rating?masterId=m-7',
+      );
+      expect(
+        clientRatingRoute(
+          RouteNames.masterClients,
+          const ClientRef.guest('a/b'),
+        ),
+        '/master/clients/guest/a%2Fb/rating',
+      );
+    });
+  });
+
+  group('salon card route: ?masterId= (M509 audit carry-over)', () {
+    const String uuid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+
+    Future<ClientListScope> scopeFor(
+      WidgetTester tester,
+      UserRole role,
+      String location,
+    ) async {
+      final ProviderContainer container = makeTestContainer(
+        overrides: <Object>[
+          authProvider.overrideWith(
+            () => _FixedAuth(
+              AuthSession.authenticated(
+                user: User(
+                  id: 'u1',
+                  email: 'a@b.c',
+                  role: role,
+                  salonId: 's-1',
+                ),
+                accessToken: 't',
+              ),
+            ),
+          ),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ],
+      );
+      await container.read(authProvider.future);
+      final GoRouter router = container.read(appRouterProvider);
+      addTearDown(router.dispose);
+      await tester.pumpWidget(const SizedBox(key: Key('ctx')));
+      final BuildContext context = tester.element(find.byKey(const Key('ctx')));
+      final RouteMatchList match = router.configuration.findMatch(
+        Uri.parse(location),
+      );
+      expect(match.isError, isFalse, reason: location);
+      final Widget w = match.last.route.builder!(
+        context,
+        router.configuration.buildTopLevelGoRouterState(match),
+      );
+      return (w as ClientCardScreen).scope;
+    }
+
+    testWidgets('owner + a UUID → narrowed to the owner\'s master row', (
+      tester,
+    ) async {
+      final ClientListScope scope = await scopeFor(
+        tester,
+        UserRole.salonOwner,
+        '/salons/s-1/clients/user/u-1?masterId=$uuid',
+      );
+      expect(
+        scope,
+        const ClientListScope.salon(salonId: 's-1', masterId: uuid),
+      );
+    });
+
+    testWidgets('owner + a non-UUID masterId is ignored', (tester) async {
+      for (final String bad in <String>[
+        'm-7',
+        '..%2F..%2Fx',
+        '$uuid%0Ax',
+        'x$uuid',
+        '',
+      ]) {
+        final ClientListScope scope = await scopeFor(
+          tester,
+          UserRole.salonOwner,
+          '/salons/s-1/clients/user/u-1?masterId=$bad',
+        );
+        expect(
+          scope,
+          const ClientListScope.salon(salonId: 's-1'),
+          reason: 'masterId=$bad',
+        );
+      }
+    });
+
+    testWidgets('admin + a UUID is ignored (owner master mode only)', (
+      tester,
+    ) async {
+      final ClientListScope scope = await scopeFor(
+        tester,
+        UserRole.salonAdmin,
+        '/salons/s-1/clients/guest/b-1?masterId=$uuid',
+      );
+      expect(scope, const ClientListScope.salon(salonId: 's-1'));
+    });
+
+    testWidgets('no query → the whole-salon scope', (tester) async {
+      final ClientListScope scope = await scopeFor(
+        tester,
+        UserRole.salonOwner,
+        '/salons/s-1/clients/user/u-1',
+      );
+      expect(scope, const ClientListScope.salon(salonId: 's-1'));
     });
   });
 }

@@ -29,3 +29,21 @@ String clientCardRoute(String listRoute, ClientRef ref, {String? masterId}) {
       ? path
       : '$path?$kClientCardMasterIdQuery=${Uri.encodeQueryComponent(masterId)}';
 }
+
+/// M510 — «Рейтинг клієнта» below the card of [ref] (same `?masterId=` rule as
+/// [clientCardRoute]).
+String clientRatingRoute(String listRoute, ClientRef ref, {String? masterId}) {
+  final String path = switch (ref) {
+    RegisteredClientRef(:final String userId) => RouteNames.clientRatingUser(
+      listRoute,
+      userId,
+    ),
+    GuestClientRef(:final String bookingId) => RouteNames.clientRatingGuest(
+      listRoute,
+      bookingId,
+    ),
+  };
+  return masterId == null
+      ? path
+      : '$path?$kClientCardMasterIdQuery=${Uri.encodeQueryComponent(masterId)}';
+}

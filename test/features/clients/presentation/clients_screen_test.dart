@@ -39,6 +39,10 @@ typedef _Hook =
     Future<PageResponse<ClientSummary>>? Function(int page, String? q);
 
 class _FakeRepo implements ClientRepository {
+  // M510 — the card reads are not exercised here.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
   _FakeRepo(this.rows);
 
   List<ClientSummary> rows;

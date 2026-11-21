@@ -178,4 +178,45 @@ void main() {
     expect(find.byType(NeumorphicIconButton), findsNothing);
     expect(find.text(_kBackLabel), findsNothing);
   });
+
+  testWidgets('slivers: null keeps the SingleChildScrollView body', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      () => const ProfileScaffold(title: 'Профіль', child: SizedBox()),
+    );
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(find.byType(CustomScrollView), findsNothing);
+  });
+
+  testWidgets('slivers: child first, then the slivers, at the same padding', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      () => ProfileScaffold(
+        title: 'Профіль',
+        slivers: <Widget>[
+          SliverList.builder(
+            itemCount: 200,
+            itemBuilder: (_, int i) =>
+                SizedBox(key: ValueKey<int>(i), height: 40),
+          ),
+        ],
+        child: const SizedBox(key: Key('head'), height: 10),
+      ),
+    );
+    expect(find.byType(SingleChildScrollView), findsNothing);
+    expect(find.byType(CustomScrollView), findsOneWidget);
+    final Rect head = tester.getRect(find.byKey(const Key('head')));
+    final Rect first = tester.getRect(find.byKey(const ValueKey<int>(0)));
+    expect(first.top, head.bottom, reason: 'the slivers follow the child');
+    expect(first.left, head.left, reason: 'same horizontal padding');
+    expect(
+      find.byKey(const ValueKey<int>(199), skipOffstage: false),
+      findsNothing,
+      reason: 'the tail is lazy',
+    );
+  });
 }

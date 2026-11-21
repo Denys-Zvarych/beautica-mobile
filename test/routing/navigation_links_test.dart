@@ -472,6 +472,16 @@ void main() {
         RouteNames.masterClients,
         kSampleId,
       ),
+      // M510 — «Рейтинг клієнта» below each card (other bases in
+      // `clients_routes_test.dart`).
+      'clientRatingUser()': RouteNames.clientRatingUser(
+        RouteNames.masterClients,
+        kSampleId,
+      ),
+      'clientRatingGuest()': RouteNames.clientRatingGuest(
+        RouteNames.masterClients,
+        kSampleId,
+      ),
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

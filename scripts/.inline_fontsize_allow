@@ -24,3 +24,5 @@ lib/features/home/presentation/widgets/hub_widgets.dart:106          # HubAvatar
 lib/features/home/presentation/widgets/hub_widgets.dart:193          # fontSize pass-through into cached HubPhoto style
 lib/features/home/presentation/widgets/hub_widgets.dart:625          # size * 0.5 fallback-avatar glyph
 lib/shared/widgets/master_mark.dart:94  # size * 0.32 master-mark initials glyph
+lib/features/clients/presentation/widgets/client_card_text.dart:17   # M510 ClientCardVariants `comfortaa(size)` — one parameterised size over VelvetText.heading() (7 sizes + the monogram glyph size * 0.34)
+lib/features/clients/presentation/widgets/client_card_text.dart:29   # M510 ClientCardVariants `nunito(size)` — one parameterised size over VelvetText.body()

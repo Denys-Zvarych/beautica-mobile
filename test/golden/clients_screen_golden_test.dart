@@ -29,6 +29,10 @@ import 'helpers/golden_pump.dart';
 DateTime _now() => DateTime.utc(2026, 11, 16, 10);
 
 class _Repo implements ClientRepository {
+  // M510 — the card reads are not exercised here.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
   _Repo(this.rows, {this.failure});
 
   final List<ClientSummary> rows;

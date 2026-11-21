@@ -107,6 +107,10 @@ import '../../../helpers/fakes/fake_media_upload_repository.dart';
 
 /// Records the scope of every list request; serves an empty roster.
 class _ClientsRepoProbe implements ClientRepository {
+  // M510 — the card reads are not exercised here.
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
   final List<ClientListScope> scopes = <ClientListScope>[];
 
   @override

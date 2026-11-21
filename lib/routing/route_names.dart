@@ -1401,6 +1401,15 @@ abstract final class RouteNames {
   static String clientCardGuest(String listRoute, String bookingId) =>
       '$listRoute/guest/${Uri.encodeComponent(bookingId)}';
 
+  /// «Рейтинг клієнта» of a registered client — below [clientCardUser]. A
+  /// literal `rating` segment after the dynamic id (nothing can shadow it).
+  static String clientRatingUser(String listRoute, String userId) =>
+      '${clientCardUser(listRoute, userId)}/rating';
+
+  /// See [clientRatingUser]; the id is the guest's latest `bookingId`.
+  static String clientRatingGuest(String listRoute, String bookingId) =>
+      '${clientCardGuest(listRoute, bookingId)}/rating';
+
   /// The salon-scoped list base `/salons/{salonId}/clients` the salon shell
   /// and owner master mode hang their card routes under (the list itself is
   /// an in-shell tab, so this base is not a route). Owner master mode appends

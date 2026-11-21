@@ -13,6 +13,14 @@
 //   (d) owner master mode → `/owner/master/clients` → the SALON endpoint with
 //       `masterId` = the owner's own master row.
 //
+// M510 — the client card + «Рейтинг клієнта» on the same real router:
+//   (a)  card → next visit / history → phone sheet → copy → rating page → back;
+//   (a2) the guest card: `/guests/{bookingId}`, phone, unrated chip not a link;
+//   (c)  SALON_MASTER: the server sends a phone, the card shows none (D5);
+//   (g)  blocked tag, visit → booking detail → back, visit timeline page 2 on
+//        scroll, empty own ratings,
+//        an unknown client → the uniform not-found.
+//
 // Search: `q` is sent only for a trimmed 2–50-char term; the 300 ms debounce
 // is a `Timer`, driven with an explicit `pump(kClientSearchDebounce)`
 // (`pumpAndSettle` fires no Timer). 800×600 surface: the list is scrolled
@@ -22,8 +30,13 @@
 // notification, WebView or biometric (mobile-qa explicit statement).
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
-import 'package:beautica_mobile/features/clients/presentation/client_card_placeholder_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_rating_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/blocked_tag.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
 import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
@@ -47,7 +60,7 @@ const String _kSalonId = 'salon-owner-1';
 
 /// Owner master mode: the owner's own `masters` ROW id (≠ the session user
 /// id, so a request built off the wrong id cannot match).
-const String _kOwnerMasterRowId = 'master-row-owner-1';
+const String _kOwnerMasterRowId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
 const String _kMasterPath = '/api/v1/masters/me/clients';
 const String _kSalonPath = '/api/v1/salons/$_kSalonId/clients';
@@ -91,6 +104,135 @@ void _seedRoster(FakeBackend fb) {
   }
 }
 
+/// The rated client's upcoming visit — on the app's pinned clock ([kFixedNow]
+/// = 2026-06-14), never the host clock (M15: one clock per test).
+const String _kNextVisitAt = '2026-06-20T12:00:00Z';
+
+/// M510 — the card data behind the two rows the flows open: the rated
+/// registered client (phone, 12 ratings, an upcoming visit, one own rating)
+/// and the guest (phone, no ratings, one past visit). [more] adds entries
+/// before the routes are wired.
+void _seedCards(FakeBackend fb, {void Function()? more}) {
+  fb.clientCards
+    ..clear()
+    ..['u-oksana'] = <String, dynamic>{
+      'kind': 'REGISTERED',
+      'userId': 'u-oksana',
+      'displayName': 'Оксана Мельник',
+      'phone': '+380671234567',
+      'blocked': false,
+      'ratingAvg': 4.9,
+      'ratingCount': 12,
+      'ratingDistribution': <Map<String, int>>[
+        <String, int>{'rating': 5, 'count': 10},
+        <String, int>{'rating': 4, 'count': 2},
+        <String, int>{'rating': 3, 'count': 0},
+        <String, int>{'rating': 2, 'count': 0},
+        <String, int>{'rating': 1, 'count': 0},
+      ],
+      'nextVisitAt': _kNextVisitAt,
+    }
+    ..['b-iryna'] = <String, dynamic>{
+      'kind': 'GUEST',
+      'guestBookingId': 'b-iryna',
+      'displayName': 'Ірина Коваль',
+      'phone': '+380501112233',
+      'blocked': false,
+      'ratingCount': 0,
+      'ratingDistribution': <Map<String, int>>[],
+    };
+  Map<String, dynamic> visit(String key, String at, String status) =>
+      <String, dynamic>{
+        'visitKey': key,
+        'startsAt': at,
+        'items': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'bookingId': 'bk-$key',
+            'serviceName': 'Манікюр',
+            'status': status,
+            'startsAt': at,
+            'priceAtBooking': 650,
+          },
+        ],
+      };
+  fb.clientVisits
+    ..clear()
+    ..['u-oksana'] = <Map<String, dynamic>>[
+      visit('v-next', _kNextVisitAt, 'CONFIRMED'),
+      visit('v-past', '2026-06-07T10:00:00Z', 'COMPLETED'),
+    ]
+    ..['b-iryna'] = <Map<String, dynamic>>[
+      visit('v-g1', '2026-06-01T10:00:00Z', 'COMPLETED'),
+    ];
+  fb.clientOwnRatings
+    ..clear()
+    ..['u-oksana'] = <Map<String, dynamic>>[
+      <String, dynamic>{
+        'bookingId': 'bk-v-past',
+        'visitAt': '2026-06-07T10:00:00Z',
+        'serviceName': 'Манікюр',
+        'stars': 5,
+      },
+    ];
+  more?.call();
+  fb.wireClientCard();
+}
+
+/// M510 QA — the edge cards: `u-2` is BLOCKED, rated (no own ratings) with a
+/// 25-visit history (two pages); `u-3` has routes but no card → the uniform
+/// 404 (e.g. a client gone since the list loaded).
+void _seedEdgeCards(FakeBackend fb) => _seedCards(
+  fb,
+  more: () {
+    fb.clientCards['u-2'] = <String, dynamic>{
+      'kind': 'REGISTERED',
+      'userId': 'u-2',
+      'displayName': 'Клієнтка Номер2',
+      'phone': '+380931112233',
+      'blocked': true,
+      'ratingAvg': 4.0,
+      'ratingCount': 2,
+      'ratingDistribution': <Map<String, int>>[
+        <String, int>{'rating': 4, 'count': 2},
+      ],
+    };
+    fb.clientVisits['u-2'] = <Map<String, dynamic>>[
+      for (int i = 0; i < 25; i++)
+        <String, dynamic>{
+          'visitKey': 'h$i',
+          'startsAt': kFixedNow
+              .subtract(Duration(days: 3 + i * 3))
+              .toIso8601String(),
+          'items': <Map<String, dynamic>>[
+            <String, dynamic>{
+              // `booking-1` is the fake's seeded booking-detail id.
+              'bookingId': i == 0 ? 'booking-1' : 'bk-h$i',
+              'serviceName': 'Педикюр',
+              'status': 'COMPLETED',
+              'startsAt': kFixedNow
+                  .subtract(Duration(days: 3 + i * 3))
+                  .toIso8601String(),
+              'priceAtBooking': 700,
+            },
+          ],
+        },
+    ];
+    fb.clientVisits['u-3'] = <Map<String, dynamic>>[];
+  },
+);
+
+/// The card's own scroll view (the shell behind it has others).
+Finder _cardScroll() => find
+    .descendant(
+      of: find.byKey(ClientCardScreen.screenKey),
+      matching: find.byType(CustomScrollView),
+    )
+    .first;
+
+bool _visitsPageCalled(FakeBackend fb, int page) => fb.clientCardCalls.any(
+  (String c) => c.startsWith('visits ') && c.contains(' page=$page '),
+);
+
 Finder _row(String id) => find.byKey(Key('client-row-$id'));
 
 /// Waits for the list, then drains the tab transition — mid-fade BOTH tabs'
@@ -125,6 +267,7 @@ void main() {
         ..currentRole = UserRole.salonOwner
         ..wireClientList();
       _seedRoster(fb);
+      _seedCards(fb);
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
       await AppHarness.settle(tester);
@@ -265,17 +408,76 @@ void main() {
       await AppHarness.tapVisible(tester, _row('u-oksana'));
       await AppHarness.pumpUntilFound(
         tester,
-        find.byType(ClientCardPlaceholderScreen),
+        find.byKey(ClientCardScreen.nameKey),
       );
       AppHarness.expectLocation(
         router,
         '/salons/$_kSalonId/clients/user/u-oksana',
       );
+      // The salon card is read through the salon endpoint, no `masterId`.
+      expect(
+        fb.clientCardCalls.firstWhere((String c) => c.startsWith('card ')),
+        contains('/api/v1/salons/$_kSalonId/clients/users/u-oksana'),
+      );
+      expect(fb.clientCardCalls.first, endsWith('masterId=null'));
+      // Read off the card's own name key: mid-push the list row behind still
+      // shows the same name, so a bare text finder would see two.
+      await AppHarness.settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ClientCardScreen.nameKey)).data,
+        'Оксана Мельник',
+      );
+      // The next visit is the timeline head, the past visit sits in history.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      expect(find.byKey(ClientCardScreen.visitKey('v-past')), findsOneWidget);
 
+      // ── phone chip → sheet → copy snackbar ───────────────────────────
       await AppHarness.tapVisible(
         tester,
-        find.byKey(ClientCardPlaceholderScreen.backKey),
+        find.byKey(ClientCardScreen.phoneChipKey),
       );
+      await AppHarness.pumpUntilFound(tester, find.byKey(kPhoneSheetCopyKey));
+      expect(find.byKey(kPhoneSheetCallKey), findsOneWidget);
+      await AppHarness.tapVisible(tester, find.byKey(kPhoneSheetCopyKey));
+      await AppHarness.settle(tester);
+      expect(find.byKey(kPhoneSheetCopyKey), findsNothing);
+      // i18n-finder-ok: asserts the exact approved UA copy / data value
+      expect(find.text('Номер скопійовано'), findsOneWidget);
+
+      // ── rating chip → «Рейтинг клієнта» → back ───────────────────────
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.ratingChipKey),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientRatingScreen.screenKey),
+      );
+      AppHarness.expectLocation(
+        router,
+        '/salons/$_kSalonId/clients/user/u-oksana/rating',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(RatingBody.ownRowKey('bk-v-past')),
+      );
+      expect(find.byKey(RatingBody.privacyNoteKey), findsOneWidget);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientRatingScreen.backKey),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
+      expect(
+        fb.clientCardCalls.where((String c) => c.startsWith('card ')).length,
+        1,
+        reason: 'the rating page reuses the card — no refetch (D7)',
+      );
+
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
       await AppHarness.settle(tester);
       expect(find.byType(SalonShellScreen), findsOneWidget);
       expect(find.byKey(ClientsScreen.listKey), findsOneWidget);
@@ -297,6 +499,7 @@ void main() {
         ..currentRole = UserRole.salonOwner
         ..wireClientList();
       _seedRoster(fb);
+      _seedCards(fb);
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
       await AppHarness.settle(tester);
@@ -307,13 +510,51 @@ void main() {
       );
       await _waitForList(tester);
       await AppHarness.tapVisible(tester, _row('b-iryna'));
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byType(ClientCardPlaceholderScreen),
-      );
+      await AppHarness.pumpUntilFound(tester, find.byType(ClientCardScreen));
       AppHarness.expectLocation(
         router,
         '/salons/$_kSalonId/clients/guest/b-iryna',
+      );
+
+      // The SAME card for a guest (D1): read through `/guests/{bookingId}`,
+      // phone chip for the owner, the unrated chip is NOT a link.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nameKey),
+      );
+      expect(
+        fb.clientCardCalls.firstWhere((String c) => c.startsWith('card ')),
+        contains('/api/v1/salons/$_kSalonId/clients/guests/b-iryna'),
+      );
+      // Read off the card's own name key: mid-push the list row behind still
+      // shows the same name, so a bare text finder would see two.
+      await AppHarness.settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ClientCardScreen.nameKey)).data,
+        'Ірина Коваль',
+      );
+      expect(find.byKey(ClientCardScreen.phoneChipKey), findsOneWidget);
+      expect(find.byKey(BlockedTag.tagKey), findsNothing);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('v-g1')),
+      );
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
+
+      await tester.tap(
+        find.byKey(ClientCardScreen.ratingChipKey),
+        warnIfMissed: false,
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(ClientRatingScreen), findsNothing);
+      AppHarness.expectLocation(
+        router,
+        '/salons/$_kSalonId/clients/guest/b-iryna',
+      );
+      expect(
+        fb.clientCardCalls.where((String c) => c.startsWith('ratings ')),
+        isEmpty,
+        reason: 'an unrated client has no rating page to open',
       );
     });
   });
@@ -326,6 +567,7 @@ void main() {
         ..hasMasterProfile = true
         ..wireClientList();
       _seedRoster(fb);
+      _seedCards(fb);
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
       await AppHarness.settle(tester);
@@ -350,6 +592,7 @@ void main() {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()..wireClientList();
       _seedRoster(fb);
+      _seedCards(fb);
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
       await AppHarness.settle(tester);
@@ -375,15 +618,9 @@ void main() {
 
       // A guest row → the guest card route below the master list.
       await AppHarness.tapVisible(tester, _row('b-iryna'));
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byType(ClientCardPlaceholderScreen),
-      );
+      await AppHarness.pumpUntilFound(tester, find.byType(ClientCardScreen));
       AppHarness.expectLocation(router, '/master/clients/guest/b-iryna');
-      await AppHarness.tapVisible(
-        tester,
-        find.byKey(ClientCardPlaceholderScreen.backKey),
-      );
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
       await AppHarness.settle(tester);
 
       // «Профіль» is now index 4 and still lands on the profile.
@@ -404,6 +641,7 @@ void main() {
         masterSalonId: 'salon-xyz',
       )..wireClientList(salonIds: const <String>[_kSalonId, 'salon-xyz']);
       _seedRoster(fb);
+      _seedCards(fb);
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
       await AppHarness.settle(tester);
@@ -428,11 +666,21 @@ void main() {
       expect(_row('u-oksana'), findsOneWidget);
 
       await AppHarness.tapVisible(tester, _row('u-oksana'));
+      await AppHarness.pumpUntilFound(tester, find.byType(ClientCardScreen));
+      AppHarness.expectLocation(router, '/staff/clients/user/u-oksana');
+
+      // D5 fail-closed: the fake SENDS a phone, a SALON_MASTER never sees it.
       await AppHarness.pumpUntilFound(
         tester,
-        find.byType(ClientCardPlaceholderScreen),
+        find.byKey(ClientCardScreen.nameKey),
       );
-      AppHarness.expectLocation(router, '/staff/clients/user/u-oksana');
+      expect(
+        fb.clientCardCalls.firstWhere((String c) => c.startsWith('card ')),
+        contains('$_kMasterPath/users/u-oksana'),
+      );
+      expect(find.byKey(ClientCardScreen.phoneChipKey), findsNothing);
+      expect(find.textContaining('+380'), findsNothing);
+      expect(find.byKey(ClientCardScreen.ratingChipKey), findsOneWidget);
     });
   });
 
@@ -445,6 +693,7 @@ void main() {
             ..hasMasterProfile = true
             ..wireClientList();
       _seedRoster(fb);
+      _seedCards(fb);
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
       await AppHarness.settle(tester);
@@ -482,10 +731,7 @@ void main() {
 
       // The card route is the salon-scoped one, narrowed by ?masterId=.
       await AppHarness.tapVisible(tester, _row('u-oksana'));
-      await AppHarness.pumpUntilFound(
-        tester,
-        find.byType(ClientCardPlaceholderScreen),
-      );
+      await AppHarness.pumpUntilFound(tester, find.byType(ClientCardScreen));
       AppHarness.expectLocation(
         router,
         '/salons/$_kSalonId/clients/user/u-oksana?masterId=$_kOwnerMasterRowId',
@@ -521,6 +767,123 @@ void main() {
     },
   );
 
+  testWidgets('(g) INDEPENDENT_MASTER card states: blocked tag, the visit '
+      'timeline pages on scroll, a rated client with no own ratings, an '
+      'unknown client → not found', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()..wireClientList();
+      _seedRoster(fb);
+      _seedEdgeCards(fb);
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('master-nav-tile-3')),
+      );
+      await _waitForList(tester);
+
+      // ── blocked card + timeline paging ──────────────────────────────
+      await AppHarness.tapVisible(tester, _row('u-2'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nameKey),
+      );
+      AppHarness.expectLocation(router, '/master/clients/user/u-2');
+      expect(find.byKey(BlockedTag.tagKey), findsOneWidget);
+      expect(find.byKey(ClientCardScreen.phoneChipKey), findsOneWidget);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('h0')),
+      );
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
+      expect(_visitsPageCalled(fb, 1), isFalse);
+
+      // A visit card → booking detail of its first item → back to the card.
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('h0')),
+      );
+      await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
+      AppHarness.expectLocation(router, '/master/bookings/booking-1');
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('booking-detail-back')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('h0')),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, '/master/clients/user/u-2');
+
+      await tester.drag(_cardScroll(), const Offset(0, -3000));
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => _visitsPageCalled(fb, 1),
+        description: 'visits page 2 requested on scroll',
+      );
+      await AppHarness.settle(tester);
+      await tester.drag(_cardScroll(), const Offset(0, -3000));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('h24')),
+      );
+      await tester.drag(_cardScroll(), const Offset(0, -3000));
+      await AppHarness.settle(tester);
+      expect(
+        _visitsPageCalled(fb, 2),
+        isFalse,
+        reason: 'the history is exhausted after page 2',
+      );
+
+      // ── rating page, no own ratings ─────────────────────────────────
+      await tester.drag(_cardScroll(), const Offset(0, 20000));
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.ratingChipKey),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(RatingBody.ownEmptyKey),
+      );
+      AppHarness.expectLocation(router, '/master/clients/user/u-2/rating');
+      expect(
+        tester.widget<Text>(find.byKey(RatingBody.averageKey)).data,
+        '4,0',
+      );
+      expect(find.byKey(RatingBody.privacyNoteKey), findsOneWidget);
+      expect(
+        fb.clientCardCalls.where((String c) => c.startsWith('ratings ')),
+        hasLength(1),
+      );
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientRatingScreen.backKey),
+      );
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+      await AppHarness.settle(tester);
+      expect(find.byKey(ClientsScreen.listKey), findsOneWidget);
+
+      // ── unknown client → the uniform not-found, back to the list ────
+      await AppHarness.tapVisible(tester, _row('u-3'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.notFoundKey),
+      );
+      AppHarness.expectLocation(router, '/master/clients/user/u-3');
+      expect(find.byKey(ClientCardScreen.nameKey), findsNothing);
+      expect(find.byKey(const Key('error_state_retry_button')), findsNothing);
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.masterClients);
+      expect(find.byKey(ClientsScreen.listKey), findsOneWidget);
+    });
+  });
+
   testWidgets(
     '(f) search over-length is cut to 50 on the wire; a failed page 2 '
     'keeps the list and is not hammered',
@@ -528,6 +891,7 @@ void main() {
       await mockNetworkImagesFor(() async {
         final FakeBackend fb = FakeBackend()..wireClientList();
         _seedRoster(fb);
+        _seedCards(fb);
         await AppHarness.boot(tester, fb);
         await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
         await AppHarness.settle(tester);
