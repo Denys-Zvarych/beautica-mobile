@@ -323,6 +323,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SearchSuggestionRequest.serializer)
       ..add(SearchSuggestionResponse.serializer)
       ..add(SearchSuggestionResponseTypeEnum.serializer)
+      ..add(ServedMaster.serializer)
       ..add(ServiceDefinitionResponse.serializer)
       ..add(ServiceDefinitionResponsePriceTypeEnum.serializer)
       ..add(ServiceSummaryDto.serializer)
@@ -555,6 +556,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(RatingBucket)]),
           () => ListBuilder<RatingBucket>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(ServedMaster)]),
+          () => ListBuilder<ServedMaster>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ReportedTargetResponse)]),

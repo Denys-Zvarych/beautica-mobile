@@ -306,6 +306,7 @@ export 'package:beautica_api/src/model/schedule_override_request.dart';
 export 'package:beautica_api/src/model/schedule_override_response.dart';
 export 'package:beautica_api/src/model/search_suggestion_request.dart';
 export 'package:beautica_api/src/model/search_suggestion_response.dart';
+export 'package:beautica_api/src/model/served_master.dart';
 export 'package:beautica_api/src/model/service_definition_response.dart';
 export 'package:beautica_api/src/model/service_summary_dto.dart';
 export 'package:beautica_api/src/model/settlement_search_response.dart';

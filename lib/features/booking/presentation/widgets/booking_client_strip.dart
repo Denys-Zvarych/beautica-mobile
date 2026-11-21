@@ -31,6 +31,8 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
@@ -56,6 +58,7 @@ class BookingClientStrip extends StatelessWidget {
     this.onTap,
     this.semanticsLabel,
     this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
   });
 
   /// The «Деталі запису» render of [booking]'s client — the exact derivation
@@ -65,6 +68,7 @@ class BookingClientStrip extends StatelessWidget {
     Key? key,
     VoidCallback? onTap,
     bool avatarPreviewOnTap = false,
+    PhotoViewerReport? avatarPreviewReport,
   }) => BookingClientStrip(
     key: key,
     name: booking.clientName,
@@ -84,6 +88,7 @@ class BookingClientStrip extends StatelessWidget {
     // card. `null` (every other caller) keeps the strip inert.
     onTap: onTap,
     avatarPreviewOnTap: avatarPreviewOnTap,
+    avatarPreviewReport: avatarPreviewReport,
   );
 
   static const Key defaultShellKey = Key('booking-detail-client-strip');
@@ -101,6 +106,11 @@ class BookingClientStrip extends StatelessWidget {
   /// [MasterStripShell.avatarPreviewOnTap]; `false` (the default) changes
   /// nothing.
   final bool avatarPreviewOnTap;
+
+  /// ADDITIVE (MOD-39): with [avatarPreviewOnTap], the viewer's «Поскаржитися»
+  /// for this profile (forwarded to [MasterStripShell.avatarPreviewReport]).
+  /// `null` (the default) → no report button.
+  final PhotoViewerReport? avatarPreviewReport;
   final String? initials;
 
   /// Already display-normalized (`BookingDisplayX.clientDisplayRating`);
@@ -201,6 +211,7 @@ class BookingClientStrip extends StatelessWidget {
         avatarInitials: initials,
         avatarImageKey: avatarImageKey,
         avatarPreviewOnTap: avatarPreviewOnTap,
+        avatarPreviewReport: avatarPreviewReport,
         middleLine: middle,
         trailing: isGuest
             ? null

@@ -1,9 +1,14 @@
-// M510 — the card's three data controllers: the card provider (404 →
-// NotFoundFailure for the not-found state), the visits timeline (paging, D4
+// M510 — the card's data controllers: the card provider (404 →
+// NotFoundFailure for the not-found state) and the visits timeline (paging, D4
 // next-visit lookahead stopping at the first past visit and at 5 pages, a
-// failed append pausing auto-append) and the own-ratings page. Signed out →
+// failed append pausing auto-append). Signed out →
 // the card fails with UnauthorizedFailure and no request; an append that
 // resolves after a refresh never overwrites the fresh state (generation guard).
+// CLI-74: a salon scope with a `masterId` is its own visits family member and
+// sends that `masterId` on every page (first load AND append).
+// Cache-for: an unlistened visits instance stays cached for
+// [kClientVisitsCacheFor] (a chip back-and-forth re-reads nothing), then
+// disposes.
 
 import 'dart:async';
 
@@ -15,14 +20,13 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
-import 'package:beautica_mobile/features/clients/application/client_own_ratings_controller.dart';
 import 'package:beautica_mobile/features/clients/application/client_visits_controller.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
-import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,6 +34,9 @@ import '../../../helpers/fakes/fake_notification_repository.dart';
 import '../../../helpers/test_container.dart';
 
 const ClientListScope _me = ClientListScope.me();
+
+/// One fake-async step: lets Riverpod's scheduler and the fake repo settle.
+const Duration _tick = Duration(milliseconds: 1);
 const ClientRef _client = ClientRef.registered('u-1');
 
 final DateTime _now = DateTime.utc(2026, 11, 20, 12);
@@ -66,17 +73,15 @@ class _Repo implements ClientRepository {
   /// Visit pages, newest first; the last page has no successor.
   List<List<ClientVisit>> pages;
   final List<int> visitPages = <int>[];
+
+  /// The scope of every visits request, in order (CLI-74 `masterId`).
+  final List<ClientListScope> visitScopes = <ClientListScope>[];
   int failVisitPage = -1;
 
   /// When set, the visits request for [gatedVisitPage] waits on this.
   Completer<void>? visitGate;
   int gatedVisitPage = -1;
 
-  List<List<ClientOwnRating>> ratingPages = <List<ClientOwnRating>>[];
-  final List<int> ratingCalls = <int>[];
-  Completer<void>? ratingGate;
-  int gatedRatingPage = -1;
-  bool failGatedRating = false;
   int cardCalls = 0;
 
   @override
@@ -100,34 +105,12 @@ class _Repo implements ClientRepository {
     CancelToken? cancelToken,
   }) async {
     visitPages.add(page);
+    visitScopes.add(scope);
     final List<List<ClientVisit>> served = pages;
     final Completer<void>? gate = visitGate;
     if (gate != null && page == gatedVisitPage) await gate.future;
     if (page == failVisitPage) throw const NetworkFailure();
     return PageResponse<ClientVisit>(
-      items: served[page],
-      page: page,
-      totalPages: served.length,
-      totalElements: 0,
-    );
-  }
-
-  @override
-  Future<PageResponse<ClientOwnRating>> getOwnRatings(
-    ClientListScope scope,
-    ClientRef client, {
-    int page = 0,
-    int size = kClientPageSize,
-    CancelToken? cancelToken,
-  }) async {
-    ratingCalls.add(page);
-    final List<List<ClientOwnRating>> served = ratingPages;
-    final Completer<void>? gate = ratingGate;
-    if (gate != null && page == gatedRatingPage) {
-      await gate.future;
-      if (failGatedRating) throw const NetworkFailure();
-    }
-    return PageResponse<ClientOwnRating>(
       items: served[page],
       page: page,
       totalPages: served.length,
@@ -330,6 +313,45 @@ void main() {
     });
   });
 
+  group('visits — master filter (CLI-74)', () {
+    const ClientListScope salon = ClientListScope.salon(salonId: 's-1');
+    const ClientListScope filtered = ClientListScope.salon(
+      salonId: 's-1',
+      masterId: 'm-1',
+    );
+
+    test('a masterId scope reads with that masterId on first load and '
+        'append; the unfiltered scope is a separate read', () async {
+      final repo = _Repo(
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_past('a', 1)],
+          <ClientVisit>[_past('b', 2)],
+        ],
+      );
+      final c = _container(repo);
+      await c.read(authProvider.future);
+      final sub = c.listen(
+        clientVisitsControllerProvider(filtered, _client),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await c.read(clientVisitsControllerProvider(filtered, _client).future);
+      await c
+          .read(clientVisitsControllerProvider(filtered, _client).notifier)
+          .loadMore();
+      expect(repo.visitScopes, <ClientListScope>[filtered, filtered]);
+
+      final sub2 = c.listen(
+        clientVisitsControllerProvider(salon, _client),
+        (_, _) {},
+      );
+      addTearDown(sub2.close);
+      await c.read(clientVisitsControllerProvider(salon, _client).future);
+      expect(repo.visitScopes.last, salon);
+      expect(repo.visitPages, <int>[0, 1, 0]);
+    });
+  });
+
   group('visits — paging', () {
     test('loadMore appends; a failed append pauses until retry', () async {
       final repo = _Repo(
@@ -443,109 +465,51 @@ void main() {
     });
   });
 
-  group('own ratings', () {
-    ClientOwnRating r(String id) => ClientOwnRating(
-      bookingId: id,
-      visitAt: _now,
-      serviceName: 'Манікюр',
-      stars: 4,
-    );
-
-    test('pages append and stop on the last page', () async {
-      final repo = _Repo()
-        ..ratingPages = <List<ClientOwnRating>>[
-          <ClientOwnRating>[r('a')],
-          <ClientOwnRating>[r('b')],
-        ];
-      final c = _container(repo);
-      await c.read(authProvider.future);
-      final sub = c.listen(
-        clientOwnRatingsControllerProvider(_me, _client),
-        (_, _) {},
-      );
-      addTearDown(sub.close);
-      ClientOwnRatingsState s = await c.read(
-        clientOwnRatingsControllerProvider(_me, _client).future,
-      );
-      expect(s.items, hasLength(1));
-      final notifier = c.read(
-        clientOwnRatingsControllerProvider(_me, _client).notifier,
-      );
-      await notifier.loadMore();
-      s = c.read(clientOwnRatingsControllerProvider(_me, _client)).requireValue;
-      expect(s.items.map((e) => e.bookingId), <String>['a', 'b']);
-      expect(s.hasMore, isFalse);
-      await notifier.loadMore();
-      expect(repo.ratingCalls, <int>[0, 1]);
-    });
-
-    for (final bool fails in <bool>[false, true]) {
-      test('a refresh during an in-flight append keeps the FRESH rows '
-          '(${fails ? 'failed' : 'successful'} stale append)', () async {
-        final repo = _Repo()
-          ..ratingPages = <List<ClientOwnRating>>[
-            <ClientOwnRating>[r('a')],
-            <ClientOwnRating>[r('b')],
-          ];
+  group('visits — cache-for (kClientVisitsCacheFor)', () {
+    test('unlistened: cached inside the window (no re-read), the timer '
+        'restarts on each cancel, disposed after it', () {
+      fakeAsync((FakeAsync async) {
+        final repo = _Repo(
+          pages: <List<ClientVisit>>[
+            <ClientVisit>[_past('p1', 1)],
+          ],
+        );
         final c = _container(repo);
-        await c.read(authProvider.future);
-        final provider = clientOwnRatingsControllerProvider(_me, _client);
-        final sub = c.listen(provider, (_, _) {});
-        addTearDown(sub.close);
-        await c.read(provider.future);
-        final gate = Completer<void>();
-        repo
-          ..ratingGate = gate
-          ..gatedRatingPage = 1
-          ..failGatedRating = fails;
-        final Future<void> append = c.read(provider.notifier).loadMore();
+        final provider = clientVisitsControllerProvider(_me, _client);
+        const Duration almost = Duration(seconds: 29);
+        expect(kClientVisitsCacheFor, const Duration(seconds: 30));
 
-        repo.ratingPages = <List<ClientOwnRating>>[
-          <ClientOwnRating>[r('fresh')],
-          <ClientOwnRating>[r('fresh2')],
-        ];
-        c.invalidate(provider);
-        await c.read(provider.future);
+        ProviderSubscription<AsyncValue<ClientVisitsState>> sub = c.listen(
+          provider,
+          (_, _) {},
+        );
+        async.elapse(_tick);
+        expect(c.read(provider).value?.visits.single.visitKey, 'p1');
+        expect(repo.visitPages, <int>[0]);
 
-        gate.complete();
-        await append;
-        final ClientOwnRatingsState s = c.read(provider).requireValue;
-        expect(s.items.map((e) => e.bookingId), <String>['fresh']);
-        expect(s.page, 0);
-        expect(s.isLoadingMore, isFalse);
-        expect(s.loadMoreFailed, isFalse);
+        sub.close();
+        async.elapse(almost);
+        expect(c.exists(provider), isTrue, reason: 'still cached');
+        sub = c.listen(provider, (_, _) {});
+        async.elapse(_tick);
+        expect(repo.visitPages, <int>[0], reason: 'no re-read in the window');
+        expect(c.read(provider).value?.visits.single.visitKey, 'p1');
+
+        // Resumed → the old timer is cancelled; a new cancel restarts it.
+        sub.close();
+        async.elapse(almost);
+        expect(c.exists(provider), isTrue);
+        async.elapse(const Duration(seconds: 2));
+        async.elapse(_tick);
+        expect(c.exists(provider), isFalse, reason: 'released after 30 s');
+
+        sub = c.listen(provider, (_, _) {});
+        async.elapse(_tick);
+        expect(repo.visitPages, <int>[0, 0], reason: 'a fresh read');
+        sub.close();
+        c.dispose();
+        async.flushTimers();
       });
-    }
-
-    test('loadMore during a pull-to-refresh is a no-op: no request, the '
-        'loading state is kept', () async {
-      final repo = _Repo()
-        ..ratingPages = <List<ClientOwnRating>>[
-          <ClientOwnRating>[r('a')],
-          <ClientOwnRating>[r('b')],
-        ];
-      final c = _container(repo);
-      await c.read(authProvider.future);
-      final provider = clientOwnRatingsControllerProvider(_me, _client);
-      final sub = c.listen(provider, (_, _) {});
-      addTearDown(sub.close);
-      await c.read(provider.future);
-      final gate = Completer<void>();
-      repo
-        ..ratingGate = gate
-        ..gatedRatingPage = 0;
-      c.invalidate(provider);
-      expect(c.read(provider).isLoading, isTrue);
-      repo.ratingCalls.clear();
-
-      await c.read(provider.notifier).loadMore();
-
-      expect(repo.ratingCalls, <int>[], reason: 'no throwaway page-1 request');
-      expect(c.read(provider).isLoading, isTrue);
-      gate.complete();
-      final ClientOwnRatingsState s = await c.read(provider.future);
-      expect(s.items.map((e) => e.bookingId), <String>['a']);
-      expect(s.isLoadingMore, isFalse);
     });
   });
 }

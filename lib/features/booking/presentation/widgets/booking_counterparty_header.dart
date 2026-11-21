@@ -32,9 +32,16 @@
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart'
+    show profilePhotoReport;
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 
 import '../../application/booking_viewer_role.dart';
 import '../../domain/booking.dart';
+import '../../domain/booking_display_x.dart';
 import '../../domain/booking_status.dart';
 import 'booking_client_strip.dart';
 import 'master_profile_tap.dart';
@@ -67,11 +74,24 @@ class BookingCounterpartyHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!viewer.isProvider) return _MasterStrip(booking: booking);
+    // MOD-39 — every provider role may report a REGISTERED client's photo
+    // (salon master included, MOD-25); a guest has no account to report.
+    final String? clientId = booking.clientId;
+    final PhotoViewerReport? clientReport = clientId == null
+        ? null
+        : profilePhotoReport(
+            targetType: ReportTargetType.clientProfile,
+            targetId: clientId,
+            name:
+                booking.clientName ??
+                AppLocalizations.of(context).bookingDetailGuestClient,
+          );
     if (!showPerformingMaster || booking.masterId.isEmpty) {
       return BookingClientStrip.fromBooking(
         booking,
         onTap: onOpenClient,
         avatarPreviewOnTap: true,
+        avatarPreviewReport: clientReport,
       );
     }
     return Column(
@@ -82,6 +102,7 @@ class BookingCounterpartyHeader extends StatelessWidget {
           booking,
           onTap: onOpenClient,
           avatarPreviewOnTap: true,
+          avatarPreviewReport: clientReport,
         ),
         const SizedBox(height: VelvetSpacing.sm),
         _PerformingMasterStrip(booking: booking),
@@ -134,6 +155,15 @@ class _MasterStrip extends StatelessWidget {
       key: const Key('booking-detail-master-strip'),
       onTap: openProfile,
       avatarPreviewOnTap: true,
+      // MOD-39 — the client reports the master's photo (MASTER_PROFILE, the
+      // same target as the profile «⋯», MOD-35); no id → nothing to report.
+      avatarPreviewReport: masterId.isEmpty
+          ? null
+          : profilePhotoReport(
+              targetType: ReportTargetType.masterProfile,
+              targetId: masterId,
+              name: booking.masterName,
+            ),
     );
 
     if (!isDead) return strip;

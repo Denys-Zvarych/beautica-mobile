@@ -310,102 +310,130 @@ void main() {
     });
   });
 
-  group('salon card route: ?masterId= (M509 audit carry-over)', () {
-    const String uuid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+  group(
+    'salon card route: ?masterId= (M509 audit carry-over; owner + admin, CLI-74)',
+    () {
+      const String uuid = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
-    Future<ClientListScope> scopeFor(
-      WidgetTester tester,
-      UserRole role,
-      String location,
-    ) async {
-      final ProviderContainer container = makeTestContainer(
-        overrides: <Object>[
-          authProvider.overrideWith(
-            () => _FixedAuth(
-              AuthSession.authenticated(
-                user: User(
-                  id: 'u1',
-                  email: 'a@b.c',
-                  role: role,
-                  salonId: 's-1',
+      Future<ClientListScope> scopeFor(
+        WidgetTester tester,
+        UserRole role,
+        String location,
+      ) async {
+        final ProviderContainer container = makeTestContainer(
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(
+                AuthSession.authenticated(
+                  user: User(
+                    id: 'u1',
+                    email: 'a@b.c',
+                    role: role,
+                    salonId: 's-1',
+                  ),
+                  accessToken: 't',
                 ),
-                accessToken: 't',
               ),
             ),
-          ),
-          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
-          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        ],
-      );
-      await container.read(authProvider.future);
-      final GoRouter router = container.read(appRouterProvider);
-      addTearDown(router.dispose);
-      await tester.pumpWidget(const SizedBox(key: Key('ctx')));
-      final BuildContext context = tester.element(find.byKey(const Key('ctx')));
-      final RouteMatchList match = router.configuration.findMatch(
-        Uri.parse(location),
-      );
-      expect(match.isError, isFalse, reason: location);
-      final Widget w = match.last.route.builder!(
-        context,
-        router.configuration.buildTopLevelGoRouterState(match),
-      );
-      return (w as ClientCardScreen).scope;
-    }
+            authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+            secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          ],
+        );
+        await container.read(authProvider.future);
+        final GoRouter router = container.read(appRouterProvider);
+        addTearDown(router.dispose);
+        await tester.pumpWidget(const SizedBox(key: Key('ctx')));
+        final BuildContext context = tester.element(
+          find.byKey(const Key('ctx')),
+        );
+        final RouteMatchList match = router.configuration.findMatch(
+          Uri.parse(location),
+        );
+        expect(match.isError, isFalse, reason: location);
+        final Widget w = match.last.route.builder!(
+          context,
+          router.configuration.buildTopLevelGoRouterState(match),
+        );
+        return (w as ClientCardScreen).scope;
+      }
 
-    testWidgets('owner + a UUID → narrowed to the owner\'s master row', (
-      tester,
-    ) async {
-      final ClientListScope scope = await scopeFor(
+      testWidgets('owner + a UUID → narrowed to the owner\'s master row', (
         tester,
-        UserRole.salonOwner,
-        '/salons/s-1/clients/user/u-1?masterId=$uuid',
-      );
-      expect(
-        scope,
-        const ClientListScope.salon(salonId: 's-1', masterId: uuid),
-      );
-    });
-
-    testWidgets('owner + a non-UUID masterId is ignored', (tester) async {
-      for (final String bad in <String>[
-        'm-7',
-        '..%2F..%2Fx',
-        '$uuid%0Ax',
-        'x$uuid',
-        '',
-      ]) {
+      ) async {
         final ClientListScope scope = await scopeFor(
           tester,
           UserRole.salonOwner,
-          '/salons/s-1/clients/user/u-1?masterId=$bad',
+          '/salons/s-1/clients/user/u-1?masterId=$uuid',
         );
         expect(
           scope,
-          const ClientListScope.salon(salonId: 's-1'),
-          reason: 'masterId=$bad',
+          const ClientListScope.salon(salonId: 's-1', masterId: uuid),
         );
-      }
-    });
+      });
 
-    testWidgets('admin + a UUID is ignored (owner master mode only)', (
-      tester,
-    ) async {
-      final ClientListScope scope = await scopeFor(
-        tester,
-        UserRole.salonAdmin,
-        '/salons/s-1/clients/guest/b-1?masterId=$uuid',
-      );
-      expect(scope, const ClientListScope.salon(salonId: 's-1'));
-    });
+      testWidgets('owner + a non-UUID masterId is ignored', (tester) async {
+        for (final String bad in <String>[
+          'm-7',
+          '..%2F..%2Fx',
+          '$uuid%0Ax',
+          'x$uuid',
+          '',
+        ]) {
+          final ClientListScope scope = await scopeFor(
+            tester,
+            UserRole.salonOwner,
+            '/salons/s-1/clients/user/u-1?masterId=$bad',
+          );
+          expect(
+            scope,
+            const ClientListScope.salon(salonId: 's-1'),
+            reason: 'masterId=$bad',
+          );
+        }
+      });
 
-    testWidgets('no query → the whole-salon scope', (tester) async {
-      final ClientListScope scope = await scopeFor(
-        tester,
-        UserRole.salonOwner,
-        '/salons/s-1/clients/user/u-1',
+      testWidgets(
+        'admin + a UUID → honoured (master chips, CLI-74 / CLI-D12)',
+        (tester) async {
+          final ClientListScope scope = await scopeFor(
+            tester,
+            UserRole.salonAdmin,
+            '/salons/s-1/clients/guest/b-1?masterId=$uuid',
+          );
+          expect(
+            scope,
+            const ClientListScope.salon(salonId: 's-1', masterId: uuid),
+          );
+        },
       );
-      expect(scope, const ClientListScope.salon(salonId: 's-1'));
-    });
-  });
+
+      testWidgets('any other role + a UUID is ignored', (tester) async {
+        for (final UserRole role in <UserRole>[
+          UserRole.salonMaster,
+          UserRole.independentMaster,
+          UserRole.client,
+        ]) {
+          final ClientListScope scope = await scopeFor(
+            tester,
+            role,
+            '/salons/s-1/clients/user/u-1?masterId=$uuid',
+          );
+          expect(
+            scope,
+            const ClientListScope.salon(salonId: 's-1'),
+            reason: '$role',
+          );
+        }
+      });
+
+      testWidgets('no query → the whole-salon scope', (tester) async {
+        final ClientListScope scope = await scopeFor(
+          tester,
+          UserRole.salonOwner,
+          '/salons/s-1/clients/user/u-1',
+        );
+        expect(scope, const ClientListScope.salon(salonId: 's-1'));
+      });
+    },
+  );
 }

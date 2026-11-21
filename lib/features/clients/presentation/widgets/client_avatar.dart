@@ -11,6 +11,8 @@ import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 
 class ClientAvatar extends StatelessWidget {
@@ -20,6 +22,7 @@ class ClientAvatar extends StatelessWidget {
     this.imageUrl,
     this.initials,
     this.previewOnTap = false,
+    this.previewReport,
   });
 
   /// Face diameter (the ring adds its padding around it).
@@ -34,6 +37,11 @@ class ClientAvatar extends StatelessWidget {
   /// default) — every list row / navigating card — renders and behaves
   /// exactly as before.
   final bool previewOnTap;
+
+  /// ADDITIVE (MOD-39): with [previewOnTap], the viewer's «Поскаржитися» for
+  /// this profile ([ProfilePhotoPreviewTap.report]). `null` (the default,
+  /// own-profile previews) → no report button.
+  final PhotoViewerReport? previewReport;
 
   static const Key avatarKey = Key('client-avatar');
 
@@ -92,6 +100,10 @@ class ClientAvatar extends StatelessWidget {
       child: face,
     );
     if (!previewOnTap) return avatar;
-    return ProfilePhotoPreviewTap(imageUrl: url, child: avatar);
+    return ProfilePhotoPreviewTap(
+      imageUrl: url,
+      report: previewReport,
+      child: avatar,
+    );
   }
 }

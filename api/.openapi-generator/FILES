@@ -289,6 +289,7 @@ doc/SearchControllerApi.md
 doc/SearchSuggestionControllerApi.md
 doc/SearchSuggestionRequest.md
 doc/SearchSuggestionResponse.md
+doc/ServedMaster.md
 doc/ServiceCatalogControllerApi.md
 doc/ServiceControllerApi.md
 doc/ServiceDefinitionResponse.md
@@ -630,6 +631,7 @@ lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
 lib/src/model/search_suggestion_request.dart
 lib/src/model/search_suggestion_response.dart
+lib/src/model/served_master.dart
 lib/src/model/service_definition_response.dart
 lib/src/model/service_summary_dto.dart
 lib/src/model/settlement_search_response.dart
@@ -661,17 +663,4 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_client_card_response_test.dart
-test/api_response_page_response_client_list_item_response_test.dart
-test/api_response_page_response_client_own_rating_response_test.dart
-test/api_response_page_response_client_visit_response_test.dart
-test/client_card_response_test.dart
-test/client_list_item_response_test.dart
-test/client_own_rating_response_test.dart
-test/client_visit_response_test.dart
-test/item_test.dart
-test/page_response_client_list_item_response_test.dart
-test/page_response_client_own_rating_response_test.dart
-test/page_response_client_visit_response_test.dart
-test/provider_client_controller_api_test.dart
-test/stats_test.dart
+test/served_master_test.dart

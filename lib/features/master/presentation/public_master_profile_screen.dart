@@ -487,7 +487,23 @@ class _PublicProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                ProfileAvatar(imageUrl: master.avatarUrl, previewOnTap: true),
+                // MOD-39 — a client reports the photo as the master profile,
+                // the same gate as the «⋯» (MOD-35: a non-client here is the
+                // viewer's OWN profile — no report).
+                Consumer(
+                  builder: (BuildContext _, WidgetRef ref, Widget? _) =>
+                      ProfileAvatar(
+                        imageUrl: master.avatarUrl,
+                        previewOnTap: true,
+                        previewReport: ref.watch(isClientProvider)
+                            ? profilePhotoReport(
+                                targetType: ReportTargetType.masterProfile,
+                                targetId: masterId,
+                                name: displayName,
+                              )
+                            : null,
+                      ),
+                ),
                 const SizedBox(width: VelvetSpacing.md),
                 Expanded(
                   child: Column(

@@ -5,14 +5,24 @@
 //     counter, spoken «Фото профілю»; close returns;
 //   * no photo (monogram / icon well) → not tappable, no viewer;
 //   * `previewOnTap` left at its default → no viewer (every list row).
+// MOD-39 — a `previewReport` target adds the viewer's SAME «Поскаржитися»
+// flag → the shared report sheet → the report repository with the PROFILE
+// target; hidden with no target, for the viewer's own photo, once reported,
+// and signed out.
 // Plus the own-avatar source sheet's additive «Переглянути фото» row.
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_avatar_badge.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
@@ -20,7 +30,11 @@ import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../features/moderation/support/fake_content_report_repository.dart';
 import '../../helpers/fake_media_cache.dart';
+import '../../helpers/fakes/fake_notification_repository.dart'
+    show FixedRoleAuth;
+import '../../helpers/no_reported_targets.dart';
 import '../../helpers/pump_app.dart';
 import '../../helpers/rendered_image_url.dart';
 
@@ -30,15 +44,38 @@ const Key _host = Key('preview-host');
 AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byKey(_host)));
 
-Future<void> _pump(WidgetTester tester, Widget avatar) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget avatar, {
+  List<Object> overrides = const <Object>[],
+}) async {
   await tester.pumpApp(
     Scaffold(
       body: Center(
         child: KeyedSubtree(key: _host, child: avatar),
       ),
     ),
+    overrides: overrides,
   );
   await tester.pump();
+}
+
+/// Signed out — no user id.
+class _SignedOut extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.unauthenticated();
+}
+
+/// Opens the viewer from [avatar] (FixedRoleAuth signs in as `u1`).
+Future<void> _openViewer(
+  WidgetTester tester,
+  Widget avatar, {
+  required List<Object> overrides,
+}) async {
+  await _pump(tester, avatar, overrides: overrides);
+  await tester.tap(find.byType(ProfilePhotoPreviewTap));
+  await tester.pumpAndSettle();
+  expect(find.byType(PortfolioPhotoViewer), findsOne);
 }
 
 void main() {
@@ -116,6 +153,137 @@ void main() {
       });
     });
   }
+
+  group('MOD-39 — «Поскаржитися» on a profile photo', () {
+    Object provider() =>
+        authProvider.overrideWith(() => FixedRoleAuth(UserRole.salonMaster));
+
+    final Map<ReportTargetType, Widget Function(PhotoViewerReport?)> targets =
+        <ReportTargetType, Widget Function(PhotoViewerReport?)>{
+          ReportTargetType.clientProfile: (PhotoViewerReport? r) =>
+              ClientAvatar(
+                size: 96,
+                imageUrl: _url,
+                previewOnTap: true,
+                previewReport: r,
+              ),
+          ReportTargetType.masterProfile: (PhotoViewerReport? r) =>
+              ProfileAvatar(
+                imageUrl: _url,
+                previewOnTap: true,
+                previewReport: r,
+              ),
+          ReportTargetType.salonProfile: (PhotoViewerReport? r) => SalonLogo(
+            imageUrl: _url,
+            monogram: 'В',
+            previewOnTap: true,
+            previewReport: r,
+          ),
+        };
+
+    for (final MapEntry<ReportTargetType, Widget Function(PhotoViewerReport?)> t
+        in targets.entries) {
+      testWidgets('${t.key.wireName}: flag → report sheet → repository gets '
+          'the profile target; the flag then hides', (tester) async {
+        final FakeContentReportRepository repo = FakeContentReportRepository();
+        await _openViewer(
+          tester,
+          t.value(
+            profilePhotoReport(
+              targetType: t.key,
+              targetId: 'target-7',
+              name: 'Оксана',
+            ),
+          ),
+          overrides: <Object>[
+            provider(),
+            contentReportRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        expect(find.byKey(PortfolioPhotoViewer.reportKey), findsOne);
+
+        await tester.tap(find.byKey(PortfolioPhotoViewer.reportKey));
+        await tester.pumpAndSettle();
+        expect(find.byType(ReportSheet), findsOne);
+        await tester.tap(find.byKey(ReportSheet.reasonKey(ReportReason.spam)));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(ReportSheet.submitKey));
+        await tester.tap(find.byKey(ReportSheet.submitKey));
+        await tester.pumpAndSettle();
+
+        final ContentReportRequest sent = repo.requests.single;
+        expect(sent.targetType, t.key);
+        expect(sent.targetId, 'target-7');
+        expect(sent.reason, ReportReason.spam);
+        expect(find.byType(ReportSheet), findsNothing);
+        // Still in the viewer; reported once → no flag (MOD-06).
+        expect(find.byType(PortfolioPhotoViewer), findsOne);
+        expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+      });
+    }
+
+    testWidgets('no report target → no flag (own-profile previews)', (
+      tester,
+    ) async {
+      await _openViewer(
+        tester,
+        targets[ReportTargetType.masterProfile]!(null),
+        overrides: <Object>[provider()],
+      );
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+    });
+
+    testWidgets('the viewer\'s OWN photo → no flag', (tester) async {
+      await _openViewer(
+        tester,
+        targets[ReportTargetType.clientProfile]!(
+          profilePhotoReport(
+            targetType: ReportTargetType.clientProfile,
+            // FixedRoleAuth's user id.
+            targetId: 'u1',
+            name: 'Я',
+          ),
+        ),
+        overrides: <Object>[provider()],
+      );
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+    });
+
+    testWidgets('already reported (MOD-06) → no flag', (tester) async {
+      await _openViewer(
+        tester,
+        targets[ReportTargetType.clientProfile]!(
+          profilePhotoReport(
+            targetType: ReportTargetType.clientProfile,
+            targetId: 'c-9',
+            name: 'Оксана',
+          ),
+        ),
+        overrides: <Object>[
+          provider(),
+          reportedTargetsOverride(<ReportedTarget>{
+            (type: ReportTargetType.clientProfile, id: 'c-9'),
+          }),
+        ],
+      );
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+    });
+
+    testWidgets('signed out → no flag', (tester) async {
+      await _openViewer(
+        tester,
+        targets[ReportTargetType.salonProfile]!(
+          profilePhotoReport(
+            targetType: ReportTargetType.salonProfile,
+            targetId: 's-1',
+            name: 'Велюр',
+          ),
+        ),
+        overrides: <Object>[authProvider.overrideWith(_SignedOut.new)],
+      );
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+    });
+  });
 
   group('ImageSourceSheet «Переглянути фото» (own avatar)', () {
     testWidgets('canView → the view row resolves to ImageSourceChoice.view', (

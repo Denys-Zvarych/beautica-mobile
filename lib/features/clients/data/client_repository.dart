@@ -15,8 +15,8 @@
 // (`kPiiPathPrefixes`), and only transport metadata is ever logged here.
 // B507 sends no phone and no comment text.
 //
-// M510 adds the card reads (B508 `…/clients/{users|guests}/{id}` + `/visits`,
-// B526 `/ratings`) on the SAME seam, with the same flat-paging wire format.
+// M510 adds the card reads (B508 `…/clients/{users|guests}/{id}` + `/visits`)
+// on the SAME seam, with the same flat-paging wire format.
 // The card carries the client's PHONE (B518) — the redacted prefixes above
 // cover these paths, and nothing here ever logs a body or a path id.
 
@@ -35,7 +35,6 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
-import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 
@@ -91,15 +90,6 @@ abstract interface class ClientRepository {
 
   /// One page of [client]'s visits, newest first (B508, size 20).
   Future<PageResponse<ClientVisit>> getVisits(
-    ClientListScope scope,
-    ClientRef client, {
-    int page = 0,
-    int size = kClientPageSize,
-    CancelToken? cancelToken,
-  });
-
-  /// One page of the viewer's OWN ratings of [client] (B526), newest first.
-  Future<PageResponse<ClientOwnRating>> getOwnRatings(
     ClientListScope scope,
     ClientRef client, {
     int page = 0,
@@ -189,24 +179,6 @@ final class HttpClientRepository implements ClientRepository {
   }) async => clientVisitsFromBody(
     await _read(
       _cardPath(scope, client, '/visits'),
-      scope: scope,
-      page: page,
-      size: size,
-      cancelToken: cancelToken,
-    ),
-    requestedPage: page,
-  );
-
-  @override
-  Future<PageResponse<ClientOwnRating>> getOwnRatings(
-    ClientListScope scope,
-    ClientRef client, {
-    int page = 0,
-    int size = kClientPageSize,
-    CancelToken? cancelToken,
-  }) async => clientOwnRatingsFromBody(
-    await _read(
-      _cardPath(scope, client, '/ratings'),
       scope: scope,
       page: page,
       size: size,
@@ -404,7 +376,29 @@ ClientCard clientCardFromDto(
     ratingCount: ratingCount,
     ratingDistribution: List<int>.unmodifiable(distribution),
     nextVisitAt: dto.nextVisitAt,
+    servedByMasters: List<ClientServedMaster>.unmodifiable(
+      _servedMastersOf(dto.servedByMasters),
+    ),
   );
+}
+
+/// CLI-73 — the salon masters who served the client, server order (most
+/// recent first). An entry without an id or a name is dropped (a chip needs
+/// both); a repeated id keeps its first (most recent) entry.
+Iterable<ClientServedMaster> _servedMastersOf(
+  Iterable<ServedMaster>? rows,
+) sync* {
+  final Set<String> seen = <String>{};
+  for (final ServedMaster m in rows ?? const <ServedMaster>[]) {
+    final String? id = _nonBlank(m.masterId);
+    final String? name = _nonBlank(m.name)?.trim();
+    if (id == null || name == null || !seen.add(id)) continue;
+    yield ClientServedMaster(
+      masterId: id,
+      name: name,
+      avatarUrl: _nonBlank(m.avatarUrl),
+    );
+  }
 }
 
 /// Deserializes a `…/visits` page, dropping visits / items the app cannot use.
@@ -475,52 +469,6 @@ ClientVisit? clientVisitFromDto(ClientVisitResponse? dto) {
     visitKey: key,
     startsAt: startsAt,
     items: List<ClientVisitItem>.unmodifiable(items),
-  );
-}
-
-/// Deserializes a `…/ratings` page (B526) — stars only, no comment field.
-@visibleForTesting
-PageResponse<ClientOwnRating> clientOwnRatingsFromBody(
-  Object? body, {
-  required int requestedPage,
-}) {
-  final ApiResponsePageResponseClientOwnRatingResponse? envelope;
-  try {
-    envelope = body == null
-        ? null
-        : standardSerializers.deserialize(
-                body,
-                specifiedType: const FullType(
-                  ApiResponsePageResponseClientOwnRatingResponse,
-                ),
-              )
-              as ApiResponsePageResponseClientOwnRatingResponse?;
-  } catch (_) {
-    throw const ResponseUnusableFailure();
-  }
-  final PageResponseClientOwnRatingResponse? dto = envelope?.data;
-  final Iterable<ClientOwnRatingResponse>? rows = dto?.data;
-  if (dto == null || rows == null) throw const ResponseUnusableFailure();
-  final List<ClientOwnRating> items = <ClientOwnRating>[];
-  for (final ClientOwnRatingResponse r in rows) {
-    final String? bookingId = _nonBlank(r.bookingId);
-    final DateTime? at = r.visitAt;
-    final int? stars = r.stars;
-    if (bookingId == null || at == null || stars == null) continue;
-    items.add(
-      ClientOwnRating(
-        bookingId: bookingId,
-        visitAt: at,
-        serviceName: _nonBlank(r.serviceName)?.trim() ?? '',
-        stars: stars.clamp(0, kClientRatingBuckets),
-      ),
-    );
-  }
-  return PageResponse<ClientOwnRating>(
-    items: List<ClientOwnRating>.unmodifiable(items),
-    page: dto.page ?? requestedPage,
-    totalPages: dto.totalPages ?? 0,
-    totalElements: dto.totalElements ?? items.length,
   );
 }
 

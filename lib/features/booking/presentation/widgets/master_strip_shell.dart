@@ -32,6 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 
 import 'master_avatar_badge.dart';
 
@@ -55,6 +57,7 @@ class MasterStripShell extends StatelessWidget {
     this.onTap,
     this.action,
     this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
   });
 
   /// The full localized accessibility label for the card.
@@ -128,6 +131,11 @@ class MasterStripShell extends StatelessWidget {
   /// card keeps [onTap]. `false` (the default, every booking-flow screen)
   /// renders and behaves exactly as before.
   final bool avatarPreviewOnTap;
+
+  /// ADDITIVE (MOD-39): with [avatarPreviewOnTap], the viewer's «Поскаржитися»
+  /// for this profile (forwarded to [MasterAvatarBadge.previewReport]).
+  /// `null` (the default) → no report button.
+  final PhotoViewerReport? avatarPreviewReport;
 
   /// Camel-wash surface — the same lighter taupe used by the pinned booking
   /// summary shelf, so the strip reads as sitting on its own elevated card.
@@ -250,6 +258,7 @@ class MasterStripShell extends StatelessWidget {
           initials: avatarInitials,
           imageKey: avatarImageKey,
           previewOnTap: avatarPreviewOnTap,
+          previewReport: avatarPreviewReport,
         ),
         const SizedBox(width: VelvetSpacing.md),
         Expanded(

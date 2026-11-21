@@ -29,6 +29,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
@@ -65,6 +67,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarImageUrl,
     this.onTap,
     this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
   });
 
   /// Builds the strip from the independent flow's [Master] domain entity.
@@ -84,6 +87,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarBordered = false,
     this.onTap,
     this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
   }) : name = '${master.firstName} ${master.lastName}'.trim(),
        type = master.type,
        professionalTitle = master.professionalTitle,
@@ -103,6 +107,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarBordered = false,
     this.onTap,
     this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
   }) : name = '${schedule.firstName} ${schedule.lastName}'.trim(),
        type = schedule.type,
        professionalTitle = schedule.professionalTitle,
@@ -135,6 +140,7 @@ class MasterStrip extends StatelessWidget {
     this.avatarBordered = false,
     this.onTap,
     this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
   }) : name = booking.masterName,
        type = booking.atSalon
            ? MasterType.salonMaster
@@ -193,6 +199,11 @@ class MasterStrip extends StatelessWidget {
   /// [MasterStripShell.avatarPreviewOnTap]; `false` (the default) changes
   /// nothing.
   final bool avatarPreviewOnTap;
+
+  /// ADDITIVE (MOD-39): with [avatarPreviewOnTap], the viewer's «Поскаржитися»
+  /// for this profile (forwarded to [MasterStripShell.avatarPreviewReport]).
+  /// `null` (the default) → no report button.
+  final PhotoViewerReport? avatarPreviewReport;
 
   /// Makes the card tappable; `null` leaves it inert.
   ///
@@ -253,6 +264,7 @@ class MasterStrip extends StatelessWidget {
       avatarBordered: avatarBordered,
       avatarImageUrl: avatarImageUrl,
       avatarPreviewOnTap: avatarPreviewOnTap,
+      avatarPreviewReport: avatarPreviewReport,
       middleLine: showRole
           ? Text(
               subtitle,

@@ -5,6 +5,7 @@
 // ignore_for_file: unused_element
 import 'package:beautica_api/src/model/rating_bucket.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:beautica_api/src/model/served_master.dart';
 import 'package:beautica_api/src/model/stats.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -28,6 +29,7 @@ part 'client_card_response.g.dart';
 /// * [lastVisitAt]
 /// * [nextVisitAt]
 /// * [stats]
+/// * [servedByMasters]
 @BuiltValue()
 abstract class ClientCardResponse
     implements Built<ClientCardResponse, ClientCardResponseBuilder> {
@@ -73,6 +75,9 @@ abstract class ClientCardResponse
 
   @BuiltValueField(wireName: r'stats')
   Stats? get stats;
+
+  @BuiltValueField(wireName: r'servedByMasters')
+  BuiltList<ServedMaster>? get servedByMasters;
 
   ClientCardResponse._();
 
@@ -198,6 +203,13 @@ class _$ClientCardResponseSerializer
         specifiedType: const FullType(Stats),
       );
     }
+    if (object.servedByMasters != null) {
+      yield r'servedByMasters';
+      yield serializers.serialize(
+        object.servedByMasters,
+        specifiedType: const FullType(BuiltList, [FullType(ServedMaster)]),
+      );
+    }
   }
 
   @override
@@ -320,6 +332,13 @@ class _$ClientCardResponseSerializer
             specifiedType: const FullType(Stats),
           ) as Stats;
           result.stats.replace(valueDes);
+          break;
+        case r'servedByMasters':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(ServedMaster)]),
+          ) as BuiltList<ServedMaster>;
+          result.servedByMasters.replace(valueDes);
           break;
         default:
           unhandled.add(key);

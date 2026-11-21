@@ -44,6 +44,10 @@ abstract class ClientCard with _$ClientCard {
     /// Counts per star, index 0 = 5 stars … index 4 = 1 star.
     @Default(<int>[0, 0, 0, 0, 0]) List<int> ratingDistribution,
     DateTime? nextVisitAt,
+
+    /// CLI-73 — the salon masters who served this client, most recent first
+    /// (salon scope only; always salon-wide, even on a `masterId` read).
+    @Default(<ClientServedMaster>[]) List<ClientServedMaster> servedByMasters,
   }) = _ClientCard;
 
   const ClientCard._();
@@ -68,4 +72,19 @@ abstract class ClientCard with _$ClientCard {
 
   /// The ★ figure, `null` when nobody rated the client (count 0 or no average).
   double? get displayRating => ratingCount > 0 ? ratingAvg : null;
+}
+
+/// One entry of [ClientCard.servedByMasters] — a master chip (CLI-73).
+@freezed
+abstract class ClientServedMaster with _$ClientServedMaster {
+  const factory ClientServedMaster({
+    required String masterId,
+    required String name,
+    String? avatarUrl,
+  }) = _ClientServedMaster;
+
+  const ClientServedMaster._();
+
+  @override
+  String toString() => 'ClientServedMaster($masterId)';
 }

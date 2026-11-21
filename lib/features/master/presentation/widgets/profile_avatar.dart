@@ -17,6 +17,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 // Phase 13.6 — ContactTile moved to `shared/widgets/` for cross-feature reuse
 // (the salon public profile also renders a contact row). Re-exported here so
@@ -42,6 +44,7 @@ class ProfileAvatar extends StatelessWidget {
     this.diameter = kDiameter,
     this.imageUrl,
     this.previewOnTap = false,
+    this.previewReport,
   });
 
   /// Default avatar diameter — matches the preview spec (96–112 px band).
@@ -59,6 +62,11 @@ class ProfileAvatar extends StatelessWidget {
   /// default) — every list row / navigating card — renders and behaves
   /// exactly as before.
   final bool previewOnTap;
+
+  /// ADDITIVE (MOD-39): with [previewOnTap], the viewer's «Поскаржитися» for
+  /// this profile ([ProfilePhotoPreviewTap.report]). `null` (the default,
+  /// own-profile previews) → no report button.
+  final PhotoViewerReport? previewReport;
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +106,11 @@ class ProfileAvatar extends StatelessWidget {
       ),
     );
     if (!previewOnTap) return avatar;
-    return ProfilePhotoPreviewTap(imageUrl: url, child: avatar);
+    return ProfilePhotoPreviewTap(
+      imageUrl: url,
+      report: previewReport,
+      child: avatar,
+    );
   }
 }
 

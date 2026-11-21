@@ -1,17 +1,15 @@
-// M510 — HttpClientRepository card reads (`getCard` / `getVisits` /
-// `getOwnRatings`) over the REAL generated models + standardSerializers + the
+// M510 — HttpClientRepository card reads (`getCard` / `getVisits`) over the REAL generated models + standardSerializers + the
 // production ErrorMapperInterceptor, with only the transport stubbed.
 //
 // Proves at the wire boundary:
-//   • the requests: salon vs `me` base, `users` vs `guests`, `/visits` and
-//     `/ratings` with FLAT `page` / `size`, `masterId` only for a salon scope
-//     that carries one;
+//   • the requests: salon vs `me` base, `users` vs `guests`, `/visits` with
+//     FLAT `page` / `size`, `masterId` only for a salon scope that carries one;
 //   • the card mapper: no kind branch (the same mapper serves both handles),
 //     zero distribution when absent, 5→1 buckets, blank name / phone → null,
-//     `stats` / `firstVisitAt` not mapped;
+//     `stats` / `firstVisitAt` not mapped; `servedByMasters` in server order,
+//     incomplete / repeated entries dropped (CLI-73);
 //   • the visit mapper: unknown status → BookingStatus.unknown, a visit with
 //     no usable item dropped, the master name is not on the domain type;
-//   • the own-ratings mapper: stars only (the DTO has no comment field);
 //   • the uniform 404 → NotFoundFailure, an unreadable envelope →
 //     ResponseUnusableFailure.
 
@@ -24,7 +22,6 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
-import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:dio/dio.dart';
@@ -99,7 +96,9 @@ Map<String, Object?> _cardJson({
   Object? distribution = const <Object?>[],
   int ratingCount = 12,
   num? ratingAvg = 4.9,
+  Object? servedByMasters,
 }) => <String, Object?>{
+  'servedByMasters': ?servedByMasters,
   'kind': kind,
   'userId': kind == 'REGISTERED' ? _userId : null,
   'guestBookingId': kind == 'GUEST' ? _bookingId : null,
@@ -191,15 +190,6 @@ void main() {
         'size': 20,
       });
     });
-
-    test('ratings path', () async {
-      final b = _build(body: _page(<Object?>[]));
-      await b.repo.getOwnRatings(const ClientListScope.me(), _guest);
-      expect(
-        b.adapter.requests.single.path,
-        '/api/v1/masters/me/clients/guests/$_bookingId/ratings',
-      );
-    });
   });
 
   group('card mapper', () {
@@ -267,6 +257,49 @@ void main() {
       expect(c.initials, isNull);
     });
 
+    test('servedByMasters: server order kept; incomplete / repeated dropped '
+        '(CLI-73)', () async {
+      final b = _build(
+        body: _envelope(
+          _cardJson(
+            servedByMasters: <Object?>[
+              <String, Object?>{
+                'masterId': 'm-2',
+                'name': ' Ірина ',
+                'avatarUrl': 'https://cdn.test/i.jpg',
+              },
+              <String, Object?>{'masterId': 'm-1', 'name': 'Олена'},
+              <String, Object?>{'masterId': '', 'name': 'NoId'},
+              <String, Object?>{'masterId': 'm-3', 'name': '  '},
+              <String, Object?>{'masterId': 'm-2', 'name': 'Дубль'},
+            ],
+          ),
+        ),
+      );
+      final ClientCard c = await b.repo.getCard(
+        const ClientListScope.salon(salonId: _salonId),
+        _registered,
+      );
+      expect(c.servedByMasters, const <ClientServedMaster>[
+        ClientServedMaster(
+          masterId: 'm-2',
+          name: 'Ірина',
+          avatarUrl: 'https://cdn.test/i.jpg',
+        ),
+        ClientServedMaster(masterId: 'm-1', name: 'Олена'),
+      ]);
+      expect(c.toString(), isNot(contains('Ірина')));
+    });
+
+    test('servedByMasters absent → empty', () async {
+      final b = _build(body: _envelope(_cardJson()));
+      final ClientCard c = await b.repo.getCard(
+        const ClientListScope.me(),
+        _registered,
+      );
+      expect(c.servedByMasters, isEmpty);
+    });
+
     test('initials: first letters of the first two words', () {
       expect(
         const ClientCard(
@@ -329,30 +362,6 @@ void main() {
       );
       expect(p.items, hasLength(1));
       expect(p.hasMore, isTrue);
-    });
-  });
-
-  group('own ratings mapper', () {
-    test('maps stars + date + service; incomplete rows dropped', () async {
-      final b = _build(
-        body: _page(<Object?>[
-          <String, Object?>{
-            'bookingId': 'bk-1',
-            'visitAt': '2026-11-07T12:00:00Z',
-            'serviceName': 'Манікюр',
-            'stars': 5,
-            'comment': 'SECRET COMMENT',
-          },
-          <String, Object?>{'bookingId': 'bk-2', 'serviceName': 'x'},
-        ]),
-      );
-      final PageResponse<ClientOwnRating> p = await b.repo.getOwnRatings(
-        const ClientListScope.me(),
-        _registered,
-      );
-      expect(p.items, hasLength(1));
-      expect(p.items.single.stars, 5);
-      expect(p.items.single.toString(), isNot(contains('SECRET')));
     });
   });
 

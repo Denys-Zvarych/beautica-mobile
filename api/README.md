@@ -511,6 +511,7 @@ Class | Method | HTTP request | Description
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
  - [SearchSuggestionRequest](doc/SearchSuggestionRequest.md)
  - [SearchSuggestionResponse](doc/SearchSuggestionResponse.md)
+ - [ServedMaster](doc/ServedMaster.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)
  - [ServiceSummaryDto](doc/ServiceSummaryDto.md)
  - [SettlementSearchResponse](doc/SettlementSearchResponse.md)

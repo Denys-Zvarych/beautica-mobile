@@ -97,6 +97,8 @@ class _$ClientCardResponse extends ClientCardResponse {
   final DateTime? nextVisitAt;
   @override
   final Stats? stats;
+  @override
+  final BuiltList<ServedMaster>? servedByMasters;
 
   factory _$ClientCardResponse(
           [void Function(ClientCardResponseBuilder)? updates]) =>
@@ -116,7 +118,8 @@ class _$ClientCardResponse extends ClientCardResponse {
       this.firstVisitAt,
       this.lastVisitAt,
       this.nextVisitAt,
-      this.stats})
+      this.stats,
+      this.servedByMasters})
       : super._();
   @override
   ClientCardResponse rebuild(
@@ -144,7 +147,8 @@ class _$ClientCardResponse extends ClientCardResponse {
         firstVisitAt == other.firstVisitAt &&
         lastVisitAt == other.lastVisitAt &&
         nextVisitAt == other.nextVisitAt &&
-        stats == other.stats;
+        stats == other.stats &&
+        servedByMasters == other.servedByMasters;
   }
 
   @override
@@ -164,6 +168,7 @@ class _$ClientCardResponse extends ClientCardResponse {
     _$hash = $jc(_$hash, lastVisitAt.hashCode);
     _$hash = $jc(_$hash, nextVisitAt.hashCode);
     _$hash = $jc(_$hash, stats.hashCode);
+    _$hash = $jc(_$hash, servedByMasters.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -184,7 +189,8 @@ class _$ClientCardResponse extends ClientCardResponse {
           ..add('firstVisitAt', firstVisitAt)
           ..add('lastVisitAt', lastVisitAt)
           ..add('nextVisitAt', nextVisitAt)
-          ..add('stats', stats))
+          ..add('stats', stats)
+          ..add('servedByMasters', servedByMasters))
         .toString();
   }
 }
@@ -253,6 +259,12 @@ class ClientCardResponseBuilder
   StatsBuilder get stats => _$this._stats ??= StatsBuilder();
   set stats(StatsBuilder? stats) => _$this._stats = stats;
 
+  ListBuilder<ServedMaster>? _servedByMasters;
+  ListBuilder<ServedMaster> get servedByMasters =>
+      _$this._servedByMasters ??= ListBuilder<ServedMaster>();
+  set servedByMasters(ListBuilder<ServedMaster>? servedByMasters) =>
+      _$this._servedByMasters = servedByMasters;
+
   ClientCardResponseBuilder() {
     ClientCardResponse._defaults(this);
   }
@@ -274,6 +286,7 @@ class ClientCardResponseBuilder
       _lastVisitAt = $v.lastVisitAt;
       _nextVisitAt = $v.nextVisitAt;
       _stats = $v.stats?.toBuilder();
+      _servedByMasters = $v.servedByMasters?.toBuilder();
       _$v = null;
     }
     return this;
@@ -311,6 +324,7 @@ class ClientCardResponseBuilder
             lastVisitAt: lastVisitAt,
             nextVisitAt: nextVisitAt,
             stats: _stats?.build(),
+            servedByMasters: _servedByMasters?.build(),
           );
     } catch (_) {
       late String _$failedField;
@@ -320,6 +334,8 @@ class ClientCardResponseBuilder
 
         _$failedField = 'stats';
         _stats?.build();
+        _$failedField = 'servedByMasters';
+        _servedByMasters?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ClientCardResponse', _$failedField, e.toString());

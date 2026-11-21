@@ -8,8 +8,12 @@
 //   • client_card_not_found_360_1x           — «Клієнта не знайдено»
 //   • client_card_long_service_name_360_1x   — one booking row with a long
 //     service name: wraps by word beside the price, own status pill
-//   • client_rating_rated_360_1x             — average, bars, own ratings, note
-//   • client_rating_own_empty_360_1x         — no own ratings yet
+//   • client_rating_rated_360_1x             — average, bars, note (CLI-60:
+//     no «Ваші оцінки» section, 2026-11-21)
+//   • client_rating_unrated_360_1x           — «—», «Ще немає оцінок», empty
+//     bars (replaces the removed client_rating_own_empty_360_1x)
+//   • client_card_owner_master_chips_360_1x  — SALON_OWNER salon card with the
+//     CLI-73 master chip row («Усі майстри» selected) above the timeline
 //
 // Preview parity: `docs/signup-designs/ClientCardVariants/` at 360 px. The
 // registered photo renders its monogram fallback here (the media loader is not
@@ -24,7 +28,6 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
-import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
@@ -99,6 +102,7 @@ ClientCard _card(
   bool blocked = false,
   double? avg = 4.9,
   int count = 12,
+  List<ClientServedMaster> served = const <ClientServedMaster>[],
 }) => ClientCard(
   ref: ref,
   displayName: name,
@@ -110,19 +114,14 @@ ClientCard _card(
   ratingDistribution: count == 0
       ? const <int>[0, 0, 0, 0, 0]
       : const <int>[9, 2, 1, 0, 0],
+  servedByMasters: served,
 );
 
 class _Repo implements ClientRepository {
-  _Repo(
-    this.card, {
-    this.visits = const <ClientVisit>[],
-    this.ratings,
-    this.failure,
-  });
+  _Repo(this.card, {this.visits = const <ClientVisit>[], this.failure});
 
   final ClientCard card;
   final List<ClientVisit> visits;
-  final List<ClientOwnRating>? ratings;
   final Failure? failure;
 
   @override
@@ -151,20 +150,6 @@ class _Repo implements ClientRepository {
   );
 
   @override
-  Future<PageResponse<ClientOwnRating>> getOwnRatings(
-    ClientListScope scope,
-    ClientRef client, {
-    int page = 0,
-    int size = kClientPageSize,
-    CancelToken? cancelToken,
-  }) async => PageResponse<ClientOwnRating>(
-    items: ratings ?? const <ClientOwnRating>[],
-    page: 0,
-    totalPages: 1,
-    totalElements: 0,
-  );
-
-  @override
   Future<PageResponse<ClientSummary>> list(
     ClientListScope scope, {
     String? q,
@@ -174,14 +159,20 @@ class _Repo implements ClientRepository {
   }) => throw UnimplementedError();
 }
 
-List<Object> _overrides(ClientRepository repo) => <Object>[
-  authProvider.overrideWith(() => FixedRoleAuth(UserRole.independentMaster)),
+List<Object> _overrides(
+  ClientRepository repo, {
+  UserRole role = UserRole.independentMaster,
+}) => <Object>[
+  authProvider.overrideWith(() => FixedRoleAuth(role)),
   clientRepositoryProvider.overrideWithValue(repo),
   clockProvider.overrideWithValue(_now),
 ];
 
-Widget _cardScreen(ClientRef ref) => ClientCardScreen(
-  scope: const ClientListScope.me(),
+Widget _cardScreen(
+  ClientRef ref, {
+  ClientListScope scope = const ClientListScope.me(),
+}) => ClientCardScreen(
+  scope: scope,
   client: ref,
   cardBase: '/master/clients',
   bookingRoute: (String id) => '/master/bookings/$id',
@@ -259,6 +250,32 @@ void main() {
   );
 
   goldenTest(
+    'client card — owner with master chips',
+    fileName: 'client_card_owner_master_chips_360_1x',
+    constraints: BoxConstraints.tight(screen),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      width: width,
+      overrides: _overrides(
+        _Repo(
+          _card(
+            _reg,
+            served: const <ClientServedMaster>[
+              ClientServedMaster(masterId: 'm2', name: 'Ірина Коваль'),
+              ClientServedMaster(masterId: 'm1', name: 'Олена Шевчук'),
+              ClientServedMaster(masterId: 'm3', name: 'Марта Бондар'),
+            ],
+          ),
+          visits: _visits,
+        ),
+        role: UserRole.salonOwner,
+      ),
+    ),
+    builder: () =>
+        _cardScreen(_reg, scope: const ClientListScope.salon(salonId: 's1')),
+  );
+
+  goldenTest(
     'client rating — rated',
     fileName: 'client_rating_rated_360_1x',
     constraints: BoxConstraints.tight(screen),
@@ -267,38 +284,20 @@ void main() {
     pumpBeforeTest: onlyPumpAndSettle,
     pumpWidget: goldenPumpWidget(
       width: width,
-      overrides: _overrides(
-        _Repo(
-          _card(_reg),
-          ratings: <ClientOwnRating>[
-            ClientOwnRating(
-              bookingId: 'a',
-              visitAt: DateTime.utc(2026, 11, 7, 10),
-              serviceName: 'Педикюр',
-              stars: 5,
-            ),
-            ClientOwnRating(
-              bookingId: 'b',
-              visitAt: DateTime.utc(2026, 10, 12, 9),
-              serviceName: 'Манікюр',
-              stars: 4,
-            ),
-          ],
-        ),
-      ),
+      overrides: _overrides(_Repo(_card(_reg))),
     ),
     builder: _ratingScreen,
   );
 
   goldenTest(
-    'client rating — no own ratings',
-    fileName: 'client_rating_own_empty_360_1x',
+    'client rating — unrated',
+    fileName: 'client_rating_unrated_360_1x',
     constraints: BoxConstraints.tight(screen),
     textScaleFactor: 1.0,
     pumpBeforeTest: onlyPumpAndSettle,
     pumpWidget: goldenPumpWidget(
       width: width,
-      overrides: _overrides(_Repo(_card(_reg))),
+      overrides: _overrides(_Repo(_card(_reg, avg: null, count: 0))),
     ),
     builder: _ratingScreen,
   );

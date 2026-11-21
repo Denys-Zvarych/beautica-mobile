@@ -271,6 +271,7 @@ import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/search_suggestion_request.dart';
 import 'package:beautica_api/src/model/search_suggestion_response.dart';
+import 'package:beautica_api/src/model/served_master.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
 import 'package:beautica_api/src/model/service_summary_dto.dart';
 import 'package:beautica_api/src/model/settlement_search_response.dart';
@@ -561,6 +562,7 @@ part 'serializers.g.dart';
   ScheduleOverrideResponse,
   SearchSuggestionRequest,
   SearchSuggestionResponse,
+  ServedMaster,
   ServiceDefinitionResponse,
   ServiceSummaryDto,
   SettlementSearchResponse,

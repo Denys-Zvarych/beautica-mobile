@@ -21,6 +21,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/application/report_notifier.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
@@ -28,6 +29,8 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/message_area.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 import 'package:beautica_mobile/shared/widgets/velvet_banner.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_sheet.dart';
 
@@ -99,6 +102,53 @@ void reportProfile(
     targetType: targetType,
     targetId: targetId,
     subject: AppLocalizations.of(context).reportSubjectProfile(name),
+  );
+}
+
+/// MOD-39 — the profile-photo viewer's «Поскаржитися»: the SAME flag the
+/// portfolio viewer shows, opening the SAME report sheet for the profile
+/// [targetId] of [targetType] (`clientProfile` / `masterProfile` /
+/// `salonProfile`), subtitled «Клієнт: [name]» / «Профіль: [name]».
+///
+/// The flag hides (reactively) when the viewer is signed out, when
+/// [targetId] is the viewer's own user id (a client's own photo), or once the
+/// target is already reported (MOD-06). Role gating (MOD-25, MOD-35) stays
+/// with the call site, which passes no report where the role may not report.
+///
+/// Any other [targetType] returns `null` (no report button) in release too;
+/// debug builds also fail the assert.
+PhotoViewerReport? profilePhotoReport({
+  required ReportTargetType targetType,
+  required String targetId,
+  required String name,
+}) {
+  final bool profileTarget =
+      targetType == ReportTargetType.clientProfile ||
+      targetType == ReportTargetType.masterProfile ||
+      targetType == ReportTargetType.salonProfile;
+  assert(
+    profileTarget,
+    'profilePhotoReport: only CLIENT_PROFILE / MASTER_PROFILE / SALON_PROFILE.',
+  );
+  if (!profileTarget) return null;
+  return PhotoViewerReport(
+    onReport: (BuildContext context, PortfolioPhoto _) {
+      final AppLocalizations l10n = AppLocalizations.of(context);
+      showReportSheet(
+        context,
+        targetType: targetType,
+        targetId: targetId,
+        subject: targetType == ReportTargetType.clientProfile
+            ? l10n.reportSubjectClient(name)
+            : l10n.reportSubjectProfile(name),
+      );
+    },
+    isReported: (WidgetRef ref, PortfolioPhoto _) {
+      final String? me = ref.watch(authProvider.select(authUserIdOrNull));
+      return me == null ||
+          me == targetId ||
+          watchIsReported(ref, targetType, targetId);
+    },
   );
 }
 

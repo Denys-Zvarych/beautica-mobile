@@ -6,6 +6,7 @@
 // `phone` → no phone chip, count 0 → «Ще немає оцінок» (not tappable).
 //
 //   avatar · name · «Заблоковано» · [phone chip] [rating chip]
+//   [master chips] — SALON_OWNER / SALON_ADMIN only (CLI-73, CLI-D12)
 //   «Наступний візит» head node (D4)
 //   «Історія візитів» — month-grouped, newest first, paged
 //
@@ -16,6 +17,15 @@
 // No master name, counters, kind label or «З нами з» (D2/D3). A visit card opens
 // booking detail of its first item. 404 → «Клієнта не знайдено» (uniform, also
 // a guest attached to an account since the list loaded, B527).
+//
+// MASTER CHIPS (CLI-73 / CLI-74): «Усі майстри» + one chip per
+// `servedByMasters` entry (salon-wide, server order). A chip re-keys ONLY the
+// visits controller with that `masterId` (history + «Наступний візит»); the card
+// itself is never refetched, so the chips stay put. Hidden at ≤1 master, and
+// when the route's `masterId` is not one of the chips (owner master mode: the
+// view stays scoped to the owner's own master row). The selection lives in a
+// [ValueNotifier] read only by the chip row and the timeline, so a chip tap
+// never rebuilds the header. A non-UUID chip id is ignored (never queried).
 //
 // PII: name, photo and phone are rendered, never logged.
 
@@ -42,10 +52,13 @@ import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_photo_report.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/blocked_tag.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_readout.dart';
+import 'package:beautica_mobile/features/favorites/presentation/widgets/favorites_filter.dart'
+    show FavoriteCategoryChip;
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_scaffold.dart';
 import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
@@ -56,8 +69,11 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
+import 'package:beautica_mobile/shared/validators/uuid_validator.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/load_more_retry_footer.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 import 'package:beautica_mobile/shared/widgets/public_profile_skeleton.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 
@@ -100,6 +116,12 @@ class ClientCardScreen extends ConsumerStatefulWidget {
 
   static Key visitKey(String visitKey) => Key('client-visit-$visitKey');
 
+  /// CLI-73 — the master chip row and its chips.
+  static const Key masterChipsKey = Key('client-master-chips');
+  static const Key masterChipAllKey = Key('client-master-chip-all');
+  static Key masterChipKey(String masterId) =>
+      Key('client-master-chip-$masterId');
+
   @override
   ConsumerState<ClientCardScreen> createState() => _ClientCardScreenState();
 }
@@ -111,13 +133,103 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
   ClientCardProvider get _cardProvider =>
       clientCardProvider(widget.scope, widget.client);
 
+  /// CLI-74 — the master chip filter; starts at the route's `masterId`. Read
+  /// only by the chip row and the timeline (not the header).
+  late final ValueNotifier<String?> _filterMasterId = ValueNotifier<String?>(
+    _masterId,
+  );
+
+  /// The visits read: the route scope with [masterId] (the chip filter).
+  ClientListScope _visitsScopeFor(String? masterId) => switch (widget.scope) {
+    final SalonClientListScope s => s.copyWith(masterId: masterId),
+    final MyClientListScope s => s,
+  };
+
+  /// Every chip key this card has read visits under (the route's plus each
+  /// chip tapped). Each is a separately cached (30 s) visits instance, so a
+  /// refresh / retry / block must drop ALL of them, not only the current one.
+  late final Set<String?> _visitedMasterIds = <String?>{_masterId};
+
+  /// Invalidates the visits of every chip key read for this client.
+  void _invalidateVisits() {
+    for (final String? masterId in _visitedMasterIds) {
+      ref.invalidate(
+        clientVisitsControllerProvider(
+          _visitsScopeFor(masterId),
+          widget.client,
+        ),
+      );
+    }
+  }
+
+  /// The visits of the CURRENT chip selection (actions read it on demand).
   ClientVisitsControllerProvider get _visitsProvider =>
-      clientVisitsControllerProvider(widget.scope, widget.client);
+      clientVisitsControllerProvider(
+        _visitsScopeFor(_filterMasterId.value),
+        widget.client,
+      );
+
+  /// MOD-39 / CLI-70 — the avatar viewer report, built once per
+  /// (role, client, name) instead of on every build.
+  ({UserRole? role, ClientRef client, String name})? _avatarReportKey;
+  PhotoViewerReport? _avatarReport;
+
+  PhotoViewerReport? _avatarReportFor(UserRole? role, String name) {
+    final ({UserRole? role, ClientRef client, String name}) key = (
+      role: role,
+      client: widget.client,
+      name: name,
+    );
+    if (key != _avatarReportKey) {
+      _avatarReportKey = key;
+      _avatarReport = clientPhotoReport(role, widget.client, name: name);
+    }
+    return _avatarReport;
+  }
 
   String? get _masterId => switch (widget.scope) {
     SalonClientListScope(:final String? masterId) => masterId,
     MyClientListScope() => null,
   };
+
+  @override
+  void didUpdateWidget(ClientCardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scope != widget.scope || oldWidget.client != widget.client) {
+      _visitedMasterIds
+        ..clear()
+        ..add(_masterId);
+      _filterMasterId.value = _masterId;
+    }
+  }
+
+  @override
+  void dispose() {
+    _filterMasterId.dispose();
+    super.dispose();
+  }
+
+  /// A chip tap: `null` = «Усі майстри»; a non-UUID id is ignored.
+  void _selectMaster(String? masterId) {
+    if (masterId != null && !isUuid(masterId)) return;
+    _visitedMasterIds.add(masterId);
+    _filterMasterId.value = masterId;
+  }
+
+  /// CLI-73 — chips only on a salon card for owner / admin with >1 master,
+  /// and only when the route's `masterId` (if any) is one of the chips.
+  bool _showMasterChips(UserRole? role, ClientCard card) {
+    if (widget.scope is! SalonClientListScope) return false;
+    if (role != UserRole.salonOwner && role != UserRole.salonAdmin) {
+      return false;
+    }
+    if (card.servedByMasters.length <= 1) return false;
+    final String? routeMasterId = _masterId;
+    return routeMasterId == null ||
+        card.servedByMasters.any(
+          (ClientServedMaster m) => m.masterId == routeMasterId,
+        );
+  }
 
   bool _onScroll(ScrollNotification n) {
     if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
@@ -129,9 +241,8 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
   }
 
   Future<void> _refresh() async {
-    ref
-      ..invalidate(_cardProvider)
-      ..invalidate(_visitsProvider);
+    ref.invalidate(_cardProvider);
+    _invalidateVisits();
     try {
       await ref.read(_cardProvider.future);
     } catch (_) {
@@ -221,9 +332,10 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
           MyClientListScope() => null,
         },
         // The «Заблоковано» tag (and any visit the block cancelled).
-        onChanged: () => ref
-          ..invalidate(_cardProvider)
-          ..invalidate(_visitsProvider),
+        onChanged: () {
+          ref.invalidate(_cardProvider);
+          _invalidateVisits();
+        },
       );
     } finally {
       _moreInFlight = false;
@@ -238,10 +350,13 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final AsyncValue<ClientCard> card = ref.watch(_cardProvider);
-    // Both reads start together, but only the timeline sliver WATCHES the
-    // visits: a listen keeps the fetch alive without rebuilding the header and
-    // chips on every loading-more toggle.
-    ref.listen<AsyncValue<ClientVisitsState>>(_visitsProvider, (_, _) {});
+    // Both reads start together (the route scope's visits), but only the
+    // timeline sliver WATCHES the visits: a listen keeps the fetch alive
+    // without rebuilding the header and chips on every loading-more toggle.
+    ref.listen<AsyncValue<ClientVisitsState>>(
+      clientVisitsControllerProvider(_visitsScopeFor(_masterId), widget.client),
+      (_, _) {},
+    );
     final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
 
     final (Widget body, List<Widget> slivers) = card.when(
@@ -262,9 +377,10 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
           ErrorState(
             key: ClientCardScreen.errorKey,
             failure: failure,
-            onRetry: () => ref
-              ..invalidate(_cardProvider)
-              ..invalidate(_visitsProvider),
+            onRetry: () {
+              ref.invalidate(_cardProvider);
+              _invalidateVisits();
+            },
           ),
           const <Widget>[],
         );
@@ -276,13 +392,33 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
           showPhone: canSeeClientPhone(role),
           onOpenRating: _openRating,
           clipboard: ref.read(clipboardServiceProvider),
+          avatarReport: _avatarReportFor(
+            role,
+            c.displayName ?? l10n.bookingDetailGuestClient,
+          ),
         ),
         <Widget>[
-          _VisitsTimeline(
-            scope: widget.scope,
-            client: widget.client,
-            onOpenBooking: (String bookingId) =>
-                context.pushOnce<void>(widget.bookingRoute(bookingId)),
+          if (_showMasterChips(role, c))
+            SliverToBoxAdapter(
+              child: ValueListenableBuilder<String?>(
+                valueListenable: _filterMasterId,
+                builder: (BuildContext context, String? selected, Widget? _) =>
+                    _MasterChips(
+                      masters: c.servedByMasters,
+                      selectedId: selected,
+                      onSelect: _selectMaster,
+                    ),
+              ),
+            ),
+          ValueListenableBuilder<String?>(
+            valueListenable: _filterMasterId,
+            builder: (BuildContext context, String? masterId, Widget? _) =>
+                _VisitsTimeline(
+                  scope: _visitsScopeFor(masterId),
+                  client: widget.client,
+                  onOpenBooking: (String bookingId) =>
+                      context.pushOnce<void>(widget.bookingRoute(bookingId)),
+                ),
           ),
         ],
       ),
@@ -336,12 +472,16 @@ class _CardHeader extends StatelessWidget {
     required this.showPhone,
     required this.onOpenRating,
     required this.clipboard,
+    this.avatarReport,
   });
 
   final ClientCard card;
   final ClipboardService clipboard;
   final bool showPhone;
   final VoidCallback onOpenRating;
+
+  /// MOD-39 / CLI-70 — the avatar viewer's «Поскаржитися»; `null` → none.
+  final PhotoViewerReport? avatarReport;
 
   @override
   Widget build(BuildContext context) {
@@ -360,6 +500,7 @@ class _CardHeader extends StatelessWidget {
             imageUrl: card.avatarUrl,
             initials: card.initials,
             previewOnTap: true,
+            previewReport: avatarReport,
           ),
         ),
         SizedBox(height: hasPhoto ? 12 : 10),
@@ -400,6 +541,55 @@ class _CardHeader extends StatelessWidget {
         ),
         const SizedBox(height: 22),
       ],
+    );
+  }
+}
+
+/// CLI-73 — «Усі майстри» + one chip per served master, one horizontal row.
+/// Reuses the app's filter chip ([FavoriteCategoryChip]: raised at rest,
+/// pressed in when selected).
+class _MasterChips extends StatelessWidget {
+  const _MasterChips({
+    required this.masters,
+    required this.selectedId,
+    required this.onSelect,
+  });
+
+  final List<ClientServedMaster> masters;
+  final String? selectedId;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
+      child: SingleChildScrollView(
+        key: ClientCardScreen.masterChipsKey,
+        scrollDirection: Axis.horizontal,
+        // The raised chips' shadows must not be cut at the row's edges.
+        clipBehavior: Clip.none,
+        padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
+        child: Row(
+          children: <Widget>[
+            FavoriteCategoryChip(
+              key: ClientCardScreen.masterChipAllKey,
+              label: l10n.clientMastersFilterAll,
+              selected: selectedId == null,
+              onTap: () => onSelect(null),
+            ),
+            for (final ClientServedMaster m in masters) ...<Widget>[
+              const SizedBox(width: VelvetSpacing.sm),
+              FavoriteCategoryChip(
+                key: ClientCardScreen.masterChipKey(m.masterId),
+                label: m.name,
+                selected: selectedId == m.masterId,
+                onTap: () => onSelect(m.masterId),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

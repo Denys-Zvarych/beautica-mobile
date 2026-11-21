@@ -324,6 +324,85 @@ void main() {
     );
   }
 
+  // 2026-11-21 (MOD-39) — the avatar viewer's «Поскаржитися» reports the
+  // photo as the master profile; once reported the flag is gone (MOD-06).
+  testWidgets('CLIENT on a public master profile: avatar photo → viewer '
+      '«Поскаржитися» → report sheet → {MASTER_PROFILE, master id}; the flag '
+      'then hides', (tester) async {
+    await mockNetworkImagesFor(() async {
+      const String photo = 'https://media.test/avatars/master-aaa.jpg';
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..publicMasterAvatarUrl = photo;
+      final FakeContentReportRepository repo = FakeContentReportRepository();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: <Object>[
+          contentReportRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await AppHarness.settle(tester);
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('public-master-profile-about-tab')),
+      );
+      await AppHarness.settle(tester);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.descendant(
+          of: find.byType(ProfileAvatar),
+          matching: find.byType(ProfilePhotoPreviewTap),
+        ),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(PortfolioPhotoViewer),
+      );
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsOneWidget);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(PortfolioPhotoViewer.reportKey),
+      );
+      await AppHarness.pumpUntilFound(tester, _sheet);
+      expect(
+        find.descendant(
+          of: _sheet,
+          // i18n-finder-ok: fixture provider name (locale-invariant data)
+          matching: find.text(_l10n.reportSubjectProfile('Софія Бондар')),
+        ),
+        findsOneWidget,
+      );
+
+      await _pickAndSubmit(tester, ReportReason.falseInfo);
+
+      expect(
+        repo.requests.single,
+        const ContentReportRequest(
+          targetType: ReportTargetType.masterProfile,
+          targetId: 'master-aaa',
+          reason: ReportReason.falseInfo,
+        ),
+      );
+      expect(_sheet, findsNothing);
+      _expectSnack(_l10n.reportSent);
+      // Still in the viewer; reported once → no second flag.
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
   testWidgets('CLIENT on a public salon profile: the cover «⋯» sits right of '
       'the heart and reports {SALON_PROFILE, salon id} with the salon name '
       'as subject', (tester) async {

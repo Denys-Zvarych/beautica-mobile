@@ -1,64 +1,36 @@
 // M510 — the body of «Рейтинг клієнта» (ClientCardVariants `RatingBody`):
-// the average + stars + count, the 5→1 distribution bars, «Ваші оцінки» and
-// the privacy note.
+// the average + stars + count, the 5→1 distribution bars and the privacy note
+// (CLI-60 — no «Ваші оцінки» section, CLI-D07).
 //
-// Average, count and distribution come from the CARD (D7); only the own
-// ratings are a separate paged read. NO review comment text exists anywhere on
-// this page: the contract and the domain types have no field for it (REV-D10),
-// and the muted note says so.
+// Everything comes from the CARD (D7) — no read of its own. NO review comment
+// text exists anywhere on this page: the contract and the domain types have no
+// field for it (REV-D10), and the muted note says so.
 //
-// A SLIVER widget (for [ProfileScaffold.slivers]): «Ваші оцінки» is a lazy
-// [SliverList], so a long own-ratings history builds only its visible rows.
+// A SLIVER widget (for [ProfileScaffold.slivers]).
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart'
-    show MyBookingsLoadMoreSpinner;
-import 'package:beautica_mobile/features/clients/application/client_own_ratings_controller.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
-import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/star_row.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
-import 'package:beautica_mobile/shared/widgets/error_state.dart';
-import 'package:beautica_mobile/shared/widgets/load_more_retry_footer.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 
 class RatingBody extends StatelessWidget {
-  const RatingBody({
-    super.key,
-    required this.card,
-    required this.own,
-    required this.onRetryOwn,
-    required this.onRetryMore,
-  });
+  const RatingBody({super.key, required this.card});
 
   final ClientCard card;
 
-  /// The viewer's own ratings of this client (paged).
-  final AsyncValue<ClientOwnRatingsState> own;
-  final VoidCallback onRetryOwn;
-  final VoidCallback onRetryMore;
-
   static const Key averageKey = Key('client-rating-average');
   static const Key countKey = Key('client-rating-count');
-  static const Key ownEmptyKey = Key('client-own-ratings-empty');
-  static const Key ownErrorKey = Key('client-own-ratings-error');
-  static const Key ownRetryMoreKey = Key('client-own-ratings-retry-more');
   static const Key privacyNoteKey = Key('client-rating-private-note');
 
   /// Key of the distribution bar for [stars] (5..1).
   static Key barKey(int stars) => Key('client-rating-bar-$stars');
-
-  static Key ownRowKey(String bookingId) => Key('client-own-rating-$bookingId');
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +40,6 @@ class RatingBody extends StatelessWidget {
     return SliverMainAxisGroup(
       slivers: <Widget>[
         SliverToBoxAdapter(child: _summary(l10n, avg, total)),
-        _ownSection(context, l10n),
         SliverToBoxAdapter(child: _privacyNote(l10n)),
       ],
     );
@@ -120,9 +91,6 @@ class RatingBody extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 22),
-        Text(l10n.clientOwnRatingsTitle, style: VelvetText.sectionLabel()),
-        const SizedBox(height: 10),
       ],
     );
   }
@@ -156,82 +124,6 @@ class RatingBody extends StatelessWidget {
       ],
     );
   }
-
-  Widget _ownSection(BuildContext context, AppLocalizations l10n) {
-    return own.when(
-      loading: () =>
-          const SliverToBoxAdapter(child: MyBookingsLoadMoreSpinner()),
-      error: (Object e, StackTrace _) => SliverToBoxAdapter(
-        child: ErrorState(
-          key: ownErrorKey,
-          failure: e is Failure ? e : UnknownFailure(cause: e),
-          onRetry: onRetryOwn,
-        ),
-      ),
-      data: (ClientOwnRatingsState data) {
-        if (data.items.isEmpty) {
-          return SliverToBoxAdapter(
-            child: Text(
-              l10n.clientOwnRatingsEmpty,
-              key: ownEmptyKey,
-              style: VelvetText.feedbackMutedSm,
-            ),
-          );
-        }
-        final List<ClientOwnRating> items = data.items;
-        return SliverMainAxisGroup(
-          slivers: <Widget>[
-            // The NeumorphicCard look (padding zero, field radius, small
-            // extrusion) painted around a lazy list instead of a Column.
-            DecoratedSliver(
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.field),
-                boxShadow: VelvetShadows.extrudedSmall,
-              ),
-              sliver: SliverList.builder(
-                itemCount: items.length,
-                itemBuilder: (BuildContext _, int i) {
-                  final Widget row = _OwnRatingRow(
-                    key: ownRowKey(items[i].bookingId),
-                    rating: items[i],
-                  );
-                  if (i == 0) return row;
-                  return Column(
-                    key: ValueKey<String>('own-rating-${items[i].bookingId}'),
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[const _Hairline(), row],
-                  );
-                },
-              ),
-            ),
-            if (data.loadMoreFailed)
-              SliverToBoxAdapter(
-                child: LoadMoreRetryFooter(
-                  message: l10n.clientsLoadMoreFailed,
-                  onRetry: onRetryMore,
-                  retryKey: ownRetryMoreKey,
-                ),
-              )
-            else if (data.isLoadingMore)
-              const SliverToBoxAdapter(child: MyBookingsLoadMoreSpinner()),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _Hairline extends StatelessWidget {
-  const _Hairline();
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 1,
-    margin: const EdgeInsets.only(left: 16, right: 16),
-    color: BrandColors.faint.withValues(alpha: 0.45),
-  );
 }
 
 class _DistributionBar extends StatelessWidget {
@@ -299,48 +191,6 @@ class _DistributionBar extends StatelessWidget {
               style: VelvetText.feedbackMutedXs,
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OwnRatingRow extends StatelessWidget {
-  const _OwnRatingRow({super.key, required this.rating});
-
-  final ClientOwnRating rating;
-
-  /// «5 листопада 2026» — Kyiv wall-clock date.
-  static String _date(DateTime instant) {
-    final DateTime local = toBeauticaTime(instant);
-    return '${local.day} ${monthGenitive(local.month)} ${local.year}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  rating.serviceName,
-                  style: VelvetText.masterCardServiceFull,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  _date(rating.visitAt),
-                  style: VelvetText.masterCardDateFull,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          StarRow(stars: rating.stars, size: 15),
         ],
       ),
     );

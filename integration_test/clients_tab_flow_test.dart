@@ -14,11 +14,13 @@
 //       `masterId` = the owner's own master row.
 //
 // M510 — the client card + «Рейтинг клієнта» on the same real router:
-//   (a)  card → next visit / history → phone sheet → copy → rating page → back;
+//   (a)  card → next visit / history → master chip (CLI-73/74: visits
+//        re-read with masterId, card not) → «Усі майстри» (cached, no
+//        re-read) → phone sheet → copy → rating page → back;
 //   (a2) the guest card: `/guests/{bookingId}`, phone, unrated chip not a link;
 //   (c)  SALON_MASTER: the server sends a phone, the card shows none (D5);
 //   (g)  blocked tag, monogram not tappable, visit → booking detail → back, visit timeline page 2 on
-//        scroll, empty own ratings,
+//        scroll, summary-only rating page,
 //        an unknown client → the uniform not-found;
 //   (i)  card «⋯» → block → «Заблоковано» (2026-11-21);
 //   (h)  two bookings made together → two rows (BOOK-05), each opening its
@@ -48,6 +50,9 @@ import 'package:beautica_mobile/features/clients/presentation/widgets/client_ava
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
 import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
@@ -67,6 +72,7 @@ import 'package:network_image_mock/network_image_mock.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../test/features/moderation/support/fake_content_report_repository.dart';
 import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/rendered_image_url.dart';
@@ -81,6 +87,11 @@ const String _kSalonId = 'salon-owner-1';
 const String _kOwnerMasterRowId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
 const String _kMasterPath = '/api/v1/masters/me/clients';
+
+/// CLI-73 — the two salon masters who served `u-oksana` (A: the upcoming
+/// visit, B: the past one).
+const String _kMasterA = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+const String _kMasterB = 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 const String _kSalonPath = '/api/v1/salons/$_kSalonId/clients';
 
 /// 25 rows → page 0 holds 20, page 1 holds 5. Row 0 is the rated registered
@@ -133,7 +144,11 @@ const String _kNextVisitAt = '2026-06-20T12:00:00Z';
 /// The registered card's photo (allow-listed in test (a) only).
 const String _kOksanaPhoto = 'https://media.test/avatars/u-oksana.jpg';
 
-void _seedCards(FakeBackend fb, {void Function()? more}) {
+void _seedCards(
+  FakeBackend fb, {
+  void Function()? more,
+  List<String> salonIds = const <String>[_kSalonId],
+}) {
   fb.clientCards
     ..clear()
     ..['u-oksana'] = <String, dynamic>{
@@ -152,6 +167,11 @@ void _seedCards(FakeBackend fb, {void Function()? more}) {
         <String, int>{'rating': 1, 'count': 0},
       ],
       'nextVisitAt': _kNextVisitAt,
+      // CLI-73 — salon-wide, most recent first.
+      'servedByMasters': <Map<String, dynamic>>[
+        <String, dynamic>{'masterId': _kMasterA, 'name': 'Олена Шевчук'},
+        <String, dynamic>{'masterId': _kMasterB, 'name': 'Марта Бондар'},
+      ],
     }
     ..['b-iryna'] = <String, dynamic>{
       'kind': 'GUEST',
@@ -162,44 +182,39 @@ void _seedCards(FakeBackend fb, {void Function()? more}) {
       'ratingCount': 0,
       'ratingDistribution': <Map<String, int>>[],
     };
-  Map<String, dynamic> visit(String key, String at, String status) =>
+  Map<String, dynamic> visit(
+    String key,
+    String at,
+    String status, {
+    String? masterId,
+  }) => <String, dynamic>{
+    'visitKey': key,
+    'startsAt': at,
+    'items': <Map<String, dynamic>>[
       <String, dynamic>{
-        'visitKey': key,
+        'bookingId': 'bk-$key',
+        'serviceName': 'Манікюр',
+        'status': status,
         'startsAt': at,
-        'items': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'bookingId': 'bk-$key',
-            'serviceName': 'Манікюр',
-            'status': status,
-            'startsAt': at,
-            'priceAtBooking': 650,
-          },
-        ],
-      };
+        'priceAtBooking': 650,
+        'masterId': ?masterId,
+      },
+    ],
+  };
   fb.clientVisits
     ..clear()
     ..['u-oksana'] = <Map<String, dynamic>>[
-      visit('v-next', _kNextVisitAt, 'CONFIRMED'),
-      visit('v-past', '2026-06-07T10:00:00Z', 'COMPLETED'),
+      visit('v-next', _kNextVisitAt, 'CONFIRMED', masterId: _kMasterA),
+      visit('v-past', '2026-06-07T10:00:00Z', 'COMPLETED', masterId: _kMasterB),
     ]
     ..['b-iryna'] = <Map<String, dynamic>>[
       visit('v-g1', '2026-06-01T10:00:00Z', 'COMPLETED'),
     ];
-  fb.clientOwnRatings
-    ..clear()
-    ..['u-oksana'] = <Map<String, dynamic>>[
-      <String, dynamic>{
-        'bookingId': 'bk-v-past',
-        'visitAt': '2026-06-07T10:00:00Z',
-        'serviceName': 'Манікюр',
-        'stars': 5,
-      },
-    ];
   more?.call();
-  fb.wireClientCard();
+  fb.wireClientCard(salonIds: salonIds);
 }
 
-/// M510 QA — the edge cards: `u-2` is BLOCKED, rated (no own ratings) with a
+/// M510 QA — the edge cards: `u-2` is BLOCKED, rated with a
 /// 25-visit history (two pages); `u-3` has routes but no card → the uniform
 /// 404 (e.g. a client gone since the list loaded).
 void _seedEdgeCards(FakeBackend fb) => _seedCards(
@@ -294,7 +309,15 @@ void main() {
         ..wireClientList();
       _seedRoster(fb);
       _seedCards(fb);
-      final GoRouter router = await AppHarness.boot(tester, fb);
+      // MOD-39 — the avatar viewer's «Поскаржитися» submits here.
+      final FakeContentReportRepository reports = FakeContentReportRepository();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: <Object>[
+          contentReportRepositoryProvider.overrideWithValue(reports),
+        ],
+      );
       await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonId));
@@ -473,6 +496,45 @@ void main() {
         findsOneWidget,
       );
 
+      // ── CLI-73 / CLI-74: master chip → filtered visits → «Усі майстри» ──
+      expect(find.byKey(ClientCardScreen.masterChipsKey), findsOneWidget);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.masterChipKey(_kMasterB)),
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.clientCardCalls.any(
+          (String c) => c.startsWith('visits ') && c.endsWith(_kMasterB),
+        ),
+        description: 'the visits re-read with the chip\'s masterId',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('bk-v-past')),
+      );
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
+      expect(
+        find.byKey(ClientCardScreen.masterChipKey(_kMasterA)),
+        findsOneWidget,
+        reason: 'the chips stay salon-wide',
+      );
+      final int callsBeforeAll = fb.clientCardCalls.length;
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.masterChipAllKey),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      // Cache-for: the salon-wide visits are reused, not re-read.
+      expect(
+        fb.clientCardCalls,
+        hasLength(callsBeforeAll),
+        reason: '«Усі майстри» reuses the cached salon-wide visits',
+      );
+
       // ── phone chip → sheet → copy snackbar ───────────────────────────
       await AppHarness.tapVisible(
         tester,
@@ -501,9 +563,11 @@ void main() {
       );
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(RatingBody.ownRowKey('bk-v-past')),
+        find.byKey(RatingBody.privacyNoteKey),
       );
-      expect(find.byKey(RatingBody.privacyNoteKey), findsOneWidget);
+      // CLI-60 — summary + distribution + note only: no «Ваші оцінки».
+      // i18n-finder-ok: the removed section's heading must not render
+      expect(find.text('Ваші оцінки'), findsNothing);
       await AppHarness.tapVisible(
         tester,
         find.byKey(ClientRatingScreen.backKey),
@@ -530,6 +594,29 @@ void main() {
         <String>[_kOksanaPhoto],
       );
       expect(find.byKey(PortfolioPhotoViewer.indicatorKey), findsNothing);
+
+      // ── MOD-39 / CLI-70: viewer «Поскаржитися» → report sheet → submit ─
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(PortfolioPhotoViewer.reportKey),
+      );
+      await AppHarness.pumpUntilFound(tester, find.byType(ReportSheet));
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ReportSheet.reasonKey(ReportReason.offensive)),
+      );
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(tester, find.byKey(ReportSheet.submitKey));
+      await AppHarness.settle(tester);
+      expect(find.byType(ReportSheet), findsNothing);
+      final ContentReportRequest sent = reports.requests.single;
+      expect(sent.targetType, ReportTargetType.clientProfile);
+      expect(sent.targetId, 'u-oksana');
+      expect(sent.reason, ReportReason.offensive);
+      // Reported once → the flag is gone (MOD-06); still in the viewer.
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+
       await AppHarness.tapVisible(
         tester,
         find.byKey(PortfolioPhotoViewer.closeKey),
@@ -616,10 +703,83 @@ void main() {
         router,
         '/salons/$_kSalonId/clients/guest/b-iryna',
       );
+    });
+  });
+
+  // 2026-11-21 (CLI-73 / CLI-74) — the chips are owner AND admin: the admin's
+  // own salon card shows them and a chip re-reads the visits with masterId.
+  testWidgets('(a4) SALON_ADMIN: «Клієнти» → card → master chip filters the '
+      'visits → «Усі майстри» restores them', (tester) async {
+    await mockNetworkImagesFor(() async {
+      const String adminSalon = 'salon-admin-1';
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.salonAdmin
+        ..wireClientList(salonIds: const <String>[adminSalon]);
+      _seedRoster(fb);
+      _seedCards(fb, salonIds: const <String>[adminSalon]);
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.salonShell(adminSalon));
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('salon-nav-tile-3')),
+      );
+      await _waitForList(tester);
       expect(
-        fb.clientCardCalls.where((String c) => c.startsWith('ratings ')),
-        isEmpty,
-        reason: 'an unrated client has no rating page to open',
+        fb.clientListCalls.first.path,
+        '/api/v1/salons/$adminSalon/clients',
+      );
+
+      await AppHarness.tapVisible(tester, _row('u-oksana'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      AppHarness.expectLocation(
+        router,
+        '/salons/$adminSalon/clients/user/u-oksana',
+      );
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(ClientCardScreen.visitKey('bk-v-past')),
+        findsOneWidget,
+      );
+
+      expect(find.byKey(ClientCardScreen.masterChipsKey), findsOneWidget);
+      expect(find.byKey(ClientCardScreen.masterChipAllKey), findsOneWidget);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.masterChipKey(_kMasterB)),
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.clientCardCalls.any(
+          (String c) =>
+              c.startsWith('visits ') &&
+              c.contains('/salons/$adminSalon/') &&
+              c.endsWith(_kMasterB),
+        ),
+        description: 'the admin visits re-read with the chip\'s masterId',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('bk-v-past')),
+      );
+      expect(
+        find.byKey(ClientCardScreen.nextVisitKey),
+        findsNothing,
+        reason: 'master B served only the past visit',
+      );
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.masterChipAllKey),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
       );
     });
   });
@@ -801,6 +961,13 @@ void main() {
         router,
         '/salons/$_kSalonId/clients/user/u-oksana?masterId=$_kOwnerMasterRowId',
       );
+      // The owner's own master row is not among the card's served masters →
+      // no master chip row (the view stays scoped to the owner).
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nameKey),
+      );
+      expect(find.byKey(ClientCardScreen.masterChipsKey), findsNothing);
     });
   });
 
@@ -833,7 +1000,7 @@ void main() {
   );
 
   testWidgets('(g) INDEPENDENT_MASTER card states: blocked tag, the visit '
-      'timeline pages on scroll, a rated client with no own ratings, an '
+      'timeline pages on scroll, a rated client\'s summary-only rating page, an '
       'unknown client → not found', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()..wireClientList();
@@ -917,7 +1084,7 @@ void main() {
         reason: 'the history is exhausted after page 2',
       );
 
-      // ── rating page, no own ratings ─────────────────────────────────
+      // ── rating page: summary only (CLI-60) ──────────────────────────
       await tester.drag(_cardScroll(), const Offset(0, 20000));
       await AppHarness.settle(tester);
       await AppHarness.tapVisible(
@@ -926,7 +1093,7 @@ void main() {
       );
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(RatingBody.ownEmptyKey),
+        find.byKey(RatingBody.averageKey),
       );
       AppHarness.expectLocation(router, '/master/clients/user/u-2/rating');
       expect(
@@ -934,10 +1101,6 @@ void main() {
         '4,0',
       );
       expect(find.byKey(RatingBody.privacyNoteKey), findsOneWidget);
-      expect(
-        fb.clientCardCalls.where((String c) => c.startsWith('ratings ')),
-        hasLength(1),
-      );
       await AppHarness.tapVisible(
         tester,
         find.byKey(ClientRatingScreen.backKey),

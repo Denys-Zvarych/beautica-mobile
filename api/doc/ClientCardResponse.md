@@ -22,6 +22,7 @@ Name | Type | Description | Notes
 **lastVisitAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **nextVisitAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **stats** | [**Stats**](Stats.md) |  | [optional] 
+**servedByMasters** | [**BuiltList&lt;ServedMaster&gt;**](ServedMaster.md) |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

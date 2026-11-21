@@ -368,17 +368,20 @@ GoRouter appRouter(Ref ref) {
   }
 
   /// M510 — the salon-scoped client scope for [salonId]. `?masterId=` narrows
-  /// the salon endpoint to the owner's OWN master row (owner master mode,
-  /// B507 D2) and is honoured ONLY for a SALON_OWNER session and ONLY when it
-  /// is a canonical UUID (it is put in the request query); anything else is
-  /// ignored, so the card reads the whole-salon scope — the server stays the
-  /// authority (M509 audit carry-over).
+  /// the salon endpoint to one master row (owner master mode, B507 D2; the
+  /// card's master chips, CLI-74 / CLI-D12) and is honoured ONLY for a
+  /// SALON_OWNER or SALON_ADMIN session and ONLY when it is a canonical UUID
+  /// (it is put in the request query); anything else is ignored, so the card
+  /// reads the whole-salon scope — the server stays the authority (M509 audit
+  /// carry-over).
   ClientListScope salonClientScope(GoRouterState state, String salonId) {
     final String? raw = state.uri.queryParameters[kClientCardMasterIdQuery];
     final session = ref.read(authProvider).value;
-    final bool ownerSession =
-        session is Authenticated && session.user.role == UserRole.salonOwner;
-    final String? masterId = (raw != null && isUuid(raw) && ownerSession)
+    final bool salonManagerSession =
+        session is Authenticated &&
+        (session.user.role == UserRole.salonOwner ||
+            session.user.role == UserRole.salonAdmin);
+    final String? masterId = (raw != null && isUuid(raw) && salonManagerSession)
         ? raw
         : null;
     return ClientListScope.salon(salonId: salonId, masterId: masterId);

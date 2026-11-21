@@ -20,8 +20,14 @@
 // single-booking entry per booking (key = bookingId); paging still follows the
 // server's page numbers.
 //
+// CACHE-FOR: once nothing listens (the card switched to another master chip),
+// the instance stays cached for [kClientVisitsCacheFor] before it disposes, so
+// a quick chip back-and-forth reuses the loaded pages instead of re-reading
+// page 0 + the lookahead. A new listener inside the window cancels the timer.
+//
 // PII: nothing is logged.
 
+import 'dart:async' show Timer;
 import 'dart:developer';
 
 import 'package:dio/dio.dart' show CancelToken;
@@ -95,6 +101,9 @@ final class _VisitsSplit {
   final List<ClientVisit> history;
 }
 
+/// How long an unlistened [ClientVisitsController] instance stays cached.
+const Duration kClientVisitsCacheFor = Duration(seconds: 30);
+
 @riverpod
 class ClientVisitsController extends _$ClientVisitsController {
   static const String _tag = 'feature.clients';
@@ -114,6 +123,7 @@ class ClientVisitsController extends _$ClientVisitsController {
     _generation++;
     final CancelToken token = _token = CancelToken();
     ref.onDispose(token.cancel);
+    _cacheFor();
     final DateTime now = ref.read(clockProvider)();
     if (userId == null) {
       return ClientVisitsState(
@@ -150,6 +160,21 @@ class ClientVisitsController extends _$ClientVisitsController {
       page: page.page,
       hasMore: page.hasMore,
     );
+  }
+
+  /// The standard cache-for pattern: keep alive while unlistened for
+  /// [kClientVisitsCacheFor], then release.
+  void _cacheFor() {
+    // The link type is not exported by riverpod 3's public API.
+    final link = ref.keepAlive();
+    Timer? timer;
+    ref
+      ..onCancel(() {
+        timer?.cancel();
+        timer = Timer(kClientVisitsCacheFor, link.close);
+      })
+      ..onResume(() => timer?.cancel())
+      ..onDispose(() => timer?.cancel());
   }
 
   /// Appends the next page. No-op while loading or reloading (pull-to-refresh),

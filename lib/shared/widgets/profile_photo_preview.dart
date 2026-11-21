@@ -20,6 +20,7 @@ class ProfilePhotoPreviewTap extends StatelessWidget {
     required this.imageUrl,
     required this.child,
     this.fullImageUrl,
+    this.report,
   });
 
   /// The avatar's (display) photo; `null` → no preview.
@@ -30,11 +31,16 @@ class ProfilePhotoPreviewTap extends StatelessWidget {
 
   final Widget child;
 
+  /// ADDITIVE (MOD-39): forwarded to [showProfilePhotoViewer] — the viewer's
+  /// «Поскаржитися» for this profile. `null` (the default, own-profile
+  /// previews) → no report button.
+  final PhotoViewerReport? report;
+
   @override
   Widget build(BuildContext context) {
     final String? url = fullImageUrl ?? imageUrl;
     if (imageUrl == null || url == null) return child;
-    void open() => showProfilePhotoViewer(context, url);
+    void open() => showProfilePhotoViewer(context, url, report: report);
     return Semantics(
       button: true,
       label: AppLocalizations.of(context).profilePhotoViewAction,

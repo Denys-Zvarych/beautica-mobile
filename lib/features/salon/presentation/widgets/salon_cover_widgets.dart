@@ -19,6 +19,8 @@ import 'package:beautica_mobile/core/media/local_preview_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 
 /// Extent (height == width) of the rounded-square controls that float over
@@ -53,6 +55,7 @@ class SalonLogo extends StatelessWidget {
     this.overlay,
     this.editBadge,
     this.previewOnTap = false,
+    this.previewReport,
   });
 
   final double diameter;
@@ -84,6 +87,11 @@ class SalonLogo extends StatelessWidget {
   /// exactly as before.
   final bool previewOnTap;
 
+  /// ADDITIVE (MOD-39): with [previewOnTap], the viewer's «Поскаржитися» for
+  /// this profile ([ProfilePhotoPreviewTap.report]). `null` (the default,
+  /// own-profile previews) → no report button.
+  final PhotoViewerReport? previewReport;
+
   @override
   Widget build(BuildContext context) {
     final Widget? editBadge = this.editBadge;
@@ -113,7 +121,11 @@ class SalonLogo extends StatelessWidget {
     );
     if (editBadge == null) {
       if (!previewOnTap) return mark;
-      return ProfilePhotoPreviewTap(imageUrl: imageUrl, child: mark);
+      return ProfilePhotoPreviewTap(
+        imageUrl: imageUrl,
+        report: previewReport,
+        child: mark,
+      );
     }
     return SizedBox(
       height: diameter,

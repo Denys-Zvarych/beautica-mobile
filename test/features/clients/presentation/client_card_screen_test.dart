@@ -1,5 +1,7 @@
 // M510 — the provider client card (CLI-48): every state, the phone / rating
-// chips, the timeline (D4), the not-found state and one-layout-for-all.
+// chips, the timeline (D4), the not-found state and one-layout-for-all; the
+// salon master chips (CLI-73 / CLI-74): owner / admin only, hidden at ≤1
+// master, a chip re-reads ONLY the visits with its `masterId`.
 //
 // The repository is faked at the `ClientRepository` seam; the router is a stub
 // that records the rating / booking routes the card opens. Layout at 360 / 414
@@ -9,6 +11,7 @@
 // `pumpUntil`-style pumps on a condition, never a fixed wait.
 
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
@@ -22,7 +25,6 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
-import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
@@ -93,6 +95,7 @@ ClientCard _card(
   bool blocked = false,
   double? avg = 4.9,
   int count = 12,
+  List<ClientServedMaster> served = const <ClientServedMaster>[],
 }) => ClientCard(
   ref: ref,
   displayName: name,
@@ -102,6 +105,7 @@ ClientCard _card(
   ratingAvg: avg,
   ratingCount: count,
   ratingDistribution: const <int>[9, 2, 1, 0, 0],
+  servedByMasters: served,
 );
 
 class _Repo implements ClientRepository {
@@ -117,6 +121,14 @@ class _Repo implements ClientRepository {
   final List<int> visitPages = <int>[];
   Failure? cardFailure;
 
+  /// CLI-74 — per-`masterId` visit pages; a missing key falls back to [pages].
+  Map<String?, List<List<ClientVisit>>> pagesByMaster =
+      <String?, List<List<ClientVisit>>>{};
+
+  /// The scope of every card / visits request, in order.
+  final List<ClientListScope> cardScopes = <ClientListScope>[];
+  final List<ClientListScope> visitScopes = <ClientListScope>[];
+
   /// Visit pages (0-based) that fail with a [NetworkFailure].
   final Set<int> failVisitPages = <int>{};
 
@@ -126,6 +138,7 @@ class _Repo implements ClientRepository {
     ClientRef client, {
     CancelToken? cancelToken,
   }) async {
+    cardScopes.add(scope);
     await cardGate?.future;
     final Failure? f = cardFailure;
     if (f != null) throw f;
@@ -141,28 +154,20 @@ class _Repo implements ClientRepository {
     CancelToken? cancelToken,
   }) async {
     visitPages.add(page);
+    visitScopes.add(scope);
     if (failVisitPages.contains(page)) throw const NetworkFailure();
+    final String? masterId = switch (scope) {
+      SalonClientListScope(:final String? masterId) => masterId,
+      MyClientListScope() => null,
+    };
+    final List<List<ClientVisit>> served = pagesByMaster[masterId] ?? pages;
     return PageResponse<ClientVisit>(
-      items: pages[page],
+      items: served[page],
       page: page,
-      totalPages: pages.length,
+      totalPages: served.length,
       totalElements: 0,
     );
   }
-
-  @override
-  Future<PageResponse<ClientOwnRating>> getOwnRatings(
-    ClientListScope scope,
-    ClientRef client, {
-    int page = 0,
-    int size = kClientPageSize,
-    CancelToken? cancelToken,
-  }) async => const PageResponse<ClientOwnRating>(
-    items: <ClientOwnRating>[],
-    page: 0,
-    totalPages: 1,
-    totalElements: 0,
-  );
 
   @override
   Future<PageResponse<ClientSummary>> list(
@@ -195,9 +200,11 @@ class _Harness {
     this.client = _reg,
     this.role,
     this.extra = const <Object>[],
+    this.scope = const ClientListScope.me(),
   });
 
   final _Repo repo;
+  final ClientListScope scope;
   final List<Object> extra;
   final ClientRef client;
   final UserRole? role;
@@ -210,7 +217,7 @@ class _Harness {
         path: '/',
         builder: (BuildContext context, GoRouterState state) =>
             ClientCardScreen(
-              scope: const ClientListScope.me(),
+              scope: scope,
               client: client,
               cardBase: RouteNames.masterClients,
               bookingRoute: RouteNames.masterBookingDetail,
@@ -259,6 +266,7 @@ Future<_Harness> _pump(
   double width = 360,
   double? textScale,
   List<Object> extra = const <Object>[],
+  ClientListScope scope = const ClientListScope.me(),
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1.0;
@@ -268,7 +276,13 @@ Future<_Harness> _pump(
     tester.platformDispatcher.textScaleFactorTestValue = textScale;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   }
-  final _Harness h = _Harness(repo, client: client, role: role, extra: extra);
+  final _Harness h = _Harness(
+    repo,
+    client: client,
+    role: role,
+    extra: extra,
+    scope: scope,
+  );
   await tester.pumpRoutedApp(
     h.router,
     overrides: h.overrides,
@@ -867,6 +881,280 @@ void main() {
     });
   });
 
+  group('master chips (CLI-73 / CLI-74)', () {
+    const ClientListScope salon = ClientListScope.salon(salonId: 's-1');
+    // Chip ids are UUIDs: a non-UUID chip id is ignored (never queried).
+    const String m1 = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    const String m2 = 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+    const List<ClientServedMaster> two = <ClientServedMaster>[
+      ClientServedMaster(masterId: m2, name: 'Ірина'),
+      ClientServedMaster(masterId: m1, name: 'Олена'),
+    ];
+    Finder chips() => find.byKey(ClientCardScreen.masterChipsKey);
+    Finder chip(String id) => find.byKey(ClientCardScreen.masterChipKey(id));
+    Finder all() => find.byKey(ClientCardScreen.masterChipAllKey);
+
+    bool selected(WidgetTester tester, Finder f) =>
+        tester.getSemantics(f).flagsCollection.isSelected == Tristate.isTrue;
+
+    _Repo repoWithFilter() =>
+        _Repo(
+            card: (ClientRef r) => _card(r, served: two),
+            pages: <List<ClientVisit>>[
+              <ClientVisit>[
+                _visit(
+                  'all-future',
+                  _now.add(const Duration(days: 3)),
+                  status: BookingStatus.confirmed,
+                ),
+                _visit('all-past', _now.subtract(const Duration(days: 3))),
+              ],
+            ],
+          )
+          ..pagesByMaster = <String?, List<List<ClientVisit>>>{
+            m1: <List<ClientVisit>>[
+              <ClientVisit>[
+                _visit('m1-past', _now.subtract(const Duration(days: 5))),
+              ],
+            ],
+          };
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+    ]) {
+      testWidgets('$role: «Усі майстри» (selected) + one chip per master, '
+          'server order, above the timeline', (tester) async {
+        await _pump(tester, repoWithFilter(), role: role, scope: salon);
+        expect(chips(), findsOneWidget);
+        expect(
+          find.descendant(
+            of: all(),
+            matching: find.text(_l10n(tester).clientMastersFilterAll),
+          ),
+          findsOneWidget,
+        );
+        expect(selected(tester, all()), isTrue);
+        expect(selected(tester, chip(m1)), isFalse);
+        expect(
+          tester.getTopLeft(chip(m2)).dx,
+          lessThan(tester.getTopLeft(chip(m1)).dx),
+          reason: 'most recent first = server order',
+        );
+        expect(
+          tester.getTopLeft(chips()).dy,
+          lessThan(
+            tester.getTopLeft(find.byKey(ClientCardScreen.nextVisitKey)).dy,
+          ),
+        );
+      });
+    }
+
+    testWidgets('select a master → visits re-read with masterId (history AND '
+        'next visit), card not refetched; «Усі майстри» clears from cache', (
+      tester,
+    ) async {
+      final _Repo repo = repoWithFilter();
+      await _pump(tester, repo, role: UserRole.salonOwner, scope: salon);
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
+      expect(repo.cardScopes, hasLength(1));
+
+      await tester.tap(chip(m1));
+      await _loaded(tester);
+      await tester.pumpAndSettle();
+      expect(
+        repo.visitScopes.last,
+        const ClientListScope.salon(salonId: 's-1', masterId: m1),
+      );
+      expect(find.byKey(ClientCardScreen.visitKey('m1-past')), findsOneWidget);
+      expect(find.byKey(ClientCardScreen.visitKey('all-past')), findsNothing);
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
+      expect(selected(tester, chip(m1)), isTrue);
+      expect(selected(tester, all()), isFalse);
+      expect(chip(m2), findsOneWidget, reason: 'chips stay salon-wide');
+      expect(repo.cardScopes, hasLength(1), reason: 'card not refetched');
+
+      final int reads = repo.visitScopes.length;
+      await tester.tap(all());
+      await _loaded(tester);
+      await tester.pumpAndSettle();
+      // Cache-for: back to an already-opened chip reuses its pages.
+      expect(repo.visitScopes, hasLength(reads), reason: 'no re-read');
+      expect(find.byKey(ClientCardScreen.visitKey('all-past')), findsOneWidget);
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
+      expect(selected(tester, all()), isTrue);
+      expect(repo.cardScopes, hasLength(1));
+    });
+
+    testWidgets('pull-to-refresh on «Усі» drops EVERY chip\'s cached visits: '
+        'back to a chip opened before → refetched', (tester) async {
+      final _Repo repo = repoWithFilter();
+      await _pump(tester, repo, role: UserRole.salonOwner, scope: salon);
+      await tester.tap(chip(m1));
+      await _loaded(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(ClientCardScreen.visitKey('m1-past')), findsOneWidget);
+      await tester.tap(all());
+      await tester.pumpAndSettle();
+
+      repo.pagesByMaster[m1] = <List<ClientVisit>>[
+        <ClientVisit>[_visit('m1-new', _now.subtract(const Duration(days: 1)))],
+      ];
+      await tester.fling(
+        find.byType(CustomScrollView).first,
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      final int reads = repo.visitScopes.length;
+      await tester.tap(chip(m1));
+      await _loaded(tester);
+      await tester.pumpAndSettle();
+      expect(
+        repo.visitScopes.length,
+        greaterThan(reads),
+        reason: 'the m1 instance was invalidated, not served from cache',
+      );
+      expect(find.byKey(ClientCardScreen.visitKey('m1-new')), findsOneWidget);
+      expect(find.byKey(ClientCardScreen.visitKey('m1-past')), findsNothing);
+    });
+
+    testWidgets('a route masterId starts with that chip selected', (
+      tester,
+    ) async {
+      final _Repo repo = repoWithFilter();
+      await _pump(
+        tester,
+        repo,
+        role: UserRole.salonAdmin,
+        scope: const ClientListScope.salon(salonId: 's-1', masterId: m1),
+      );
+      expect(selected(tester, chip(m1)), isTrue);
+      expect(selected(tester, all()), isFalse);
+    });
+
+    testWidgets('a chip tap rebuilds the chips + timeline, NOT the header', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        repoWithFilter(),
+        role: UserRole.salonOwner,
+        scope: salon,
+      );
+      final Widget avatar = tester.widget(find.byType(ClientAvatar));
+      final Widget name = tester.widget(find.byKey(ClientCardScreen.nameKey));
+
+      await tester.tap(chip(m1));
+      await _loaded(tester);
+      await tester.pumpAndSettle();
+      expect(selected(tester, chip(m1)), isTrue);
+      expect(find.byKey(ClientCardScreen.visitKey('m1-past')), findsOneWidget);
+      // A header rebuild would construct NEW widget instances.
+      expect(
+        identical(tester.widget(find.byType(ClientAvatar)), avatar),
+        isTrue,
+        reason: 'header avatar not rebuilt',
+      );
+      expect(
+        identical(tester.widget(find.byKey(ClientCardScreen.nameKey)), name),
+        isTrue,
+        reason: 'header name not rebuilt',
+      );
+    });
+
+    testWidgets('the avatar report is built once: a screen rebuild reuses '
+        'the same PhotoViewerReport', (tester) async {
+      await _pump(
+        tester,
+        repoWithFilter(),
+        role: UserRole.salonOwner,
+        scope: salon,
+      );
+      final ClientAvatar before = tester.widget(find.byType(ClientAvatar));
+      expect(before.previewReport, isNotNull);
+
+      tester.element(find.byType(ClientCardScreen)).markNeedsBuild();
+      await tester.pump();
+      final ClientAvatar after = tester.widget(find.byType(ClientAvatar));
+      expect(identical(after, before), isFalse, reason: 'header rebuilt');
+      expect(identical(after.previewReport, before.previewReport), isTrue);
+    });
+
+    testWidgets('a non-UUID chip id is ignored: no visits re-read, the '
+        'selection stays', (tester) async {
+      final _Repo repo = _Repo(
+        card: (ClientRef r) => _card(
+          r,
+          served: const <ClientServedMaster>[
+            ClientServedMaster(masterId: 'not-a-uuid', name: 'Ірина'),
+            ClientServedMaster(masterId: m1, name: 'Олена'),
+          ],
+        ),
+      );
+      await _pump(tester, repo, role: UserRole.salonOwner, scope: salon);
+      final int reads = repo.visitScopes.length;
+
+      await tester.tap(chip('not-a-uuid'));
+      await tester.pumpAndSettle();
+      expect(repo.visitScopes, hasLength(reads));
+      expect(repo.visitScopes.last, salon);
+      expect(selected(tester, all()), isTrue);
+      expect(selected(tester, chip('not-a-uuid')), isFalse);
+    });
+
+    testWidgets('owner master mode: a route masterId NOT among the chips → no '
+        'chip row, the visits stay scoped to it', (tester) async {
+      const String own = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      const ClientListScope ownScope = ClientListScope.salon(
+        salonId: 's-1',
+        masterId: own,
+      );
+      final _Repo repo = repoWithFilter();
+      await _pump(tester, repo, role: UserRole.salonOwner, scope: ownScope);
+      expect(chips(), findsNothing);
+      expect(repo.visitScopes.toSet(), <ClientListScope>{ownScope});
+    });
+
+    testWidgets('one master → no chip row', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: (ClientRef r) => _card(r, served: two.sublist(0, 1))),
+        role: UserRole.salonOwner,
+        scope: salon,
+      );
+      expect(chips(), findsNothing);
+    });
+
+    testWidgets('no masters → no chip row', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: _card),
+        role: UserRole.salonOwner,
+        scope: salon,
+      );
+      expect(chips(), findsNothing);
+    });
+
+    testWidgets('salon master → no chip row even with several masters', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        repoWithFilter(),
+        role: UserRole.salonMaster,
+        scope: salon,
+      );
+      expect(chips(), findsNothing);
+    });
+
+    testWidgets('independent master (me scope) → no chip row', (tester) async {
+      await _pump(tester, repoWithFilter(), role: UserRole.independentMaster);
+      expect(chips(), findsNothing);
+    });
+  });
+
   group('states', () {
     testWidgets('loading → skeleton', (tester) async {
       final Completer<void> gate = Completer<void>();
@@ -1090,6 +1378,86 @@ void main() {
       expect(blocks.calls, <String>['block:bk-1']);
       expect(find.byKey(BlockedTag.tagKey), findsOne);
       expect(find.text(_l10n(tester).clientBlockedSnack), findsOne);
+    });
+
+    testWidgets('block on «Усі» drops EVERY chip\'s cached visits: back to a '
+        'chip opened before → refetched (no stale cancelled visit)', (
+      tester,
+    ) async {
+      const String m1 = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      const String m2 = 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      final _Repo repo =
+          _Repo(
+              card: (ClientRef r) => _card(
+                r,
+                served: const <ClientServedMaster>[
+                  ClientServedMaster(masterId: m2, name: 'Ірина'),
+                  ClientServedMaster(masterId: m1, name: 'Олена'),
+                ],
+              ),
+              pages: <List<ClientVisit>>[
+                <ClientVisit>[
+                  _visit('bk-1', _now.subtract(const Duration(days: 3))),
+                ],
+              ],
+            )
+            ..pagesByMaster = <String?, List<List<ClientVisit>>>{
+              m1: <List<ClientVisit>>[
+                <ClientVisit>[
+                  _visit(
+                    'm1-old',
+                    _now.add(const Duration(days: 2)),
+                    status: BookingStatus.confirmed,
+                  ),
+                ],
+              ],
+            };
+      final FakeClientBlockRepository blocks = FakeClientBlockRepository();
+      await _pump(
+        tester,
+        repo,
+        role: UserRole.salonOwner,
+        scope: const ClientListScope.salon(salonId: 's-1'),
+        extra: env(anchor('bk-1'), blocks: blocks),
+      );
+      await tester.tap(find.byKey(ClientCardScreen.masterChipKey(m1)));
+      await _loaded(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
+      await tester.tap(find.byKey(ClientCardScreen.masterChipAllKey));
+      await tester.pumpAndSettle();
+
+      // The block cancels the m1 upcoming visit server-side: the m1 read now
+      // serves only a past visit.
+      repo.pagesByMaster[m1] = <List<ClientVisit>>[
+        <ClientVisit>[_visit('m1-new', _now.subtract(const Duration(days: 1)))],
+      ];
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.blockKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(BlockClientDialog.confirmKey));
+      await tester.pumpAndSettle();
+      expect(blocks.calls, <String>['block:bk-1']);
+
+      final int reads = repo.visitScopes.length;
+      await tester.tap(find.byKey(ClientCardScreen.masterChipKey(m1)));
+      await _loaded(tester);
+      await tester.pumpAndSettle();
+      expect(
+        repo.visitScopes.length,
+        greaterThan(reads),
+        reason: 'the m1 instance was invalidated, not served from cache',
+      );
+      expect(
+        repo.visitScopes.last,
+        const ClientListScope.salon(salonId: 's-1', masterId: m1),
+      );
+      expect(find.byKey(ClientCardScreen.visitKey('m1-new')), findsOneWidget);
+      expect(
+        find.byKey(ClientCardScreen.nextVisitKey),
+        findsNothing,
+        reason: 'the cancelled visit is no longer the upcoming one',
+      );
     });
 
     testWidgets('an already-blocked client offers «Розблокувати»', (

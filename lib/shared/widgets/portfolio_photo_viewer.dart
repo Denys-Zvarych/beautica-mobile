@@ -62,10 +62,18 @@ Future<void> showPortfolioPhotoViewer(
 }
 
 /// 2026-11-21 — opens the SAME full-screen viewer on ONE profile photo (a
-/// person's avatar or a salon's logo): no counter, no report button, spoken
-/// as «Фото профілю». [url] is the full-size photo when the model has one.
-/// Same root-navigator, single-flight push as [showPortfolioPhotoViewer].
-Future<void> showProfilePhotoViewer(BuildContext context, String url) {
+/// person's avatar or a salon's logo): no counter, spoken as «Фото профілю».
+/// [url] is the full-size photo when the model has one. Same root-navigator,
+/// single-flight push as [showPortfolioPhotoViewer].
+///
+/// [report] (ADDITIVE, MOD-39): non-null → the viewer's SAME report button
+/// (the portfolio flag), wired to the profile's report target. `null` (the
+/// default — own-profile previews) shows no report button.
+Future<void> showProfilePhotoViewer(
+  BuildContext context,
+  String url, {
+  PhotoViewerReport? report,
+}) {
   final String label = AppLocalizations.of(context).profilePhotoViewerSemantics;
   final MaterialPageRoute<void> route = MaterialPageRoute<void>(
     fullscreenDialog: true,
@@ -73,6 +81,8 @@ Future<void> showProfilePhotoViewer(BuildContext context, String url) {
       photos: <PortfolioPhoto>[PortfolioPhoto(id: 'profile', url: url)],
       showIndicator: false,
       pageSemanticsLabel: label,
+      onReport: report?.onReport,
+      isReported: report?.isReported,
     ),
   );
   return runOnce<void>(
@@ -94,6 +104,20 @@ typedef PortfolioPhotoReportCallback =
 /// `ref.watch`: the flag hides the moment the answer flips.
 typedef PortfolioPhotoReportedCheck =
     bool Function(WidgetRef ref, PortfolioPhoto photo);
+
+/// MOD-39 — the viewer's report wiring as ONE value, so an avatar can carry
+/// it to [showProfilePhotoViewer] without knowing the moderation feature.
+/// Built by `profilePhotoReport` (moderation `report_sheet.dart`).
+@immutable
+class PhotoViewerReport {
+  const PhotoViewerReport({required this.onReport, this.isReported});
+
+  /// [PortfolioPhotoViewer.onReport].
+  final PortfolioPhotoReportCallback onReport;
+
+  /// [PortfolioPhotoViewer.isReported] — `true` hides the button.
+  final PortfolioPhotoReportedCheck? isReported;
+}
 
 /// Phase 407 (9.12, D1) — the full-screen, READ-ONLY portfolio photo viewer:
 /// a horizontal [PageView] of pinch-zoomable photos ([InteractiveViewer],
