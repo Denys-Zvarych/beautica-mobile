@@ -1233,7 +1233,7 @@ void main() {
       await AppHarness.settle(tester);
       expect(find.byType(MasterBookingsScreen), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('master-nav-tile-4')));
       await AppHarness.settle(tester);
       await tester.tap(find.byKey(const Key('btn-menu-master')));
       await AppHarness.settle(tester);

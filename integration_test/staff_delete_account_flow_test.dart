@@ -82,7 +82,7 @@ const String _kAdminSalonId = 'salon-admin-1';
 
 /// `SalonBottomNav.ownerAdminItems` — «Профіль» is destination 3, matching
 /// `admin_own_profile_flow_test.dart`'s own `_navProfile` constant.
-const String _kNavProfileTile = 'salon-nav-tile-3';
+const String _kNavProfileTile = 'salon-nav-tile-4';
 
 /// Only `salon-xyz` (besides `salon-admin-1`) has a registered `GET
 /// /api/v1/salons/{id}` fake route — `salon-owner-1`, the DEFAULT

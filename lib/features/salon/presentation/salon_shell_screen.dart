@@ -5,7 +5,7 @@
 // plain `Scaffold(body: IndexedStack(...), bottomNavigationBar:
 // SalonBottomNav(...))`, mirroring the design source's
 // `salon_shell_screen.dart` for the ONE nav context this phase ships: the
-// SHARED 4-tab set (`SalonBottomNav.ownerAdminItems`) — identical for owner
+// SHARED 5-tab set (`SalonBottomNav.ownerAdminItems`) — identical for owner
 // and admin. The design's owner-as-master 5-tab replacement is Phase 21.15
 // (unbuilt: its source field `UserProfileResponse.masterProfile` does not
 // exist yet) and is NOT ported here.
@@ -15,7 +15,9 @@
 //   1 Записи   — placeholder (`/salon/bookings` has no screen — Phase 21.12)
 //   2 Команда  — the SAME screen instance as destination 0, on its staff
 //                sub-tab (see NAV INDEX vs STACK SLOT below)
-//   3 Профіль  — owner: NOT a tab — Phase 384 (24.1g) routes the tap to
+//   3 Клієнти  — M509: the salon-wide client list (`ClientsScreen`, salon
+//                endpoint, no `masterId`) — owner AND admin
+//   4 Профіль  — owner: NOT a tab — Phase 384 (24.1g) routes the tap to
 //                owner master mode (`RouteNames.ownerMasterProfile`) with
 //                `go`, which leaves this shell route; «‹ Салон»
 //                (`RouteNames.salonHome`) is a FRESH shell visit and opens on
@@ -33,8 +35,12 @@
 //                    ├─> stack slot 0 — the ONE hosted profile screen
 //   nav 2 «Команда» ─┘
 //   nav 1 «Записи»  ───> stack slot 1 — bookings placeholder
-//   nav 3 «Профіль» ───> stack slot 2 — admin own profile (an owner never
+//   nav 3 «Клієнти» ───> stack slot 3 — the client list (M509)
+//   nav 4 «Профіль» ───> stack slot 2 — admin own profile (an owner never
 //                        reaches this slot: the tap leaves the shell)
+//
+// (Slot 3 is the NEW one, appended — the admin profile keeps slot 2 so its
+// lazy-slot key and `visible:` wiring are untouched by M509.)
 //
 // Destinations 0 and 2 were previously two SEPARATE children of the same
 // `IndexedStack`, built from byte-identical configurations (same `salonId`,
@@ -51,8 +57,8 @@
 // have spared a cheap nav bar).
 //
 // `SalonBottomNav.currentIndex` is still the NAV index — the shell's selected
-// destination is what the highlight means, and it stays 0..3 even though the
-// stack now only has 3 slots.
+// destination is what the highlight means, and it stays 0..4 even though the
+// stack only has 4 slots.
 //
 // TAB SYNC — destinations 0 and 2 are two views of ONE screen, whose own
 // 4-tab in-screen switcher used to be private `setState` state that touched
@@ -117,6 +123,8 @@ import '../application/my_salons_notifier.dart';
 import '../application/salon_manage_capability.dart';
 import '../application/salon_shell_provider.dart';
 import '../domain/last_visited_salon.dart';
+import '../../clients/domain/client_summary.dart';
+import '../../clients/presentation/clients_screen.dart';
 import '../domain/salon.dart';
 import 'admin_own_profile_screen.dart';
 import 'salon_bookings_screen.dart';
@@ -387,13 +395,14 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
 
   /// Bottom-nav destination index -> `IndexedStack` child index.
   ///
-  /// Indexed BY nav destination (0..3, `SalonBottomNav.ownerAdminItems`);
+  /// Indexed BY nav destination (0..4, `SalonBottomNav.ownerAdminItems`);
   /// the value is the stack slot that destination renders. «Салон» (0) and
   /// «Команда» (2) deliberately share slot 0 — they are two sub-tabs of ONE
   /// hosted `SalonManagementProfileScreen`, not two screens (see the file
-  /// header's NAV INDEX vs STACK SLOT note). The stack therefore has 3
-  /// children while the nav still has 4 destinations.
-  static const List<int> _navToStackSlot = <int>[0, 1, 0, 2];
+  /// header's NAV INDEX vs STACK SLOT note). The stack therefore has 4
+  /// children while the nav still has 5 destinations — «Клієнти» (3) takes the
+  /// appended slot 3 and «Профіль» (4) keeps slot 2 (see the file header).
+  static const List<int> _navToStackSlot = <int>[0, 1, 0, 3, 2];
 
   /// The `IndexedStack` child index that bottom-nav destination [navIndex]
   /// renders. The single conversion point between the two index spaces.
@@ -417,8 +426,9 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   static const int _navBookings = kSalonBookingsNavTab;
 
   /// «Профіль». For an owner this destination leaves the shell (Phase 384) —
-  /// see [_onNavSelected].
-  static const int _navProfile = 3;
+  /// see [_onNavSelected]. Aliases the constant beside
+  /// `SalonBottomNav.ownerAdminItems` (3 before M509 inserted «Клієнти»).
+  static const int _navProfile = kSalonProfileNavTab;
 
   /// The in-screen sub-tab index that the bottom-nav destination implies.
   /// [_navTeam] IS the profile screen's staff sub-tab (1); [_navSalon] is its
@@ -626,6 +636,19 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
           // element.
           hostSalonId: widget.salonId,
           onSalonTap: () => _onNavSelected(_navSalon),
+        ),
+      ),
+
+      // Slot 3 — «Клієнти» (nav 3), M509. The salon-wide list (salon endpoint,
+      // NO `masterId` — owner master mode is the one that narrows to the
+      // owner's own row). The shell already supplies the bar, so none is
+      // passed; a row opens the card under `/salons/:salonId/clients/...`.
+      _lazySlot(
+        3,
+        () => ClientsScreen(
+          key: const Key('salon-shell-tab-clients'),
+          scope: ClientListScope.salon(salonId: widget.salonId),
+          cardBase: RouteNames.salonClients(widget.salonId),
         ),
       ),
     ];

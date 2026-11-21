@@ -58,6 +58,7 @@ part 'booking_detail_response.g.dart';
 /// * [clientBlocked] - True when the booking's client is blocked in the VIEWER's block scope (independent master: own; salon owner/admin: the salon). Detail read only; false on every list row, on create/reschedule responses and for client / salon-master viewers.
 /// * [clientBlockId] - Id of that block, for DELETE /blocks/{blockId}. Null when clientBlocked is false.
 /// * [clientBlockable] - True when the viewer may block this booking's client (POST /blocks would not answer 400/403/404): a provider viewer in scope, and a registered client or a link guest with a verified phone. False for a STAFF walk-in, an erased guest, list rows and non-provider viewers.
+/// * [clientPhone] - E.164 phone of the booking's client, for the provider's tap-to-call: the guest's phone for a guest booking, or the registered client's SMS-VERIFIED phone (never an unverified one). NON-NULL ONLY on the booking DETAIL read (GET /bookings/{id}) for an INDEPENDENT_MASTER, SALON_OWNER or assigned SALON_ADMIN - a SALON_MASTER NEVER sees it. NULL on every list/feed row, on create and reschedule responses and for a client viewer. guestPhone keeps its legacy guest-only semantics for old app builds.
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -219,6 +220,10 @@ abstract class BookingDetailResponse
   /// True when the viewer may block this booking's client (POST /blocks would not answer 400/403/404): a provider viewer in scope, and a registered client or a link guest with a verified phone. False for a STAFF walk-in, an erased guest, list rows and non-provider viewers.
   @BuiltValueField(wireName: r'clientBlockable')
   bool? get clientBlockable;
+
+  /// E.164 phone of the booking's client, for the provider's tap-to-call: the guest's phone for a guest booking, or the registered client's SMS-VERIFIED phone (never an unverified one). NON-NULL ONLY on the booking DETAIL read (GET /bookings/{id}) for an INDEPENDENT_MASTER, SALON_OWNER or assigned SALON_ADMIN - a SALON_MASTER NEVER sees it. NULL on every list/feed row, on create and reschedule responses and for a client viewer. guestPhone keeps its legacy guest-only semantics for old app builds.
+  @BuiltValueField(wireName: r'clientPhone')
+  String? get clientPhone;
 
   BookingDetailResponse._();
 
@@ -562,6 +567,13 @@ class _$BookingDetailResponseSerializer
       yield serializers.serialize(
         object.clientBlockable,
         specifiedType: const FullType(bool),
+      );
+    }
+    if (object.clientPhone != null) {
+      yield r'clientPhone';
+      yield serializers.serialize(
+        object.clientPhone,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -920,6 +932,14 @@ class _$BookingDetailResponseSerializer
             specifiedType: const FullType(bool),
           ) as bool;
           result.clientBlockable = valueDes;
+          break;
+        case r'clientPhone':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.clientPhone = valueDes;
           break;
         default:
           unhandled.add(key);

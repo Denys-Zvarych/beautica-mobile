@@ -639,6 +639,10 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     final String bookingsRoute = isSalonMaster
         ? RouteNames.salonMasterBookings
         : RouteNames.masterBookings;
+    // M509 — same role-resolved shape for tile 3 («Клієнти»).
+    final String clientsRoute = isSalonMaster
+        ? RouteNames.salonMasterClients
+        : RouteNames.masterClients;
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -669,6 +673,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             profileRoute: profileRoute,
             servicesRoute: servicesRoute,
             bookingsRoute: bookingsRoute,
+            clientsRoute: clientsRoute,
             showSetupHints: !isSalonMaster,
             // SALON_MASTER: no «Записи» pending-actions badge, no request.
             showBookingsBadge: !isSalonMaster,

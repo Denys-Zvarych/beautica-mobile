@@ -11,6 +11,11 @@
 // optional params, so its render is unchanged; [topLabel], [shellKey] and
 // [avatarImageKey] are additive and default to the detail screen's values.
 //
+// M509 (2026-11-20): three more ADDITIVE params — [details], [onTap] and
+// [semanticsLabel] — so the «Клієнти» list renders its rows with this same
+// strip (avatar, name, ★ readout) instead of a fork. All default to `null`, so
+// «Деталі запису» and the reschedule confirm render byte-identically.
+//
 // Reuses [MasterStripShell] directly rather than [MasterStrip]: that widget is
 // master-shaped (a role sub-line, the «Запис до майстра» caption, master-worded
 // semantics), whereas the shell is the data-agnostic frame this needs.
@@ -20,6 +25,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -45,6 +51,9 @@ class BookingClientStrip extends StatelessWidget {
     this.onMore,
     this.shellKey = defaultShellKey,
     this.avatarImageKey = defaultAvatarImageKey,
+    this.details,
+    this.onTap,
+    this.semanticsLabel,
   });
 
   /// The «Деталі запису» render of [booking]'s client — the exact derivation
@@ -107,6 +116,19 @@ class BookingClientStrip extends StatelessWidget {
   final Key shellKey;
   final Key avatarImageKey;
 
+  /// ADDITIVE (M509): extra sub-lines under the guest qualifier (the list row's
+  /// «Ост.: …» / «Наст.: …» dates and «Заблоковано» chip). `null` (every other
+  /// call site) renders the sub-line exactly as before.
+  final Widget? details;
+
+  /// ADDITIVE (M509): makes the whole strip tappable, forwarded to
+  /// [MasterStripShell.onTap] (press wash only, nothing at rest). `null` = inert.
+  final VoidCallback? onTap;
+
+  /// ADDITIVE (M509): replaces the computed screen-reader label. `null` keeps
+  /// the label derived from [name] / [rating] / [isGuest].
+  final String? semanticsLabel;
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -119,7 +141,9 @@ class BookingClientStrip extends StatelessWidget {
         : null;
 
     final String semantics;
-    if (isGuest) {
+    if (semanticsLabel != null) {
+      semantics = semanticsLabel!;
+    } else if (isGuest) {
       semantics = <String>[
         l10n.bookingDetailClientSemantics(displayName),
         ?qualifier,
@@ -139,6 +163,28 @@ class BookingClientStrip extends StatelessWidget {
       );
     }
 
+    final Widget? qualifierLine = qualifier == null
+        ? null
+        : Text(
+            qualifier,
+            style: VelvetText.feedbackMutedSm,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          );
+    final Widget? extra = details;
+    final Widget? middle = extra == null
+        ? qualifierLine
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ?qualifierLine,
+              if (qualifierLine != null)
+                const SizedBox(height: VelvetSpacing.xs / 2),
+              extra,
+            ],
+          );
+
     // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
     return Opacity(
       opacity: dimmed ? 0.7 : 1,
@@ -150,17 +196,11 @@ class BookingClientStrip extends StatelessWidget {
         avatarImageUrl: avatarUrl,
         avatarInitials: initials,
         avatarImageKey: avatarImageKey,
-        middleLine: qualifier == null
-            ? null
-            : Text(
-                qualifier,
-                style: VelvetText.feedbackMutedSm,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+        middleLine: middle,
         trailing: isGuest
             ? null
             : MasterRatingReadout(avgRating: rating, reviewCount: reviewCount),
+        onTap: onTap,
         action: more == null
             ? null
             : ReviewMoreButton(

@@ -18,7 +18,7 @@
 // on A or the hub and fail.
 //
 // Phase 384 (24.1g) — master mode is entered through the REAL UI entry in
-// every flow below: the salon shell's «Профіль» nav tile (`salon-nav-tile-3`),
+// every flow below: the salon shell's «Профіль» nav tile (`salon-nav-tile-4`),
 // which for an OWNER leaves the shell for `/owner/master/profile`
 // (`_enterMasterMode`). The dedicated 384 flow tours all four master-mode
 // tiles from salon B and returns to B with both «‹ Салон» and system back
@@ -97,6 +97,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
+import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
@@ -252,7 +253,7 @@ Future<GoRouter> _enterSalonB(
 }
 
 /// Phase 384 — enters master mode the way the owner does: from the salon
-/// shell they are standing in, tap «Профіль» (`salon-nav-tile-3`). Asserts
+/// shell they are standing in, tap «Профіль» (`salon-nav-tile-4`). Asserts
 /// the mount: own profile, the independent-master nav and the «‹ Салон» pill.
 Future<void> _enterMasterMode(WidgetTester tester, GoRouter router) async {
   expect(
@@ -260,7 +261,7 @@ Future<void> _enterMasterMode(WidgetTester tester, GoRouter router) async {
     findsOneWidget,
     reason: 'the real entry starts from the salon shell',
   );
-  await _tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-3')));
+  await _tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-4')));
   await AppHarness.settle(tester);
 
   AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
@@ -380,7 +381,7 @@ void main() {
         tester
             .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
             .activeIndex,
-        3,
+        4,
         reason: 'master mode opens on its «Профіль» tile',
       );
 
@@ -402,7 +403,11 @@ void main() {
       await _tapMasterTile(tester, router, 2, RouteNames.ownerMasterSchedule);
       expect(find.byType(MasterScheduleScreen), findsOneWidget);
 
-      await _tapMasterTile(tester, router, 3, RouteNames.ownerMasterProfile);
+      // M509 — «Клієнти» (3) inserted before «Профіль» (now 4).
+      await _tapMasterTile(tester, router, 3, RouteNames.ownerMasterClients);
+      expect(find.byType(ClientsScreen), findsOneWidget);
+
+      await _tapMasterTile(tester, router, 4, RouteNames.ownerMasterProfile);
       expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
 
       // ── 3. «‹ Салон» → salon B (last-visited), on «Салон» ──────────────
@@ -414,7 +419,7 @@ void main() {
         0,
         reason:
             'a fresh shell visit opens on «Салон» — the owner\'s «Профіль» '
-            'tap never wrote nav 3 into salonShellProvider',
+            'tap never wrote nav 4 into salonShellProvider',
       );
       expect(await _storedSalonId(storage), _kSalonB);
 

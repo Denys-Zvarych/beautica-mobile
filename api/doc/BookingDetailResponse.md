@@ -53,6 +53,7 @@ Name | Type | Description | Notes
 **clientBlocked** | **bool** | True when the booking's client is blocked in the VIEWER's block scope (independent master: own; salon owner/admin: the salon). Detail read only; false on every list row, on create/reschedule responses and for client / salon-master viewers. | [optional] 
 **clientBlockId** | **String** | Id of that block, for DELETE /blocks/{blockId}. Null when clientBlocked is false. | [optional] 
 **clientBlockable** | **bool** | True when the viewer may block this booking's client (POST /blocks would not answer 400/403/404): a provider viewer in scope, and a registered client or a link guest with a verified phone. False for a STAFF walk-in, an erased guest, list rows and non-provider viewers. | [optional] 
+**clientPhone** | **String** | E.164 phone of the booking's client, for the provider's tap-to-call: the guest's phone for a guest booking, or the registered client's SMS-VERIFIED phone (never an unverified one). NON-NULL ONLY on the booking DETAIL read (GET /bookings/{id}) for an INDEPENDENT_MASTER, SALON_OWNER or assigned SALON_ADMIN - a SALON_MASTER NEVER sees it. NULL on every list/feed row, on create and reschedule responses and for a client viewer. guestPhone keeps its legacy guest-only semantics for old app builds. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

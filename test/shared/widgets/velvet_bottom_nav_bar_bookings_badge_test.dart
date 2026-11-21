@@ -80,7 +80,7 @@ void main() {
     UserRole role = UserRole.independentMaster,
     bool showBookingsBadge = true,
     bool asOwnerMaster = false,
-    int activeIndex = 3,
+    int activeIndex = 4,
   }) async {
     await tester.pumpApp(
       Scaffold(
@@ -267,7 +267,8 @@ void main() {
           tab(RouteNames.services, 0),
           tab(RouteNames.masterBookings, 1),
           tab(RouteNames.masterSchedule, 2),
-          tab(RouteNames.masterProfile, 3),
+          tab(RouteNames.masterClients, 3),
+          tab(RouteNames.masterProfile, 4),
         ],
       );
       addTearDown(router.dispose);
@@ -279,7 +280,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(badgeText('3'), findsOneWidget);
 
-      for (final int i in <int>[0, 2, 3]) {
+      for (final int i in <int>[0, 2, 3, 4]) {
         await tester.tap(find.byKey(Key('master-nav-tile-$i')));
         await tester.pumpAndSettle();
         expect(find.byKey(Key('test-tab-$i')), findsOneWidget);

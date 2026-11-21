@@ -20,6 +20,7 @@ part 'guest_booking_response.g.dart';
 /// * [durationMinutes]
 /// * [cancelUrl]
 /// * [telegram]
+/// * [attachedToAccount]
 @BuiltValue()
 abstract class GuestBookingResponse
     implements Built<GuestBookingResponse, GuestBookingResponseBuilder> {
@@ -46,6 +47,9 @@ abstract class GuestBookingResponse
 
   @BuiltValueField(wireName: r'telegram')
   TelegramAvailability? get telegram;
+
+  @BuiltValueField(wireName: r'attachedToAccount')
+  bool? get attachedToAccount;
 
   GuestBookingResponse._();
 
@@ -132,6 +136,13 @@ class _$GuestBookingResponseSerializer
         specifiedType: const FullType(TelegramAvailability),
       );
     }
+    if (object.attachedToAccount != null) {
+      yield r'attachedToAccount';
+      yield serializers.serialize(
+        object.attachedToAccount,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -212,6 +223,13 @@ class _$GuestBookingResponseSerializer
             specifiedType: const FullType(TelegramAvailability),
           ) as TelegramAvailability;
           result.telegram.replace(valueDes);
+          break;
+        case r'attachedToAccount':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.attachedToAccount = valueDes;
           break;
         default:
           unhandled.add(key);

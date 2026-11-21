@@ -6,10 +6,15 @@
 // `VelvetText.input()`, camel cursor, placeholder styling — is unchanged from
 // the approved VelvetTouch treatment.
 //
-// SOLE HOST: the FILTERS screen. The results screen briefly hosted a second
-// copy for live search; that field was removed, so free-text entry happens in
-// exactly one place and `SearchFilters.query` can only ever be re-keyed from
-// there.
+// HOSTS: the discovery FILTERS screen (defaults: min 3 / max 100) and, since
+// M509, the «Клієнти» tab (min 2 / max 50, the B507 `q` bounds). PROMOTED from
+// `features/discovery/presentation/widgets/` to `shared/widgets/` so the
+// clients feature can use it without a cross-feature `presentation/` import;
+// the two new params are additive and default to the discovery values.
+//
+// The results screen briefly hosted a second copy for live search; that field
+// was removed, so on the discovery side free-text entry happens in exactly one
+// place and `SearchFilters.query` can only ever be re-keyed from there.
 //
 // The one addition is the MIN-LENGTH ERROR: while the trimmed text sits at 1 …
 // [kSearchMinQueryLength] - 1 characters the field goes into a real, blocking
@@ -46,11 +51,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../core/theme/brand_colors.dart';
-import '../../../../core/theme/velvet_geometry.dart';
-import '../../../../core/theme/velvet_text.dart';
-import '../../../../core/widgets/neumorphic.dart';
-import '../../domain/search_filters.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/shared/search/search_query_bounds.dart';
 
 /// Pill search field (recessed inset, leading magnifier) plus the below-minimum
 /// error line.
@@ -62,6 +67,8 @@ class SearchQueryField extends StatefulWidget {
     required this.hintText,
     required this.minLengthError,
     required this.onChanged,
+    this.minLength = kSearchMinQueryLength,
+    this.maxLength = kSearchMaxQueryLength,
   });
 
   /// Key placed on the inner [TextField] so widget tests can target it.
@@ -79,6 +86,13 @@ class SearchQueryField extends StatefulWidget {
   final String minLengthError;
 
   final ValueChanged<String> onChanged;
+
+  /// ADDITIVE (M509): the shortest honoured term; below it (but non-empty) the
+  /// field shows the error ring + [minLengthError]. Default = discovery's 3.
+  final int minLength;
+
+  /// ADDITIVE (M509): input cap in characters. Default = discovery's 100.
+  final int maxLength;
 
   @override
   State<SearchQueryField> createState() => _SearchQueryFieldState();
@@ -132,7 +146,10 @@ class _SearchQueryFieldState extends State<SearchQueryField> {
   @override
   void initState() {
     super.initState();
-    _belowMinimum = isBelowSearchMinimum(widget.controller.text);
+    _belowMinimum = isBelowSearchMinimum(
+      widget.controller.text,
+      min: widget.minLength,
+    );
     widget.controller.addListener(_onTextChanged);
     _focusNode.addListener(_onFocusChanged);
   }
@@ -143,7 +160,10 @@ class _SearchQueryFieldState extends State<SearchQueryField> {
     if (!identical(oldWidget.controller, widget.controller)) {
       oldWidget.controller.removeListener(_onTextChanged);
       widget.controller.addListener(_onTextChanged);
-      _belowMinimum = isBelowSearchMinimum(widget.controller.text);
+      _belowMinimum = isBelowSearchMinimum(
+        widget.controller.text,
+        min: widget.minLength,
+      );
     }
   }
 
@@ -156,7 +176,10 @@ class _SearchQueryFieldState extends State<SearchQueryField> {
   }
 
   void _onTextChanged() {
-    final bool next = isBelowSearchMinimum(widget.controller.text);
+    final bool next = isBelowSearchMinimum(
+      widget.controller.text,
+      min: widget.minLength,
+    );
     // Rebuild only when the error state actually flips — a keystroke that does
     // not cross the threshold costs nothing.
     if (next == _belowMinimum) return;
@@ -211,7 +234,7 @@ class _SearchQueryFieldState extends State<SearchQueryField> {
                     // re-issues the identical doomed request forever. Trimming
                     // in the repository cannot save it — trim strips only the
                     // ENDS.
-                    maxLength: kSearchMaxQueryLength,
+                    maxLength: widget.maxLength,
                     maxLengthEnforcement: MaxLengthEnforcement.enforced,
                     // Suppress the Material character counter: it would add a
                     // second line of chrome inside the VelvetTouch pill and

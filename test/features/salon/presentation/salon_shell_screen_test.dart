@@ -54,10 +54,16 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/clients/data/client_repository.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
+import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -98,6 +104,28 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/test_container.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/fakes/fake_media_upload_repository.dart';
+
+/// Records the scope of every list request; serves an empty roster.
+class _ClientsRepoProbe implements ClientRepository {
+  final List<ClientListScope> scopes = <ClientListScope>[];
+
+  @override
+  Future<PageResponse<ClientSummary>> list(
+    ClientListScope scope, {
+    String? q,
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async {
+    scopes.add(scope);
+    return const PageResponse<ClientSummary>(
+      items: <ClientSummary>[],
+      page: 0,
+      totalPages: 0,
+      totalElements: 0,
+    );
+  }
+}
 
 const String _kSalonId = 'shell-salon-1';
 const String _kOtherSalonId = 'shell-salon-2';
@@ -397,7 +425,7 @@ int _navIndex(WidgetTester tester) => tester
 
 void main() {
   group('nav index -> stack slot mapping (the 2026-08-30 dedupe)', () {
-    testWidgets('the stack holds exactly 3 children and exactly ONE '
+    testWidgets('the stack holds exactly 4 children and exactly ONE '
         'SalonManagementProfileScreen, shared by «Салон» and «Команда»', (
       tester,
     ) async {
@@ -407,9 +435,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 3, not 4: «Салон» and «Команда» collapsed onto one child. If a
-      // future edit re-forks them this goes to 4 and fails here first.
-      expect(_stack(tester).children, hasLength(3));
+      // 4, not 5: «Салон» and «Команда» collapsed onto one child (M509 added
+      // «Клієнти» as the 4th slot). If a future edit re-forks them this goes
+      // to 5 and fails here first.
+      expect(_stack(tester).children, hasLength(4));
 
       // THE DEDUPE ASSERTION. `skipOffstage: false` is what makes it real:
       // the old shape kept its duplicate host OFFSTAGE, so a default finder
@@ -461,7 +490,7 @@ void main() {
       // fixture in the next test.
     });
 
-    testWidgets('admin: nav 3 «Профіль» renders stack slot 2 — the two '
+    testWidgets('admin: nav 4 «Профіль» renders stack slot 2 — the two '
         'indices diverge here', (tester) async {
       await tester.pumpApp(
         const SalonShellScreen(salonId: _kSalonId),
@@ -469,14 +498,110 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
       await tester.pumpAndSettle();
       expect(_stack(tester).index, 2);
       expect(
         _navIndex(tester),
-        3,
-        reason: 'nav 3 renders stack slot 2 — the two indices diverge here',
+        4,
+        reason: 'nav 4 renders stack slot 2 — the two indices diverge here',
       );
+    });
+  });
+
+  group('M509 «Клієнти» tab (nav 3)', () {
+    List<Object> withClients(List<Object> base, _ClientsRepoProbe probe) =>
+        <Object>[...base, clientRepositoryProvider.overrideWithValue(probe)];
+
+    testWidgets('the bar has 5 destinations: Салон · Записи · Команда · '
+        'Клієнти · Профіль', (tester) async {
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: _ownerOverrides(),
+      );
+      await tester.pumpAndSettle();
+
+      final SalonBottomNav nav = tester.widget<SalonBottomNav>(
+        find.byType(SalonBottomNav),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonBottomNav)),
+      );
+      expect(nav.items.map((SalonNavItem i) => i.label), <String>[
+        l10n.salonShellTabSalon,
+        l10n.salonShellTabBookings,
+        l10n.salonShellTabTeam,
+        l10n.providerNavClients,
+        l10n.salonShellTabProfile,
+      ]);
+      expect(find.byKey(const Key('salon-nav-tile-4')), findsOneWidget);
+      expect(find.byKey(const Key('salon-nav-tile-5')), findsNothing);
+    });
+
+    testWidgets('tapping «Клієнти» selects stack slot 3 and mounts the '
+        'salon-wide list (salon scope, NO masterId, no second bar)', (
+      tester,
+    ) async {
+      final probe = _ClientsRepoProbe();
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: withClients(_ownerOverrides(), probe),
+      );
+      await tester.pumpAndSettle();
+      expect(probe.scopes, isEmpty, reason: 'lazy: nothing before the tab');
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+
+      expect(_stack(tester).index, 3);
+      expect(_navIndex(tester), 3);
+      final ClientsScreen screen = tester.widget<ClientsScreen>(
+        find.byKey(const Key('salon-shell-tab-clients')),
+      );
+      expect(
+        screen.scope,
+        const ClientListScope.salon(salonId: _kSalonId),
+        reason:
+            'the shell tab lists the WHOLE salon (owner master mode is '
+            'the one that adds masterId)',
+      );
+      expect(screen.cardBase, RouteNames.salonClients(_kSalonId));
+      expect(screen.bottomNavBar, isNull, reason: 'the shell owns the bar');
+      expect(find.byType(SalonBottomNav), findsOneWidget);
+      expect(find.byType(VelvetBottomNavBar), findsNothing);
+      expect(probe.scopes, hasLength(1));
+      expect((probe.scopes.single as SalonClientListScope).masterId, isNull);
+    });
+
+    testWidgets('admin gets the SAME «Клієнти» tab', (tester) async {
+      final probe = _ClientsRepoProbe();
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: withClients(_adminOverrides(), probe),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+      expect(_stack(tester).index, 3);
+      expect(find.byKey(const Key('salon-shell-tab-clients')), findsOneWidget);
+    });
+
+    testWidgets('leaving and returning keeps the slot mounted (no refetch)', (
+      tester,
+    ) async {
+      final probe = _ClientsRepoProbe();
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: withClients(_ownerOverrides(), probe),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('salon-nav-tile-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+      expect(probe.scopes, hasLength(1));
     });
   });
 
@@ -612,7 +737,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
       await tester.pumpAndSettle();
 
       expect(
@@ -666,7 +791,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -711,7 +836,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
       await tester.pumpAndSettle();
 
       final ProviderContainer container = ProviderScope.containerOf(
@@ -799,7 +924,7 @@ void main() {
       addTearDown(sub.close);
       expect(sub.read(), kSalonTeamNavTab);
 
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
       await tester.pumpAndSettle();
 
       // The stub is registered ONLY at `RouteNames.ownerMasterProfile`, so
@@ -824,7 +949,7 @@ void main() {
         'profile (unchanged)', (tester) async {
       await pumpRouted(tester, _adminOverrides());
 
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
       await tester.pumpAndSettle();
 
       expect(find.byType(SalonShellScreen), findsOneWidget);
@@ -857,7 +982,7 @@ void main() {
           reason: 'precondition: the role is genuinely unresolved',
         );
 
-        await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+        await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
         await tester.pump();
         await tester.pump();
 

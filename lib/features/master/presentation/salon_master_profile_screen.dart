@@ -256,9 +256,10 @@ class _SalonMasterProfileScreenState
       // INDEPENDENT_MASTER-only default. Phase 321 — `servicesRoute` targets
       // the read-only «Послуги» at `/staff/services` the same way.
       bottomNavBar: const VelvetBottomNavBar(
-        activeIndex: 3,
+        activeIndex: kMasterProfileNavTab,
         scheduleRoute: RouteNames.salonMasterSchedule,
         servicesRoute: RouteNames.salonMasterServices,
+        clientsRoute: RouteNames.salonMasterClients,
         // Phase 330 — tile 1 («Мої записи») was the LAST tile on this bar with no
         // `/staff/*` counterpart; it now lands on the role's own read-only
         // «Записи» instead of bouncing back to this very screen.

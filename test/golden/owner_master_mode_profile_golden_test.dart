@@ -99,7 +99,7 @@ void main() {
     builder: () => OwnerOwnProfileScreen(
       embedded: true,
       bottomNavBar: const VelvetBottomNavBar(
-        activeIndex: 3,
+        activeIndex: 4,
         profileRoute: RouteNames.ownerMasterProfile,
       ),
       backLabel: _kBackLabel,
@@ -124,7 +124,7 @@ void main() {
     builder: () => OwnerOwnProfileScreen(
       embedded: true,
       bottomNavBar: const VelvetBottomNavBar(
-        activeIndex: 3,
+        activeIndex: 4,
         profileRoute: RouteNames.ownerMasterProfile,
       ),
       backLabel: _kBackLabel,
@@ -145,7 +145,7 @@ void main() {
         builder: () => OwnerOwnProfileScreen(
           embedded: true,
           bottomNavBar: const VelvetBottomNavBar(
-            activeIndex: 3,
+            activeIndex: 4,
             profileRoute: RouteNames.ownerMasterProfile,
           ),
           backLabel: _kBackLabel,

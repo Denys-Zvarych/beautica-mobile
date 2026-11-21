@@ -5,7 +5,7 @@
 // (this file mirrors its shape) minus the client bar's elevated center disc:
 // a floating rounded pill, dual-direction neumorphic shadow, and a thin
 // gradient indicator bar that grows in above the active icon. Pins the
-// active/inactive appearance of every one of the 4 `ownerAdminItems` tabs —
+// active/inactive appearance of every one of the 5 `ownerAdminItems` tabs —
 // the indicator, the muted->accentDeep tint, AND the outline->filled icon
 // swap for BOTH icon sources `SalonNavItem` supports (Material `IconData`
 // for Записи/Профіль, SVG `AppIcon` assets for Салон/Команда).
@@ -37,10 +37,10 @@
 // with a second hand-copied item list.
 //
 // Matrix kept tight (chrome): {360} dp x {1.0} scale, one golden per active
-// index (0..3) so each tab's selected state AND the other three tabs'
+// index (0..4) so each tab's selected state AND the other four tabs'
 // inactive state are captured in the same frame.
 //
-// File names: salon_bottom_nav_active_<index>_360_1x.png (index 0..3)
+// File names: salon_bottom_nav_active_<index>_360_1x.png (index 0..4)
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -78,7 +78,7 @@ void main() {
 
   // 0=Салон (SVG homeOutline/homeFilled), 1=Записи (Material event_note),
   // 2=Команда (SVG teamOutline/teamFilled), 3=Профіль (Material person).
-  for (final int activeIndex in <int>[0, 1, 2, 3]) {
+  for (final int activeIndex in <int>[0, 1, 2, 3, 4]) {
     goldenTest(
       'salon_bottom_nav active tab $activeIndex',
       fileName: 'salon_bottom_nav_active_${activeIndex}_360_1x',

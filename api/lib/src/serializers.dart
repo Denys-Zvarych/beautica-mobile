@@ -26,6 +26,7 @@ import 'package:beautica_api/src/model/api_response_booking_detail_response.dart
 import 'package:beautica_api/src/model/api_response_booking_link_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_links_response.dart';
 import 'package:beautica_api/src/model/api_response_category_request_response.dart';
+import 'package:beautica_api/src/model/api_response_client_card_response.dart';
 import 'package:beautica_api/src/model/api_response_client_review_response.dart';
 import 'package:beautica_api/src/model/api_response_contact_support_response.dart';
 import 'package:beautica_api/src/model/api_response_favorite_response.dart';
@@ -65,6 +66,9 @@ import 'package:beautica_api/src/model/api_response_override_conflict_preview_re
 import 'package:beautica_api/src/model/api_response_page_media_file_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_client_list_item_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_client_own_rating_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_client_visit_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_service_response.dart';
@@ -129,7 +133,11 @@ import 'package:beautica_api/src/model/category_request_response.dart';
 import 'package:beautica_api/src/model/city_district_response.dart';
 import 'package:beautica_api/src/model/city_response.dart';
 import 'package:beautica_api/src/model/client_authored_review_response.dart';
+import 'package:beautica_api/src/model/client_card_response.dart';
+import 'package:beautica_api/src/model/client_list_item_response.dart';
+import 'package:beautica_api/src/model/client_own_rating_response.dart';
 import 'package:beautica_api/src/model/client_review_response.dart';
+import 'package:beautica_api/src/model/client_visit_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
 import 'package:beautica_api/src/model/contact_support_response.dart';
 import 'package:beautica_api/src/model/create_appointment_request.dart';
@@ -168,6 +176,7 @@ import 'package:beautica_api/src/model/invite_accept_request.dart';
 import 'package:beautica_api/src/model/invite_preview_response.dart';
 import 'package:beautica_api/src/model/invite_request.dart';
 import 'package:beautica_api/src/model/invite_response.dart';
+import 'package:beautica_api/src/model/item.dart';
 import 'package:beautica_api/src/model/location_filter.dart';
 import 'package:beautica_api/src/model/login_request.dart';
 import 'package:beautica_api/src/model/mark_all_read_request.dart';
@@ -194,6 +203,9 @@ import 'package:beautica_api/src/model/override_conflict_response.dart';
 import 'package:beautica_api/src/model/page_media_file_response.dart';
 import 'package:beautica_api/src/model/page_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/page_response_booking_response.dart';
+import 'package:beautica_api/src/model/page_response_client_list_item_response.dart';
+import 'package:beautica_api/src/model/page_response_client_own_rating_response.dart';
+import 'package:beautica_api/src/model/page_response_client_visit_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_salon_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_service_response.dart';
@@ -264,6 +276,7 @@ import 'package:beautica_api/src/model/service_summary_dto.dart';
 import 'package:beautica_api/src/model/settlement_search_response.dart';
 import 'package:beautica_api/src/model/sibling_salon_option.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
+import 'package:beautica_api/src/model/stats.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 import 'package:beautica_api/src/model/telegram_availability.dart';
@@ -303,6 +316,7 @@ part 'serializers.g.dart';
   ApiResponseBookingLinkResponse,
   ApiResponseBookingLinksResponse,
   ApiResponseCategoryRequestResponse,
+  ApiResponseClientCardResponse,
   ApiResponseClientReviewResponse,
   ApiResponseContactSupportResponse,
   ApiResponseFavoriteResponse,
@@ -342,6 +356,9 @@ part 'serializers.g.dart';
   ApiResponsePageMediaFileResponse,
   ApiResponsePageResponseBookingDetailResponse,
   ApiResponsePageResponseBookingResponse,
+  ApiResponsePageResponseClientListItemResponse,
+  ApiResponsePageResponseClientOwnRatingResponse,
+  ApiResponsePageResponseClientVisitResponse,
   ApiResponsePageResponseFavoriteMasterResponse,
   ApiResponsePageResponseFavoriteSalonResponse,
   ApiResponsePageResponseFavoriteServiceResponse,
@@ -406,7 +423,11 @@ part 'serializers.g.dart';
   CityDistrictResponse,
   CityResponse,
   ClientAuthoredReviewResponse,
+  ClientCardResponse,
+  ClientListItemResponse,
+  ClientOwnRatingResponse,
   ClientReviewResponse,
+  ClientVisitResponse,
   ContactSupportRequest,
   ContactSupportResponse,
   CreateAppointmentRequest,
@@ -445,6 +466,7 @@ part 'serializers.g.dart';
   InvitePreviewResponse,
   InviteRequest,
   InviteResponse,
+  Item,
   LocationFilter,
   LoginRequest,
   MarkAllReadRequest,
@@ -471,6 +493,9 @@ part 'serializers.g.dart';
   PageMediaFileResponse,
   PageResponseBookingDetailResponse,
   PageResponseBookingResponse,
+  PageResponseClientListItemResponse,
+  PageResponseClientOwnRatingResponse,
+  PageResponseClientVisitResponse,
   PageResponseFavoriteMasterResponse,
   PageResponseFavoriteSalonResponse,
   PageResponseFavoriteServiceResponse,
@@ -541,6 +566,7 @@ part 'serializers.g.dart';
   SettlementSearchResponse,
   SiblingSalonOption,
   SortObject,
+  Stats,
   StatusUpdateRequest,
   SuggestServiceTypeRequest,
   TelegramAvailability,

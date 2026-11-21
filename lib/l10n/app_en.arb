@@ -7646,5 +7646,22 @@
   "addPhoneSupportEmailSubject": "Phone number already linked to another account",
   "addPhoneSupportOpenError": "Couldn't open email. Write to us at {email}",
   "registerHaveEmailAccount": "Already have an account with email?",
-  "registerSignInImperative": "Sign in"
+  "registerSignInImperative": "Sign in",
+  "providerNavClients": "Clients",
+  "clientsTitle": "Clients",
+  "clientsSearchHint": "Search by name",
+  "clientsSearchMinLengthError": "Enter at least 2 characters to search",
+  "clientsEmptyTitle": "Your clients will appear here",
+  "clientsEmptyBody": "A client is added automatically after the first booking.",
+  "clientsNoMatchTitle": "Nobody found",
+  "clientsNoMatchBody": "Check the name or enter a shorter one.",
+  "clientsLoadMoreFailed": "Couldn't load clients",
+  "clientsRowLastVisit": "Last visit",
+  "clientsRowNextVisit": "Next",
+  "clientsRowLastVisitShort": "Last",
+  "clientsRowNextVisitShort": "Next",
+  "clientBlockedBadge": "Blocked",
+  "clientsRowSemantics": "Client: {name}, last visit {last}",
+  "clientsRowSemanticsNoVisit": "Client: {name}",
+  "clientCardTitle": "Client"
 }

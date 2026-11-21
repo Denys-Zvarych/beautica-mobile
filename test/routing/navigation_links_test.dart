@@ -456,6 +456,22 @@ void main() {
       // walk-in chain (guest → services) inside the owner shell.
       'ownerMasterBookingNew': RouteNames.ownerMasterBookingNew,
       'ownerMasterBookingNewServices': RouteNames.ownerMasterBookingNewServices,
+      // M509 — the «Клієнти» tab roots (INDEPENDENT_MASTER / SALON_MASTER /
+      // owner master mode) and the client-card drill-ins below them. The card
+      // helpers are probed under the INDEPENDENT_MASTER base here; the other
+      // bases (`/staff/clients`, `/salons/:salonId/clients`) are resolved by
+      // `test/routing/clients_routes_test.dart`.
+      'masterClients': RouteNames.masterClients,
+      'salonMasterClients': RouteNames.salonMasterClients,
+      'ownerMasterClients': RouteNames.ownerMasterClients,
+      'clientCardUser()': RouteNames.clientCardUser(
+        RouteNames.masterClients,
+        kSampleId,
+      ),
+      'clientCardGuest()': RouteNames.clientCardGuest(
+        RouteNames.masterClients,
+        kSampleId,
+      ),
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,
@@ -584,6 +600,12 @@ void main() {
     const Set<String> deliberatelyUnregistered = <String>{
       'workingHours',
       'salonStaffBookings',
+      // M509 — `/salons/:salonId/clients`, the base the salon shell's «Клієнти»
+      // tab hangs its card routes under (`…/clients/user/:id`,
+      // `…/clients/guest/:id`). The list itself is an in-shell tab index, so
+      // there is no GoRoute for the bare base — only for the two card leaves
+      // (`test/routing/clients_routes_test.dart`).
+      'salonClients',
     };
 
     test('NL-R01: every RouteNames constant resolves to a registered GoRoute '

@@ -23,7 +23,6 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -31,7 +30,7 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
-import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/shared/widgets/list_card_skeleton.dart';
 
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
@@ -157,7 +156,11 @@ class _BlockedClientsScreenState extends ConsumerState<BlockedClientsScreen> {
         ),
       ];
     } else {
-      content = const <Widget>[SliverToBoxAdapter(child: _LoadingBody())];
+      content = const <Widget>[
+        SliverToBoxAdapter(
+          child: ListCardSkeleton(key: BlockedClientsScreen.loadingKey),
+        ),
+      ];
     }
 
     return SectionScaffold(
@@ -190,55 +193,6 @@ class _EmptyNotice extends StatelessWidget {
       icon: Icons.block_rounded,
       title: l10n.blockedClientsEmptyTitle,
       body: l10n.blockedClientsEmptyBody,
-    );
-  }
-}
-
-/// Loading — shimmer blocks in the card's own geometry so nothing jumps
-/// when data lands.
-class _LoadingBody extends StatelessWidget {
-  const _LoadingBody();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SkeletonShimmerScope(
-      child: Column(
-        key: BlockedClientsScreen.loadingKey,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _LoadingCard(),
-          SizedBox(height: VelvetSpacing.md),
-          _LoadingCard(),
-          SizedBox(height: VelvetSpacing.md),
-          _LoadingCard(),
-        ],
-      ),
-    );
-  }
-}
-
-class _LoadingCard extends StatelessWidget {
-  const _LoadingCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return const NeumorphicCard(
-      child: Row(
-        children: <Widget>[
-          SkeletonBlock(width: 48, height: 48, circle: true),
-          SizedBox(width: VelvetSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                SkeletonBlock(width: 140, height: 14),
-                SizedBox(height: VelvetSpacing.sm),
-                SkeletonBlock(width: 100, height: 12),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

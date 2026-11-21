@@ -183,7 +183,7 @@ void main() {
     expect(repo.getSalonByIdCalls, 1, reason: 'the shell loads the salon once');
 
     // «Профіль» — the owner leaves the shell for owner master mode.
-    await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+    await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
     await tester.pumpAndSettle();
     expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
     expect(find.byType(SalonShellScreen), findsNothing);

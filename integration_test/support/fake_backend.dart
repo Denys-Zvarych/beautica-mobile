@@ -430,6 +430,27 @@ Map<String, dynamic> withSeededSalonLocality(Map<String, dynamic> salon) {
 ///
 /// Each test creates a fresh instance so state never leaks between tests.
 /// The [dio] field is the instance to inject into [dioProvider].
+/// M509 — one recorded client-list request; see [FakeBackend.clientListCalls].
+final class ClientListCall {
+  const ClientListCall({
+    required this.path,
+    required this.page,
+    required this.size,
+    this.q,
+    this.masterId,
+  });
+
+  final String path;
+  final int page;
+  final int size;
+  final String? q;
+  final String? masterId;
+
+  @override
+  String toString() =>
+      'ClientListCall($path page=$page size=$size q=$q masterId=$masterId)';
+}
+
 final class FakeBackend {
   FakeBackend({
     this.masterRowId = 'user-master-1',
@@ -914,6 +935,23 @@ final class FakeBackend {
   /// (204, also when already gone) and clears [bookingClientBlockId] if it
   /// was that block.
   final List<Map<String, dynamic>> blocks = <Map<String, dynamic>>[];
+
+  /// M509 — one recorded `GET …/clients` request (B507): which endpoint, the
+  /// FLAT `page` / `size` / `q` / `masterId` query the app sent. [q] and
+  /// [masterId] are `null` when the parameter was ABSENT (the app omits `q`
+  /// for a blank / 1-char term).
+  /// See [wireClientList].
+  final List<ClientListCall> clientListCalls = <ClientListCall>[];
+
+  /// M509 — the roster `GET /salons/{salonId}/clients` and
+  /// `GET /masters/me/clients` serve, newest activity first (B507 `ClientListItemResponse`
+  /// JSON). Filled by the caller before [wireClientList]. Rows carry no phone.
+  final List<Map<String, dynamic>> clientRows = <Map<String, dynamic>>[];
+
+  /// M509 QA — pages (0-based) for which [wireClientList] answers with an
+  /// unusable envelope (`success: false`, no `data`) → the app's
+  /// `ResponseUnusableFailure`. The request is still recorded.
+  final Set<int> clientFailPages = <int>{};
 
   /// Backend 398 — `cancelledBookings` a NEW block reports: the server
   /// DECLINEs every future CONFIRMED visit of that client in scope and returns
@@ -13169,6 +13207,82 @@ final class FakeBackend {
           },
         };
       }),
+    );
+  }
+
+  /// M509 — backend B507 `GET /api/v1/salons/{salonId}/clients` (for each id
+  /// in [salonIds]) and `GET /api/v1/masters/me/clients`, served on the wire
+  /// so the REAL `HttpClientRepository` + generated row models are on the E2E
+  /// path. Both read [clientRows], filter by `q` (case-insensitive substring
+  /// of `displayName`, like the real endpoint) and page by the FLAT
+  /// `page` / `size` query. Every request is recorded in [clientListCalls].
+  /// Re-callable: a later registration of the same route replaces the earlier.
+  void wireClientList({
+    List<String> salonIds = const <String>['salon-owner-1'],
+  }) {
+    Map<String, dynamic> serve(RequestOptions req, String path) {
+      final Map<String, dynamic> query = req.queryParameters;
+      final int page = int.parse('${query['page'] ?? 0}');
+      final int size = int.parse('${query['size'] ?? 20}');
+      final String? q =
+          query['q']
+              as String?; // query-param-cast-ok: the app sends `q` as a String or omits it
+      final String? masterId =
+          query['masterId'] as String?; // query-param-cast-ok: String or absent
+      clientListCalls.add(
+        ClientListCall(
+          path: path,
+          page: page,
+          size: size,
+          q: q,
+          masterId: masterId,
+        ),
+      );
+      if (clientFailPages.contains(page)) {
+        return <String, dynamic>{'success': false, 'message': 'boom'};
+      }
+      final List<Map<String, dynamic>> matching = <Map<String, dynamic>>[
+        for (final Map<String, dynamic> row in clientRows)
+          if (q == null ||
+              ('${row['displayName'] ?? ''}').toLowerCase().contains(
+                q.toLowerCase(),
+              ))
+            row,
+      ];
+      final int from = page * size;
+      final List<Map<String, dynamic>> slice = from >= matching.length
+          ? <Map<String, dynamic>>[]
+          : matching.sublist(
+              from,
+              (from + size) > matching.length ? matching.length : from + size,
+            );
+      return <String, dynamic>{
+        'success': true,
+        'message': 'ok',
+        'data': <String, dynamic>{
+          'success': true,
+          'data': slice,
+          'page': page,
+          'size': size,
+          'totalElements': matching.length,
+          'totalPages': (matching.length / size).ceil(),
+        },
+      };
+    }
+
+    for (final String salonId in salonIds) {
+      final String path = '/api/v1/salons/$salonId/clients';
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) => serve(req, path)),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
+    const String mePath = '/api/v1/masters/me/clients';
+    _adapter.onRoute(
+      mePath,
+      (server) => server.replyCallback(200, (req) => serve(req, mePath)),
+      request: const Request(method: RequestMethods.get),
     );
   }
 
