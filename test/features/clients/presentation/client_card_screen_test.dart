@@ -17,6 +17,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_own_rating.dart';
@@ -32,6 +33,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -49,6 +51,9 @@ const ClientRef _reg = ClientRef.registered('u-1');
 const ClientRef _gst = ClientRef.guest('b-1');
 const String _phone = '+380671234567';
 
+/// [_phone] as DISPLAYED (the UA input mask); call / copy keep [_phone].
+const String _phoneShown = '+380 67 123 45 67';
+
 ClientVisit _visit(
   String key,
   DateTime at, {
@@ -59,7 +64,8 @@ ClientVisit _visit(
   startsAt: at,
   items: <ClientVisitItem>[
     ClientVisitItem(
-      bookingId: 'bk-$key',
+      // One row per BOOKING: the row key is the bookingId.
+      bookingId: key,
       serviceName: service,
       status: status,
       startsAt: at,
@@ -368,7 +374,8 @@ void main() {
             role: role,
           );
           expect(_phoneChip(), findsOneWidget);
-          expect(find.text(_phone), findsOneWidget);
+          expect(find.text(_phoneShown), findsOneWidget);
+          expect(find.text(_phone), findsNothing);
         });
       }
     }
@@ -385,6 +392,7 @@ void main() {
         );
         expect(_phoneChip(), findsNothing);
         expect(find.text(_phone), findsNothing);
+        expect(find.text(_phoneShown), findsNothing);
         expect(_ratingChip(), findsOneWidget);
       });
     }
@@ -406,6 +414,8 @@ void main() {
       expect(find.byKey(kPhoneSheetCopyKey), findsOneWidget);
       expect(find.text(l10n.clientCall), findsOneWidget);
       expect(find.text(l10n.clientCopyPhone), findsOneWidget);
+      // Sheet title is the formatted number too (chip + title).
+      expect(find.text(_phoneShown), findsNWidgets(2));
     });
 
     testWidgets('copy → clipboard + «Номер скопійовано»', (tester) async {
@@ -590,9 +600,119 @@ void main() {
       expect(find.text(_l10n(tester).clientHistoryEmptyTitle), findsOneWidget);
     });
 
-    testWidgets('a visit card opens booking detail of its first item', (
-      tester,
-    ) async {
+    group('one row per booking (BOOK-05)', () {
+      const String longName = 'Пілінг шкіри голови та комплексний догляд';
+      // The API groups two bookings of one appointment into one visit; the
+      // card must still show one row per booking.
+      ClientVisit grouped() {
+        final DateTime at = _now.subtract(const Duration(days: 4));
+        return ClientVisit(
+          visitKey: 'appt-1',
+          startsAt: at,
+          items: <ClientVisitItem>[
+            ClientVisitItem(
+              bookingId: 'b-lips',
+              serviceName: 'Губи',
+              status: BookingStatus.cancelled,
+              startsAt: at,
+              price: 12000,
+            ),
+            ClientVisitItem(
+              bookingId: 'b-peel',
+              serviceName: longName,
+              status: BookingStatus.completed,
+              startsAt: at.add(const Duration(hours: 1)),
+              price: 950,
+              priceMax: 2000,
+            ),
+          ],
+        );
+      }
+
+      Future<_Harness> pumpGrouped(WidgetTester tester) => _pump(
+        tester,
+        _Repo(
+          card: (ref) => _card(ref),
+          pages: <List<ClientVisit>>[
+            <ClientVisit>[grouped()],
+          ],
+        ),
+      );
+
+      testWidgets('a grouped visit renders as separate rows, each its own '
+          'status and its own booking detail', (tester) async {
+        final _Harness h = await pumpGrouped(tester);
+        final Finder lips = find.byKey(ClientCardScreen.visitKey('b-lips'));
+        final Finder peel = find.byKey(ClientCardScreen.visitKey('b-peel'));
+        expect(lips, findsOneWidget);
+        expect(peel, findsOneWidget);
+        expect(find.byKey(ClientCardScreen.visitKey('appt-1')), findsNothing);
+        expect(
+          find.descendant(of: lips, matching: find.byType(BookingStatusBadge)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: peel, matching: find.byType(BookingStatusBadge)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: lips, matching: find.text(longName)),
+          findsNothing,
+        );
+        await tester.tap(peel);
+        await tester.pumpAndSettle();
+        expect(h.opened, <String>['/master/bookings/b-peel']);
+      });
+
+      testWidgets('a long service name wraps by WORD, not per letter (360)', (
+        tester,
+      ) async {
+        await pumpGrouped(tester);
+        final RenderParagraph p = tester.renderObject<RenderParagraph>(
+          find.text(longName),
+        );
+        // Every word fits the name's width, so no word is broken across
+        // lines (the bug wrapped «Пілінг / шкіри / голов / и»).
+        for (final String word in longName.split(' ')) {
+          final TextPainter tp = TextPainter(
+            text: TextSpan(text: word, style: p.text.style),
+            textDirection: TextDirection.ltr,
+            textScaler: p.textScaler,
+          )..layout();
+          expect(tp.width, lessThanOrEqualTo(p.size.width), reason: word);
+          tp.dispose();
+        }
+        // The name has at least half the card's content width.
+        final double card = tester
+            .getSize(find.byKey(ClientCardScreen.visitKey('b-peel')))
+            .width;
+        expect(p.size.width, greaterThan(card / 2));
+      });
+
+      testWidgets('each row is announced with ITS booking\'s status', (
+        tester,
+      ) async {
+        await pumpGrouped(tester);
+        final AppLocalizations l10n = _l10n(tester);
+        String label(String id) => tester
+            .getSemantics(find.byKey(ClientCardScreen.visitKey(id)))
+            .label;
+        final String cancelled = l10n.bookingStatusSemantics(
+          l10n.bookingStatusCancelled,
+        );
+        final String completed = l10n.bookingStatusSemantics(
+          l10n.bookingStatusCompleted,
+        );
+        expect(label('b-lips'), contains(cancelled));
+        expect(label('b-lips'), contains('Губи'));
+        expect(label('b-lips'), isNot(contains(completed)));
+        expect(label('b-peel'), contains(completed));
+        expect(label('b-peel'), contains(longName));
+        expect(label('b-peel'), isNot(contains(cancelled)));
+      });
+    });
+
+    testWidgets('a visit row opens its booking detail', (tester) async {
       final _Harness h = await _pump(
         tester,
         _Repo(
@@ -604,7 +724,7 @@ void main() {
       );
       await tester.tap(find.byKey(ClientCardScreen.visitKey('p1')));
       await tester.pumpAndSettle();
-      expect(h.opened, <String>['/master/bookings/bk-p1']);
+      expect(h.opened, <String>['/master/bookings/p1']);
     });
 
     testWidgets('scrolling to the end loads the next page of visits', (

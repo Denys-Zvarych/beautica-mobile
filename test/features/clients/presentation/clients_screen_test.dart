@@ -452,6 +452,32 @@ void main() {
       );
     });
 
+    testWidgets('a focused search is UNFOCUSED when a card is opened, and '
+        'stays unfocused (no keyboard) on return', (tester) async {
+      final _Harness h = await _pump(
+        tester,
+        _FakeRepo(<ClientSummary>[_registered()]),
+      );
+      FocusNode fieldFocus() => tester
+          .widget<EditableText>(
+            find.descendant(of: _search(), matching: find.byType(EditableText)),
+          )
+          .focusNode;
+      await tester.tap(_search());
+      await tester.pump();
+      expect(fieldFocus().hasFocus, isTrue);
+      // A keyboard dismissed with back leaves the field focused; the row tap
+      // is what must drop it.
+      await tester.tap(find.byKey(const Key('client-row-u1')));
+      await tester.pumpAndSettle();
+      expect(find.text('card-user'), findsOneWidget);
+      h.router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(ClientsScreen), findsOneWidget);
+      expect(fieldFocus().hasFocus, isFalse);
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
     testWidgets('the field caps input at 50 characters', (tester) async {
       await _pump(tester, _FakeRepo(<ClientSummary>[_registered()]));
       await tester.enterText(_search(), 'я' * 80);

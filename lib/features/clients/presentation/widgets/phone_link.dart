@@ -17,6 +17,7 @@ import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
@@ -39,8 +40,10 @@ class PhoneLink extends StatelessWidget {
         const Icon(Icons.call_rounded, size: 16, color: BrandColors.accentDeep),
         const SizedBox(width: 6),
         Flexible(
+          // DISPLAY only: the UA input mask («+380 67 123 45 67»), the same
+          // transform the add-phone field and the booking detail apply.
           child: Text(
-            phone,
+            UaPhoneInputFormatter.display(phone),
             style: clientBody(
               14,
               weight: FontWeight.w700,
@@ -64,7 +67,8 @@ Future<void> showPhoneSheet(
   return showVelvetSheet<void>(
     context,
     builder: (BuildContext sheet) => VelvetSheetChrome(
-      title: phone,
+      // DISPLAY only — call / copy below keep the canonical [phone].
+      title: UaPhoneInputFormatter.display(phone),
       children: <Widget>[
         VelvetSheetOptionRow(
           tapKey: kPhoneSheetCallKey,

@@ -33,6 +33,9 @@ import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _phone = '+380671234567';
+
+/// [_phone] as DISPLAYED (UA input mask); the tel: URI keeps [_phone].
+const String _phoneShown = '+380 67 123 45 67';
 const Key _rowKey = Key('booking-detail-guest-phone');
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
@@ -56,6 +59,7 @@ class _StubAuth extends AuthNotifier {
 }
 
 const String _clientPhone = '+380501112233';
+const String _clientPhoneShown = '+380 50 111 22 33';
 
 Booking _booking({
   String? clientId,
@@ -127,7 +131,7 @@ void main() {
       testWidgets('$role sees the phone row', (tester) async {
         await _pump(tester, _booking(), role);
         expect(find.byKey(_rowKey), findsOneWidget);
-        expect(find.text(_phone), findsOneWidget);
+        expect(find.text(_phoneShown), findsOneWidget);
       });
     }
     for (final UserRole role in denied) {
@@ -136,7 +140,7 @@ void main() {
       ) async {
         await _pump(tester, _booking(), role);
         expect(find.byKey(_rowKey), findsNothing);
-        expect(find.text(_phone), findsNothing);
+        expect(find.text(_phoneShown), findsNothing);
       });
     }
   });
@@ -160,7 +164,7 @@ void main() {
         (tester) async {
           await _pump(tester, _booking(clientId: 'c1'), role);
           expect(find.byKey(_rowKey), findsNothing);
-          expect(find.text(_phone), findsNothing);
+          expect(find.text(_phoneShown), findsNothing);
         },
       );
     }
@@ -185,7 +189,7 @@ void main() {
           tester.element(find.byType(BookingDetailScreen)),
         );
         expect(find.byKey(_rowKey), findsOneWidget);
-        expect(find.text(_clientPhone), findsOneWidget);
+        expect(find.text(_clientPhoneShown), findsOneWidget);
         expect(find.text(l10n.bookingDetailClientPhone), findsOneWidget);
         expect(find.text(l10n.bookingDetailGuestPhone), findsNothing);
       });
@@ -196,7 +200,7 @@ void main() {
       ) async {
         await _pump(tester, registered(), role);
         expect(find.byKey(_rowKey), findsNothing);
-        expect(find.text(_clientPhone), findsNothing);
+        expect(find.text(_clientPhoneShown), findsNothing);
       });
     }
 
@@ -210,7 +214,7 @@ void main() {
       final AppLocalizations l10n = AppLocalizations.of(
         tester.element(find.byType(BookingDetailScreen)),
       );
-      expect(find.text(_phone), findsOneWidget);
+      expect(find.text(_phoneShown), findsOneWidget);
       expect(find.text(l10n.bookingDetailGuestPhone), findsOneWidget);
       expect(find.text(l10n.bookingDetailClientPhone), findsNothing);
     });

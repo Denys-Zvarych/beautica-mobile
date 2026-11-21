@@ -40,8 +40,8 @@ abstract class ClientVisit with _$ClientVisit {
   /// server-side).
   String get firstBookingId => items.first.bookingId;
 
-  /// The one status when every item shares it, else `null` (the card then
-  /// badges each item).
+  /// The one status when every item shares it, else `null`. A data-layer fact
+  /// only: the card renders one row per booking ([clientVisitsPerBooking]).
   BookingStatus? get sharedStatus {
     final BookingStatus first = items.first.status;
     return items.every((ClientVisitItem i) => i.status == first) ? first : null;
@@ -78,3 +78,36 @@ ClientVisit? pickNextVisit(List<ClientVisit> visits, DateTime now) {
 bool nextVisitLookaheadPending(List<ClientVisit> visits, DateTime now) =>
     visits.isNotEmpty &&
     visits.every((ClientVisit v) => v.startsAt.isAfter(now));
+
+/// BOOK-05 — one booking = one service. The API may group bookings that share
+/// an appointment (a slot-reservation id that never surfaces in UI) into one
+/// [ClientVisit]; the timeline shows ONE row per BOOKING instead. Each item
+/// becomes its own single-item visit keyed by its `bookingId`, newest first
+/// within the group (ties keep the server order), so the newest-first page
+/// order is preserved.
+List<ClientVisit> clientVisitsPerBooking(Iterable<ClientVisit> visits) {
+  final List<ClientVisit> out = <ClientVisit>[];
+  for (final ClientVisit v in visits) {
+    if (v.items.length == 1) {
+      out.add(_perBookingVisit(v.items.first));
+      continue;
+    }
+    final List<(int, ClientVisitItem)> indexed =
+        <(int, ClientVisitItem)>[
+          for (int k = 0; k < v.items.length; k++) (k, v.items[k]),
+        ]..sort((a, b) {
+          final int byTime = b.$2.startsAt.compareTo(a.$2.startsAt);
+          return byTime != 0 ? byTime : a.$1.compareTo(b.$1);
+        });
+    for (final (int _, ClientVisitItem item) in indexed) {
+      out.add(_perBookingVisit(item));
+    }
+  }
+  return out;
+}
+
+ClientVisit _perBookingVisit(ClientVisitItem item) => ClientVisit(
+  visitKey: item.bookingId,
+  startsAt: item.startsAt,
+  items: <ClientVisitItem>[item],
+);

@@ -91,6 +91,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
@@ -985,7 +986,9 @@ class _DetailBody extends StatelessWidget {
                       label: booking.isGuestBooking
                           ? l10n.bookingDetailGuestPhone
                           : l10n.bookingDetailClientPhone,
-                      value: phoneValue,
+                      // DISPLAY only (UA input mask); the call keeps the
+                      // canonical value via onCallGuest → canonicalTelUri.
+                      value: UaPhoneInputFormatter.display(phoneValue),
                       semanticLabel: l10n.bookingDetailCallGuest,
                       onTap: () => onCallGuest(phoneValue),
                     ),

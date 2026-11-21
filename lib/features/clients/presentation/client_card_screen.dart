@@ -541,6 +541,9 @@ class _Label extends StatelessWidget {
   }
 }
 
+/// One timeline row = ONE booking (BOOK-05: 1 booking = 1 service; the
+/// appointment grouping never surfaces). The controller flattens the API's
+/// groups via `clientVisitsPerBooking`, so [visit] always holds one item.
 class _Node extends StatelessWidget {
   const _Node({
     super.key,
@@ -556,13 +559,24 @@ class _Node extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final BookingStatusBadge? sharedBadge = switch (visit.sharedStatus) {
-      final status? => BookingStatusBadge.forStatus(status: status),
-      null => null,
-    };
+    final ClientVisitItem booking = visit.items.first;
     final String when =
-        '${upcoming ? formatFullDate(visit.startsAt) : formatBookingDayHeader(visit.startsAt)}, '
-        '${formatSlotTime(visit.startsAt)}';
+        '${upcoming ? formatFullDate(booking.startsAt) : formatBookingDayHeader(booking.startsAt)}, '
+        '${formatSlotTime(booking.startsAt)}';
+    final String price = switch (booking.price) {
+      final double p? => formatBookingPrice(
+        price: p,
+        priceMax: booking.priceMax,
+      ),
+      null => priceUnavailableLabel,
+    };
+    final String status = l10n.bookingStatusSemantics(
+      BookingStatusVisual.forStatus(
+        booking.status,
+        atSalon: false,
+        l10n: l10n,
+      ).label,
+    );
     // No intrinsic/fixed height: the card sizes the node, and the rail and dot
     // are positioned against it, so a 2–3-line service name grows the card.
     return Stack(
@@ -592,15 +606,24 @@ class _Node extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.only(left: 26, bottom: 10),
+          // One explicit label matching the row: when, THIS booking's status,
+          // service, price. Child semantics are excluded so the pill and texts
+          // are not announced a second time.
           child: Semantics(
             button: true,
-            label: l10n.clientVisitSemantics(when),
+            excludeSemantics: true,
+            label: <String>[
+              l10n.clientVisitSemantics(when),
+              status,
+              booking.serviceName,
+              price,
+            ].join(', '),
             child: GestureDetector(
               key: upcoming
                   ? ClientCardScreen.nextVisitKey
                   : ClientCardScreen.visitKey(visit.visitKey),
               behavior: HitTestBehavior.opaque,
-              onTap: () => onOpen(visit.firstBookingId),
+              onTap: () => onOpen(booking.bookingId),
               child: NeumorphicCard(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
@@ -625,40 +648,32 @@ class _Node extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (sharedBadge != null) ...<Widget>[
-                          const SizedBox(width: 6),
-                          sharedBadge,
-                        ],
+                        const SizedBox(width: 6),
+                        BookingStatusBadge.forStatus(status: booking.status),
                       ],
                     ),
-                    for (final ClientVisitItem item in visit.items) ...<Widget>[
-                      const SizedBox(height: 4),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              item.serviceName,
-                              style: clientBody(15, weight: FontWeight.w700),
-                            ),
+                    const SizedBox(height: 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: <Widget>[
+                        // The name takes the row's free width and wraps by
+                        // word (max 3 lines, then ellipsis); the price stays
+                        // intrinsic on the right.
+                        Expanded(
+                          child: Text(
+                            booking.serviceName,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: clientBody(15, weight: FontWeight.w700),
                           ),
-                          if (sharedBadge == null) ...<Widget>[
-                            const SizedBox(width: 6),
-                            BookingStatusBadge.forStatus(status: item.status),
-                          ],
-                          const SizedBox(width: 8),
-                          Text(
-                            item.price == null
-                                ? priceUnavailableLabel
-                                : formatBookingPrice(
-                                    price: item.price!,
-                                    priceMax: item.priceMax,
-                                  ),
-                            style: clientBody(15, weight: FontWeight.w800),
-                          ),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          price,
+                          style: clientBody(15, weight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

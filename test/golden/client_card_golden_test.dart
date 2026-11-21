@@ -6,6 +6,8 @@
 //   • client_card_guest_360_1x               — guest as owner: phone, «Ще немає оцінок»
 //   • client_card_blocked_360_1x             — «Заблоковано» under the name
 //   • client_card_not_found_360_1x           — «Клієнта не знайдено»
+//   • client_card_long_service_name_360_1x   — one booking row with a long
+//     service name: wraps by word beside the price, own status pill
 //   • client_rating_rated_360_1x             — average, bars, own ratings, note
 //   • client_rating_own_empty_360_1x         — no own ratings yet
 //
@@ -230,6 +232,23 @@ void main() {
     'blocked',
     'client_card_blocked_360_1x',
     _Repo(_card(_reg, blocked: true), visits: <ClientVisit>[_visits[1]]),
+    _reg,
+  );
+  card(
+    'long service name',
+    'client_card_long_service_name_360_1x',
+    _Repo(
+      _card(_reg),
+      visits: <ClientVisit>[
+        _visit(
+          'long',
+          DateTime.utc(2026, 11, 17, 9),
+          BookingStatus.completed,
+          'Пілінг шкіри голови та комплексний догляд',
+          950,
+        ),
+      ],
+    ),
     _reg,
   );
   card(

@@ -30,6 +30,10 @@ import 'support/app_harness.dart';
 
 const String _phone = '+380671234567';
 const String _clientPhone = '+380501112233';
+
+/// The numbers as DISPLAYED (UA input mask); tel: keeps the canonical value.
+const String _phoneShown = '+380 67 123 45 67';
+const String _clientPhoneShown = '+380 50 111 22 33';
 const Key _rowKey = Key('booking-detail-guest-phone');
 
 class _MockUrlLauncher extends Mock
@@ -74,7 +78,7 @@ void main() {
     await openDetail(tester, fb);
 
     expect(find.byKey(_rowKey), findsOneWidget);
-    expect(find.text(_phone), findsOneWidget);
+    expect(find.text(_phoneShown), findsOneWidget);
 
     await tester.tap(find.byKey(_rowKey));
     await tester.pump();
@@ -95,7 +99,7 @@ void main() {
       await openDetail(tester, fb);
 
       expect(find.byKey(_rowKey), findsNothing);
-      expect(find.text(_phone), findsNothing);
+      expect(find.text(_phoneShown), findsNothing);
     },
   );
 
@@ -133,7 +137,7 @@ void main() {
       await openDetail(tester, fb, role: e.key, path: e.value);
 
       expect(find.byKey(_rowKey), findsNothing);
-      expect(find.text(_phone), findsNothing);
+      expect(find.text(_phoneShown), findsNothing);
     });
   }
 
@@ -167,7 +171,7 @@ void main() {
       );
 
       expect(find.byKey(_rowKey), findsNothing);
-      expect(find.text(_phone), findsNothing);
+      expect(find.text(_phoneShown), findsNothing);
       verifyNever(() => launcher.launchUrl(any(), any()));
     },
   );
@@ -188,7 +192,7 @@ void main() {
       tester.element(find.byType(BookingDetailScreen)),
     );
     expect(find.byKey(_rowKey), findsOneWidget);
-    expect(find.text(_clientPhone), findsOneWidget);
+    expect(find.text(_clientPhoneShown), findsOneWidget);
     expect(find.text(l10n.bookingDetailClientPhone), findsOneWidget);
     await tester.tap(find.byKey(_rowKey));
     await tester.pump();
@@ -217,7 +221,7 @@ void main() {
         tester.element(find.byType(BookingDetailScreen)),
       );
       expect(find.byKey(_rowKey), findsOneWidget);
-      expect(find.text(_clientPhone), findsOneWidget);
+      expect(find.text(_clientPhoneShown), findsOneWidget);
       expect(find.text(l10n.bookingDetailClientPhone), findsOneWidget);
       expect(find.text(l10n.bookingDetailGuestPhone), findsNothing);
 
@@ -242,7 +246,7 @@ void main() {
     final AppLocalizations l10n = AppLocalizations.of(
       tester.element(find.byType(BookingDetailScreen)),
     );
-    expect(find.text(_phone), findsOneWidget);
+    expect(find.text(_phoneShown), findsOneWidget);
     expect(find.text(l10n.bookingDetailGuestPhone), findsOneWidget);
     expect(find.text(l10n.bookingDetailClientPhone), findsNothing);
   });
@@ -262,7 +266,7 @@ void main() {
     );
 
     expect(find.byKey(_rowKey), findsNothing);
-    expect(find.text(_clientPhone), findsNothing);
+    expect(find.text(_clientPhoneShown), findsNothing);
     verifyNever(() => launcher.launchUrl(any(), any()));
   });
 
@@ -281,7 +285,7 @@ void main() {
     );
 
     expect(find.byKey(_rowKey), findsNothing);
-    expect(find.text(_clientPhone), findsNothing);
+    expect(find.text(_clientPhoneShown), findsNothing);
     verifyNever(() => launcher.launchUrl(any(), any()));
   });
 }

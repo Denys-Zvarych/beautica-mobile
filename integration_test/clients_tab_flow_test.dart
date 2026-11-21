@@ -19,7 +19,9 @@
 //   (c)  SALON_MASTER: the server sends a phone, the card shows none (D5);
 //   (g)  blocked tag, visit → booking detail → back, visit timeline page 2 on
 //        scroll, empty own ratings,
-//        an unknown client → the uniform not-found.
+//        an unknown client → the uniform not-found;
+//   (h)  two bookings made together → two rows (BOOK-05), each opening its
+//        own booking detail; phone formatted on card + detail, tel: canonical.
 //
 // Search: `q` is sent only for a trimmed 2–50-char term; the 300 ms debounce
 // is a `Timer`, driven with an explicit `pump(kClientSearchDebounce)`
@@ -49,7 +51,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:network_image_mock/network_image_mock.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
@@ -232,6 +237,11 @@ Finder _cardScroll() => find
 bool _visitsPageCalled(FakeBackend fb, int page) => fb.clientCardCalls.any(
   (String c) => c.startsWith('visits ') && c.contains(' page=$page '),
 );
+
+/// (h) — captures the card / detail `tel:` launches.
+class _MockUrlLauncher extends Mock
+    with MockPlatformInterfaceMixin
+    implements UrlLauncherPlatform {}
 
 Finder _row(String id) => find.byKey(Key('client-row-$id'));
 
@@ -432,7 +442,10 @@ void main() {
         tester,
         find.byKey(ClientCardScreen.nextVisitKey),
       );
-      expect(find.byKey(ClientCardScreen.visitKey('v-past')), findsOneWidget);
+      expect(
+        find.byKey(ClientCardScreen.visitKey('bk-v-past')),
+        findsOneWidget,
+      );
 
       // ── phone chip → sheet → copy snackbar ───────────────────────────
       await AppHarness.tapVisible(
@@ -537,7 +550,7 @@ void main() {
       expect(find.byKey(BlockedTag.tagKey), findsNothing);
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(ClientCardScreen.visitKey('v-g1')),
+        find.byKey(ClientCardScreen.visitKey('bk-v-g1')),
       );
       expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
 
@@ -794,7 +807,7 @@ void main() {
       expect(find.byKey(ClientCardScreen.phoneChipKey), findsOneWidget);
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(ClientCardScreen.visitKey('h0')),
+        find.byKey(ClientCardScreen.visitKey('booking-1')),
       );
       expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
       expect(_visitsPageCalled(fb, 1), isFalse);
@@ -802,7 +815,7 @@ void main() {
       // A visit card → booking detail of its first item → back to the card.
       await AppHarness.tapVisible(
         tester,
-        find.byKey(ClientCardScreen.visitKey('h0')),
+        find.byKey(ClientCardScreen.visitKey('booking-1')),
       );
       await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
       AppHarness.expectLocation(router, '/master/bookings/booking-1');
@@ -813,7 +826,7 @@ void main() {
       );
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(ClientCardScreen.visitKey('h0')),
+        find.byKey(ClientCardScreen.visitKey('booking-1')),
       );
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, '/master/clients/user/u-2');
@@ -828,7 +841,7 @@ void main() {
       await tester.drag(_cardScroll(), const Offset(0, -3000));
       await AppHarness.pumpUntilFound(
         tester,
-        find.byKey(ClientCardScreen.visitKey('h24')),
+        find.byKey(ClientCardScreen.visitKey('bk-h24')),
       );
       await tester.drag(_cardScroll(), const Offset(0, -3000));
       await AppHarness.settle(tester);
@@ -881,6 +894,170 @@ void main() {
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.masterClients);
       expect(find.byKey(ClientsScreen.listKey), findsOneWidget);
+    });
+  });
+
+  testWidgets('(h) two bookings made together show as TWO rows, each opening '
+      'its OWN booking detail; the phone is formatted on the card and the '
+      'detail, tel: stays canonical', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final _MockUrlLauncher launcher = _MockUrlLauncher();
+      final UrlLauncherPlatform original = UrlLauncherPlatform.instance;
+      UrlLauncherPlatform.instance = launcher;
+      addTearDown(() => UrlLauncherPlatform.instance = original);
+      registerFallbackValue(const LaunchOptions());
+      when(
+        () => launcher.launchUrl(any(), any()),
+      ).thenAnswer((_) async => true);
+
+      const String phone = '+380931112233';
+      const String phoneShown = '+380 93 111 22 33';
+      const String at1 = '2026-06-10T10:00:00Z';
+      const String at2 = '2026-06-10T11:00:00Z';
+      final FakeBackend fb = FakeBackend()
+        ..wireClientList()
+        ..bookingClientPhone = phone;
+      _seedRoster(fb);
+      _seedCards(
+        fb,
+        more: () {
+          fb.clientCards['u-4'] = <String, dynamic>{
+            'kind': 'REGISTERED',
+            'userId': 'u-4',
+            'displayName': 'Клієнтка Номер4',
+            'phone': phone,
+            'blocked': false,
+            'ratingCount': 0,
+            'ratingDistribution': <Map<String, int>>[],
+          };
+          // The API groups the two bookings of one appointment into ONE visit;
+          // `booking-1` / `booking-2` are the fake's two seeded detail ids.
+          fb.clientVisits['u-4'] = <Map<String, dynamic>>[
+            <String, dynamic>{
+              'visitKey': 'appt-1',
+              'startsAt': at1,
+              'items': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'bookingId': 'booking-1',
+                  'serviceName': 'Манікюр з покриттям',
+                  'status': 'COMPLETED',
+                  'startsAt': at1,
+                  'priceAtBooking': 650,
+                },
+                <String, dynamic>{
+                  'bookingId': 'booking-2',
+                  'serviceName': 'Дизайн нігтів',
+                  'status': 'CANCELLED',
+                  'startsAt': at2,
+                  'priceAtBooking': 400,
+                },
+              ],
+            },
+          ];
+        },
+      );
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('master-nav-tile-3')),
+      );
+      await _waitForList(tester);
+      await AppHarness.tapVisible(tester, _row('u-4'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nameKey),
+      );
+      AppHarness.expectLocation(router, '/master/clients/user/u-4');
+      await AppHarness.settle(tester);
+
+      // ── card phone: formatted chip + sheet title, canonical tel: ──────
+      final Finder chip = find.byKey(ClientCardScreen.phoneChipKey);
+      expect(
+        find.descendant(of: chip, matching: find.text(phoneShown)),
+        findsOneWidget,
+      );
+      expect(find.text(phone), findsNothing);
+      await AppHarness.tapVisible(tester, chip);
+      await AppHarness.pumpUntilFound(tester, find.byKey(kPhoneSheetCallKey));
+      expect(find.text(phoneShown), findsNWidgets(2), reason: 'chip + title');
+      await AppHarness.tapVisible(tester, find.byKey(kPhoneSheetCallKey));
+      await AppHarness.settle(tester);
+      expect(
+        verify(() => launcher.launchUrl(captureAny(), any())).captured.single,
+        'tel:$phone',
+      );
+
+      // ── one row per booking, newest first, no grouped row ─────────────
+      final Finder row1 = find.byKey(ClientCardScreen.visitKey('booking-1'));
+      final Finder row2 = find.byKey(ClientCardScreen.visitKey('booking-2'));
+      await AppHarness.pumpUntilFound(tester, row1);
+      expect(row2, findsOneWidget);
+      expect(find.byKey(ClientCardScreen.visitKey('appt-1')), findsNothing);
+      expect(
+        tester.getTopLeft(row2).dy,
+        lessThan(tester.getTopLeft(row1).dy),
+        reason: 'the 11:00 booking sits above the 10:00 one',
+      );
+      expect(
+        find.descendant(of: row1, matching: find.text('Дизайн нігтів')),
+        findsNothing,
+      );
+
+      // ── row 1 → ITS detail (formatted phone, canonical tel:) → back ───
+      await AppHarness.tapVisible(tester, row1);
+      await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
+      AppHarness.expectLocation(router, '/master/bookings/booking-1');
+      await AppHarness.settle(tester);
+      const Key phoneRow = Key('booking-detail-guest-phone');
+      await AppHarness.pumpUntilFound(tester, find.byKey(phoneRow));
+      expect(
+        find.descendant(
+          of: find.byKey(phoneRow),
+          matching: find.text(phoneShown),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text(phone), findsNothing);
+      await AppHarness.tapVisible(tester, find.byKey(phoneRow));
+      await AppHarness.settle(tester);
+      expect(
+        verify(() => launcher.launchUrl(captureAny(), any())).captured.single,
+        'tel:$phone',
+      );
+      expect(fb.getSiblingBookingDetailCalls, 0);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('booking-detail-back')),
+      );
+      await AppHarness.pumpUntilFound(tester, row2);
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, '/master/clients/user/u-4');
+
+      // ── row 2 → ITS OWN detail, not the first booking's ───────────────
+      await AppHarness.tapVisible(tester, row2);
+      await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
+      AppHarness.expectLocation(router, '/master/bookings/booking-2');
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.getSiblingBookingDetailCalls > 0,
+        description: 'booking-2 detail fetched',
+      );
+      await AppHarness.settle(tester);
+      expect(
+        find.descendant(
+          of: find.byType(BookingDetailScreen),
+          matching: find.textContaining('Дизайн нігтів'),
+        ),
+        findsWidgets,
+      );
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('booking-detail-back')),
+      );
+      await AppHarness.pumpUntilFound(tester, row1);
+      AppHarness.expectLocation(router, '/master/clients/user/u-4');
     });
   });
 

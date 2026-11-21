@@ -117,6 +117,10 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
       SalonClientListScope(:final String? masterId) => masterId,
       MyClientListScope() => null,
     };
+    // Drop the search field's focus before leaving: a keyboard dismissed with
+    // back leaves the field focused, and the route would restore that focus
+    // (reopening the keyboard) on return from the card.
+    FocusManager.instance.primaryFocus?.unfocus();
     context.pushOnce<void>(
       clientCardRoute(widget.cardBase, summary.ref, masterId: masterId),
     );

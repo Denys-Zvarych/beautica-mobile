@@ -43,7 +43,9 @@ ClientVisit _visit(
   startsAt: at,
   items: <ClientVisitItem>[
     ClientVisitItem(
-      bookingId: 'bk-$key',
+      // One row per BOOKING: the flattened key is the bookingId, so the
+      // fixture uses the same id for both.
+      bookingId: key,
       serviceName: 'Манікюр',
       status: status,
       startsAt: at,
@@ -226,6 +228,48 @@ void main() {
       expect(s.history.map((v) => v.visitKey), <String>['p1']);
       expect(s.hasMore, isTrue);
     });
+
+    test(
+      'a grouped API visit becomes ONE entry per booking (BOOK-05): key = '
+      'bookingId, newest first; next = the earliest upcoming booking',
+      () async {
+        final DateTime at = _now.add(const Duration(days: 2));
+        final repo = _Repo(
+          pages: <List<ClientVisit>>[
+            <ClientVisit>[
+              ClientVisit(
+                visitKey: 'appt-1',
+                startsAt: at,
+                items: <ClientVisitItem>[
+                  ClientVisitItem(
+                    bookingId: 'b-early',
+                    serviceName: 'Губи',
+                    status: BookingStatus.confirmed,
+                    startsAt: at,
+                  ),
+                  ClientVisitItem(
+                    bookingId: 'b-late',
+                    serviceName: 'Пілінг шкіри голови',
+                    status: BookingStatus.confirmed,
+                    startsAt: at.add(const Duration(hours: 1)),
+                  ),
+                ],
+              ),
+              _past('p1', 3),
+            ],
+          ],
+        );
+        final ClientVisitsState s = await _visits(_container(repo));
+        expect(s.visits.map((v) => v.visitKey), <String>[
+          'b-late',
+          'b-early',
+          'p1',
+        ]);
+        expect(s.visits.every((v) => v.items.length == 1), isTrue);
+        expect(s.nextVisit?.visitKey, 'b-early');
+        expect(s.history.map((v) => v.visitKey), <String>['b-late', 'p1']);
+      },
+    );
 
     test('keeps loading while every visit is in the future', () async {
       final repo = _Repo(

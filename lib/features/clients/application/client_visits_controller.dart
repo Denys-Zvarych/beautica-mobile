@@ -15,6 +15,11 @@
 // a refresh/rebuild drops its result (success OR failure) instead of
 // overwriting the fresh state (the [ClientListController] pattern).
 //
+// ONE ROW PER BOOKING (BOOK-05): every page is flattened through
+// [clientVisitsPerBooking] as it lands, so [ClientVisitsState.visits] holds one
+// single-booking entry per booking (key = bookingId); paging still follows the
+// server's page numbers.
+//
 // PII: nothing is logged.
 
 import 'dart:developer';
@@ -38,7 +43,8 @@ part 'client_visits_controller.g.dart';
 @freezed
 abstract class ClientVisitsState with _$ClientVisitsState {
   const factory ClientVisitsState({
-    /// Every loaded visit, newest first.
+    /// Every loaded booking (one single-item [ClientVisit] each), newest
+    /// first.
     required List<ClientVisit> visits,
 
     /// The "now" the head was picked against.
@@ -124,7 +130,7 @@ class ClientVisitsController extends _$ClientVisitsController {
       page: 0,
       cancelToken: token,
     );
-    List<ClientVisit> visits = List<ClientVisit>.of(page.items);
+    final List<ClientVisit> visits = clientVisitsPerBooking(page.items);
     int pages = 1;
     while (page.hasMore &&
         pages < kClientVisitLookaheadMaxPages &&
@@ -135,7 +141,7 @@ class ClientVisitsController extends _$ClientVisitsController {
         page: page.page + 1,
         cancelToken: token,
       );
-      visits = <ClientVisit>[...visits, ...page.items];
+      visits.addAll(clientVisitsPerBooking(page.items));
       pages++;
     }
     return ClientVisitsState(
@@ -167,7 +173,7 @@ class ClientVisitsController extends _$ClientVisitsController {
         current.copyWith(
           visits: List<ClientVisit>.unmodifiable(<ClientVisit>[
             ...current.visits,
-            ...page.items,
+            ...clientVisitsPerBooking(page.items),
           ]),
           page: page.page,
           hasMore: page.hasMore,
