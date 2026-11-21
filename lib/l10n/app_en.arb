@@ -3438,6 +3438,10 @@
   "@notificationTitleBookingCreated": {
     "description": "Phase 363 — title of a BOOKING_CREATED notification (provider audience)."
   },
+  "notificationTitleBookingCreatedClient": "You're booked",
+  "@notificationTitleBookingCreatedClient": {
+    "description": "M528 — title of a BOOKING_CREATED notification for the client: a link or walk-in booking attached to their account by phone (B527, NTF-67). Must equal the backend push title (PushCopy)."
+  },
   "notificationTitleCancelledByClient": "Client cancelled a booking",
   "@notificationTitleCancelledByClient": {
     "description": "Phase 363 — title of a BOOKING_CANCELLED_BY_CLIENT notification (provider audience). Gender-neutral: the API sends no gender."

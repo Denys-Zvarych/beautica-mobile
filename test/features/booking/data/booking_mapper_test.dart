@@ -1359,4 +1359,80 @@ void main() {
       );
     });
   });
+
+  // M528 / B527 (CLI-63) — a website LINK or walk-in STAFF booking attached to
+  // the client by verified phone reaches the client on `GET /bookings/me` and
+  // `GET /bookings/{id}` like an APP booking. The wire carries no source, so
+  // the mapper must take the sparser shapes these rows have: no client photo,
+  // no comments, no arrival note, no category key, no review. A future
+  // `bookingSource` key must not break decoding either.
+  group('BookingMapper.fromDto — attached LINK / STAFF rows (M528)', () {
+    Map<String, Object?> wire({required String id, Object? source}) =>
+        <String, Object?>{
+          'id': id,
+          'masterId': 'master-1',
+          'masterServiceId': 'service-1',
+          'masterFirstName': 'Оля',
+          'masterLastName': 'Коваль',
+          'masterType': 'INDEPENDENT_MASTER',
+          'serviceName': 'Манікюр',
+          'status': 'CONFIRMED',
+          'startsAt': '2026-07-10T10:00:00Z',
+          'endsAt': '2026-07-10T11:00:00Z',
+          'priceAtBooking': 500,
+          'durationMinutesAtBooking': 60,
+          'clientId': '7b1d6f0e-2c4a-4f1e-9a51-3a4d2b1c0e9f',
+          'clientFirstName': 'Ірина',
+          'canReview': true,
+          'bookingSource': ?source,
+        };
+
+    for (final String source in <String>['LINK', 'STAFF']) {
+      test('$source: decodes and maps with every optional field absent', () {
+        final BookingDetailResponse? dto = standardSerializers.deserializeWith(
+          BookingDetailResponse.serializer,
+          wire(id: 'b-$source', source: source),
+        );
+        expect(dto, isNotNull, reason: 'an unknown wire key is tolerated');
+
+        final Booking b = BookingMapper.fromDto(dto!);
+
+        expect(b.id, 'b-$source');
+        expect(b.status, BookingStatus.confirmed);
+        expect(b.isGuestBooking, isFalse, reason: 'attached = own account');
+        expect(b.clientAvatarUrl, isNull);
+        expect(b.clientLastName, isNull);
+        expect(b.clientComment, isNull);
+        expect(b.providerComment, isNull);
+        expect(b.locationNote, isNull);
+        expect(b.masterAvatarUrl, isNull);
+        expect(b.categoryKey, isNull);
+        expect(b.reviewByClient, isNull);
+        expect(
+          b.canReview,
+          isTrue,
+          reason: 'the server flag is carried, no client-side source rule',
+        );
+      });
+    }
+
+    test('fromDtoList keeps every row of a mixed APP / LINK / STAFF page', () {
+      final List<BookingDetailResponse> page = <BookingDetailResponse>[
+        for (final (String id, String? src) in <(String, String?)>[
+          ('app', null),
+          ('link', 'LINK'),
+          ('staff', 'STAFF'),
+        ])
+          standardSerializers.deserializeWith(
+            BookingDetailResponse.serializer,
+            wire(id: id, source: src),
+          )!,
+      ];
+
+      expect(
+        BookingMapper.fromDtoList(page).map((Booking b) => b.id).toList(),
+        <String>['app', 'link', 'staff'],
+      );
+    });
+  });
 }
