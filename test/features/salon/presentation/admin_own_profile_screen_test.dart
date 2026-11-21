@@ -76,6 +76,7 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -2195,5 +2196,54 @@ void _identityAvatarTests() {
         );
       });
     }
+
+    // 2026-11-21 — one photo behaviour everywhere: tapping the OWN photo opens
+    // the shared viewer with «Змінити фото» (no report); no photo → the
+    // change sheet directly.
+    Future<void> pumpWith(WidgetTester tester, String? avatar) async {
+      await tester.pumpApp(
+        const AdminOwnProfileScreen(embedded: true),
+        overrides: <Object>[
+          ..._overrides(_admin),
+          authProvider.overrideWith(
+            () => _AvatarAuth(_admin.copyWith(avatarUrl: avatar)),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Finder photo() => find.descendant(
+      of: editor,
+      matching: find.byKey(NeumorphicAvatarEditor.photoTapKey),
+    );
+
+    testWidgets('own photo tap -> the viewer with «Змінити фото», no report; '
+        '«Змінити фото» -> the change sheet over the profile', (tester) async {
+      await pumpWith(tester, url);
+      await tester.tap(photo());
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.changePhotoKey), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsNothing);
+
+      await tester.tap(find.byKey(PortfolioPhotoViewer.changePhotoKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+      expect(find.byKey(const Key('image-source-remove')), findsOneWidget);
+    });
+
+    testWidgets('monogram tap -> the change sheet directly, no viewer', (
+      tester,
+    ) async {
+      await pumpWith(tester, null);
+      await tester.tap(photo());
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+      expect(find.byKey(const Key('image-source-remove')), findsNothing);
+    });
   });
 }

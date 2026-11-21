@@ -10,38 +10,25 @@ import 'package:beautica_mobile/shared/widgets/velvet_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-/// [view] (ADDITIVE, 2026-11-21) — open the current photo full screen; only
-/// offered when the caller passes `canView: true`.
-enum ImageSourceChoice { gallery, camera, remove, view }
+// Viewing the current photo is NOT a row here (2026-11-21): tapping the photo
+// opens the shared viewer, whose «Змінити фото» opens this sheet.
+enum ImageSourceChoice { gallery, camera, remove }
 
 /// Shows the sheet; resolves with the choice, or `null` when dismissed.
 Future<ImageSourceChoice?> showImageSourceSheet(
   BuildContext context, {
   bool canRemove = false,
-  bool canView = false,
 }) {
   return showVelvetSheet<ImageSourceChoice>(
     context,
-    builder: (BuildContext ctx) =>
-        ImageSourceSheet(canRemove: canRemove, canView: canView),
+    builder: (BuildContext ctx) => ImageSourceSheet(canRemove: canRemove),
   );
 }
 
 class ImageSourceSheet extends StatelessWidget {
-  const ImageSourceSheet({
-    super.key,
-    this.canRemove = false,
-    this.canView = false,
-  });
+  const ImageSourceSheet({super.key, this.canRemove = false});
 
   final bool canRemove;
-
-  /// ADDITIVE (2026-11-21): a leading «Переглянути фото» row resolving to
-  /// [ImageSourceChoice.view]. `false` (the default) renders the sheet
-  /// exactly as before.
-  final bool canView;
-
-  static const Key viewKey = Key('image-source-view');
 
   static const double _iconSize = 22;
 
@@ -54,17 +41,6 @@ class ImageSourceSheet extends StatelessWidget {
     return VelvetSheetChrome(
       title: l10n.imageSourceTitle,
       children: <Widget>[
-        if (canView)
-          VelvetSheetOptionRow(
-            tapKey: viewKey,
-            label: l10n.profilePhotoViewAction,
-            leading: const Icon(
-              Symbols.zoom_in,
-              color: BrandColors.textSecondary,
-              size: _iconSize,
-            ),
-            onTap: () => _pop(context, ImageSourceChoice.view),
-          ),
         VelvetSheetOptionRow(
           tapKey: const Key('image-source-gallery'),
           label: l10n.imageSourceGallery,

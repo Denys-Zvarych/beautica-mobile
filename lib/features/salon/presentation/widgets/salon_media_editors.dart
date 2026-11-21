@@ -204,6 +204,12 @@ class _SalonLogoEditorState extends ConsumerState<SalonLogoEditor> {
     );
     final double? progress = upload is AvatarUploading ? upload.progress : null;
     void onTap() => _actions.tap(widget.imageUrl);
+    // 2026-11-21 — the logo itself opens the same viewer every profile photo
+    // opens («Змінити фото» → [onTap]'s sheet); no logo → the sheet directly.
+    // The badge keeps opening the sheet.
+    void onLogoTap() => upload is AvatarIdle
+        ? _actions.view(widget.imageUrl)
+        : _actions.tap(widget.imageUrl);
     return Semantics(
       button: true,
       enabled: !v.busy,
@@ -214,7 +220,7 @@ class _SalonLogoEditorState extends ConsumerState<SalonLogoEditor> {
       child: GestureDetector(
         key: const Key('salon-logo-editor'),
         behavior: HitTestBehavior.opaque,
-        onTap: v.busy ? null : onTap,
+        onTap: v.busy ? null : onLogoTap,
         child: SalonLogo(
           diameter: widget.diameter,
           monogram: widget.monogram,
@@ -234,8 +240,9 @@ class _SalonLogoEditorState extends ConsumerState<SalonLogoEditor> {
 }
 
 /// The owner's cover: [SalonCover] with the just-picked preview and the
-/// upload overlays. Keeps the cover controller alive for its own life; the
-/// tap target is [SalonCoverEditButton] in the cover's control row.
+/// upload overlays. Keeps the cover controller alive for its own life. The
+/// sheet's tap target is [SalonCoverEditButton] in the cover's control row;
+/// the cover itself opens the shared photo viewer ([photoTapKey]).
 class SalonCoverEditor extends ConsumerStatefulWidget {
   const SalonCoverEditor({
     super.key,
@@ -252,6 +259,9 @@ class SalonCoverEditor extends ConsumerStatefulWidget {
   /// The current cover (`Salon.coverImageUrl`), patched in place on upload.
   final String? imageUrl;
 
+  /// The cover's own tap target (at rest only).
+  static const Key photoTapKey = Key('salon-cover-photo');
+
   @override
   ConsumerState<SalonCoverEditor> createState() => _SalonCoverEditorState();
 }
@@ -262,24 +272,55 @@ class _SalonCoverEditorState extends ConsumerState<SalonCoverEditor> {
     final AvatarUploadState upload = ref.watch(
       salonImageUploadControllerProvider(widget.salonId, SalonImageSlot.cover),
     );
+    MediaEditActions actions() => salonImageEditActions(
+      host: this,
+      salonId: widget.salonId,
+      slot: SalonImageSlot.cover,
+      decodeSize: Size(MediaQuery.sizeOf(context).width, widget.height),
+    );
     final _UploadVisuals v = _visualsFor(
       upload,
       circular: false,
       showMessage: true,
-      onRetry: () => salonImageEditActions(
-        host: this,
-        salonId: widget.salonId,
-        slot: SalonImageSlot.cover,
-        decodeSize: Size(MediaQuery.sizeOf(context).width, widget.height),
-      ).retry(),
+      onRetry: () => actions().retry(),
     );
-    return SalonCover(
+    final Widget cover = SalonCover(
       key: const Key('salon-cover-editor'),
       height: widget.height,
       topInset: widget.topInset,
       imageUrl: widget.imageUrl,
       previewFile: v.preview,
       overlay: v.overlay,
+    );
+    // 2026-11-21 — the cover itself opens the same viewer every profile photo
+    // opens («Змінити фото» → the sheet); no cover → the sheet directly. Only
+    // at rest: the upload / failed overlays keep their own targets. The camera
+    // control ([SalonCoverEditButton]) keeps opening the sheet.
+    // The wrapper is ALWAYS present (only its tap / label switch off while
+    // busy), so a state switch never reparents — and fully rebuilds — the
+    // cover.
+    final bool atRest = upload is AvatarIdle;
+    final String? url = widget.imageUrl;
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final VoidCallback? onTap = atRest ? () => actions().view(url) : null;
+    return Semantics(
+      button: atRest,
+      label: !atRest
+          ? null
+          : url != null
+          ? l10n.profilePhotoViewAction
+          : l10n.salonCoverEditLabel,
+      onTap: onTap,
+      child: GestureDetector(
+        key: SalonCoverEditor.photoTapKey,
+        // Busy: no tap, and hits fall through to the overlays exactly as
+        // with no wrapper.
+        behavior: atRest
+            ? HitTestBehavior.opaque
+            : HitTestBehavior.deferToChild,
+        onTap: onTap,
+        child: cover,
+      ),
     );
   }
 }

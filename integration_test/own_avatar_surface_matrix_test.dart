@@ -5,6 +5,9 @@
 //     upload FROM the hub card, remove FROM the passport card, and the 503 +
 //     retry path on the passport card (the CLIENT 503 path was untested).
 //   • SALON_ADMIN 503 + retry on the own-profile identity card.
+//   • Own photo tap → the shared viewer → «Змінити фото» → the change sheet
+//     (2026-11-21) on SALON_ADMIN, CLIENT Головна + Паспорт, SALON_OWNER,
+//     SALON_MASTER.
 //   • INDEPENDENT_MASTER upload + remove FROM the own-profile header card
 //     (073 only drove it from «Особисті дані»).
 //   • SALON_MASTER remove FROM the header card, and 503 + retry there.
@@ -35,6 +38,7 @@ import 'package:beautica_mobile/features/master/presentation/public_master_profi
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -265,6 +269,124 @@ void main() {
     await AppHarness.settle(tester);
 
     await failThenRetry(tester, fb, _adminCard);
+  });
+
+  // 2026-11-21 — one photo behaviour everywhere, on the REAL shells (nested
+  // navigators): a tap on the OWN photo opens the shared full-screen viewer
+  // (no report); «Змінити фото» closes it and only THEN opens the change sheet
+  // over the profile — the sheet must be the top, hittable route (the user's
+  // SALON_ADMIN bug: it slid up under the still-open viewer).
+  group('own photo tap → viewer → «Змінити фото» → the change sheet', () {
+    for (final (String, UserRole, String, Key) c
+        in <(String, UserRole, String, Key)>[
+          (
+            'SALON_ADMIN own profile',
+            UserRole.salonAdmin,
+            RouteNames.adminOwnProfile,
+            _adminCard,
+          ),
+          ('CLIENT Головна', UserRole.client, RouteNames.clientHome, _homeCard),
+          (
+            'CLIENT Паспорт',
+            UserRole.client,
+            RouteNames.clientPassport,
+            _passportCard,
+          ),
+          (
+            'SALON_OWNER own profile',
+            UserRole.salonOwner,
+            RouteNames.ownerOwnProfile,
+            const Key('owner-own-profile-avatar-editor'),
+          ),
+          (
+            'SALON_MASTER own profile',
+            UserRole.salonMaster,
+            RouteNames.salonMasterProfile,
+            _salonMasterCard,
+          ),
+        ]) {
+      testWidgets('${c.$1}: monogram tap → the sheet; photo tap → viewer → '
+          '«Змінити фото» → remove', (tester) async {
+        final FakeBackend fb = FakeBackend();
+        final GoRouter router = await bootAs(tester, fb, c.$2);
+        Finder photo() => find.descendant(
+          of: find.byKey(c.$4),
+          matching: find.byKey(NeumorphicAvatarEditor.photoTapKey),
+        );
+
+        router.go(c.$3);
+        await AppHarness.settle(tester);
+
+        // No photo: the monogram tap opens the change sheet directly.
+        await AppHarness.tapVisible(tester, photo());
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('image-source-gallery')),
+        );
+        expect(find.byType(PortfolioPhotoViewer), findsNothing);
+        expect(find.byKey(const Key('image-source-remove')), findsNothing);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('image-source-gallery')),
+        );
+        await tester.pump();
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () =>
+              editorAt(tester, c.$4).imageUrl == _firstUrl &&
+              editorAt(tester, c.$4).previewFile == null,
+          description: '${c.$4} to render the uploaded photo',
+        );
+        await AppHarness.pumpUntilGone(
+          tester,
+          find.text(l10n(tester).avatarUpdated),
+          timeout: const Duration(seconds: 15),
+        );
+
+        // Own photo: the viewer, «Змінити фото», no report, no sheet yet.
+        await AppHarness.tapVisible(tester, photo());
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(PortfolioPhotoViewer.changePhotoKey),
+        );
+        expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+        expect(find.byKey(const Key('image-source-gallery')), findsNothing);
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(PortfolioPhotoViewer.changePhotoKey),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('image-source-remove')),
+        );
+        await AppHarness.settle(tester);
+        expect(
+          find.byType(PortfolioPhotoViewer),
+          findsNothing,
+          reason: 'the viewer is fully closed before the sheet opens',
+        );
+        // `tapVisible` hit-tests: a sheet under a live viewer cannot be hit.
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('image-source-remove')),
+        );
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () =>
+              editorAt(tester, c.$4).state == AvatarEditState.pristine &&
+              editorAt(tester, c.$4).imageUrl == null,
+          description: '${c.$4} to fall back to the monogram',
+        );
+        expect(fb.mediaAvatarDeleteCalls, 1);
+        expectSelfOnlyAvatarRequests(fb, uploads: 1, deletes: 1);
+        await AppHarness.pumpUntilGone(
+          tester,
+          find.text(l10n(tester).avatarRemoved),
+          timeout: const Duration(seconds: 15),
+        );
+      });
+    }
   });
 
   testWidgets('INDEPENDENT_MASTER: upload FROM the own-profile header; '

@@ -18,6 +18,7 @@
 //        re-read with masterId, card not) → «Усі майстри» (cached, no
 //        re-read) → phone sheet → copy → rating page → back;
 //   (a2) the guest card: `/guests/{bookingId}`, phone, unrated chip not a link;
+//   (a5) exactly ONE serving master still shows the chip row (≥1, 2026-11-21);
 //   (c)  SALON_MASTER: the server sends a phone, the card shows none (D5);
 //   (g)  blocked tag, monogram not tappable, visit → booking detail → back, visit timeline page 2 on
 //        scroll, summary-only rating page,
@@ -781,6 +782,74 @@ void main() {
         tester,
         find.byKey(ClientCardScreen.nextVisitKey),
       );
+    });
+  });
+
+  // 2026-11-21 (CLI-73) — the chips show with ≥1 master: a card served by
+  // exactly ONE master still gets «Усі майстри» + that master's chip, and
+  // the chip re-reads the visits with its masterId.
+  testWidgets('(a5) SALON_ADMIN: a card with exactly ONE master shows the '
+      'chip row; the chip filters the visits', (tester) async {
+    await mockNetworkImagesFor(() async {
+      const String adminSalon = 'salon-admin-1';
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.salonAdmin
+        ..wireClientList(salonIds: const <String>[adminSalon]);
+      _seedRoster(fb);
+      _seedCards(
+        fb,
+        salonIds: const <String>[adminSalon],
+        more: () => fb.clientCards['u-oksana']!['servedByMasters'] =
+            <Map<String, dynamic>>[
+              <String, dynamic>{'masterId': _kMasterB, 'name': 'Марта Бондар'},
+            ],
+      );
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+      await AppHarness.settle(tester);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('salon-nav-tile-3')),
+      );
+      await _waitForList(tester);
+      await AppHarness.tapVisible(tester, _row('u-oksana'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      await AppHarness.settle(tester);
+
+      expect(find.byKey(ClientCardScreen.masterChipsKey), findsOneWidget);
+      expect(find.byKey(ClientCardScreen.masterChipAllKey), findsOneWidget);
+      expect(
+        find.byKey(ClientCardScreen.masterChipKey(_kMasterB)),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ClientCardScreen.masterChipKey(_kMasterA)),
+        findsNothing,
+      );
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.masterChipKey(_kMasterB)),
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.clientCardCalls.any(
+          (String c) =>
+              c.startsWith('visits ') &&
+              c.contains('/salons/$adminSalon/') &&
+              c.endsWith(_kMasterB),
+        ),
+        description: 'the visits re-read with the single chip\'s masterId',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.visitKey('bk-v-past')),
+      );
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
     });
   });
 

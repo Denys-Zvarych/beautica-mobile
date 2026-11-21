@@ -21,7 +21,7 @@
 // MASTER CHIPS (CLI-73 / CLI-74): «Усі майстри» + one chip per
 // `servedByMasters` entry (salon-wide, server order). A chip re-keys ONLY the
 // visits controller with that `masterId` (history + «Наступний візит»); the card
-// itself is never refetched, so the chips stay put. Hidden at ≤1 master, and
+// itself is never refetched, so the chips stay put. Hidden with 0 masters, and
 // when the route's `masterId` is not one of the chips (owner master mode: the
 // view stays scoped to the owner's own master row). The selection lives in a
 // [ValueNotifier] read only by the chip row and the timeline, so a chip tap
@@ -216,14 +216,14 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
     _filterMasterId.value = masterId;
   }
 
-  /// CLI-73 — chips only on a salon card for owner / admin with >1 master,
+  /// CLI-73 — chips only on a salon card for owner / admin with ≥1 master,
   /// and only when the route's `masterId` (if any) is one of the chips.
   bool _showMasterChips(UserRole? role, ClientCard card) {
     if (widget.scope is! SalonClientListScope) return false;
     if (role != UserRole.salonOwner && role != UserRole.salonAdmin) {
       return false;
     }
-    if (card.servedByMasters.length <= 1) return false;
+    if (card.servedByMasters.isEmpty) return false;
     final String? routeMasterId = _masterId;
     return routeMasterId == null ||
         card.servedByMasters.any(

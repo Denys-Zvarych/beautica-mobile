@@ -9,7 +9,8 @@
 // flag → the shared report sheet → the report repository with the PROFILE
 // target; hidden with no target, for the viewer's own photo, once reported,
 // and signed out.
-// Plus the own-avatar source sheet's additive «Переглянути фото» row.
+// Own photo: the SAME viewer with «Змінити фото» (handed over only once the
+// viewer is closed), no report; the source sheet has no «Переглянути фото».
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
@@ -43,6 +44,9 @@ const Key _host = Key('preview-host');
 
 AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byKey(_host)));
+
+AppLocalizations _l10n0(WidgetTester tester) =>
+    AppLocalizations.of(tester.element(find.byType(ImageSourceSheet)));
 
 Future<void> _pump(
   WidgetTester tester,
@@ -285,20 +289,17 @@ void main() {
     });
   });
 
-  group('ImageSourceSheet «Переглянути фото» (own avatar)', () {
-    testWidgets('canView → the view row resolves to ImageSourceChoice.view', (
-      tester,
-    ) async {
-      ImageSourceChoice? picked;
+  group('own photo — the SAME viewer, «Змінити фото» in the action slot', () {
+    Future<void> openOwn(WidgetTester tester, VoidCallback onChange) async {
       await tester.pumpApp(
         Scaffold(
           body: Builder(
             builder: (BuildContext context) => TextButton(
               key: _host,
-              onPressed: () async => picked = await showImageSourceSheet(
+              onPressed: () => showProfilePhotoViewer(
                 context,
-                canRemove: true,
-                canView: true,
+                _url,
+                onChangePhoto: onChange,
               ),
               child: const Text('open'),
             ),
@@ -307,16 +308,88 @@ void main() {
       );
       await tester.tap(find.byKey(_host));
       await tester.pumpAndSettle();
-      expect(find.text(_l10n(tester).profilePhotoViewAction), findsOne);
-      await tester.tap(find.byKey(ImageSourceSheet.viewKey));
+    }
+
+    testWidgets('«Змінити фото» shown, no report; tap closes the viewer, '
+        'THEN hands over (once)', (tester) async {
+      final List<bool> viewerOpenAtHandOver = <bool>[];
+      await openOwn(
+        tester,
+        () => viewerOpenAtHandOver.add(
+          find.byType(PortfolioPhotoViewer).evaluate().isNotEmpty &&
+              ModalRoute.of(
+                    tester.element(find.byType(PortfolioPhotoViewer)),
+                  )?.isActive ==
+                  true,
+        ),
+      );
+      expect(find.byType(PortfolioPhotoViewer), findsOne);
+      expect(find.byKey(PortfolioPhotoViewer.changePhotoKey), findsOne);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(PortfolioPhotoViewer)),
+      );
+      expect(find.text(l10n.changePhotoCaption), findsOne);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+
+      await tester.tap(find.byKey(PortfolioPhotoViewer.changePhotoKey));
       await tester.pumpAndSettle();
-      expect(picked, ImageSourceChoice.view);
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(viewerOpenAtHandOver, <bool>[false]);
     });
 
-    testWidgets('default → no view row', (tester) async {
-      await tester.pumpApp(const Scaffold(body: ImageSourceSheet()));
+    testWidgets('hand-over waits for the viewer route to COMPLETE (close '
+        'animation dismissed), not just to start closing', (tester) async {
+      final List<bool> viewerGoneAtHandOver = <bool>[];
+      await openOwn(tester, () {
+        final Iterable<Element> viewer = find
+            .byType(PortfolioPhotoViewer)
+            .evaluate();
+        viewerGoneAtHandOver.add(
+          viewer.isEmpty ||
+              ModalRoute.of(viewer.first)?.animation?.status ==
+                  AnimationStatus.dismissed,
+        );
+      });
+      await tester.tap(find.byKey(PortfolioPhotoViewer.changePhotoKey));
+      // Mid close-animation: nothing handed over yet.
       await tester.pump();
-      expect(find.byKey(ImageSourceSheet.viewKey), findsNothing);
+      // fixed-wait-ok: samples mid-close-animation frame to prove the change sheet is not shown before route.completed
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(viewerGoneAtHandOver, isEmpty);
+      await tester.pumpAndSettle();
+      expect(viewerGoneAtHandOver, <bool>[true]);
+    });
+
+    testWidgets('closed with ✕ → no hand-over', (tester) async {
+      int calls = 0;
+      await openOwn(tester, () => calls++);
+      await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(calls, 0);
+    });
+
+    testWidgets(
+      'someone else\'s photo (no onChangePhoto) → no «Змінити фото»',
+      (tester) async {
+        await _openViewer(
+          tester,
+          const ProfileAvatar(imageUrl: _url, previewOnTap: true),
+          overrides: const <Object>[],
+        );
+        expect(find.byKey(PortfolioPhotoViewer.changePhotoKey), findsNothing);
+      },
+    );
+
+    testWidgets('the source sheet has no «Переглянути фото» row', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const Scaffold(body: ImageSourceSheet(canRemove: true)),
+      );
+      await tester.pump();
+      expect(find.text(_l10n0(tester).profilePhotoViewAction), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsOne);
     });
   });
 }

@@ -1,7 +1,7 @@
 // M510 — the provider client card (CLI-48): every state, the phone / rating
 // chips, the timeline (D4), the not-found state and one-layout-for-all; the
-// salon master chips (CLI-73 / CLI-74): owner / admin only, hidden at ≤1
-// master, a chip re-reads ONLY the visits with its `masterId`.
+// salon master chips (CLI-73 / CLI-74): owner / admin only, hidden with 0
+// masters, a chip re-reads ONLY the visits with its `masterId`.
 //
 // The repository is faked at the `ClientRepository` seam; the router is a stub
 // that records the rating / booking routes the card opens. Layout at 360 / 414
@@ -1117,14 +1117,20 @@ void main() {
       expect(repo.visitScopes.toSet(), <ClientListScope>{ownScope});
     });
 
-    testWidgets('one master → no chip row', (tester) async {
+    testWidgets('one master → chip row: «Усі майстри» + that master', (
+      tester,
+    ) async {
       await _pump(
         tester,
         _Repo(card: (ClientRef r) => _card(r, served: two.sublist(0, 1))),
         role: UserRole.salonOwner,
         scope: salon,
       );
-      expect(chips(), findsNothing);
+      expect(chips(), findsOneWidget);
+      expect(all(), findsOneWidget);
+      expect(chip(m2), findsOneWidget);
+      expect(chip(m1), findsNothing);
+      expect(selected(tester, all()), isTrue);
     });
 
     testWidgets('no masters → no chip row', (tester) async {

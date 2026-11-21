@@ -31,6 +31,8 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_media_editors.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -263,13 +265,69 @@ void main() {
       expect(find.byKey(const Key('image-source-remove')), findsNothing);
     });
 
-    testWidgets('a tap on the logo mark itself opens the sheet too; with a '
-        'logo it offers remove', (tester) async {
+    // 2026-11-21 — one photo behaviour everywhere: the logo / cover ITSELF
+    // opens the shared viewer with «Змінити фото» (no report) → the sheet;
+    // no photo → the sheet directly; the badge / camera control → the sheet.
+    Future<void> viewerThenChange(WidgetTester tester, Finder photo) async {
+      await tester.tap(photo);
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsNothing);
+      await tester.tap(find.byKey(PortfolioPhotoViewer.changePhotoKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(const Key('image-source-remove')), findsOneWidget);
+    }
+
+    testWidgets('a tap on the logo mark itself (with a logo) opens the viewer; '
+        '«Змінити фото» → the sheet with remove', (tester) async {
       _seed = _salon.copyWith(avatarUrl: _kLogo);
+      await pump(tester, UserRole.salonOwner);
+      await viewerThenChange(
+        tester,
+        find.byKey(const Key('salon-logo-editor')),
+      );
+    });
+
+    testWidgets('with a logo the badge still opens the sheet directly', (
+      tester,
+    ) async {
+      _seed = _salon.copyWith(avatarUrl: _kLogo);
+      await pump(tester, UserRole.salonOwner);
+      await tester.tap(find.byKey(const Key('salon-logo-edit-badge')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(const Key('image-source-remove')), findsOneWidget);
+    });
+
+    testWidgets('no logo: the mark tap opens the sheet directly', (
+      tester,
+    ) async {
       await pump(tester, UserRole.salonOwner);
       await tester.tap(find.byKey(const Key('salon-logo-editor')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('image-source-remove')), findsOneWidget);
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+      expect(find.byKey(const Key('image-source-remove')), findsNothing);
+    });
+
+    testWidgets('a tap on the cover itself (with a cover) opens the viewer; '
+        '«Змінити фото» → the sheet with remove', (tester) async {
+      _seed = _salon.copyWith(coverImageUrl: _kCover);
+      await pump(tester, UserRole.salonOwner);
+      await viewerThenChange(tester, find.byKey(SalonCoverEditor.photoTapKey));
+    });
+
+    testWidgets('no cover: the cover tap opens the sheet directly', (
+      tester,
+    ) async {
+      await pump(tester, UserRole.salonOwner);
+      await tester.tap(find.byKey(SalonCoverEditor.photoTapKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+      expect(find.byKey(const Key('image-source-remove')), findsNothing);
     });
 
     testWidgets('a tap on the cover control opens the sheet', (tester) async {
