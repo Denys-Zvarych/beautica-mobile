@@ -32,10 +32,11 @@ import 'package:beautica_mobile/features/master/presentation/widgets/profile_ava
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/relative_date.dart';
-import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
-import 'package:beautica_mobile/shared/time/time_zones.dart';
 
-/// A client row. [now] feeds the screen-reader «останній візит» wording only.
+/// A client row. [now] feeds the screen-reader «останній візит» wording, the
+/// year rule of the short dates (a date outside the current Kyiv year shows its
+/// year) and drops a «Наст.» whose start has already passed (the server value
+/// is from the last fetch; the screen re-reads [now] on app resume).
 class ClientListRow extends StatelessWidget {
   const ClientListRow({
     super.key,
@@ -59,15 +60,21 @@ class ClientListRow extends StatelessWidget {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final ClientSummary s = summary;
     final DateTime? lastAt = s.lastVisitAt;
-    final DateTime? nextAt = s.nextVisitAt;
+    // A next visit whose start instant is not after [now] is no longer
+    // "next" — an absolute-instant comparison, not a calendar day.
+    final DateTime? nextAt = switch (s.nextVisitAt) {
+      final DateTime at when at.isAfter(now) => at,
+      _ => null,
+    };
 
     // Short meta — Kyiv wall-clock, the shipped formatters.
     final String? lastLine = lastAt == null
         ? null
-        : '${l10n.clientsRowLastVisitShort}: ${_shortDay(lastAt)}';
+        : '${l10n.clientsRowLastVisitShort}: '
+              '${formatShortDay(lastAt, now: now)}';
     final String? nextLine = nextAt == null
         ? null
-        : '${l10n.clientsRowNextVisitShort}: ${_nextWhen(nextAt)}';
+        : '${l10n.clientsRowNextVisitShort}: ${_nextWhen(nextAt, now)}';
 
     final String name = s.displayName ?? l10n.bookingDetailGuestClient;
     final String? lastRelative = lastAt == null
@@ -77,7 +84,8 @@ class ClientListRow extends StatelessWidget {
       lastRelative == null
           ? l10n.clientsRowSemanticsNoVisit(name)
           : l10n.clientsRowSemantics(name, lastRelative),
-      if (nextAt != null) '${l10n.clientsRowNextVisit}: ${_nextWhen(nextAt)}',
+      if (nextAt != null)
+        '${l10n.clientsRowNextVisit}: ${_nextWhen(nextAt, now)}',
       if (s.blocked) l10n.clientBlockedBadge,
     ].join(', ');
 
@@ -115,15 +123,9 @@ class ClientListRow extends StatelessWidget {
     );
   }
 
-  /// «7 лис».
-  static String _shortDay(DateTime instant) {
-    final DateTime local = toBeauticaTime(instant);
-    return '${local.day} ${monthAbbrev(local.month)}';
-  }
-
-  /// «пт, 20 лис, 14:00».
-  static String _nextWhen(DateTime instant) =>
-      '${formatBookingDayHeader(instant)}, ${formatSlotTime(instant)}';
+  /// «пт, 20 лис, 14:00» («пт, 8 січ 2027, 14:00» outside the Kyiv year).
+  static String _nextWhen(DateTime instant, DateTime now) =>
+      '${formatBookingDayHeader(instant, now: now)}, ${formatSlotTime(instant)}';
 }
 
 /// `feedbackMutedSm` (11 sp, the app's secondary-meta size). Never

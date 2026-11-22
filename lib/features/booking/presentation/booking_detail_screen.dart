@@ -122,6 +122,7 @@ class BookingDetailScreen extends ConsumerStatefulWidget {
     this.onUnavailable,
     this.leaveReviewRouteBuilder,
     this.clientCardBase,
+    this.openedFromClientCard = false,
   });
 
   /// 2026-11-21 — the «Клієнти» list base this PROVIDER mount's client card
@@ -135,6 +136,14 @@ class BookingDetailScreen extends ConsumerStatefulWidget {
   /// ADDITIVE and NULLABLE — a ROUTE parameter like
   /// [clientReviewRouteBuilder], never a role flag (decision D5).
   final String? Function(String? salonId)? clientCardBase;
+
+  /// Client-profile audit (2026-11-22) — this detail was pushed FROM that
+  /// client's card (`?fromClientCard=1`, [kBookingFromClientCardQuery]): the
+  /// client strip then POPS back to the card below instead of pushing another
+  /// copy (card → detail → card → … without end). Falls back to the push when
+  /// nothing can be popped (a deep link carrying the flag). Default `false`:
+  /// every other mount pushes exactly as before.
+  final bool openedFromClientCard;
 
   /// Phase 364 — builds the path of the CLIENT's own «Залишити відгук про
   /// майстра» push. NOT [clientReviewRouteBuilder]: that one aims the
@@ -583,7 +592,13 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     final String path = clientId == null
         ? RouteNames.clientCardGuest(base, booking.id)
         : RouteNames.clientCardUser(base, clientId);
-    return () => context.pushOnce<void>(path);
+    return () {
+      if (widget.openedFromClientCard && context.canPop()) {
+        context.pop();
+        return;
+      }
+      context.pushOnce<void>(path);
+    };
   }
 
   @override

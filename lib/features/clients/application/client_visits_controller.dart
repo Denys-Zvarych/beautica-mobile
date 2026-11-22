@@ -5,7 +5,14 @@
 // at the END of the future block. The first load therefore keeps fetching pages
 // (at most [kClientVisitLookaheadMaxPages]) while every loaded visit is still
 // in the future and more pages exist; the head is then the true next visit.
-// "Now" is the injected clock, read once per build.
+// "Now" is the injected clock, read once per build and again by [refreshNow]
+// (the card calls it on app resume, so a head whose start passed while the app
+// was backgrounded moves into the history — no polling).
+//
+// A failed LOOKAHEAD page (1..max-1) never fails the timeline: the pages
+// already loaded are kept, the lookahead stops, and the state carries
+// [ClientVisitsState.loadMoreFailed] so the retry footer offers the next page
+// (page 0 failing is still the timeline's error state).
 //
 // A failed append keeps the list and raises [ClientVisitsState.loadMoreFailed],
 // which pauses auto-append until [retryLoadMore] (the scroll listener would
@@ -24,6 +31,9 @@
 // the instance stays cached for [kClientVisitsCacheFor] before it disposes, so
 // a quick chip back-and-forth reuses the loaded pages instead of re-reading
 // page 0 + the lookahead. A new listener inside the window cancels the timer.
+// Every booking mutation (complete / decline / cancel / block / create) drops
+// the WHOLE family through `booking_calendar_invalidation.dart`, so a card
+// reopened inside the window after a mutation is always re-read.
 //
 // PII: nothing is logged.
 
@@ -142,15 +152,24 @@ class ClientVisitsController extends _$ClientVisitsController {
     );
     final List<ClientVisit> visits = clientVisitsPerBooking(page.items);
     int pages = 1;
+    bool lookaheadFailed = false;
     while (page.hasMore &&
         pages < kClientVisitLookaheadMaxPages &&
         nextVisitLookaheadPending(visits, now)) {
-      page = await repo.getVisits(
-        scope,
-        client,
-        page: page.page + 1,
-        cancelToken: token,
-      );
+      try {
+        page = await repo.getVisits(
+          scope,
+          client,
+          page: page.page + 1,
+          cancelToken: token,
+        );
+      } catch (_) {
+        // Disposed / superseded: the result is never read anyway.
+        if (token.isCancelled) rethrow;
+        log('visits lookahead failed', name: _tag, level: 900);
+        lookaheadFailed = true;
+        break;
+      }
       visits.addAll(clientVisitsPerBooking(page.items));
       pages++;
     }
@@ -159,7 +178,18 @@ class ClientVisitsController extends _$ClientVisitsController {
       asOf: now,
       page: page.page,
       hasMore: page.hasMore,
+      loadMoreFailed: lookaheadFailed,
     );
+  }
+
+  /// Re-reads "now" (the injected clock) so the head / history split is
+  /// recomputed against it — the card calls this on app resume. No request.
+  void refreshNow() {
+    final ClientVisitsState? current = state.value;
+    if (state.isLoading || current == null) return;
+    final DateTime now = ref.read(clockProvider)();
+    if (now == current.asOf) return;
+    state = AsyncData<ClientVisitsState>(current.copyWith(asOf: now));
   }
 
   /// The standard cache-for pattern: keep alive while unlistened for

@@ -34,11 +34,29 @@ String _twoDigits(int v) => v.toString().padLeft(2, '0');
 /// wall-clock via [toBeauticaTime] so the DATE reads at the salon's local zone —
 /// a late-evening Kyiv slot is a previous-day date in UTC, so the
 /// day/weekday/month must all come from the Kyiv value.
-String formatBookingDayHeader(DateTime day) {
+///
+/// [now] (optional, additive): when given and [day] falls outside the CURRENT
+/// Kyiv year of [now], the year is appended — "пн, 14 лип 2025". `null` (every
+/// pre-existing caller) keeps the year-less label byte-identical.
+String formatBookingDayHeader(DateTime day, {DateTime? now}) {
   final DateTime local = toBeauticaTime(day);
   final String wd = weekdayAbbrev(local.weekday);
   final String mon = monthAbbrev(local.month);
-  return '$wd, ${local.day} $mon';
+  return '$wd, ${local.day} $mon${_yearSuffix(local, now)}';
+}
+
+/// A compact day + month, e.g. "7 лис" — "7 лис 2025" when [day] falls outside
+/// the current Kyiv year of [now] (the «Клієнти» row's «Ост.» line).
+String formatShortDay(DateTime day, {required DateTime now}) {
+  final DateTime local = toBeauticaTime(day);
+  return '${local.day} ${monthAbbrev(local.month)}${_yearSuffix(local, now)}';
+}
+
+/// " 2025" when the Kyiv-local [local] is not in [now]'s Kyiv year, else "".
+String _yearSuffix(DateTime local, DateTime? now) {
+  if (now == null) return '';
+  final int year = toBeauticaTime(now).year;
+  return local.year == year ? '' : ' ${local.year}';
 }
 
 /// Formats the chosen appointment window, e.g. "вт, 14 лип · 14:00–18:30".

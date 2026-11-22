@@ -6,6 +6,9 @@
 //     a nameless guest («Гість», no kind label) and a name that wraps
 //   • clients_screen_empty_360_1x       — empty roster (search hidden)
 //   • clients_screen_error_360_1x       — ErrorState with retry
+//   • clients_screen_previous_year_360_1x — client-profile audit (2026-11-22):
+//     a «Ост.» from the previous Kyiv year carries its year
+//     («Ост.: 14 тра 2025»), a current-year one does not
 //
 // Preview parity: `docs/signup-designs/ClientsTab/` (list at 360 px, master
 // bar host). Dates are fixed instants; Kyiv wall-clock formatting is exercised
@@ -121,6 +124,29 @@ void main() {
       builder: _screen,
     );
   }
+
+  goldenTest(
+    'clients screen — previous-year «Ост.» shows the year',
+    fileName: 'clients_screen_previous_year_360_1x',
+    constraints: BoxConstraints.tight(screen),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      width: width,
+      overrides: _overrides(
+        _Repo(<ClientSummary>[
+          ClientSummary(
+            ref: const ClientRef.registered('u9'),
+            displayName: 'Людмила Савчук',
+            lastVisitAt: DateTime.utc(2025, 5, 14, 9),
+            ratingAvg: 5,
+            ratingCount: 2,
+          ),
+          _rows.first,
+        ]),
+      ),
+    ),
+    builder: _screen,
+  );
 
   goldenTest(
     'clients screen — empty',

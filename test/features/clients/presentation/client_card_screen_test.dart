@@ -16,6 +16,7 @@ import 'dart:ui' show Tristate;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -211,6 +212,9 @@ class _Harness {
   final _FakeClipboard clipboard = _FakeClipboard();
   final List<String> opened = <String>[];
 
+  /// The injected clock's value (mutable for the app-resume test).
+  DateTime now = _now;
+
   late final GoRouter router = GoRouter(
     routes: <RouteBase>[
       GoRoute(
@@ -252,7 +256,7 @@ class _Harness {
     authProvider.overrideWith(
       () => FixedRoleAuth(role ?? UserRole.independentMaster),
     ),
-    clockProvider.overrideWithValue(() => _now),
+    clockProvider.overrideWithValue(() => now),
     clipboardServiceProvider.overrideWithValue(clipboard),
     ...extra,
   ];
@@ -612,10 +616,20 @@ void main() {
           ],
         ),
       );
-      // i18n-finder-ok: asserts the exact month-label format
-      expect(find.text('Листопад 2026'), findsOneWidget);
-      // i18n-finder-ok: asserts the exact month-label format
-      expect(find.text('Жовтень 2026'), findsOneWidget);
+      // By the month row's key (Kyiv year * 12 + month); the values pin the
+      // exact month-label format.
+      String? month(int year, int m) => tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(
+                ValueKey<String>('timeline-month-${year * 12 + m}'),
+              ),
+              matching: find.byType(Text),
+            ),
+          )
+          .data;
+      expect(month(2026, 11), 'Листопад 2026');
+      expect(month(2026, 10), 'Жовтень 2026');
     });
 
     testWidgets('no master name, counters, kind label or «З нами з»', (
@@ -709,7 +723,9 @@ void main() {
         );
         await tester.tap(peel);
         await tester.pumpAndSettle();
-        expect(h.opened, <String>['/master/bookings/b-peel']);
+        expect(h.opened, <String>[
+          '/master/bookings/b-peel?$kBookingFromClientCardQuery=1',
+        ]);
       });
 
       testWidgets('a long service name wraps by WORD, not per letter (360)', (
@@ -772,7 +788,47 @@ void main() {
       );
       await tester.tap(find.byKey(ClientCardScreen.visitKey('p1')));
       await tester.pumpAndSettle();
-      expect(h.opened, <String>['/master/bookings/p1']);
+      expect(h.opened, <String>[
+        '/master/bookings/p1?$kBookingFromClientCardQuery=1',
+      ]);
+    });
+
+    testWidgets('app resume re-reads now: a «Наступний візит» whose start '
+        'passed while backgrounded moves into the history, no request', (
+      tester,
+    ) async {
+      final _Repo repo = _Repo(
+        card: (ref) => _card(ref),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[
+            _visit(
+              'soon',
+              _now.add(const Duration(hours: 1)),
+              status: BookingStatus.confirmed,
+            ),
+            _visit('p1', _now.subtract(const Duration(days: 9))),
+          ],
+        ],
+      );
+      final _Harness h = await _pump(tester, repo);
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
+      final int reads = repo.visitPages.length;
+
+      h.now = _now.add(const Duration(hours: 2));
+      for (final AppLifecycleState st in <AppLifecycleState>[
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(st);
+      }
+      await tester.pumpAndSettle();
+      expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
+      expect(find.byKey(ClientCardScreen.visitKey('soon')), findsOneWidget);
+      expect(repo.visitPages.length, reads, reason: 'no refetch on resume');
     });
 
     testWidgets('scrolling to the end loads the next page of visits', (
@@ -1020,18 +1076,17 @@ void main() {
       expect(find.byKey(ClientCardScreen.visitKey('m1-past')), findsNothing);
     });
 
-    testWidgets('a route masterId starts with that chip selected', (
-      tester,
-    ) async {
+    testWidgets('a route masterId (master mode) → no chip row even when that '
+        'master is among the chips; visits stay scoped to it', (tester) async {
       final _Repo repo = repoWithFilter();
-      await _pump(
-        tester,
-        repo,
-        role: UserRole.salonAdmin,
-        scope: const ClientListScope.salon(salonId: 's-1', masterId: m1),
+      const ClientListScope routeScope = ClientListScope.salon(
+        salonId: 's-1',
+        masterId: m1,
       );
-      expect(selected(tester, chip(m1)), isTrue);
-      expect(selected(tester, all()), isFalse);
+      await _pump(tester, repo, role: UserRole.salonAdmin, scope: routeScope);
+      expect(chips(), findsNothing);
+      expect(all(), findsNothing);
+      expect(repo.visitScopes.toSet(), <ClientListScope>{routeScope});
     });
 
     testWidgets('a chip tap rebuilds the chips + timeline, NOT the header', (
@@ -1104,16 +1159,27 @@ void main() {
       expect(selected(tester, chip('not-a-uuid')), isFalse);
     });
 
-    testWidgets('owner master mode: a route masterId NOT among the chips → no '
-        'chip row, the visits stay scoped to it', (tester) async {
+    testWidgets('owner master mode: servedByMasters (salon-wide) includes the '
+        'owner\'s own row → still no chip row, no «Усі майстри», the visits '
+        'stay scoped to the own row', (tester) async {
       const String own = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
       const ClientListScope ownScope = ClientListScope.salon(
         salonId: 's-1',
         masterId: own,
       );
-      final _Repo repo = repoWithFilter();
+      // Realistic: the backend's `servedByMasters` is salon-wide, so the
+      // owner's own master row is always present beside the others.
+      final _Repo repo = repoWithFilter()
+        ..card = (ClientRef r) => _card(
+          r,
+          served: const <ClientServedMaster>[
+            ClientServedMaster(masterId: own, name: 'Власниця'),
+            ...two,
+          ],
+        );
       await _pump(tester, repo, role: UserRole.salonOwner, scope: ownScope);
       expect(chips(), findsNothing);
+      expect(all(), findsNothing);
       expect(repo.visitScopes.toSet(), <ClientListScope>{ownScope});
     });
 
@@ -1207,6 +1273,61 @@ void main() {
     });
   });
 
+  group('pull-to-refresh failure keeps the loaded card', () {
+    Future<void> pull(WidgetTester tester) async {
+      await tester.fling(
+        find.byType(CustomScrollView).first,
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('card refetch fails → header + timeline stay, error snack', (
+      tester,
+    ) async {
+      final _Repo repo = _Repo(
+        card: (ref) => _card(ref),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_visit('p1', _now.subtract(const Duration(days: 9)))],
+        ],
+      );
+      await _pump(tester, repo);
+      repo.cardFailure = const NetworkFailure();
+      await pull(tester);
+      expect(repo.cardScopes.length, greaterThan(1), reason: 'refetched');
+      expect(find.byKey(ClientCardScreen.errorKey), findsNothing);
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
+      expect(find.byKey(ClientCardScreen.visitKey('p1')), findsOneWidget);
+      expectVelvetSnack(
+        const NetworkFailure().userMessage(
+          tester.element(find.byType(ClientCardScreen)),
+        ),
+      );
+    });
+
+    testWidgets('visits refetch fails → the loaded timeline stays, error '
+        'snack, no visits error state', (tester) async {
+      final _Repo repo = _Repo(
+        card: (ref) => _card(ref),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_visit('p1', _now.subtract(const Duration(days: 9)))],
+        ],
+      );
+      await _pump(tester, repo);
+      repo.failVisitPages.add(0);
+      await pull(tester);
+      expect(repo.visitPages, <int>[0, 0]);
+      expect(find.byKey(ClientCardScreen.visitsErrorKey), findsNothing);
+      expect(find.byKey(ClientCardScreen.visitKey('p1')), findsOneWidget);
+      expectVelvetSnack(
+        const NetworkFailure().userMessage(
+          tester.element(find.byType(ClientCardScreen)),
+        ),
+      );
+    });
+  });
+
   group('layout (no overflow — the suite guard fails on any)', () {
     for (final double width in <double>[360, 414]) {
       for (final double scale in <double>[1.0, 1.3]) {
@@ -1238,6 +1359,97 @@ void main() {
         });
       }
     }
+
+    // Client-profile audit — the worst realistic header + chip row: one
+    // unbreakable name word and a long master name on a chip, owner salon
+    // card (chips shown) at the narrowest width and the largest text scale.
+    testWidgets('360 px × text 1.3: a long single-word name and a long '
+        'master-chip label do not overflow', (tester) async {
+      const String m1 = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      const String longWord = 'Костянтинопольська-Хрещатицька';
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) => _card(
+            ref,
+            name: longWord,
+            blocked: true,
+            served: const <ClientServedMaster>[
+              ClientServedMaster(
+                masterId: m1,
+                name: 'Олександра Ковальчук-Мельниченко',
+              ),
+            ],
+          ),
+          pages: <List<ClientVisit>>[
+            <ClientVisit>[_visit('p', _now.subtract(const Duration(days: 9)))],
+          ],
+        ),
+        role: UserRole.salonOwner,
+        scope: const ClientListScope.salon(salonId: 's-1'),
+        textScale: 1.3,
+      );
+      expect(find.byKey(ClientCardScreen.masterChipKey(m1)), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.byKey(ClientCardScreen.nameKey)).data,
+        longWord,
+      );
+      // The chip row scrolls horizontally (by design): the long chip must
+      // fit the screen on its own and be scrollable fully into view.
+      final Finder chip = find.byKey(ClientCardScreen.masterChipKey(m1));
+      expect(tester.getSize(chip).width, lessThan(360));
+      await tester.ensureVisible(chip);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(chip).right, lessThanOrEqualTo(360));
+      expect(tester.getRect(chip).left, greaterThanOrEqualTo(0));
+    });
+
+    // Audit cycle 2 — a ~41-char master name used to make the chip 367 px at
+    // 360 px × 1.3 (label clipped, never ellipsised): the chip is now capped
+    // at the row's width and its one-line label ends in an ellipsis.
+    testWidgets('360 px × text 1.3: a 41-char master name ellipsises inside '
+        'the screen, no overflow', (tester) async {
+      const String m1 = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      const String longMaster = 'Олександра-Вікторія Ковальчук-Мельниченко';
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) => _card(
+            ref,
+            name: 'Олена Петренко',
+            served: const <ClientServedMaster>[
+              ClientServedMaster(masterId: m1, name: longMaster),
+            ],
+          ),
+          pages: <List<ClientVisit>>[
+            <ClientVisit>[_visit('p', _now.subtract(const Duration(days: 9)))],
+          ],
+        ),
+        role: UserRole.salonOwner,
+        scope: const ClientListScope.salon(salonId: 's-1'),
+        textScale: 1.3,
+      );
+      final Finder chip = find.byKey(ClientCardScreen.masterChipKey(m1));
+      expect(chip, findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final Finder label = find.descendant(
+        of: chip,
+        matching: find.text(longMaster),
+      );
+      final Text text = tester.widget<Text>(label);
+      expect(text.maxLines, 1);
+      expect(text.overflow, TextOverflow.ellipsis);
+      // The label really is truncated (ellipsis drawn), not merely allowed to.
+      final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+        label,
+      );
+      expect(paragraph.didExceedMaxLines, isTrue);
+      expect(tester.getSize(chip).width, lessThanOrEqualTo(360));
+      await tester.ensureVisible(chip);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(chip).right, lessThanOrEqualTo(360));
+      expect(tester.getRect(chip).left, greaterThanOrEqualTo(0));
+    });
   });
 
   // ── 2026-11-21 — the top bar «⋯»: the SAME report / block / unblock flow
@@ -1509,7 +1721,7 @@ void main() {
     });
 
     testWidgets('registered: the anchor booking belongs to ANOTHER client → '
-        '«⋯» does nothing (no sheet, no report / block, no snack)', (
+        'no sheet, no report / block, an error snack (not silence)', (
       tester,
     ) async {
       final FakeClientBlockRepository blocks = FakeClientBlockRepository();
@@ -1527,14 +1739,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ClientActionsSheet), findsNothing);
       expect(find.byType(ReportSheet), findsNothing);
-      expect(find.byType(SnackBar), findsNothing);
+      expectVelvetSnack(_l10n(tester).errUnknown);
       expect(blocks.calls, isEmpty);
       expect(reports.requests, isEmpty);
     });
 
-    testWidgets('registered: a null-client anchor booking → «⋯» does nothing', (
-      tester,
-    ) async {
+    testWidgets('registered: a null-client anchor booking → no sheet, an '
+        'error snack', (tester) async {
       await _pump(
         tester,
         regRepo(),
@@ -1543,7 +1754,57 @@ void main() {
       await tester.tap(more);
       await tester.pumpAndSettle();
       expect(find.byType(ClientActionsSheet), findsNothing);
-      expect(find.byType(SnackBar), findsNothing);
+      expectVelvetSnack(_l10n(tester).errUnknown);
+    });
+
+    bool moreEnabled(WidgetTester tester) =>
+        tester.widget<NeumorphicIconButton>(more).enabled;
+
+    testWidgets('registered: «⋯» is disabled while the visits fail (no anchor '
+        'yet) and does nothing on tap', (tester) async {
+      final _Repo repo = regRepo()..failVisitPages.add(0);
+      await _pump(tester, repo, extra: env(anchor('bk-1')));
+      expect(find.byKey(ClientCardScreen.visitsErrorKey), findsOneWidget);
+      expect(more, findsOneWidget);
+      expect(moreEnabled(tester), isFalse);
+      await tester.tap(more, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byType(ClientActionsSheet), findsNothing);
+    });
+
+    testWidgets('registered: «⋯» is disabled with no visits at all', (
+      tester,
+    ) async {
+      final _Repo repo = _Repo(
+        card: (ClientRef r) => _card(r),
+        pages: <List<ClientVisit>>[<ClientVisit>[]],
+      );
+      await _pump(tester, repo, extra: env(anchor('bk-1')));
+      expect(moreEnabled(tester), isFalse);
+    });
+
+    testWidgets('registered: «⋯» enables once the anchor visit is loaded', (
+      tester,
+    ) async {
+      await _pump(tester, regRepo(), extra: env(anchor('bk-1')));
+      expect(moreEnabled(tester), isTrue);
+    });
+
+    testWidgets('guest: «⋯» is enabled even before / without visits', (
+      tester,
+    ) async {
+      final _Repo repo = _Repo(
+        card: (ClientRef r) => _card(r),
+        pages: <List<ClientVisit>>[<ClientVisit>[]],
+      )..failVisitPages.add(0);
+      await _pump(
+        tester,
+        repo,
+        client: _gst,
+        role: UserRole.independentMaster,
+        extra: env(anchor('b-1', clientId: null)),
+      );
+      expect(moreEnabled(tester), isTrue);
     });
   });
 }

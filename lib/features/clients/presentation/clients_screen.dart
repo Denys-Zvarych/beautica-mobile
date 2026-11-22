@@ -29,6 +29,13 @@
 // A row tap opens the client's card (M510) — a registered row at `user/:id`,
 // a guest at `guest/:bookingId` below [cardBase].
 //
+// Rebuild scope: the Scaffold watches only the "empty roster" bool; the list
+// body is its own [Consumer], so a load-more toggle rebuilds the list alone.
+// A failed pull to refresh keeps the rows and shows an error snack. On app
+// resume the rows re-read "now" (a passed «Наст.» drops off — no polling).
+// The controller is cached for 30 s, so a tab round-trip keeps pages and the
+// applied search; the field is re-seeded with that search on mount.
+//
 // PII: names render, never log; no phone anywhere (CLI-47).
 
 import 'package:flutter/material.dart';
@@ -47,6 +54,7 @@ import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_list_row.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/list_card_skeleton.dart';
 import 'package:beautica_mobile/shared/widgets/load_more_retry_footer.dart';
@@ -90,13 +98,35 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
   /// `my_bookings_screen`'s load-more threshold.
   static const double _loadMoreThreshold = 320;
 
-  final TextEditingController _search = TextEditingController();
+  /// Seeded with the cached list's applied search (see the file header).
+  late final TextEditingController _search;
+
+  /// Ticks on resume so ONLY the list body rebuilds and re-reads its "now"
+  /// (the top bar and search field stay put).
+  final ValueNotifier<int> _resumeTick = ValueNotifier<int>(0);
+
+  late final AppLifecycleListener _lifecycle;
 
   ClientListControllerProvider get _provider =>
       clientListControllerProvider(widget.scope);
 
   @override
+  void initState() {
+    super.initState();
+    _search = TextEditingController(
+      text: ref.read(_provider).value?.query ?? '',
+    );
+    _lifecycle = AppLifecycleListener(
+      onResume: () {
+        if (mounted) _resumeTick.value++;
+      },
+    );
+  }
+
+  @override
   void dispose() {
+    _lifecycle.dispose();
+    _resumeTick.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -110,7 +140,17 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
     return false;
   }
 
-  Future<void> _refresh() => ref.read(_provider.notifier).refresh();
+  /// Pull to refresh: a failure over loaded rows keeps them + an error snack.
+  Future<void> _refresh() async {
+    final Object? error = await ref.read(_provider.notifier).refresh();
+    if (error == null || !mounted) return;
+    showErrorSnack(
+      context,
+      (error is Failure ? error : UnknownFailure(cause: error)).userMessage(
+        context,
+      ),
+    );
+  }
 
   void _open(ClientSummary summary) {
     final String? masterId = switch (widget.scope) {
@@ -129,14 +169,17 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final AsyncValue<ClientListState> async = ref.watch(_provider);
-    final ClientListState? data = async.value;
     // An empty roster (no clients, no term applied) has nothing to search.
-    final bool emptyRoster =
-        !async.hasError &&
-        data != null &&
-        data.items.isEmpty &&
-        data.query == null;
+    // Only this bool is watched here: the list body is its own Consumer.
+    final bool emptyRoster = ref.watch(
+      _provider.select((AsyncValue<ClientListState> async) {
+        final ClientListState? data = async.value;
+        return !async.hasError &&
+            data != null &&
+            data.items.isEmpty &&
+            data.query == null;
+      }),
+    );
 
     return Scaffold(
       key: ClientsScreen.screenKey,
@@ -171,7 +214,18 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                 onNotification: _onScroll,
                 child: AppRefreshIndicator(
                   onRefresh: _refresh,
-                  child: _body(async, data, l10n),
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _resumeTick,
+                    builder: (BuildContext context, int _, Widget? _) =>
+                        Consumer(
+                          builder:
+                              (BuildContext context, WidgetRef ref, Widget? _) {
+                                final AsyncValue<ClientListState> async = ref
+                                    .watch(_provider);
+                                return _body(ref, async, async.value, l10n);
+                              },
+                        ),
+                  ),
                 ),
               ),
             ),
@@ -183,6 +237,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
   }
 
   Widget _body(
+    WidgetRef ref,
     AsyncValue<ClientListState> async,
     ClientListState? data,
     AppLocalizations l10n,
@@ -248,9 +303,9 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
         }
         final ClientSummary s = rows[i];
         return Padding(
+          key: ValueKey<String>('client-${s.id}'),
           padding: EdgeInsets.only(top: i == 0 ? 0 : VelvetSpacing.md),
           child: RepaintBoundary(
-            key: ValueKey<String>('client-${s.id}'),
             child: ClientListRow(summary: s, now: now, onTap: () => _open(s)),
           ),
         );

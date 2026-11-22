@@ -1444,3 +1444,9 @@ const String kMasterProfileFromBookingQuery = 'fromBooking';
 /// own clients. Top-level (a query KEY, not a route) like
 /// [kMasterProfileFromBookingQuery].
 const String kClientCardMasterIdQuery = 'masterId';
+
+/// Client-profile audit (2026-11-22) — query flag (`?fromClientCard=1`) a
+/// client card appends to the booking-detail push of a visit; the detail's
+/// client strip then pops back to that card instead of pushing a new one.
+/// Top-level (a query KEY, not a route) like [kClientCardMasterIdQuery].
+const String kBookingFromClientCardQuery = 'fromClientCard';
