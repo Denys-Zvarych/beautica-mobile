@@ -1461,6 +1461,8 @@ class NeumorphicAvatarEditor extends StatefulWidget {
     this.uploadFailed = false,
     this.onRetry,
     this.badgeOnRing = false,
+    this.onPhotoTap,
+    this.photoSemanticLabel,
   });
 
   /// Which display state to render.
@@ -1505,6 +1507,16 @@ class NeumorphicAvatarEditor extends StatefulWidget {
   /// caller — the centred «Особисті дані» editors) keeps the 122 dp box and the
   /// overhanging badge, byte-identical to before.
   final bool badgeOnRing;
+
+  /// ADDITIVE (2026-11-21): a tap on the ring / disc itself (not the badge).
+  /// `null` (the default) → the disc stays inert, exactly as before.
+  final VoidCallback? onPhotoTap;
+
+  /// ADDITIVE: the spoken label of the [onPhotoTap] target (e.g.
+  /// «Переглянути фото»). `null` → the target adds no semantics node.
+  final String? photoSemanticLabel;
+
+  static const Key photoTapKey = Key('avatar-editor-photo');
 
   /// Outer extruded ring diameter.
   static const double _ring = 104;
@@ -1605,6 +1617,34 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
     }
   }
 
+  /// Wraps the ring in [NeumorphicAvatarEditor.onPhotoTap]'s target; no
+  /// callback (the default) → [ring] untouched. A busy editor keeps the SAME
+  /// wrapper with its tap / label off, so starting or finishing a pick never
+  /// reparents (and fully rebuilds) the ring. Paints nothing.
+  Widget _photoTap(Widget ring) {
+    final VoidCallback? onPhotoTap = widget.onPhotoTap;
+    if (onPhotoTap == null) return ring;
+    final VoidCallback? onTap = _picking ? null : onPhotoTap;
+    final Widget target = GestureDetector(
+      key: NeumorphicAvatarEditor.photoTapKey,
+      // Busy: hits fall through to the ring exactly as with no wrapper.
+      behavior: _picking
+          ? HitTestBehavior.deferToChild
+          : HitTestBehavior.opaque,
+      onTap: onTap,
+      child: ring,
+    );
+    final String? label = widget.photoSemanticLabel;
+    if (label == null) return target;
+    return Semantics(
+      button: !_picking,
+      label: _picking ? null : label,
+      onTap: onTap,
+      excludeSemantics: !_picking,
+      child: target,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double? progress = widget.progress;
@@ -1629,21 +1669,23 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
         child: Stack(
           clipBehavior: Clip.none,
           children: <Widget>[
-            // Outer extruded ring.
-            Container(
-              height: NeumorphicAvatarEditor._ring,
-              width: NeumorphicAvatarEditor._ring,
-              decoration: const BoxDecoration(
-                color: BrandColors.base,
-                shape: BoxShape.circle,
-                boxShadow: VelvetShadows.extrudedCard,
-              ),
-              padding: const EdgeInsets.all(AppSpacing.xxs),
-              child: ClipOval(
-                child: SizedBox(
-                  height: NeumorphicAvatarEditor._disc,
-                  width: NeumorphicAvatarEditor._disc,
-                  child: _discContent(),
+            // Outer extruded ring — tappable only with [onPhotoTap].
+            _photoTap(
+              Container(
+                height: NeumorphicAvatarEditor._ring,
+                width: NeumorphicAvatarEditor._ring,
+                decoration: const BoxDecoration(
+                  color: BrandColors.base,
+                  shape: BoxShape.circle,
+                  boxShadow: VelvetShadows.extrudedCard,
+                ),
+                padding: const EdgeInsets.all(AppSpacing.xxs),
+                child: ClipOval(
+                  child: SizedBox(
+                    height: NeumorphicAvatarEditor._disc,
+                    width: NeumorphicAvatarEditor._disc,
+                    child: _discContent(),
+                  ),
                 ),
               ),
             ),

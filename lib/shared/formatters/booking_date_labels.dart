@@ -159,3 +159,11 @@ String formatStubDayLine(DateTime day) {
 /// `day.toString()` on the untouched instant can print a date one day behind
 /// the (correct) month/weekday line beside it.
 String formatStubDayNumber(DateTime day) => toBeauticaTime(day).day.toString();
+
+/// M510 — a timeline month label, e.g. «Листопад 2026». The instant is read in
+/// Europe/Kyiv ([toBeauticaTime]), never the device zone, so a visit at
+/// 00:30 Kyiv on the 1st groups under the right month on any device.
+String formatMonthYearHeader(DateTime instant) {
+  final DateTime local = toBeauticaTime(instant);
+  return '${ukCapitalize(monthNominative(local.month))} ${local.year}';
+}

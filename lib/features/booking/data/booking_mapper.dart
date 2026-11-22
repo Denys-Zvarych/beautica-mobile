@@ -138,6 +138,10 @@ abstract final class BookingMapper {
       // "absent" from "empty" to pick its «Гість» fallback.
       clientId: dto.clientId?.toString(),
       guestPhone: dto.guestPhone,
+      // M519 / B518 — mapped verbatim and INDEPENDENTLY of `guestPhone`: the
+      // old-server fallback lives in `BookingDisplayX.clientPhoneFor`, so the
+      // guest-only gate on `guestPhone` stays exactly as Phase 417 shipped it.
+      clientPhone: dto.clientPhone,
       clientFirstName: dto.clientFirstName,
       clientLastName: dto.clientLastName,
       // NOT coalesced to '' for the same reason as the two names above, and

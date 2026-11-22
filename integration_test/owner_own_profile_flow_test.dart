@@ -86,8 +86,8 @@ import 'support/app_harness.dart';
 /// `SALON_OWNER` lands straight after login.
 const String _kOwnerSalonId = 'salon-owner-1';
 
-/// `SalonBottomNav.ownerAdminItems` — «Профіль» is destination 3.
-const int _navProfile = 3;
+/// `SalonBottomNav.ownerAdminItems` — «Профіль» is destination 4 (3 before M509 inserted «Клієнти»).
+const int _navProfile = 4;
 
 /// Phase 389 — the owner's master-row id and one own-row NAILS service, so the
 /// master-mode «Послуги» tab has a category to expand.
@@ -354,7 +354,7 @@ void main() {
         // Back to «Профіль» via the nav, then the «Відгуки» tab.
         await AppHarness.tapVisible(
           tester,
-          find.byKey(const Key('master-nav-tile-3')),
+          find.byKey(const Key('master-nav-tile-4')),
         );
         await AppHarness.pumpUntilCondition(
           tester,

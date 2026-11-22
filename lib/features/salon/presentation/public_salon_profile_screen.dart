@@ -847,10 +847,23 @@ class _SalonHeroCard extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    SalonLogo(
-                      diameter: _logoDiameter,
-                      monogram: monogram,
-                      imageUrl: salon.avatarUrl,
+                    // MOD-39 — a client reports the logo as the salon
+                    // profile, the same gate as the cover «⋯» (MOD-35).
+                    Consumer(
+                      builder: (BuildContext _, WidgetRef ref, Widget? _) =>
+                          SalonLogo(
+                            diameter: _logoDiameter,
+                            monogram: monogram,
+                            imageUrl: salon.avatarUrl,
+                            previewOnTap: true,
+                            previewReport: ref.watch(isClientProvider)
+                                ? profilePhotoReport(
+                                    targetType: ReportTargetType.salonProfile,
+                                    targetId: salon.id,
+                                    name: salon.name,
+                                  )
+                                : null,
+                          ),
                     ),
                     const SizedBox(width: VelvetSpacing.md),
                     Expanded(

@@ -4,7 +4,7 @@
 // WHY THIS FILE EXISTS
 // ---------------------
 // `SalonMasterProfileScreen` gained `bottomNavigationBar: const
-// VelvetBottomNavBar(activeIndex: 3)` on `ProfileScaffold` (item B). That
+// VelvetBottomNavBar(activeIndex: 4)` on `ProfileScaffold` (item B). That
 // bar's tiles were ROLE-AGNOSTIC — `_VelvetNavTile._routeFor` hardcoded
 // `RouteNames.services` / `.masterBookings` / `.masterSchedule` regardless of
 // who is looking at it — because it was built for INDEPENDENT_MASTER and
@@ -108,7 +108,7 @@ GoRouter _buildRouter({List<String>? redirectLog}) => GoRouter(
       builder: (context, _) => const Scaffold(
         body: SizedBox.shrink(key: _staffProfileMarker),
         bottomNavigationBar: VelvetBottomNavBar(
-          activeIndex: 3,
+          activeIndex: 4,
           scheduleRoute: RouteNames.salonMasterSchedule,
           servicesRoute: RouteNames.salonMasterServices,
           bookingsRoute: RouteNames.salonMasterBookings,
@@ -496,7 +496,7 @@ void main() {
       expect(_location(router), RouteNames.salonMasterSchedule);
       redirectLog.clear();
 
-      await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('master-nav-tile-4')));
       await tester.pumpAndSettle();
 
       expect(find.byKey(_staffProfileMarker), findsOneWidget);

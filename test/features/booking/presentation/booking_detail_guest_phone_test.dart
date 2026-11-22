@@ -1,9 +1,15 @@
-// Phase 417 — the guest phone row (tap-to-call) on «Деталі запису».
+// «Деталі запису» — the client's phone and the route into the client card.
 //
-// HARD RULE: the row exists ONLY for a guest booking (`clientId == null`) with
-// a non-null `guestPhone`, viewed by an independent master / salon owner /
-// salon admin. Never for a salon master, a client, or a registered client's
-// booking — even when a fixture WRONGLY carries a phone.
+// 2026-11-21 (user): the detail shows NO client phone (no row, no number, no
+// tap-to-call) for ANY role, guest or registered, even when the payload
+// carries `guestPhone` / `clientPhone`. The provider's client strip opens the
+// M510 client card instead (the phone lives there):
+//   • registered → `<base>/user/{clientId}`, guest → `<base>/guest/{bookingId}`;
+//   • base per mount: `/master/clients` (independent master),
+//     `/salons/{salonId}/clients` (owner / admin — the board's salon, else the
+//     booking's own), `/staff/clients` (salon master);
+//   • inert for a CLIENT viewer, a mount with no card base, and an
+//     anonymised («Гість») or detached («Видалений клієнт») guest-shaped row.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -17,24 +23,25 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _phone = '+380671234567';
-const Key _rowKey = Key('booking-detail-guest-phone');
+const String _phoneShown = '+380 67 123 45 67';
+const String _clientPhone = '+380501112233';
+const String _clientPhoneShown = '+380 50 111 22 33';
+const Key _oldRowKey = Key('booking-detail-guest-phone');
+const Key _cardMarker = Key('test-client-card');
+Finder _strip() => find.byKey(BookingClientStrip.defaultShellKey);
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
-
-class _MockUrlLauncher extends Mock
-    with MockPlatformInterfaceMixin
-    implements UrlLauncherPlatform {}
 
 class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
@@ -50,7 +57,14 @@ class _StubAuth extends AuthNotifier {
   Future<AuthSession> build() async => _session;
 }
 
-Booking _booking({String? clientId, String? guestPhone = _phone}) {
+Booking _booking({
+  String? clientId,
+  String? guestPhone = _phone,
+  String? clientPhone = _clientPhone,
+  String? firstName = 'Ірина',
+  String? lastName = 'Коваль',
+  String? salonId,
+}) {
   final DateTime start = futureBookingStart();
   return Booking(
     id: 'b1',
@@ -58,10 +72,12 @@ Booking _booking({String? clientId, String? guestPhone = _phone}) {
     masterFirstName: 'Марія',
     masterLastName: 'Іванюк',
     masterType: 'INDEPENDENT_MASTER',
+    salonId: salonId,
     clientId: clientId,
-    clientFirstName: 'Ірина',
-    clientLastName: 'Гість',
+    clientFirstName: firstName,
+    clientLastName: lastName,
     guestPhone: guestPhone,
+    clientPhone: clientPhone,
     serviceId: 's1',
     serviceName: 'Манікюр',
     categoryName: 'NAIL_SERVICE',
@@ -75,13 +91,53 @@ Booking _booking({String? clientId, String? guestPhone = _phone}) {
   );
 }
 
-Future<void> _pump(WidgetTester tester, Booking booking, UserRole role) async {
+/// The `clientCardBase` each production mount passes (`app_router.dart`).
+String? Function(String?)? _baseFor(UserRole role) => switch (role) {
+  UserRole.independentMaster => (_) => RouteNames.masterClients,
+  UserRole.salonOwner || UserRole.salonAdmin =>
+    (String? salonId) =>
+        salonId == null ? null : RouteNames.salonClients(salonId),
+  UserRole.salonMaster => (_) => RouteNames.salonMasterClients,
+  UserRole.client => null,
+};
+
+/// Mounts the detail at `/detail` with [role]'s card base (or [base]); every
+/// card path renders a marker carrying the matched location.
+Future<GoRouter> _pump(
+  WidgetTester tester,
+  Booking booking,
+  UserRole role, {
+  String? boardSalonId,
+  bool useRoleBase = true,
+}) async {
   tester.view.physicalSize = const Size(800, 2400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpApp(
-    BookingDetailScreen(bookingId: booking.id),
+  final GoRouter router = GoRouter(
+    initialLocation: '/detail',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/detail',
+        builder: (_, _) => BookingDetailScreen(
+          bookingId: booking.id,
+          salonId: boardSalonId,
+          clientCardBase: useRoleBase ? _baseFor(role) : null,
+        ),
+      ),
+      GoRoute(
+        path: '/:a/:b/:c/:d',
+        builder: (_, GoRouterState s) => Text(s.uri.path, key: _cardMarker),
+      ),
+      GoRoute(
+        path: '/:a/:b/:c/:d/:e',
+        builder: (_, GoRouterState s) => Text(s.uri.path, key: _cardMarker),
+      ),
+    ],
+  );
+  addTearDown(router.dispose);
+  await tester.pumpRoutedApp(
+    router,
     overrides: <Object>[
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
@@ -97,109 +153,150 @@ Future<void> _pump(WidgetTester tester, Booking booking, UserRole role) async {
     ],
   );
   await tester.pumpAndSettle();
+  return router;
+}
+
+Future<String?> _tapStrip(WidgetTester tester) async {
+  await tester.tap(_strip());
+  await tester.pumpAndSettle();
+  final Finder marker = find.byKey(_cardMarker);
+  if (marker.evaluate().isEmpty) return null;
+  return tester.widget<Text>(marker).data;
 }
 
 void main() {
-  const List<UserRole> allowed = <UserRole>[
-    UserRole.independentMaster,
-    UserRole.salonOwner,
-    UserRole.salonAdmin,
-  ];
-  const List<UserRole> denied = <UserRole>[
-    UserRole.salonMaster,
-    UserRole.client,
-  ];
+  const List<UserRole> allRoles = UserRole.values;
 
-  group('guest phone row — role matrix on a guest booking', () {
-    for (final UserRole role in allowed) {
-      testWidgets('$role sees the phone row', (tester) async {
-        await _pump(tester, _booking(), role);
-        expect(find.byKey(_rowKey), findsOneWidget);
-        expect(find.text(_phone), findsOneWidget);
-      });
-    }
-    for (final UserRole role in denied) {
-      testWidgets('$role never sees it, even if the data carries a phone', (
+  group('no phone on «Деталі запису» for any role', () {
+    for (final UserRole role in allRoles) {
+      testWidgets('$role, guest booking carrying guestPhone + clientPhone', (
         tester,
       ) async {
-        await _pump(tester, _booking(), role);
-        expect(find.byKey(_rowKey), findsNothing);
+        await _pump(tester, _booking(clientPhone: _phone), role);
+        expect(find.byKey(_oldRowKey), findsNothing);
+        expect(find.text(_phoneShown), findsNothing);
         expect(find.text(_phone), findsNothing);
+      });
+      testWidgets('$role, registered booking carrying clientPhone', (
+        tester,
+      ) async {
+        await _pump(tester, _booking(clientId: 'c1'), role);
+        expect(find.byKey(_oldRowKey), findsNothing);
+        expect(find.text(_clientPhoneShown), findsNothing);
+        expect(find.text(_clientPhone), findsNothing);
       });
     }
   });
 
-  group('guest phone row — absent cases', () {
-    testWidgets('anonymised guest booking (guestPhone null): no row', (
+  group('the client strip opens the client card', () {
+    final Map<UserRole, String> registered = <UserRole, String>{
+      UserRole.independentMaster: '/master/clients/user/c1',
+      UserRole.salonOwner: '/salons/s1/clients/user/c1',
+      UserRole.salonAdmin: '/salons/s1/clients/user/c1',
+      UserRole.salonMaster: '/staff/clients/user/c1',
+    };
+    for (final MapEntry<UserRole, String> e in registered.entries) {
+      testWidgets('${e.key}: registered → ${e.value}', (tester) async {
+        await _pump(tester, _booking(clientId: 'c1', salonId: 's1'), e.key);
+        expect(await _tapStrip(tester), e.value);
+      });
+    }
+
+    final Map<UserRole, String> guest = <UserRole, String>{
+      UserRole.independentMaster: '/master/clients/guest/b1',
+      UserRole.salonOwner: '/salons/s1/clients/guest/b1',
+      UserRole.salonAdmin: '/salons/s1/clients/guest/b1',
+      UserRole.salonMaster: '/staff/clients/guest/b1',
+    };
+    for (final MapEntry<UserRole, String> e in guest.entries) {
+      testWidgets('${e.key}: guest → ${e.value}', (tester) async {
+        await _pump(tester, _booking(salonId: 's1'), e.key);
+        expect(await _tapStrip(tester), e.value);
+      });
+    }
+
+    testWidgets('salon mount: the board salon (extra) wins over the '
+        'booking\'s own salonId', (tester) async {
+      await _pump(
+        tester,
+        _booking(clientId: 'c1', salonId: 's1'),
+        UserRole.salonOwner,
+        boardSalonId: 'board-s',
+      );
+      expect(await _tapStrip(tester), '/salons/board-s/clients/user/c1');
+    });
+
+    testWidgets('salon mount with no salon id at all → inert strip', (
+      tester,
+    ) async {
+      await _pump(tester, _booking(clientId: 'c1'), UserRole.salonOwner);
+      expect(await _tapStrip(tester), isNull);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+    });
+
+    testWidgets('a mount with no card base (client mounts) → inert', (
       tester,
     ) async {
       await _pump(
         tester,
-        _booking(guestPhone: null),
+        _booking(clientId: 'c1'),
         UserRole.independentMaster,
+        useRoleBase: false,
       );
-      expect(find.byKey(_rowKey), findsNothing);
+      expect(await _tapStrip(tester), isNull);
     });
 
-    for (final UserRole role in <UserRole>[...allowed, ...denied]) {
-      testWidgets(
-        'HARD RULE: registered-client booking shows no row for $role even '
-        'when the fixture wrongly carries a guestPhone',
-        (tester) async {
-          await _pump(tester, _booking(clientId: 'c1'), role);
-          expect(find.byKey(_rowKey), findsNothing);
-          expect(find.text(_phone), findsNothing);
-        },
-      );
+    testWidgets('a CLIENT viewer sees the master strip, never the client '
+        'strip', (tester) async {
+      await _pump(tester, _booking(clientId: 'c1'), UserRole.client);
+      expect(_strip(), findsNothing);
+    });
+
+    for (final String sentinel in <String>[
+      kAnonymisedGuestName,
+      kDetachedClientName,
+    ]) {
+      testWidgets('«$sentinel» guest row (no card can exist) → inert', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          _booking(firstName: sentinel, lastName: null, guestPhone: null),
+          UserRole.independentMaster,
+        );
+        expect(_strip(), findsOneWidget);
+        expect(await _tapStrip(tester), isNull);
+      });
     }
   });
 
-  test('guestPhoneFor fails closed on an unresolved (null) role', () {
-    expect(_booking().guestPhoneFor(null), isNull);
-    expect(_booking().guestPhoneFor(UserRole.salonOwner), _phone);
-    expect(_booking(clientId: 'c1').guestPhoneFor(UserRole.salonOwner), isNull);
-  });
-
-  group('tap-to-call', () {
-    late _MockUrlLauncher launcher;
-    late UrlLauncherPlatform original;
-
-    setUp(() {
-      original = UrlLauncherPlatform.instance;
-      launcher = _MockUrlLauncher();
-      UrlLauncherPlatform.instance = launcher;
-      registerFallbackValue(const LaunchOptions());
-    });
-    tearDown(() => UrlLauncherPlatform.instance = original);
-
-    testWidgets('tapping launches the tel: URI', (tester) async {
-      when(
-        () => launcher.launchUrl(any(), any()),
-      ).thenAnswer((_) async => true);
-      await _pump(tester, _booking(), UserRole.independentMaster);
-
-      await tester.tap(find.byKey(_rowKey));
-      await tester.pumpAndSettle();
-
-      final String launched =
-          verify(() => launcher.launchUrl(captureAny(), any())).captured.single
-              as String;
-      expect(launched, 'tel:$_phone');
-    });
-
-    testWidgets('launch failure shows the generic error snack', (tester) async {
-      when(
-        () => launcher.launchUrl(any(), any()),
-      ).thenAnswer((_) async => false);
-      await _pump(tester, _booking(), UserRole.independentMaster);
-
-      await tester.tap(find.byKey(_rowKey));
-      await tester.pumpAndSettle();
-
-      final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byType(BookingDetailScreen)),
+  group('BookingDisplayX.clientCardReachable', () {
+    test('registered client is always reachable', () {
+      expect(
+        _booking(
+          clientId: 'c1',
+          firstName: kAnonymisedGuestName,
+          lastName: null,
+        ).clientCardReachable,
+        isTrue,
       );
-      expect(find.text(l10n.errUnknown), findsOneWidget);
+    });
+    test('named guest is reachable; sentinel guests are not', () {
+      expect(_booking().clientCardReachable, isTrue);
+      expect(
+        _booking(
+          firstName: kAnonymisedGuestName,
+          lastName: null,
+        ).clientCardReachable,
+        isFalse,
+      );
+      expect(
+        _booking(
+          firstName: kDetachedClientName,
+          lastName: null,
+        ).clientCardReachable,
+        isFalse,
+      );
     });
   });
 }

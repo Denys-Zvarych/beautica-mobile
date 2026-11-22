@@ -139,7 +139,7 @@ void main() {
     await tester.pumpApp(
       Scaffold(
         bottomNavigationBar: VelvetBottomNavBar(
-          activeIndex: 3,
+          activeIndex: 4,
           showSetupHints: showSetupHints,
         ),
       ),

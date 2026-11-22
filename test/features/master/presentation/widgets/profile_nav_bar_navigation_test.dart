@@ -57,7 +57,7 @@
 //   master-nav-tile-0 → Послуги    → context.go('/services')
 //   master-nav-tile-1 → Мої записи → context.go('/master/bookings')  [7.6]
 //   master-nav-tile-2 → Графік     → context.go('/schedule')
-//   master-nav-tile-3 → Профіль    → current shell; active tile is always a no-op
+//   master-nav-tile-4 → Профіль    → current shell; active tile is always a no-op
 //
 // pumpAndSettle IS used: the only animation is the 200 ms camel-pill
 // AnimatedContainer, which is finite and drains cleanly.
@@ -90,7 +90,7 @@ GoRouter _buildRouter() => GoRouter(
       path: RouteNames.masterProfile,
       builder: (context, _) => const Scaffold(
         body: SizedBox.shrink(key: _profileMarker),
-        bottomNavigationBar: VelvetBottomNavBar(activeIndex: 3),
+        bottomNavigationBar: VelvetBottomNavBar(activeIndex: 4),
       ),
     ),
     GoRoute(
@@ -267,7 +267,7 @@ void main() {
     );
 
     testWidgets(
-      'tapping the active tile (master-nav-tile-3, activeIndex 3) is a no-op — '
+      'tapping the active tile (master-nav-tile-4, activeIndex 3) is a no-op — '
       'no go, no push, stack byte-for-byte unchanged',
       (tester) async {
         final router = _buildRouter();
@@ -276,7 +276,7 @@ void main() {
 
         final int depthBefore = _stackDepth(router);
 
-        await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+        await tester.tap(find.byKey(const Key('master-nav-tile-4')));
         await tester.pumpAndSettle();
 
         // The already-active tile resolves to a null route (onTap == null),
@@ -321,7 +321,7 @@ void main() {
           ('master-nav-tile-1', _bookingsMarker),
           ('master-nav-tile-2', _scheduleMarker),
           ('master-nav-tile-0', _servicesMarker),
-          ('master-nav-tile-3', _profileMarker),
+          ('master-nav-tile-4', _profileMarker),
         ];
 
         for (final (String tileKey, Key marker) in hops) {
@@ -370,7 +370,7 @@ void main() {
 
         // The master is NOT stuck: tapping any other tile from here still
         // navigates, because the bar (not a back button) is the escape hatch.
-        await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+        await tester.tap(find.byKey(const Key('master-nav-tile-4')));
         await tester.pumpAndSettle();
         expect(
           find.byKey(_profileMarker),
@@ -412,7 +412,7 @@ void main() {
             // pre-existing tests in this file (which never pass either
             // override) rather than re-asserted here.
             bottomNavigationBar: VelvetBottomNavBar(
-              activeIndex: 3,
+              activeIndex: 4,
               scheduleRoute: staffScheduleMarkerRoute,
             ),
           ),
@@ -521,7 +521,7 @@ void main() {
           builder: (context, _) => const Scaffold(
             body: SizedBox.shrink(key: _profileMarker),
             bottomNavigationBar: VelvetBottomNavBar(
-              activeIndex: 3,
+              activeIndex: 4,
               servicesRoute: staffServicesMarkerRoute,
             ),
           ),
@@ -634,7 +634,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(_location(router), RouteNames.masterSchedule);
 
-      await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('master-nav-tile-4')));
       await tester.pumpAndSettle();
       expect(_location(router), RouteNames.masterProfile);
     },

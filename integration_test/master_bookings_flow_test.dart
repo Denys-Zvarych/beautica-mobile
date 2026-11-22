@@ -1382,8 +1382,8 @@ void main() {
       //
       // WORD-BOUNDARY match, not a bare substring: a 3-letter month
       // abbreviation is also a plain substring of unrelated fixed UA copy —
-      // «вер» (September) sits inside «Підтверджено» (the CONFIRMED status
-      // badge THIS card always renders) and inside «Завершити» (the
+      // «вер» (September) sat inside «Підтверджено» (the CONFIRMED status
+      // badge before BOOK-D13) and sits inside «Завершити» (the
       // complete CTA). `find.textContaining(monthToken)` self-matched the
       // card's own status badge every year from 2026-08-25 to ~09-23,
       // whatever the fixture's `today + 7` anchor landed on — see the guard
@@ -1424,8 +1424,8 @@ void main() {
   //      the fixture's `today + 7` anchor happens to land on. ────────────────
   //
   // The failure this pins: `monthAbbrev(9)` is «вер», a literal substring of
-  // «Підтверджено» (the CONFIRMED status badge every card in the test above
-  // renders) and of «Завершити» (the complete CTA). A bare
+  // «Підтверджено» (the CONFIRMED badge before BOOK-D13, 2026-11-21) and of
+  // «Завершити» (the complete CTA). A bare
   // `find.textContaining(monthToken)` therefore self-matched the card's OWN
   // fixed copy — nothing to do with a date — whenever `wireStart` (anchored
   // to the REAL clock + 7 days, `fake_backend.dart`'s `_futureInstant`, so
@@ -1447,7 +1447,7 @@ void main() {
     // from — keep this list in sync if that copy changes; a stale entry
     // here only makes the guard MORE conservative, never less.
     const Map<String, String> vocabulary = <String, String>{
-      'bookingStatusConfirmed': 'Підтверджено',
+      'bookingStatusConfirmed': 'Заплановано',
       'bookingStatusCompleted': 'Виконано',
       'bookingStatusNotCompleted': 'Візит не відбувся',
       'bookingStatusCancelled': 'Скасовано',
@@ -1466,7 +1466,9 @@ void main() {
     // guard the test above now uses.
     const Map<String, List<String>> knownNaiveCollisions =
         <String, List<String>>{
-          'вер': <String>['bookingStatusConfirmed', 'bookingDetailCompleteCta'],
+          // «Підтверджено» collided too until BOOK-D13 (2026-11-21) renamed
+          // the CONFIRMED label to «Заплановано».
+          'вер': <String>['bookingDetailCompleteCta'],
         };
 
     for (int month = 1; month <= 12; month++) {
@@ -2533,7 +2535,7 @@ void main() {
   //      leaves. That departure is the REPLACE semantics of
   //      `BookingStatus.dayListWireStatuses` observed end to end; a union
   //      would leave both on screen.
-  //   3. «Підтверджено» added on top — both together, which is the state the
+  //   3. «Заплановано» added on top — both together, which is the state the
   //      two lane-layout flows below depend on.
   //
   // No `integration_test/patrol/` case is needed — nothing here touches a
@@ -2667,7 +2669,7 @@ void main() {
         reason: 'a status the MASTER picked does light the funnel badge',
       );
 
-      // ── 3. «Підтверджено» added on top — the sheet is additive. ───────────
+      // ── 3. «Заплановано» added on top — the sheet is additive. ───────────
       await _applyStatusFilter(tester, <BookingStatusFilterGroup>[
         BookingStatusFilterGroup.confirmed,
       ]);
@@ -2676,7 +2678,7 @@ void main() {
         unorderedEquals(<String>['CONFIRMED', 'CANCELLED', 'DECLINED']),
         reason:
             'the sheet reopens carrying the previous selection and the rows '
-            'are multi-select, so «Підтверджено» ADDS to «Скасовані»',
+            'are multi-select, so «Заплановано» ADDS to «Скасовані»',
       );
       expect(
         confirmedCard,
@@ -2718,7 +2720,7 @@ void main() {
   // moment the filter re-shows those rows — which is exactly when the master
   // is looking for the dead card and must not find it hiding the live one. So
   // this flow now drives the real filter sheet first and asserts EXACTLY as it
-  // did before; nothing was relaxed. «Підтверджено» is ticked alongside
+  // did before; nothing was relaxed. «Заплановано» is ticked alongside
   // «Скасовані» because the wire set REPLACES rather than unions — see
   // [_applyStatusFilter]'s doc.
   testWidgets(
@@ -2918,7 +2920,7 @@ void main() {
       );
       await _selectDayView(tester, bookedDay);
 
-      // Re-show the cancelled row through the real sheet. «Підтверджено» goes
+      // Re-show the cancelled row through the real sheet. «Заплановано» goes
       // with it — the wire set REPLACES, so ticking «Скасовані» alone would
       // filter BOTH active cards this test left-aligns against off the wire.
       await _applyStatusFilter(tester, <BookingStatusFilterGroup>[

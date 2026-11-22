@@ -1,32 +1,76 @@
-// Phase 417 — E2E: «Деталі запису» shows the GUEST's phone with tap-to-call.
+// Phase 417 / M519 — E2E: the client's phone and tap-to-call.
 //
-// Drives a real independent-master login through the real router against the
-// fake HTTP backend: the detail GET serves `guestPhone`, the row renders under
-// the client strip, and a tap launches the `tel:` URI (platform launcher
-// mocked — there is no dialer under flutter-tester). The negative case seeds a
-// phone onto a REGISTERED client's booking: the app must still render no row.
+// 2026-11-21 (user): «Деталі запису» shows NO client phone for any role. The
+// provider's client strip opens the M510 client card instead, and the phone
+// lives there (phone chip → call / copy sheet).
+//
+// Drives a real login through the real router against the fake HTTP backend
+// (platform launcher mocked — there is no dialer under flutter-tester):
+//   • independent master, registered client → detail has no phone → tap the
+//     client → `/master/clients/user/:id` → phone chip → «Зателефонувати» →
+//     the canonical `tel:` URI;
+//   • independent master, guest → `/master/clients/guest/:bookingId`;
+//   • salon owner → the salon-scoped card (the booking's own salon);
+//   • salon master → `/staff/clients/…`, and the card shows no phone even
+//     when the fake wrongly serves one;
+//   • a client viewing their own booking: no phone, nothing to open.
 
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:network_image_mock/network_image_mock.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import 'support/app_harness.dart';
 
 const String _phone = '+380671234567';
-const Key _rowKey = Key('booking-detail-guest-phone');
+
+/// [_phone] as DISPLAYED (UA input mask); tel: keeps the canonical value.
+const String _phoneShown = '+380 67 123 45 67';
+const Key _oldRowKey = Key('booking-detail-guest-phone');
+const String _userId = 'u-client';
 
 class _MockUrlLauncher extends Mock
     with MockPlatformInterfaceMixin
     implements UrlLauncherPlatform {}
+
+/// Card bodies for the registered client ([_userId]) and the guest anchored
+/// on the seeded `booking-1`, both carrying [_phone]; wired for `/masters/me`
+/// and [salonId].
+void _seedCards(FakeBackend fb, {String salonId = 'salon-owner-1'}) {
+  fb.clientCards
+    ..clear()
+    ..[_userId] = <String, dynamic>{
+      'kind': 'REGISTERED',
+      'userId': _userId,
+      'displayName': 'Дмитро Клієнт',
+      'phone': _phone,
+      'blocked': false,
+      'ratingCount': 0,
+      'ratingDistribution': <Map<String, int>>[],
+    }
+    ..['booking-1'] = <String, dynamic>{
+      'kind': 'GUEST',
+      'guestBookingId': 'booking-1',
+      'displayName': 'Дмитро Гість',
+      'phone': _phone,
+      'blocked': false,
+      'ratingCount': 0,
+      'ratingDistribution': <Map<String, int>>[],
+    };
+  fb.wireClientCard(salonIds: <String>[salonId]);
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -43,7 +87,7 @@ void main() {
   });
   tearDown(() => UrlLauncherPlatform.instance = original);
 
-  Future<void> openDetail(
+  Future<GoRouter> openDetail(
     WidgetTester tester,
     FakeBackend fb, {
     UserRole role = UserRole.independentMaster,
@@ -54,113 +98,148 @@ void main() {
     unawaited(router.push(path ?? RouteNames.masterBookingDetail('booking-1')));
     await AppHarness.settle(tester);
     expect(find.byType(BookingDetailScreen), findsOneWidget);
+    return router;
   }
 
-  testWidgets('guest booking: phone row renders and a tap opens the dialer', (
+  /// The detail renders no phone at all — row, number, or launch.
+  void expectNoPhoneOnDetail() {
+    expect(find.byKey(_oldRowKey), findsNothing);
+    expect(find.text(_phoneShown), findsNothing);
+    expect(find.text(_phone), findsNothing);
+  }
+
+  Future<void> openCardFromDetail(WidgetTester tester) async {
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(BookingClientStrip.defaultShellKey),
+    );
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(ClientCardScreen.nameKey),
+    );
+    await AppHarness.settle(tester);
+  }
+
+  Future<void> callFromCard(WidgetTester tester) async {
+    final Finder chip = find.byKey(ClientCardScreen.phoneChipKey);
+    expect(
+      find.descendant(of: chip, matching: find.text(_phoneShown)),
+      findsOneWidget,
+    );
+    await AppHarness.tapVisible(tester, chip);
+    await AppHarness.pumpUntilFound(tester, find.byKey(kPhoneSheetCallKey));
+    await AppHarness.tapVisible(tester, find.byKey(kPhoneSheetCallKey));
+    await AppHarness.settle(tester);
+    expect(
+      verify(() => launcher.launchUrl(captureAny(), any())).captured.single,
+      'tel:$_phone',
+    );
+  }
+
+  testWidgets('independent master, registered client: no phone on the detail; '
+      'the client strip opens the card, whose phone chip calls', (
     tester,
   ) async {
-    final fb = FakeBackend()
-      ..currentRole = UserRole.independentMaster
-      ..bookingClientIsGuest = true
-      ..bookingGuestPhone = _phone;
-    await openDetail(tester, fb);
-
-    expect(find.byKey(_rowKey), findsOneWidget);
-    expect(find.text(_phone), findsOneWidget);
-
-    await tester.tap(find.byKey(_rowKey));
-    await tester.pump();
-
-    final String launched =
-        verify(() => launcher.launchUrl(captureAny(), any())).captured.single
-            as String;
-    expect(launched, 'tel:$_phone');
-  });
-
-  testWidgets(
-    'HARD RULE: a registered client booking shows no phone row even if the '
-    'payload wrongly carries a guestPhone',
-    (tester) async {
-      final fb = FakeBackend()
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.independentMaster
+        ..bookingRegisteredClientId = _userId
+        ..bookingClientPhone = _phone
         ..bookingGuestPhone = _phone;
-      await openDetail(tester, fb);
+      _seedCards(fb);
+      final GoRouter router = await openDetail(tester, fb);
 
-      expect(find.byKey(_rowKey), findsNothing);
-      expect(find.text(_phone), findsNothing);
-    },
-  );
-
-  // Phase 417 QA — the salon roles. Each journey logs in through the real
-  // router, pushes that role's own detail route and reads the fake's detail
-  // GET (`guestPhone` served verbatim, as the backend would for the audience).
-  final Map<UserRole, String> staffPaths = <UserRole, String>{
-    UserRole.salonOwner: RouteNames.salonStaffBookingDetail('booking-1'),
-    UserRole.salonAdmin: RouteNames.salonStaffBookingDetail('booking-1'),
-  };
-  for (final MapEntry<UserRole, String> e in staffPaths.entries) {
-    testWidgets('${e.key.name}: guest LINK booking shows the phone row and a '
-        'tap opens the dialer', (tester) async {
-      final fb = FakeBackend()
-        ..currentRole = e.key
-        ..bookingClientIsGuest = true
-        ..bookingGuestPhone = _phone;
-      await openDetail(tester, fb, role: e.key, path: e.value);
-
-      expect(find.byKey(_rowKey), findsOneWidget);
-      await tester.tap(find.byKey(_rowKey));
-      await tester.pump();
-
-      final String launched =
-          verify(() => launcher.launchUrl(captureAny(), any())).captured.single
-              as String;
-      expect(launched, 'tel:$_phone');
+      expectNoPhoneOnDetail();
+      await openCardFromDetail(tester);
+      AppHarness.expectLocation(router, '/master/clients/user/$_userId');
+      await callFromCard(tester);
     });
-
-    testWidgets('${e.key.name}: a registered-client booking shows no row even '
-        'if the payload wrongly carries a phone', (tester) async {
-      final fb = FakeBackend()
-        ..currentRole = e.key
-        ..bookingGuestPhone = _phone;
-      await openDetail(tester, fb, role: e.key, path: e.value);
-
-      expect(find.byKey(_rowKey), findsNothing);
-      expect(find.text(_phone), findsNothing);
-    });
-  }
-
-  testWidgets('salonMaster: the backend sends null → no row', (tester) async {
-    final fb = FakeBackend()
-      ..currentRole = UserRole.salonMaster
-      ..bookingClientIsGuest = true;
-    await openDetail(
-      tester,
-      fb,
-      role: UserRole.salonMaster,
-      path: RouteNames.salonMasterBookingDetail('booking-1'),
-    );
-
-    expect(find.byKey(_rowKey), findsNothing);
   });
 
-  testWidgets(
-    'salonMaster DEFENCE IN DEPTH: the fake wrongly sends a guest phone → '
-    'still no row, the number is never rendered',
-    (tester) async {
-      final fb = FakeBackend()
-        ..currentRole = UserRole.salonMaster
+  testWidgets('independent master, guest: the strip opens the guest card '
+      '(`…/guest/:bookingId`), whose phone chip calls', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
         ..bookingClientIsGuest = true
         ..bookingGuestPhone = _phone;
-      await openDetail(
+      _seedCards(fb);
+      final GoRouter router = await openDetail(tester, fb);
+
+      expectNoPhoneOnDetail();
+      await openCardFromDetail(tester);
+      AppHarness.expectLocation(router, '/master/clients/guest/booking-1');
+      await callFromCard(tester);
+    });
+  });
+
+  testWidgets('salon owner: no phone on the detail; the strip opens the '
+      'salon-scoped card of the booking\'s own salon', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.salonOwner
+        ..bookingSalonId = 'salon-owner-1'
+        ..bookingSalonName = 'Салон'
+        ..bookingRegisteredClientId = _userId
+        ..bookingClientPhone = _phone;
+      _seedCards(fb);
+      final GoRouter router = await openDetail(
+        tester,
+        fb,
+        role: UserRole.salonOwner,
+        path: RouteNames.salonStaffBookingDetail('booking-1'),
+      );
+
+      expectNoPhoneOnDetail();
+      await openCardFromDetail(tester);
+      AppHarness.expectLocation(
+        router,
+        '/salons/salon-owner-1/clients/user/$_userId',
+      );
+      await callFromCard(tester);
+    });
+  });
+
+  testWidgets('salon master: no phone on the detail; the strip opens '
+      '`/staff/clients/…`, and the card shows no phone even when served', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.salonMaster
+        ..bookingRegisteredClientId = _userId
+        ..bookingClientPhone = _phone;
+      _seedCards(fb);
+      final GoRouter router = await openDetail(
         tester,
         fb,
         role: UserRole.salonMaster,
         path: RouteNames.salonMasterBookingDetail('booking-1'),
       );
 
-      expect(find.byKey(_rowKey), findsNothing);
-      expect(find.text(_phone), findsNothing);
+      expectNoPhoneOnDetail();
+      await openCardFromDetail(tester);
+      AppHarness.expectLocation(router, '/staff/clients/user/$_userId');
+      expect(find.byKey(ClientCardScreen.phoneChipKey), findsNothing);
+      expect(find.text(_phoneShown), findsNothing);
       verifyNever(() => launcher.launchUrl(any(), any()));
-    },
-  );
+    });
+  });
+
+  testWidgets('client viewing their own booking: no phone, no client strip '
+      'to open', (tester) async {
+    final FakeBackend fb = FakeBackend()
+      ..currentRole = UserRole.client
+      ..bookingClientPhone = _phone;
+    await openDetail(
+      tester,
+      fb,
+      role: UserRole.client,
+      path: RouteNames.bookingDetail('booking-1'),
+    );
+
+    expectNoPhoneOnDetail();
+    expect(find.byKey(BookingClientStrip.defaultShellKey), findsNothing);
+    verifyNever(() => launcher.launchUrl(any(), any()));
+  });
 }

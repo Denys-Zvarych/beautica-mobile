@@ -315,7 +315,7 @@ void main() {
         await AppHarness.settle(tester);
         AppHarness.expectLocation(router, RouteNames.salonShell(c.salonId));
 
-        await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+        await tester.tap(find.byKey(const Key('salon-nav-tile-4')));
         await AppHarness.settle(tester);
         AppHarness.expectLocation(router, c.profileLocation);
 

@@ -175,7 +175,7 @@ void main() {
           dateTime: '20 липня 2026, 12:00 – 13:30',
           address: 'вул. Городоцька 12, Львів',
           price: '650 ₴',
-          status: 'Підтверджено',
+          status: 'Заплановано',
         )!;
 
         await addBookingToCalendar(
@@ -291,7 +291,7 @@ void main() {
           dateTime: '20 липня 2026, 15:00 – 16:30',
           address: 'вул. Городоцька 12, Львів',
           price: '650 ₴',
-          status: 'Підтверджено',
+          status: 'Заплановано',
         );
 
         expect(desc, isNotNull);
@@ -312,7 +312,7 @@ void main() {
           '${l10n.bookingCalendarNoteAddress} вул. Городоцька 12, Львів',
         );
         expect(lines[4], '${l10n.bookingCalendarNotePrice} 650 ₴');
-        expect(lines[5], '${l10n.bookingCalendarNoteStatus} Підтверджено');
+        expect(lines[5], '${l10n.bookingCalendarNoteStatus} Заплановано');
       },
     );
 
@@ -347,7 +347,7 @@ void main() {
         dateTime: null,
         address: '',
         price: null,
-        status: 'Підтверджено',
+        status: 'Заплановано',
       );
 
       final List<String> lines = desc!.split('\n');
@@ -390,7 +390,7 @@ void main() {
           dateTime: '20 липня 2026, 15:00 – 16:30',
           address: 'вул. Городоцька 12, Львів',
           price: '650 ₴',
-          status: 'Підтверджено',
+          status: 'Заплановано',
         )!;
 
         await addBookingToCalendar(

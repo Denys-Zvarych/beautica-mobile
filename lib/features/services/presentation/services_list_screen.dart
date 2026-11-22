@@ -87,6 +87,7 @@ class ServicesListScreen extends ConsumerStatefulWidget {
     this.navScheduleRoute,
     this.navProfileRoute,
     this.navBookingsRoute,
+    this.navClientsRoute,
     this.backLabel,
     this.backSemanticLabel,
     this.bottomNavBar,
@@ -211,6 +212,11 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   /// mount at [RouteNames.salonMasterBookings], so that tile no longer
   /// bounces — see [VelvetBottomNavBar.bookingsRoute].
   final String? navBookingsRoute;
+
+  /// M509 — tile 3's («Клієнти») route override. `null` (the
+  /// INDEPENDENT_MASTER) means [RouteNames.masterClients]; the SALON_MASTER's
+  /// `/staff/services` mount passes [RouteNames.salonMasterClients].
+  final String? navClientsRoute;
 
   /// Phase 380 (24.1c) — optional VISIBLE text beside [showBack]'s arrow,
   /// forwarded to [NeumorphicIconButton.label] (the owner master-mode
@@ -347,6 +353,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
                   scheduleRoute: widget.navScheduleRoute,
                   profileRoute: widget.navProfileRoute,
                   bookingsRoute: widget.navBookingsRoute,
+                  clientsRoute: widget.navClientsRoute,
                   // INDEPENDENT_MASTER-gated inside the hint providers.
                   showSetupHints: true,
                   // «Записи» pending-actions badge on the INDEPENDENT_MASTER

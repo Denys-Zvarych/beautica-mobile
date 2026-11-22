@@ -3438,6 +3438,10 @@
   "@notificationTitleBookingCreated": {
     "description": "Phase 363 — title of a BOOKING_CREATED notification (provider audience)."
   },
+  "notificationTitleBookingCreatedClient": "You're booked",
+  "@notificationTitleBookingCreatedClient": {
+    "description": "M528 — title of a BOOKING_CREATED notification for the client: a link or walk-in booking attached to their account by phone (B527, NTF-67). Must equal the backend push title (PushCopy)."
+  },
   "notificationTitleCancelledByClient": "Client cancelled a booking",
   "@notificationTitleCancelledByClient": {
     "description": "Phase 363 — title of a BOOKING_CANCELLED_BY_CLIENT notification (provider audience). Gender-neutral: the API sends no gender."
@@ -4719,7 +4723,7 @@
       "text": { "type": "String" }
     }
   },
-  "bookingStatusConfirmed": "Confirmed",
+  "bookingStatusConfirmed": "Scheduled",
   "@bookingStatusConfirmed": {
     "description": "Booking status badge label — CONFIRMED."
   },
@@ -5981,14 +5985,6 @@
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
   },
-  "bookingDetailGuestPhone": "Guest phone",
-  "@bookingDetailGuestPhone": {
-    "description": "Caption above the guest's phone number on the provider view of «Деталі запису» (guest/LINK bookings only; independent master, salon owner, salon admin)."
-  },
-  "bookingDetailCallGuest": "Call",
-  "@bookingDetailCallGuest": {
-    "description": "Accessibility label of the tap-to-call guest phone row on «Деталі запису»; tapping opens the phone dialer."
-  },
   "bookingDetailGuestBookingLabel": "Booked via link",
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
@@ -7123,6 +7119,14 @@
   "@portfolioDeleteFailed": {
     "description": "Phase 405 (9.10, D5) — error snack when a portfolio photo delete fails (the photo reappears)."
   },
+  "profilePhotoViewAction": "View photo",
+  "@profilePhotoViewAction": {
+    "description": "Spoken label of a tappable profile photo and the photo source sheet row that opens it full screen."
+  },
+  "profilePhotoViewerSemantics": "Profile photo",
+  "@profilePhotoViewerSemantics": {
+    "description": "Spoken label of the single photo in the full-screen profile photo viewer."
+  },
   "portfolioViewerClose": "Close photo viewer",
   "@portfolioViewerClose": {
     "description": "Phase 407 (9.12, D1) — accessibility label / tooltip of the close button in the full-screen portfolio photo viewer."
@@ -7646,5 +7650,38 @@
   "addPhoneSupportEmailSubject": "Phone number already linked to another account",
   "addPhoneSupportOpenError": "Couldn't open email. Write to us at {email}",
   "registerHaveEmailAccount": "Already have an account with email?",
-  "registerSignInImperative": "Sign in"
+  "registerSignInImperative": "Sign in",
+  "providerNavClients": "Clients",
+  "clientsTitle": "Clients",
+  "clientsSearchHint": "Search by name",
+  "clientsSearchMinLengthError": "Enter at least 2 characters to search",
+  "clientsEmptyTitle": "Your clients will appear here",
+  "clientsEmptyBody": "A client is added automatically after the first booking.",
+  "clientsNoMatchTitle": "Nobody found",
+  "clientsNoMatchBody": "Check the name or enter a shorter one.",
+  "clientsLoadMoreFailed": "Couldn't load clients",
+  "clientsRowLastVisit": "Last visit",
+  "clientsRowNextVisit": "Next",
+  "clientsRowLastVisitShort": "Last",
+  "clientsRowNextVisitShort": "Next",
+  "clientBlockedBadge": "Blocked",
+  "clientsRowSemantics": "Client: {name}, last visit {last}",
+  "clientsRowSemanticsNoVisit": "Client: {name}",
+  "clientCardTitle": "Client",
+  "clientNextVisitTitle": "Next visit",
+  "clientHistoryTitle": "Visit history",
+  "clientMastersFilterAll": "All masters",
+  "clientHistoryEmptyTitle": "No visits yet",
+  "clientHistoryEmptyBody": "This client's bookings will appear here.",
+  "clientRatingTitle": "Client rating",
+  "clientRatingEmpty": "No ratings yet",
+  "clientRatingOpenHint": "Open client rating",
+  "clientRatingPrivacyNote": "Rating comments are private and are not shown here.",
+  "clientCall": "Call",
+  "clientCopyPhone": "Copy number",
+  "clientPhoneCopied": "Number copied",
+  "clientNotFound": "Client not found",
+  "clientPhoneSemantics": "Phone {phone}",
+  "clientRatingCount": "{count, plural, one{{count} rating} other{{count} ratings}}",
+  "clientVisitSemantics": "Visit {when}"
 }

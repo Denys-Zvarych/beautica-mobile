@@ -1294,7 +1294,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(router.canPop(), isFalse);
 
-        await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+        await tester.tap(find.byKey(const Key('master-nav-tile-4')));
         await tester.pumpAndSettle();
 
         expect(

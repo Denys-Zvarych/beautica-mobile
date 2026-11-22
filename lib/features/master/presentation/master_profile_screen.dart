@@ -247,7 +247,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
         ],
       ),
       bottomNavBar: const VelvetBottomNavBar(
-        activeIndex: 3,
+        activeIndex: kMasterProfileNavTab,
         showSetupHints: true,
         showBookingsBadge: true,
       ),

@@ -67,6 +67,22 @@ const int kSalonTeamNavTab = 2;
 /// `l10n.salonShellTabBookings`.
 const int kSalonBookingsNavTab = 1;
 
+/// The «Клієнти» destination's index in [SalonBottomNav.ownerAdminItems] (M509,
+/// the 5th item, before «Профіль»).
+///
+/// Declared beside the list it indexes, like [kSalonTeamNavTab], so a re-order
+/// and this constant are reviewed together. «Профіль» moved 3 → 4 with it.
+///
+/// PINNED — `test/shared/widgets/salon_bottom_nav_test.dart` asserts
+/// `ownerAdminItems(l10n)[kSalonClientsNavTab].label` is
+/// `l10n.providerNavClients`.
+const int kSalonClientsNavTab = 3;
+
+/// The «Профіль» destination's index in [SalonBottomNav.ownerAdminItems]
+/// (3 before M509 inserted «Клієнти»). For an owner the tap leaves the shell
+/// for owner master mode (MAS-18).
+const int kSalonProfileNavTab = 4;
+
 /// One destination in the salon bottom navigation bar. Carries an
 /// outline/filled icon pair so the active tab swaps to the filled glyph.
 ///
@@ -185,6 +201,13 @@ class SalonBottomNav extends StatelessWidget {
       label: l10n.salonShellTabTeam,
       svgIcon: BeauticaAssetIcons.teamOutline,
       svgActiveIcon: BeauticaAssetIcons.teamFilled,
+    ),
+    SalonNavItem(
+      label: l10n.providerNavClients,
+      // M509 (approved design): `contacts`, not `group` — the three-person
+      // «Команда» glyph already sits beside it and two crowd icons read as one.
+      icon: Icons.contacts_outlined,
+      activeIcon: Icons.contacts_rounded,
     ),
     SalonNavItem(
       label: l10n.salonShellTabProfile,

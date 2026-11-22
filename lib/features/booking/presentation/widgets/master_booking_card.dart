@@ -2842,7 +2842,7 @@ class TimelineStatusDot extends StatelessWidget {
       // `Semantics(label:)` below already carries the same word. On Android
       // the `tooltip` property maps to `AccessibilityNodeInfo
       // .setTooltipText`, which TalkBack reads, so the node announced
-      // «Статус: Підтверджено, Підтверджено».
+      // «Статус: Заплановано, Заплановано».
       //
       // The `Semantics(label:)` below is the CANONICAL screen-reader channel
       // and is deliberately untouched — it is the string that makes this dot

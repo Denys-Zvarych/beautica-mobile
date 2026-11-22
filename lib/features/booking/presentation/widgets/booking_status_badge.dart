@@ -184,16 +184,42 @@ class BookingStatusVisual {
 /// The cap is the only saturated element on an otherwise quiet card, and on
 /// a declined booking it is the only red pixel in the whole list.
 class BookingStatusBadge extends StatelessWidget {
-  const BookingStatusBadge({super.key, required this.booking});
+  const BookingStatusBadge({super.key, required Booking booking})
+    : _status = null,
+      _atSalon = false,
+      _booking = booking;
 
-  final Booking booking;
+  /// M510 — the same pill for a surface that has a raw [status] but no
+  /// [Booking] (the client card's visit timeline). ADDITIVE: the default
+  /// constructor, and so every existing caller, renders exactly as before.
+  const BookingStatusBadge.forStatus({
+    super.key,
+    required BookingStatus status,
+    bool atSalon = false,
+  }) : _status = status,
+       _atSalon = atSalon,
+       _booking = null;
+
+  final Booking? _booking;
+  final BookingStatus? _status;
+  final bool _atSalon;
+
+  /// The booking this badge was built from; `null` for [forStatus].
+  Booking? get booking => _booking;
 
   static const double _height = 24;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
+    final Booking? b = _booking;
+    final BookingStatusVisual v = b != null
+        ? BookingStatusVisual.of(b, l10n)
+        : BookingStatusVisual.forStatus(
+            _status ?? BookingStatus.unknown,
+            atSalon: _atSalon,
+            l10n: l10n,
+          );
 
     return Semantics(
       label: l10n.bookingStatusSemantics(v.label),

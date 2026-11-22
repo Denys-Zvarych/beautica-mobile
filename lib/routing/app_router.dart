@@ -79,6 +79,11 @@ import '../features/booking/presentation/service_selector_sheet.dart';
 import '../features/booking/presentation/slot_picker_screen.dart';
 import '../features/booking/presentation/walk_in_guest_step_screen.dart';
 import '../features/booking/presentation/walk_in_service_step_screen.dart';
+import '../features/clients/domain/client_summary.dart';
+import '../shared/validators/uuid_validator.dart';
+import '../features/clients/presentation/client_card_screen.dart';
+import '../features/clients/presentation/client_rating_screen.dart';
+import '../features/clients/presentation/clients_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
@@ -360,6 +365,26 @@ GoRouter appRouter(Ref ref) {
       return roleHomePath(session.user.role);
     }
     return null;
+  }
+
+  /// M510 — the salon-scoped client scope for [salonId]. `?masterId=` narrows
+  /// the salon endpoint to one master row (owner master mode, B507 D2; the
+  /// card's master chips, CLI-74 / CLI-D12) and is honoured ONLY for a
+  /// SALON_OWNER or SALON_ADMIN session and ONLY when it is a canonical UUID
+  /// (it is put in the request query); anything else is ignored, so the card
+  /// reads the whole-salon scope — the server stays the authority (M509 audit
+  /// carry-over).
+  ClientListScope salonClientScope(GoRouterState state, String salonId) {
+    final String? raw = state.uri.queryParameters[kClientCardMasterIdQuery];
+    final session = ref.read(authProvider).value;
+    final bool salonManagerSession =
+        session is Authenticated &&
+        (session.user.role == UserRole.salonOwner ||
+            session.user.role == UserRole.salonAdmin);
+    final String? masterId = (raw != null && isUuid(raw) && salonManagerSession)
+        ? raw
+        : null;
+    return ClientListScope.salon(salonId: salonId, masterId: masterId);
   }
 
   // Phase 21.2 — per-route SALON_OWNER/SALON_ADMIN gate for the owner/admin
@@ -1797,6 +1822,69 @@ GoRouter appRouter(Ref ref) {
           },
         ),
       ),
+      // M509/M510 — a client's card (and «Рейтинг клієнта») from the salon
+      // shell's «Клієнти» tab (owner / admin) or from owner master mode
+      // (`?masterId=`). STANDALONE like the shell above, guarded by the SAME
+      // [salonManageGuard]. `user` / `guest` are literal segments below the
+      // already-captured `:salonId`, and `rating` is a literal below the id.
+      GoRoute(
+        path: '/salons/:salonId/clients/user/:userId',
+        redirect: salonManageGuard,
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['salonId', 'userId'],
+          (ids) => ClientCardScreen(
+            scope: salonClientScope(state, ids[0]),
+            client: ClientRef.registered(ids[1]),
+            cardBase: RouteNames.salonClients(ids[0]),
+            bookingRoute: RouteNames.salonStaffBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/clients/user/:userId/rating',
+        redirect: salonManageGuard,
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['salonId', 'userId'],
+          (ids) => ClientRatingScreen(
+            scope: salonClientScope(state, ids[0]),
+            client: ClientRef.registered(ids[1]),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/clients/guest/:bookingId',
+        redirect: salonManageGuard,
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => pathIdsGuarded(
+            state,
+            <String>['salonId'],
+            (ids) => ClientCardScreen(
+              scope: salonClientScope(state, ids[0]),
+              client: ClientRef.guest(bookingId),
+              cardBase: RouteNames.salonClients(ids[0]),
+              bookingRoute: RouteNames.salonStaffBookingDetail,
+            ),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/salons/:salonId/clients/guest/:bookingId/rating',
+        redirect: salonManageGuard,
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => pathIdsGuarded(
+            state,
+            <String>['salonId'],
+            (ids) => ClientRatingScreen(
+              scope: salonClientScope(state, ids[0]),
+              client: ClientRef.guest(bookingId),
+            ),
+          ),
+        ),
+      ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
       // master profile's «Записатись до майстра» CTA pushes here with
       // the target master id (a bare String) in `extra`. CLIENT-guarded like
@@ -2092,6 +2180,72 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterProfile,
         builder: (context, state) => const MasterProfileScreen(),
       ),
+      // M509 — the independent master's «Клієнти» (tab 3 of the master bar):
+      // `GET /masters/me/clients`. A flat tab root like its siblings
+      // (`VelvetBottomNavBar` navigates by `context.go`); the `/master/*`
+      // prefix gate already fences it to INDEPENDENT_MASTER.
+      GoRoute(
+        path: RouteNames.masterClients,
+        builder: (context, state) => const ClientsScreen(
+          scope: ClientListScope.me(),
+          cardBase: RouteNames.masterClients,
+          bottomNavBar: VelvetBottomNavBar(
+            activeIndex: kMasterClientsNavTab,
+            showSetupHints: true,
+            showBookingsBadge: true,
+          ),
+        ),
+      ),
+      // The client card + «Рейтинг клієнта» (M510).
+      // STANDALONE siblings, not children of the list route: a nested child
+      // would mount a second, hidden `ClientsScreen` (a duplicate fetch) under
+      // the card — the reason `/master/bookings/:id/review` is a sibling too.
+      // `user` / `guest` are literal segments, so neither shadows the other.
+      GoRoute(
+        path: '${RouteNames.masterClients}/user/:userId',
+        builder: (context, state) =>
+            pathIdsGuarded(state, <String>['userId'], (ids) {
+              return ClientCardScreen(
+                scope: const ClientListScope.me(),
+                client: ClientRef.registered(ids[0]),
+                cardBase: RouteNames.masterClients,
+                bookingRoute: RouteNames.masterBookingDetail,
+              );
+            }),
+      ),
+      GoRoute(
+        path: '${RouteNames.masterClients}/user/:userId/rating',
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['userId'],
+          (ids) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.registered(ids[0]),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.masterClients}/guest/:bookingId',
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientCardScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+            cardBase: RouteNames.masterClients,
+            bookingRoute: RouteNames.masterBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.masterClients}/guest/:bookingId/rating',
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+          ),
+        ),
+      ),
       // Phase 7.6 — the master's «Мої записи», the bottom-nav tab-1 destination
       // that had no route until this phase (see `profile_avatar.dart`).
       //
@@ -2226,6 +2380,8 @@ GoRouter appRouter(Ref ref) {
               (bid) => BookingDetailScreen(
                 bookingId: bid,
                 onUnavailable: notificationUnavailableHandler(context, state),
+                // The client strip opens the master's own client card.
+                clientCardBase: (_) => RouteNames.masterClients,
               ),
             ),
           ),
@@ -2430,6 +2586,10 @@ GoRouter appRouter(Ref ref) {
             bookingId: bid,
             clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
             onUnavailable: notificationUnavailableHandler(context, state),
+            // The client strip opens the salon-scoped client card (the
+            // board's salon from `extra`, else the booking's own salon).
+            clientCardBase: (String? salonId) =>
+                salonId == null ? null : RouteNames.salonClients(salonId),
             // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
             // `widget.salonId`, carried on `extra` because NOTHING on this
             // route's path holds it (`/salon/bookings/:bookingId`) and
@@ -2685,10 +2845,78 @@ GoRouter appRouter(Ref ref) {
               navScheduleRoute: RouteNames.salonMasterSchedule,
               navProfileRoute: RouteNames.salonMasterProfile,
               navBookingsRoute: RouteNames.salonMasterBookings,
+              navClientsRoute: RouteNames.salonMasterClients,
               canAddWorkingHours: false,
             ),
           ),
+          // M509 — «Клієнти» for a SALON_MASTER: `GET /masters/me/clients`
+          // (the master's OWN clients), never the salon endpoint. A tab root
+          // in the shell like its four siblings; the `/staff/*` prefix gate
+          // fences it to SALON_MASTER.
+          GoRoute(
+            path: RouteNames.salonMasterClients,
+            builder: (context, state) => const ClientsScreen(
+              scope: ClientListScope.me(),
+              cardBase: RouteNames.salonMasterClients,
+              bottomNavBar: VelvetBottomNavBar(
+                activeIndex: kMasterClientsNavTab,
+                servicesRoute: RouteNames.salonMasterServices,
+                scheduleRoute: RouteNames.salonMasterSchedule,
+                profileRoute: RouteNames.salonMasterProfile,
+                bookingsRoute: RouteNames.salonMasterBookings,
+                clientsRoute: RouteNames.salonMasterClients,
+              ),
+            ),
+          ),
         ],
+      ),
+      // M509/M510 — the SALON_MASTER's client card + «Рейтинг клієнта». Outside
+      // the tabs shell like `/staff/settings`: a pushed drill-in.
+      GoRoute(
+        path: '${RouteNames.salonMasterClients}/user/:userId',
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['userId'],
+          (ids) => ClientCardScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.registered(ids[0]),
+            cardBase: RouteNames.salonMasterClients,
+            bookingRoute: RouteNames.salonMasterBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.salonMasterClients}/user/:userId/rating',
+        builder: (context, state) => pathIdsGuarded(
+          state,
+          <String>['userId'],
+          (ids) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.registered(ids[0]),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.salonMasterClients}/guest/:bookingId',
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientCardScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+            cardBase: RouteNames.salonMasterClients,
+            bookingRoute: RouteNames.salonMasterBookingDetail,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '${RouteNames.salonMasterClients}/guest/:bookingId/rating',
+        builder: (context, state) => bookingIdGuarded(
+          state,
+          (bookingId) => ClientRatingScreen(
+            scope: const ClientListScope.me(),
+            client: ClientRef.guest(bookingId),
+          ),
+        ),
       ),
       // ═══════════════════════════════════════════════════════════════════
       // Phase 379 (24.1b) — the SALON_OWNER's «master mode» tab set
@@ -2733,12 +2961,38 @@ GoRouter appRouter(Ref ref) {
           child: _SalonMasterTabsShell(role: UserRole.salonOwner, child: child),
         ),
         routes: <RouteBase>[
+          // M509 — «Клієнти» in owner master mode: the SALON endpoint narrowed
+          // to the owner's OWN master row (`masterId`, B507 D2) — never the
+          // whole-salon roster the shell's «Клієнти» tab shows. Behind
+          // [_OwnMasterRowGate] so the screen never mounts before the row
+          // resolves. Its card routes are the salon-scoped ones
+          // (`/salons/:salonId/clients/...?masterId=`).
+          GoRoute(
+            path: RouteNames.ownerMasterClients,
+            builder: (context, state) => _OwnMasterRowGate(
+              role: UserRole.salonOwner,
+              builder:
+                  (
+                    BuildContext context,
+                    WidgetRef ref,
+                    String salonId,
+                    String masterId,
+                  ) => ClientsScreen(
+                    scope: ClientListScope.salon(
+                      salonId: salonId,
+                      masterId: masterId,
+                    ),
+                    cardBase: RouteNames.salonClients(salonId),
+                    bottomNavBar: _kOwnerMasterNavBars[kMasterClientsNavTab],
+                  ),
+            ),
+          ),
           GoRoute(
             path: RouteNames.ownerMasterProfile,
             builder: (context, state) {
               final AppLocalizations l10n = AppLocalizations.of(context);
               return OwnerOwnProfileScreen(
-                bottomNavBar: _kOwnerMasterNavBars[3],
+                bottomNavBar: _kOwnerMasterNavBars[kMasterProfileNavTab],
                 backLabel: l10n.ownerMasterModeBack,
                 backSemanticLabel: l10n.ownerMasterModeBackSemantics,
                 onBack: () => context.go(RouteNames.salonHome),
@@ -3100,6 +3354,8 @@ GoRouter appRouter(Ref ref) {
             bookingId: bid,
             clientReviewRouteBuilder: RouteNames.salonMasterClientReview,
             onUnavailable: notificationUnavailableHandler(context, state),
+            // The client strip opens the salon master's own client card.
+            clientCardBase: (_) => RouteNames.salonMasterClients,
           ),
         ),
       ),
@@ -3396,7 +3652,7 @@ _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
 
 /// Phase 379 (24.1b) — the owner master-mode bottom nav, one `const`
 /// [VelvetBottomNavBar] per tile, indexed by `activeIndex` (0 services,
-/// 1 bookings, 2 schedule, 3 profile). `const` so a route-builder pass
+/// 1 bookings, 2 schedule, 3 clients, 4 profile — M509 inserted «Клієнти»). `const` so a route-builder pass
 /// re-supplies the SAME canonical instance instead of allocating a new one.
 /// All four entries live in this ONE declaration, so 380/381/383 add each
 /// route override to every entry here.
@@ -3426,6 +3682,7 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    clientsRoute: RouteNames.ownerMasterClients,
     showBookingsBadge: true,
     bookingsBadgeAsOwnerMaster: true,
   ),
@@ -3435,6 +3692,7 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    clientsRoute: RouteNames.ownerMasterClients,
     showBookingsBadge: true,
     bookingsBadgeAsOwnerMaster: true,
   ),
@@ -3444,6 +3702,7 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    clientsRoute: RouteNames.ownerMasterClients,
     showBookingsBadge: true,
     bookingsBadgeAsOwnerMaster: true,
   ),
@@ -3453,6 +3712,17 @@ const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
     bookingsRoute: RouteNames.ownerMasterBookings,
+    clientsRoute: RouteNames.ownerMasterClients,
+    showBookingsBadge: true,
+    bookingsBadgeAsOwnerMaster: true,
+  ),
+  VelvetBottomNavBar(
+    activeIndex: 4,
+    servicesRoute: RouteNames.ownerMasterServices,
+    scheduleRoute: RouteNames.ownerMasterSchedule,
+    profileRoute: RouteNames.ownerMasterProfile,
+    bookingsRoute: RouteNames.ownerMasterBookings,
+    clientsRoute: RouteNames.ownerMasterClients,
     showBookingsBadge: true,
     bookingsBadgeAsOwnerMaster: true,
   ),
@@ -3661,6 +3931,7 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
             navScheduleRoute: RouteNames.salonMasterSchedule,
             navProfileRoute: RouteNames.salonMasterProfile,
             navBookingsRoute: RouteNames.salonMasterBookings,
+            navClientsRoute: RouteNames.salonMasterClients,
           );
         }
         final bool canManage =
@@ -3698,6 +3969,7 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
           navScheduleRoute: RouteNames.salonMasterSchedule,
           navProfileRoute: RouteNames.salonMasterProfile,
           navBookingsRoute: RouteNames.salonMasterBookings,
+          navClientsRoute: RouteNames.salonMasterClients,
         );
       },
     );

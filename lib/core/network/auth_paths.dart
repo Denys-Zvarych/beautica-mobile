@@ -282,6 +282,12 @@ const List<String> kPiiPathPrefixes = <String>[
   // `DELETE /blocks/{blockId}` are both covered; no exact [kPiiPaths] entry,
   // so the cardinality ledger is unchanged.
   '/api/v1/blocks',
+  // M509 — the provider's client list (backend B507). `GET /masters/me/clients`
+  // (and its B508 card / visits / ratings tails) returns client display names
+  // and avatar URLs. The salon-scoped twin `/salons/{salonId}/clients` is
+  // already covered by the `/api/v1/salons/` prefix above; this one has no
+  // such ancestor. A prefix so every `/masters/me/clients/...` tail is covered.
+  '/api/v1/masters/me/clients',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

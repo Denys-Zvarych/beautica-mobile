@@ -278,7 +278,7 @@ void main() {
         );
         final l10n = _l10n(tester);
 
-        // The big status hero (medallion + «Підтверджено» title) is gone on a
+        // The big status hero (medallion + «Заплановано» title) is gone on a
         // CONFIRMED booking — only the reworded subline speaks to the state.
         expect(find.byType(BookingStatusMedallion), findsNothing);
         expect(find.text(l10n.bookingStatusConfirmed), findsNothing);

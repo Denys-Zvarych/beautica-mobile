@@ -108,6 +108,7 @@ import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
     as client_profile_location_save_overrides_search_touch;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
+import 'clients_tab_flow_test.dart' as clients_tab;
 import 'client_search_query_with_filters_flow_test.dart'
     as client_search_query_with_filters;
 import 'client_search_query_shrink_flow_test.dart'
@@ -441,6 +442,9 @@ void main() {
   group('crash_reports_toggle_flow', crash_reports_toggle.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
+  // M509 — the «Клієнти» tab on every provider surface (list → search → paging
+  // → row tap; salon shell, master bar, salon master, owner master mode).
+  group('clients_tab_flow', clients_tab.main);
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
   // reaching /search/masters + /search/salons TOGETHER with location.cityId,
   // category and a price bound on the SAME request, plus the results
@@ -523,7 +527,7 @@ void main() {
   // scaffolding it shares.
   group('master_create_booking_flow', master_create_booking.main);
   // Phase 231 (mobile-qa, Step 2.7 Rule 3b) — the master «Архів» page: past
-  // bookings including an elapsed-unclosed row, filtering to «Підтверджено»,
+  // bookings including an elapsed-unclosed row, filtering to «Заплановано»,
   // closing via «Виконано» on the real HTTP boundary, the client-side-filter
   // auto-continue past a zero-match raw page, and the terminal empty state.
   // Registered beside `master_bookings_flow`, whose login/router scaffolding

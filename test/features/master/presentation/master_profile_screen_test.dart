@@ -2399,6 +2399,48 @@ void main() {
     );
   });
 
+  // ── 12f-2. One photo behaviour everywhere (2026-11-21): the OWN photo tap
+  // opens the shared viewer with «Змінити фото» (no report) → the change
+  // sheet; no photo (monogram) → the sheet directly.
+  for (final String? url in <String?>[
+    'https://media.test/avatars/u1/1.jpg',
+    null,
+  ]) {
+    testWidgets('own photo ${url == null ? 'monogram' : 'photo'} tap -> '
+        '${url == null ? 'the change sheet' : 'viewer + «Змінити фото»'}', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: AsyncData<Master>(_stubMaster.copyWith(avatarUrl: url)),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('master-profile-avatar-editor')),
+          matching: find.byKey(NeumorphicAvatarEditor.photoTapKey),
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (url != null) {
+        expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+        expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+        await tester.tap(find.byKey(PortfolioPhotoViewer.changePhotoKey));
+        await tester.pumpAndSettle();
+      }
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+      expect(
+        find.byKey(const Key('image-source-remove')),
+        url == null ? findsNothing : findsOneWidget,
+      );
+    });
+  }
+
   // ── 12g. A non-avatar change still rebuilds the body (Phase 369, 367 perf
   // INFO a) — the counterpart of 12f: `MasterProfileIgnoringAvatar` must
   // ignore ONLY the photo. Were it to compare too little, a name edit would

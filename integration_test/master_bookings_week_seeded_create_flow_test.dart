@@ -394,7 +394,7 @@ void main() {
       // Master mode: the salon shell's «Профіль».
       await AppHarness.tapVisible(
         tester,
-        find.byKey(const Key('salon-nav-tile-3')),
+        find.byKey(const Key('salon-nav-tile-4')),
       );
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);

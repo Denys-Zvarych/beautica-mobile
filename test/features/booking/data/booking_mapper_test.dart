@@ -649,6 +649,49 @@ void main() {
     });
   });
 
+  // M519 / B518 — `clientPhone` is mapped verbatim and INDEPENDENTLY of
+  // `guestPhone`; the old-server fallback lives in
+  // `BookingDisplayX.clientPhoneFor` (covered in
+  // booking_detail_guest_phone_test.dart). Serialised through
+  // `standardSerializers` so the wire name is pinned too.
+  group('BookingMapper.fromDto — clientPhone (M519)', () {
+    BookingDetailResponse dto({String? clientPhone, String? guestPhone}) =>
+        (_validDto(id: 'b-phone').toBuilder()
+              ..clientPhone = clientPhone
+              ..guestPhone = guestPhone)
+            .build();
+
+    test('a present clientPhone maps through verbatim', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(clientPhone: '+380501112233'),
+      );
+      expect(b.clientPhone, '+380501112233');
+      expect(b.guestPhone, isNull, reason: 'never copied into guestPhone');
+    });
+
+    test('a pre-B518 payload (guestPhone only) leaves clientPhone null', () {
+      final Booking b = BookingMapper.fromDto(dto(guestPhone: '+380671234567'));
+      expect(b.clientPhone, isNull);
+      expect(b.guestPhone, '+380671234567');
+    });
+
+    test('the clientPhone wire key is bound', () {
+      final Object? wire = standardSerializers.serializeWith(
+        BookingDetailResponse.serializer,
+        _validDto(id: 'b-wire'),
+      );
+      final BookingDetailResponse? parsed = standardSerializers.deserializeWith(
+        BookingDetailResponse.serializer,
+        <String, Object?>{
+          ...(wire! as Map<String, Object?>),
+          'clientPhone': '+380509998877',
+        },
+      );
+      expect(parsed, isNotNull);
+      expect(BookingMapper.fromDto(parsed!).clientPhone, '+380509998877');
+    });
+  });
+
   group('BookingMapper.fromDto — client block state (phase 425 / 397)', () {
     BookingDetailResponse dto({
       bool? blocked,
@@ -1313,6 +1356,82 @@ void main() {
             'reviewByClient is a FACT, not a capability — re-ANDing it with '
             'COMPLETED (the way providerCanReviewClient is deliberately '
             'gated) would blank a real review off the screen',
+      );
+    });
+  });
+
+  // M528 / B527 (CLI-63) — a website LINK or walk-in STAFF booking attached to
+  // the client by verified phone reaches the client on `GET /bookings/me` and
+  // `GET /bookings/{id}` like an APP booking. The wire carries no source, so
+  // the mapper must take the sparser shapes these rows have: no client photo,
+  // no comments, no arrival note, no category key, no review. A future
+  // `bookingSource` key must not break decoding either.
+  group('BookingMapper.fromDto — attached LINK / STAFF rows (M528)', () {
+    Map<String, Object?> wire({required String id, Object? source}) =>
+        <String, Object?>{
+          'id': id,
+          'masterId': 'master-1',
+          'masterServiceId': 'service-1',
+          'masterFirstName': 'Оля',
+          'masterLastName': 'Коваль',
+          'masterType': 'INDEPENDENT_MASTER',
+          'serviceName': 'Манікюр',
+          'status': 'CONFIRMED',
+          'startsAt': '2026-07-10T10:00:00Z',
+          'endsAt': '2026-07-10T11:00:00Z',
+          'priceAtBooking': 500,
+          'durationMinutesAtBooking': 60,
+          'clientId': '7b1d6f0e-2c4a-4f1e-9a51-3a4d2b1c0e9f',
+          'clientFirstName': 'Ірина',
+          'canReview': true,
+          'bookingSource': ?source,
+        };
+
+    for (final String source in <String>['LINK', 'STAFF']) {
+      test('$source: decodes and maps with every optional field absent', () {
+        final BookingDetailResponse? dto = standardSerializers.deserializeWith(
+          BookingDetailResponse.serializer,
+          wire(id: 'b-$source', source: source),
+        );
+        expect(dto, isNotNull, reason: 'an unknown wire key is tolerated');
+
+        final Booking b = BookingMapper.fromDto(dto!);
+
+        expect(b.id, 'b-$source');
+        expect(b.status, BookingStatus.confirmed);
+        expect(b.isGuestBooking, isFalse, reason: 'attached = own account');
+        expect(b.clientAvatarUrl, isNull);
+        expect(b.clientLastName, isNull);
+        expect(b.clientComment, isNull);
+        expect(b.providerComment, isNull);
+        expect(b.locationNote, isNull);
+        expect(b.masterAvatarUrl, isNull);
+        expect(b.categoryKey, isNull);
+        expect(b.reviewByClient, isNull);
+        expect(
+          b.canReview,
+          isTrue,
+          reason: 'the server flag is carried, no client-side source rule',
+        );
+      });
+    }
+
+    test('fromDtoList keeps every row of a mixed APP / LINK / STAFF page', () {
+      final List<BookingDetailResponse> page = <BookingDetailResponse>[
+        for (final (String id, String? src) in <(String, String?)>[
+          ('app', null),
+          ('link', 'LINK'),
+          ('staff', 'STAFF'),
+        ])
+          standardSerializers.deserializeWith(
+            BookingDetailResponse.serializer,
+            wire(id: id, source: src),
+          )!,
+      ];
+
+      expect(
+        BookingMapper.fromDtoList(page).map((Booking b) => b.id).toList(),
+        <String>['app', 'link', 'staff'],
       );
     });
   });

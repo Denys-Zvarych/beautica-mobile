@@ -65,7 +65,7 @@ import '../domain/search_suggestion.dart';
 import 'search_suggestions_provider.dart';
 import 'state/search_filters_controller.dart';
 import 'widgets/category_rail.dart';
-import 'widgets/search_query_field.dart';
+import 'package:beautica_mobile/shared/widgets/search_query_field.dart';
 import 'widgets/search_suggestion_list.dart';
 import 'widgets/service_chip_drawer.dart';
 import 'widgets/service_type_tile.dart';

@@ -526,16 +526,34 @@ void main() {
       handle.dispose();
     });
 
-    test('action and onTap are mutually exclusive', () {
-      expect(
-        () => MasterStripShell(
-          semanticsLabel: 'x',
-          name: 'x',
-          onTap: () {},
-          action: const SizedBox(),
+    testWidgets('action + onTap: identity tap and action tap stay separate', (
+      tester,
+    ) async {
+      int identityTaps = 0;
+      int actionTaps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MasterStripShell(
+              semanticsLabel: 'x',
+              name: 'Олена', // i18n-finder-ok: fixture label
+              onTap: () => identityTaps++,
+              action: IconButton(
+                key: const Key('shell-action'),
+                onPressed: () => actionTaps++,
+                icon: const Icon(Icons.more_horiz),
+              ),
+            ),
+          ),
         ),
-        throwsAssertionError,
       );
+      // i18n-finder-ok: fixture label
+      await tester.tap(find.text('Олена'));
+      expect(identityTaps, 1);
+      expect(actionTaps, 0);
+      await tester.tap(find.byKey(const Key('shell-action')));
+      expect(identityTaps, 1);
+      expect(actionTaps, 1);
     });
   });
 }

@@ -11,7 +11,7 @@
 //
 //   1. CLIENT logs in and opens the Записи branch.
 //   2. A booking created CONFIRMED (auto-confirm — no provider approval step)
-//      is visible IMMEDIATELY in Майбутні («Підтверджено»).
+//      is visible IMMEDIATELY in Майбутні («Заплановано»).
 //   3. Opening it lands on «Деталі запису» with the «Скасувати запис» action.
 //   4. Cancelling WITH a note calls PATCH /bookings/{id}/cancel carrying that
 //      note, and the booking transitions to CANCELLED.
@@ -99,7 +99,7 @@ void main() {
       expect(
         find.text(listL10n.bookingStatusConfirmed),
         findsOneWidget,
-        reason: 'the card must carry the «Підтверджено» status badge',
+        reason: 'the card must carry the «Заплановано» status badge',
       );
 
       // Feature B — on the Записи LIST the CLIENT bottom nav is present (both

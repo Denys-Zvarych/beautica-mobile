@@ -1,20 +1,18 @@
 // Phase 417 (mobile-qa) — STRUCTURAL GATE: where `guestPhone` may be read.
+// M519 — extended to `Booking.clientPhone`.
 //
-// USER RULE (2026-10-22): the GUEST's phone is shown only on «Деталі запису»,
-// only for a guest booking, only to an independent master / salon owner /
-// salon admin. A SALON_MASTER (even the performing one) and a CLIENT never see
-// it, and a REGISTERED client's phone is shown nowhere.
-//
-// Nothing at runtime notices a new screen that renders the field, so this test
-// pins every non-comment reference in `lib/` to the four files that own it:
-//   • booking.dart                 — the model field;
-//   • booking_mapper.dart          — DTO → model mapping;
-//   • booking_display_x.dart       — `guestPhoneFor`, the role + guest gate;
-//   • booking_detail_screen.dart   — the only renderer (reads the GATED value).
+// 2026-11-21 (user): «Деталі запису» shows NO client phone for any role; the
+// phone lives only on the client card (its own `ClientCard.phone`, gated by
+// `canSeeClientPhone`). The booking fields are now mapped and never read, so
+// this test pins every non-comment reference in `lib/` to the two files that
+// own them:
+//   • booking.dart          — the model fields;
+//   • booking_mapper.dart   — DTO → model mapping.
 // Comments and generated code are ignored.
 //
-// ADDING A SITE is a deliberate act: it must go through `guestPhoneFor`, and
-// the allow-list below is updated in a reviewed diff.
+// ADDING A READER is a deliberate act: it must gate on `canSeeClientPhone`
+// (never a salon master or client), and the allow-list below is updated in a
+// reviewed diff.
 
 import 'dart:io';
 
@@ -23,9 +21,18 @@ import 'package:flutter_test/flutter_test.dart';
 const Set<String> _allowed = <String>{
   'lib/features/booking/domain/booking.dart',
   'lib/features/booking/data/booking_mapper.dart',
-  'lib/features/booking/domain/booking_display_x.dart',
-  'lib/features/booking/presentation/booking_detail_screen.dart',
 };
+
+/// M519 — owners of `clientPhone` (the booking field), plus the removed
+/// `clientPhoneFor` gate so it cannot quietly return. The word-boundary match
+/// leaves the unrelated l10n getters (`clientPhoneCopied`,
+/// `clientPhoneSemantics`, …) out of the scan.
+const Set<String> _clientPhoneAllowed = <String>{
+  'lib/features/booking/domain/booking.dart',
+  'lib/features/booking/data/booking_mapper.dart',
+};
+
+final RegExp _clientPhoneRef = RegExp(r'\bclientPhone(For)?\b');
 
 bool _generated(String path) =>
     path.endsWith('.g.dart') ||
@@ -40,8 +47,24 @@ List<String> _codeHits(String path) => <String>[
       line.trim(),
 ];
 
+/// Source lines of [path] that reference `clientPhone` / `clientPhoneFor`
+/// outside a `//` comment.
+List<String> _clientPhoneHits(String path) => <String>[
+  for (final String line in File(path).readAsLinesSync())
+    if (_clientPhoneRef.hasMatch(line) && !line.trimLeft().startsWith('//'))
+      line.trim(),
+];
+
+/// Non-generated `.dart` files under `lib/`, slash-normalised.
+List<String> _libSources() => <String>[
+  for (final FileSystemEntity e in Directory('lib').listSync(recursive: true))
+    if (e is File && e.path.endsWith('.dart'))
+      if (!_generated(e.path.replaceAll(r'\', '/')))
+        e.path.replaceAll(r'\', '/'),
+];
+
 void main() {
-  test('guestPhone is read in lib/ only by the four owning files', () {
+  test('guestPhone is read in lib/ only by the model and the mapper', () {
     final List<String> offenders = <String>[];
     int scanned = 0;
     for (final FileSystemEntity e in Directory(
@@ -60,10 +83,9 @@ void main() {
       offenders,
       isEmpty,
       reason:
-          'USER RULE (2026-10-22): the guest phone is shown only on «Деталі '
-          'запису» via BookingDisplayX.guestPhoneFor — never to a salon master '
-          'or client, and a registered client\'s phone nowhere. Remove the '
-          '`guestPhone` read from: $offenders',
+          'USER RULE (2026-11-21): «Деталі запису» shows no client phone; the '
+          'guest phone is only mapped (model + mapper). The phone lives on the '
+          'client card. Remove the `guestPhone` read from: $offenders',
     );
   });
 
@@ -73,6 +95,36 @@ void main() {
         File(path).existsSync() && _codeHits(path).isNotEmpty,
         isTrue,
         reason: '$path no longer references guestPhone — update the list',
+      );
+    }
+  });
+
+  test('Booking.clientPhone is read in lib/ only by its owning files', () {
+    final List<String> sources = _libSources();
+    expect(sources.length, greaterThan(100), reason: 'the scan must see lib/');
+    final List<String> offenders = <String>[
+      for (final String path in sources)
+        if (!_clientPhoneAllowed.contains(path) &&
+            _clientPhoneHits(path).isNotEmpty)
+          path,
+    ];
+    expect(
+      offenders,
+      isEmpty,
+      reason:
+          'USER RULE (2026-11-21): «Деталі запису» shows no client phone; '
+          'Booking.clientPhone is only mapped (model + mapper). The phone '
+          'lives on the client card. Remove the `clientPhone` read from: '
+          '$offenders',
+    );
+  });
+
+  test('every clientPhone owner still exists and really references it', () {
+    for (final String path in _clientPhoneAllowed) {
+      expect(
+        File(path).existsSync() && _clientPhoneHits(path).isNotEmpty,
+        isTrue,
+        reason: '$path no longer references clientPhone — update the list',
       );
     }
   });

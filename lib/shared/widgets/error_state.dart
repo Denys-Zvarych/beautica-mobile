@@ -22,7 +22,12 @@ import 'package:flutter/material.dart';
 /// )
 /// ```
 class ErrorState extends StatelessWidget {
-  const ErrorState({super.key, required this.failure, this.onRetry});
+  const ErrorState({
+    super.key,
+    required this.failure,
+    this.onRetry,
+    this.message,
+  });
 
   /// The domain failure describing what went wrong.
   final Failure failure;
@@ -31,6 +36,11 @@ class ErrorState extends StatelessWidget {
   ///
   /// When `null`, the retry button is omitted entirely.
   final VoidCallback? onRetry;
+
+  /// ADDITIVE (M510): replaces `failure.userMessage(context)` for a surface
+  /// whose not-found copy is its own («Клієнта не знайдено»). `null` — every
+  /// existing caller — renders exactly as before.
+  final String? message;
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +68,7 @@ class ErrorState extends StatelessWidget {
             Icon(Icons.error_outline, size: 48, color: colorScheme.error),
             const SizedBox(height: AppSpacing.md),
             Text(
-              failure.userMessage(context),
+              message ?? failure.userMessage(context),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyLarge,
             ),

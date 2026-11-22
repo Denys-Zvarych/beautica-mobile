@@ -37,7 +37,7 @@
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
-import 'package:beautica_mobile/features/discovery/presentation/widgets/search_query_field.dart';
+import 'package:beautica_mobile/shared/widgets/search_query_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -554,6 +554,95 @@ void main() {
             'didUpdateWidget must recompute _belowMinimum — otherwise the '
             'helper reflects the OLD controller until the next keystroke',
       );
+    });
+  });
+
+  // ── M509 additive params: minLength / maxLength / isBelowSearchMinimum(min:) ──
+  //
+  // The «Клієнти» list is the second host (B507 `q` is 2–50). Defaults must
+  // leave the discovery filters screen byte-identical: min 3, max 100.
+
+  group('additive minLength / maxLength (M509)', () {
+    Future<void> pumpWith(
+      WidgetTester tester,
+      TextEditingController controller, {
+      int? minLength,
+      int? maxLength,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: minLength == null && maxLength == null
+                ? SearchQueryField(
+                    fieldKey: _fieldKey,
+                    controller: controller,
+                    hintText: _hintText,
+                    minLengthError: _minLengthError,
+                    onChanged: (_) {},
+                  )
+                : SearchQueryField(
+                    fieldKey: _fieldKey,
+                    controller: controller,
+                    hintText: _hintText,
+                    minLengthError: _minLengthError,
+                    onChanged: (_) {},
+                    minLength: minLength ?? kSearchMinQueryLength,
+                    maxLength: maxLength ?? kSearchMaxQueryLength,
+                  ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('DEFAULTS are discovery\'s: 2 chars is still an error, the cap '
+        'is 100', (tester) async {
+      final _ProbeController c = makeController();
+      await pumpWith(tester, c);
+      await tester.enterText(find.byKey(_fieldKey), 'ма');
+      await tester.pump();
+      expect(find.byKey(_hintKey), findsOneWidget);
+
+      await tester.enterText(find.byKey(_fieldKey), 'я' * 150);
+      await tester.pump();
+      expect(c.text.length, kSearchMaxQueryLength);
+      expect(kSearchMinQueryLength, 3);
+      expect(kSearchMaxQueryLength, 100);
+    });
+
+    testWidgets('minLength: 2 → 1 char errors, 2 chars is fine', (
+      tester,
+    ) async {
+      final _ProbeController c = makeController();
+      await pumpWith(tester, c, minLength: 2);
+
+      await tester.enterText(find.byKey(_fieldKey), 'м');
+      await tester.pump();
+      expect(find.byKey(_hintKey), findsOneWidget);
+
+      await tester.enterText(find.byKey(_fieldKey), 'ма');
+      await tester.pump();
+      expect(find.byKey(_hintKey), findsNothing);
+    });
+
+    testWidgets('maxLength: 50 caps the input at 50', (tester) async {
+      final _ProbeController c = makeController();
+      await pumpWith(tester, c, maxLength: 50);
+      await tester.enterText(find.byKey(_fieldKey), 'я' * 80);
+      await tester.pump();
+      expect(c.text.length, 50);
+    });
+
+    test('isBelowSearchMinimum(raw, min:) — default 3, override honoured', () {
+      expect(isBelowSearchMinimum('ма'), isTrue);
+      expect(isBelowSearchMinimum('ма', min: 2), isFalse);
+      expect(isBelowSearchMinimum('м', min: 2), isTrue);
+      expect(isBelowSearchMinimum('  м  ', min: 2), isTrue, reason: 'trimmed');
+      expect(
+        isBelowSearchMinimum('', min: 2),
+        isFalse,
+        reason: 'empty ≠ error',
+      );
+      expect(isBelowSearchMinimum(null, min: 2), isFalse);
     });
   });
 }

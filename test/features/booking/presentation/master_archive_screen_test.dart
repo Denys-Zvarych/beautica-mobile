@@ -10,7 +10,7 @@
 //   * the default request sends BOTH `partition: HISTORY` and the legacy
 //     status set (end-to-end through the real screen, not just the
 //     notifier);
-//   * the reused `BookingsFilterSheet`'s «Підтверджено» row, applied with NO
+//   * the reused `BookingsFilterSheet`'s «Заплановано» row, applied with NO
 //     new UI, narrows the visible list to exactly the `awaitingClosure` rows
 //     (fixture carries a non-awaiting row too, so the assertion is not
 //     vacuous);
@@ -265,7 +265,7 @@ void main() {
   /// Stubs a DIFFERENT raw server page per requested `page` index, for EVERY
   /// request regardless of `statuses`/`partition` (unlike
   /// [stubConfirmedFilterPages], which only differentiates on the
-  /// «Підтверджено» filter) — used by the date-group-header pagination test
+  /// «Заплановано» filter) — used by the date-group-header pagination test
   /// below, which never applies a filter and needs page 0 and page 1 to
   /// return genuinely different rows on the SAME (unfiltered) request shape.
   void stubByPage(Map<int, List<Booking>> byPage, {required int totalPages}) {
@@ -302,7 +302,7 @@ void main() {
   }
 
   /// Stubs a DIFFERENT raw server page per requested `page` index, ONLY for
-  /// the request the «Підтверджено» filter sends (`statuses == {confirmed}`).
+  /// the request the «Заплановано» filter sends (`statuses == {confirmed}`).
   /// Every OTHER request — critically, the screen's own initial UNFILTERED
   /// landing fetch, which every test in this group also triggers via
   /// [pump] before it ever applies a filter — gets back a single, harmless
@@ -349,7 +349,7 @@ void main() {
   }
 
   /// mobile-qa MEDIUM fix (2026-08-16) — stubs an EFFECTIVELY UNBOUNDED
-  /// «Підтверджено» filtered stream: every raw page comes back with ZERO
+  /// «Заплановано» filtered stream: every raw page comes back with ZERO
   /// rows (the predicate never matches) and `hasMore: true` forever
   /// (`totalPages: 999`) — the shape needed to drive
   /// [_MasterArchiveScreenState._autoContinueAttempts] all the way to
@@ -1096,7 +1096,7 @@ void main() {
       'hasMore, is NOT the terminal empty state — the screen keeps '
       'fetching and surfaces the match from the next raw page',
       (WidgetTester tester) async {
-        // Page 0: a COMPLETED row only — invisible under the «Підтверджено»
+        // Page 0: a COMPLETED row only — invisible under the «Заплановано»
         // filter. totalPages: 2, so hasMore is true after this page.
         // Page 1: the CONFIRMED/awaitingClosure row the filter is meant to
         // surface — totalPages: 2 makes this the LAST page (hasMore false).
@@ -1294,7 +1294,7 @@ void main() {
       (WidgetTester tester) async {
         // Single raw page (totalPages: 1 → hasMore false immediately),
         // containing only a COMPLETED row — invisible under the
-        // «Підтверджено» filter, and nothing left to fetch.
+        // «Заплановано» filter, and nothing left to fetch.
         stubConfirmedFilterPages(<int, List<Booking>>{
           0: <Booking>[_booking(id: 'done', status: BookingStatus.completed)],
         }, totalPages: 1);
@@ -1333,7 +1333,7 @@ void main() {
     // [_MasterArchiveScreenState._kMaxAutoContinueAttempts] (3) — the
     // fallback a master actually hits when a narrow filter needs MORE than
     // 3 raw pages before a match (or exhaustion) surfaces. That is this
-    // page's own core use case for the «Підтверджено» filter (the master
+    // page's own core use case for the «Заплановано» filter (the master
     // scanning back through old, mostly-COMPLETED history for the rare
     // still-open row), so leaving the cap itself unpinned was a real gap,
     // not a theoretical one.
@@ -1506,53 +1506,39 @@ void main() {
     );
   });
 
-  group(
-    '«Підтверджено» filter row = «Потребують закриття», with NO new UI',
-    () {
-      testWidgets(
-        'ticking ONLY «Підтверджено» in the reused BookingsFilterSheet '
+  group('«Заплановано» filter row = «Потребують закриття», with NO new UI', () {
+    testWidgets('ticking ONLY «Заплановано» in the reused BookingsFilterSheet '
         'narrows the visible list to exactly the awaitingClosure row — a '
-        'non-awaiting row in the fixture proves this is not vacuous',
-        (WidgetTester tester) async {
-          stubList(<Booking>[
-            _booking(
-              id: 'awaiting',
-              status: BookingStatus.confirmed,
-              awaitingClosure: true,
-            ),
-            _booking(id: 'done', status: BookingStatus.completed),
-          ]);
+        'non-awaiting row in the fixture proves this is not vacuous', (
+      WidgetTester tester,
+    ) async {
+      stubList(<Booking>[
+        _booking(
+          id: 'awaiting',
+          status: BookingStatus.confirmed,
+          awaitingClosure: true,
+        ),
+        _booking(id: 'done', status: BookingStatus.completed),
+      ]);
 
-          await pump(tester);
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const ValueKey<String>('awaiting')),
-            findsOneWidget,
-          );
-          expect(find.byKey(const ValueKey<String>('done')), findsOneWidget);
+      await pump(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey<String>('awaiting')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('done')), findsOneWidget);
 
-          await tester.tap(
-            find.byKey(const Key('master-bookings-filter-button')),
-          );
-          await tester.pumpAndSettle();
-          await tester.tap(
-            find.byKey(const Key('master-bookings-filter-status-confirmed')),
-          );
-          await tester.pumpAndSettle();
-          await tester.tap(
-            find.byKey(const Key('master-bookings-filter-apply')),
-          );
-          await tester.pumpAndSettle();
-
-          expect(
-            find.byKey(const ValueKey<String>('awaiting')),
-            findsOneWidget,
-          );
-          expect(find.byKey(const ValueKey<String>('done')), findsNothing);
-        },
+      await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('master-bookings-filter-status-confirmed')),
       );
-    },
-  );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey<String>('awaiting')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('done')), findsNothing);
+    });
+  });
 
   group('«Виконано» close action', () {
     testWidgets(

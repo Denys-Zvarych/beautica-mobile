@@ -23,6 +23,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
   final String? cancelUrl;
   @override
   final TelegramAvailability? telegram;
+  @override
+  final bool? attachedToAccount;
 
   factory _$GuestBookingResponse(
           [void Function(GuestBookingResponseBuilder)? updates]) =>
@@ -36,7 +38,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
       this.serviceName,
       this.durationMinutes,
       this.cancelUrl,
-      this.telegram})
+      this.telegram,
+      this.attachedToAccount})
       : super._();
   @override
   GuestBookingResponse rebuild(
@@ -58,7 +61,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
         serviceName == other.serviceName &&
         durationMinutes == other.durationMinutes &&
         cancelUrl == other.cancelUrl &&
-        telegram == other.telegram;
+        telegram == other.telegram &&
+        attachedToAccount == other.attachedToAccount;
   }
 
   @override
@@ -72,6 +76,7 @@ class _$GuestBookingResponse extends GuestBookingResponse {
     _$hash = $jc(_$hash, durationMinutes.hashCode);
     _$hash = $jc(_$hash, cancelUrl.hashCode);
     _$hash = $jc(_$hash, telegram.hashCode);
+    _$hash = $jc(_$hash, attachedToAccount.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -86,7 +91,8 @@ class _$GuestBookingResponse extends GuestBookingResponse {
           ..add('serviceName', serviceName)
           ..add('durationMinutes', durationMinutes)
           ..add('cancelUrl', cancelUrl)
-          ..add('telegram', telegram))
+          ..add('telegram', telegram)
+          ..add('attachedToAccount', attachedToAccount))
         .toString();
   }
 }
@@ -131,6 +137,11 @@ class GuestBookingResponseBuilder
   set telegram(TelegramAvailabilityBuilder? telegram) =>
       _$this._telegram = telegram;
 
+  bool? _attachedToAccount;
+  bool? get attachedToAccount => _$this._attachedToAccount;
+  set attachedToAccount(bool? attachedToAccount) =>
+      _$this._attachedToAccount = attachedToAccount;
+
   GuestBookingResponseBuilder() {
     GuestBookingResponse._defaults(this);
   }
@@ -146,6 +157,7 @@ class GuestBookingResponseBuilder
       _durationMinutes = $v.durationMinutes;
       _cancelUrl = $v.cancelUrl;
       _telegram = $v.telegram?.toBuilder();
+      _attachedToAccount = $v.attachedToAccount;
       _$v = null;
     }
     return this;
@@ -177,6 +189,7 @@ class GuestBookingResponseBuilder
             durationMinutes: durationMinutes,
             cancelUrl: cancelUrl,
             telegram: _telegram?.build(),
+            attachedToAccount: attachedToAccount,
           );
     } catch (_) {
       late String _$failedField;

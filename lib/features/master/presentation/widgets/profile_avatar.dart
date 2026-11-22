@@ -17,6 +17,9 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
+import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 // Phase 13.6 — ContactTile moved to `shared/widgets/` for cross-feature reuse
 // (the salon public profile also renders a contact row). Re-exported here so
 // every existing `import 'widgets/profile_avatar.dart';` call site keeps
@@ -36,7 +39,13 @@ export 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 /// this widget paints the inset inner-shadow effect directly via a circular
 /// [CustomPaint] layer, then clips child content with [ClipOval].
 class ProfileAvatar extends StatelessWidget {
-  const ProfileAvatar({super.key, this.diameter = kDiameter, this.imageUrl});
+  const ProfileAvatar({
+    super.key,
+    this.diameter = kDiameter,
+    this.imageUrl,
+    this.previewOnTap = false,
+    this.previewReport,
+  });
 
   /// Default avatar diameter — matches the preview spec (96–112 px band).
   static const double kDiameter = 104;
@@ -48,6 +57,17 @@ class ProfileAvatar extends StatelessWidget {
   /// well. Null (every pre-existing caller) renders exactly as before.
   final String? imageUrl;
 
+  /// ADDITIVE (2026-11-21): `true` → a tap on the PHOTO opens it full
+  /// screen ([ProfilePhotoPreviewTap]); no photo → inert. `false` (the
+  /// default) — every list row / navigating card — renders and behaves
+  /// exactly as before.
+  final bool previewOnTap;
+
+  /// ADDITIVE (MOD-39): with [previewOnTap], the viewer's «Поскаржитися» for
+  /// this profile ([ProfilePhotoPreviewTap.report]). `null` (the default,
+  /// own-profile previews) → no report button.
+  final PhotoViewerReport? previewReport;
+
   @override
   Widget build(BuildContext context) {
     final Widget iconWell = Center(
@@ -58,7 +78,7 @@ class ProfileAvatar extends StatelessWidget {
       ),
     );
     final String? url = imageUrl;
-    return Semantics(
+    final Widget avatar = Semantics(
       label: 'Фото профілю',
       image: true,
       child: SizedBox(
@@ -84,6 +104,12 @@ class ProfileAvatar extends StatelessWidget {
           ),
         ),
       ),
+    );
+    if (!previewOnTap) return avatar;
+    return ProfilePhotoPreviewTap(
+      imageUrl: url,
+      report: previewReport,
+      child: avatar,
     );
   }
 }

@@ -168,7 +168,7 @@ void main() {
   });
 
   group('the other statuses keep their own labels (no collapse spillover)', () {
-    test('CONFIRMED keeps «Підтверджено»', () {
+    test('CONFIRMED keeps «Заплановано»', () {
       final BookingStatusVisual v = _visual(BookingStatus.confirmed);
       expect(v.label, _uk.bookingStatusConfirmed);
       expect(v.label, isNot(_uk.bookingStatusCancelled));

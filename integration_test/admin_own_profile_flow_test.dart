@@ -88,8 +88,8 @@ import 'support/app_harness.dart';
 /// deliberately a different id from the owner fixture's `salon-owner-1`.
 const String _kAdminSalonId = 'salon-admin-1';
 
-/// `SalonBottomNav.ownerAdminItems` — «Профіль» is destination 3…
-const int _navProfile = 3;
+/// `SalonBottomNav.ownerAdminItems` — «Профіль» is destination 4 (3 before M509 inserted «Клієнти»)…
+const int _navProfile = 4;
 
 /// …and «Салон» is destination 0, which is also the affiliation card's
 /// destination.
@@ -172,7 +172,7 @@ void main() {
         expect(
           _stackIndex(tester),
           _slotOwnProfile,
-          reason: 'nav 3 must resolve to stack slot 2',
+          reason: 'nav 4 must resolve to stack slot 2',
         );
         expect(
           find.byType(AdminOwnProfileScreen),

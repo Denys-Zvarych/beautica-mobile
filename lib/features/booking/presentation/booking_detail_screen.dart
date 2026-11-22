@@ -69,9 +69,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/errors/resource_unavailable.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
@@ -81,19 +79,10 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/moderation/application/block_notifier.dart';
-import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
-import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
-import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
-import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
-import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
-import 'package:beautica_mobile/shared/utils/phone_uri.dart';
-import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
-import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
@@ -132,7 +121,20 @@ class BookingDetailScreen extends ConsumerStatefulWidget {
     this.salonId,
     this.onUnavailable,
     this.leaveReviewRouteBuilder,
+    this.clientCardBase,
   });
+
+  /// 2026-11-21 — the «Клієнти» list base this PROVIDER mount's client card
+  /// hangs under, given the booking's salon id ([salonId] first, then
+  /// `Booking.salonId`): `RouteNames.masterClients` (`/master/bookings/:id`),
+  /// `RouteNames.salonMasterClients` (`/staff/bookings/:id`) or
+  /// `RouteNames.salonClients(salonId)` (`/salon/bookings/:id`). Returning
+  /// `null` (or leaving this `null` — every CLIENT mount and existing test)
+  /// keeps the client strip inert.
+  ///
+  /// ADDITIVE and NULLABLE — a ROUTE parameter like
+  /// [clientReviewRouteBuilder], never a role flag (decision D5).
+  final String? Function(String? salonId)? clientCardBase;
 
   /// Phase 364 — builds the path of the CLIENT's own «Залишити відгук про
   /// майстра» push. NOT [clientReviewRouteBuilder]: that one aims the
@@ -566,126 +568,22 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     );
   }
 
-  /// Phase 417 — opens the dialer on the guest's number. The value goes
-  /// through [canonicalTelUri] (strict allow-list) before [launchUrl]; no
-  /// `canLaunchUrl` gate (the manifest `<queries>` DIAL entry covers package
-  /// visibility). On a null URI or launch failure: the generic error snack.
-  /// The number is NEVER logged.
-  Future<void> _callGuest(BuildContext context, String phone) =>
-      openExternalUri(
-        context,
-        canonicalTelUri(phone),
-        errorMessage: AppLocalizations.of(context).errUnknown,
-        mode: LaunchMode.platformDefault,
-        logName: 'feature.booking.detail',
-      );
-
-  /// Phase 425 D2/D3 — the client strip's «⋯» for a provider viewer, or
-  /// `null` when there is nothing to offer: report a REGISTERED client
-  /// (every provider role); block / unblock only for the roles
-  /// [clientBlocksAllowedFor] admits (independent master, salon owner, salon
-  /// admin — never a salon master), and then only as the server allows:
-  /// «Заблокувати» when `clientBlockable`, «Розблокувати» when
-  /// `clientBlocked` with its `clientBlockId`. A null role fails closed.
-  VoidCallback? _clientMoreFor(Booking booking, UserRole? role) {
-    if (role == null || role == UserRole.client) return null;
-    // Phase 428 add-on — a client already reported loses the REPORT entry
-    // only; block / unblock stay (report once, ever). Called from build.
+  /// 2026-11-21 — the client strip's route into the M510 client card, or
+  /// `null` (inert strip) when this mount has no card base, the viewer is not
+  /// a provider, or the client cannot have a card (anonymised / detached —
+  /// `BookingDisplayX.clientCardReachable`). Registered → `…/user/{clientId}`,
+  /// guest → `…/guest/{bookingId}` (CLI-42).
+  VoidCallback? _openClientFor(Booking booking, BookingViewerRole viewer) {
+    if (!viewer.isProvider || !booking.clientCardReachable) return null;
+    final String? base = widget.clientCardBase?.call(
+      widget.salonId ?? booking.salonId,
+    );
+    if (base == null) return null;
     final String? clientId = booking.clientId;
-    final bool canReport =
-        clientId != null &&
-        !watchIsReported(ref, ReportTargetType.clientProfile, clientId);
-    final bool roleMayBlock = clientBlocksAllowedFor(role);
-    final String? blockId = booking.clientBlockId;
-    final bool blocked = booking.clientBlocked && blockId != null;
-    final bool canBlock =
-        roleMayBlock &&
-        (blocked || (!booking.clientBlocked && booking.clientBlockable));
-    if (!canReport && !canBlock) return null;
-    return () => _onClientMore(
-      booking,
-      canReport: canReport,
-      canBlock: canBlock,
-      blocked: blocked,
-      // Phase 398 — a salon owner / admin blocks for the whole salon.
-      salonScope: role == UserRole.salonOwner || role == UserRole.salonAdmin,
-    );
-  }
-
-  Future<void> _onClientMore(
-    Booking booking, {
-    required bool canReport,
-    required bool canBlock,
-    required bool blocked,
-    required bool salonScope,
-  }) async {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    final String name = booking.clientName ?? l10n.bookingDetailGuestClient;
-    final ClientAction? action = await showClientActionsSheet(
-      context,
-      name: name,
-      canReport: canReport,
-      canBlock: canBlock,
-      blocked: blocked,
-    );
-    if (!mounted || action == null) return;
-    switch (action) {
-      case ClientAction.report:
-        final String? clientId = booking.clientId;
-        if (clientId == null) return;
-        await showReportSheet(
-          context,
-          targetType: ReportTargetType.clientProfile,
-          targetId: clientId,
-          subject: l10n.reportSubjectClient(name),
-        );
-      case ClientAction.block:
-        if (!await showBlockClientDialog(
-          context,
-          name,
-          salonScope: salonScope,
-        )) {
-          return;
-        }
-        if (!mounted) return;
-        final BlockWriteResult result = await ref
-            .read(clientBlockControllerProvider.notifier)
-            // `null` on every non-salon mount — see `widget.salonId`'s doc.
-            .block(booking.id, salonId: widget.salonId);
-        if (!mounted) return;
-        // Phase 398 — the block auto-cancelled future visits: say how many
-        // (the snack host is single-slot, so this REPLACES the plain
-        // «Клієнта заблоковано», never stacks on it).
-        _showBlockOutcome(result, switch (result) {
-          BlockWriteDone(:final int cancelledBookings)
-              when cancelledBookings > 0 =>
-            l10n.clientBlockCancelledBookingsSnack(cancelledBookings),
-          _ => l10n.clientBlockedSnack,
-        });
-      case ClientAction.unblock:
-        final String? blockId = booking.clientBlockId;
-        if (blockId == null) return;
-        if (!await showUnblockClientDialog(context, name)) return;
-        if (!mounted) return;
-        final BlockWriteResult result = await ref
-            .read(clientBlockControllerProvider.notifier)
-            .unblock(bookingId: booking.id, blockId: blockId);
-        if (!mounted) return;
-        _showBlockOutcome(result, l10n.clientUnblockedSnack);
-    }
-  }
-
-  /// Success → [successMessage]; failure → its own copy; a call ignored
-  /// because another write was in flight → nothing at all.
-  void _showBlockOutcome(BlockWriteResult result, String successMessage) {
-    switch (result) {
-      case BlockWriteDone():
-        showSuccessSnack(context, successMessage);
-      case BlockWriteFailed(:final Failure failure):
-        showErrorSnack(context, failure.userMessage(context));
-      case BlockWriteInProgress():
-        return;
-    }
+    final String path = clientId == null
+        ? RouteNames.clientCardGuest(base, booking.id)
+        : RouteNames.clientCardUser(base, clientId);
+    return () => context.pushOnce<void>(path);
   }
 
   @override
@@ -759,10 +657,6 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           // Phase 390 — the same owner/admin read also hides the client's
           // review: they read it in the salon «Відгуки» tab instead.
           hideClientReview: hideClientReview,
-          // Phase 417 — guest phone, gated by role + guest-only (see
-          // `BookingDisplayX.guestPhoneFor`). Null → no row.
-          guestPhone: booking.guestPhoneFor(role),
-          onCallGuest: (String phone) => _callGuest(context, phone),
           transitionsEnabled: transitionsEnabled,
           // Injected clock seam — the PROVIDER footer's start-time gate reads
           // this instead of the device clock so tests can pin it. `watch` (not
@@ -778,9 +672,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           onLeaveReview: () => _onLeaveReview(booking),
           onLeaveClientFeedback: () => _onLeaveClientFeedback(booking),
           onAddToCalendar: () => _onAddToCalendar(context, booking),
-          onClientMore: viewer.isProvider
-              ? _clientMoreFor(booking, role)
-              : null,
+          // 2026-11-21 — the client strip opens the client card (the phone
+          // lives there now, not on this screen).
+          onOpenClient: _openClientFor(booking, viewer),
         );
       },
     );
@@ -795,8 +689,6 @@ class _DetailBody extends StatelessWidget {
     required this.viewer,
     required this.showPerformingMaster,
     required this.hideClientReview,
-    required this.guestPhone,
-    required this.onCallGuest,
     required this.transitionsEnabled,
     required this.now,
     required this.rescheduleLoading,
@@ -808,7 +700,7 @@ class _DetailBody extends StatelessWidget {
     required this.onLeaveReview,
     required this.onLeaveClientFeedback,
     required this.onAddToCalendar,
-    this.onClientMore,
+    this.onOpenClient,
   });
 
   final Booking booking;
@@ -824,15 +716,6 @@ class _DetailBody extends StatelessWidget {
   /// role is null (fail closed while the session is transiently unresolved).
   /// Reuses the owning state's single role read; never re-derived here.
   final bool hideClientReview;
-
-  /// Phase 417 — the guest's E.164 phone, already gated by
-  /// `BookingDisplayX.guestPhoneFor` in the owning state. Non-null renders the
-  /// tap-to-call [ContactTile] under the counterparty header. REQUIRED for the
-  /// same reason as [transitionsEnabled]. PII — never log.
-  final String? guestPhone;
-
-  /// Opens the dialer for the tapped phone (the owning state's `_callGuest`).
-  final void Function(String phone) onCallGuest;
 
   /// Phase 331 — whether [_providerActions] may offer STATUS TRANSITIONS
   /// (complete / decline / reschedule / not-complete). Sourced from
@@ -872,15 +755,14 @@ class _DetailBody extends StatelessWidget {
   final VoidCallback onLeaveClientFeedback;
   final VoidCallback onAddToCalendar;
 
-  /// Phase 425 — the client strip's «⋯»; `null` renders no «⋯».
-  final VoidCallback? onClientMore;
+  /// 2026-11-21 — opens the client card; `null` keeps the client strip inert.
+  final VoidCallback? onOpenClient;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
-    final String? guestPhoneValue = guestPhone;
 
     // Phase 334 — the client's review of the master, PROVIDER branch only.
     // Resolved here (rather than inline in `recapCards`) so the render site
@@ -956,35 +838,12 @@ class _DetailBody extends StatelessWidget {
           // Branch point 1 of 2 (locked decision D5) — the counterparty. A
           // client sees the master; a provider sees the client. Everything
           // else on this screen is shared verbatim.
-          masterCard: guestPhoneValue == null
-              ? BookingCounterpartyHeader(
-                  booking: booking,
-                  viewer: viewer,
-                  showPerformingMaster: showPerformingMaster,
-                  onMore: onClientMore,
-                )
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    BookingCounterpartyHeader(
-                      booking: booking,
-                      viewer: viewer,
-                      showPerformingMaster: showPerformingMaster,
-                      onMore: onClientMore,
-                    ),
-                    const SizedBox(height: VelvetSpacing.sm),
-                    // Phase 417 — REUSE of the shared ContactTile.
-                    ContactTile(
-                      key: const Key('booking-detail-guest-phone'),
-                      icon: Icons.phone_outlined,
-                      label: l10n.bookingDetailGuestPhone,
-                      value: guestPhoneValue,
-                      semanticLabel: l10n.bookingDetailCallGuest,
-                      onTap: () => onCallGuest(guestPhoneValue),
-                    ),
-                  ],
-                ),
+          masterCard: BookingCounterpartyHeader(
+            booking: booking,
+            viewer: viewer,
+            showPerformingMaster: showPerformingMaster,
+            onOpenClient: onOpenClient,
+          ),
           salonName: booking.salonName,
           addressLine: addressValue,
           addressDetail: addressDetail,

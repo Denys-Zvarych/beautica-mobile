@@ -784,7 +784,7 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
         // so an empty seed came back out of it as the WIRE set
         // {CONFIRMED, COMPLETED, NOT_COMPLETED} — which the view then read
         // into `_statuses` as though the owner had picked it, opening the
-        // filter sheet with «Підтверджено» and «Виконано» already ticked and
+        // filter sheet with «Заплановано» and «Виконано» already ticked and
         // lighting the funnel badge on an untouched board. `_statuses`' own
         // doc forbids exactly that ("must never hold an already-resolved wire
         // set"): the mapping is NOT idempotent and belongs solely to

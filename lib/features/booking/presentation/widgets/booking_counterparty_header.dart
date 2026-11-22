@@ -32,9 +32,16 @@
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart'
+    show profilePhotoReport;
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 
 import '../../application/booking_viewer_role.dart';
 import '../../domain/booking.dart';
+import '../../domain/booking_display_x.dart';
 import '../../domain/booking_status.dart';
 import 'booking_client_strip.dart';
 import 'master_profile_tap.dart';
@@ -47,7 +54,7 @@ class BookingCounterpartyHeader extends StatelessWidget {
     required this.booking,
     required this.viewer,
     this.showPerformingMaster = false,
-    this.onMore,
+    this.onOpenClient,
   });
 
   final Booking booking;
@@ -58,26 +65,45 @@ class BookingCounterpartyHeader extends StatelessWidget {
   /// booking performed by another master; default `false` changes nothing.
   final bool showPerformingMaster;
 
-  /// ADDITIVE (phase 425 D2): provider branch only — renders a quiet «⋯» at
-  /// the end of the client strip that opens the client actions sheet (report
-  /// / block / unblock). `null` (the default) renders the strip exactly as
-  /// before; ignored on the client branch.
-  final VoidCallback? onMore;
-
-  /// Widget key of the client strip's «⋯» hit target.
-  static const Key clientMoreKey = BookingClientStrip.moreKey;
+  /// ADDITIVE (2026-11-21): provider branch only — makes the client strip
+  /// tappable (press wash, like the «Клієнти» list rows) to open the client
+  /// card. `null` (the default) leaves the strip inert; ignored on the client
+  /// branch.
+  final VoidCallback? onOpenClient;
 
   @override
   Widget build(BuildContext context) {
     if (!viewer.isProvider) return _MasterStrip(booking: booking);
+    // MOD-39 — every provider role may report a REGISTERED client's photo
+    // (salon master included, MOD-25); a guest has no account to report.
+    final String? clientId = booking.clientId;
+    final PhotoViewerReport? clientReport = clientId == null
+        ? null
+        : profilePhotoReport(
+            targetType: ReportTargetType.clientProfile,
+            targetId: clientId,
+            name:
+                booking.clientName ??
+                AppLocalizations.of(context).bookingDetailGuestClient,
+          );
     if (!showPerformingMaster || booking.masterId.isEmpty) {
-      return BookingClientStrip.fromBooking(booking, onMore: onMore);
+      return BookingClientStrip.fromBooking(
+        booking,
+        onTap: onOpenClient,
+        avatarPreviewOnTap: true,
+        avatarPreviewReport: clientReport,
+      );
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        BookingClientStrip.fromBooking(booking, onMore: onMore),
+        BookingClientStrip.fromBooking(
+          booking,
+          onTap: onOpenClient,
+          avatarPreviewOnTap: true,
+          avatarPreviewReport: clientReport,
+        ),
         const SizedBox(height: VelvetSpacing.sm),
         _PerformingMasterStrip(booking: booking),
       ],
@@ -128,6 +154,16 @@ class _MasterStrip extends StatelessWidget {
       booking,
       key: const Key('booking-detail-master-strip'),
       onTap: openProfile,
+      avatarPreviewOnTap: true,
+      // MOD-39 — the client reports the master's photo (MASTER_PROFILE, the
+      // same target as the profile «⋯», MOD-35); no id → nothing to report.
+      avatarPreviewReport: masterId.isEmpty
+          ? null
+          : profilePhotoReport(
+              targetType: ReportTargetType.masterProfile,
+              targetId: masterId,
+              name: booking.masterName,
+            ),
     );
 
     if (!isDead) return strip;
@@ -174,6 +210,7 @@ class _PerformingMasterStrip extends StatelessWidget {
       child: MasterStrip.fromBooking(
         booking,
         key: const Key('booking-detail-performing-master-strip'),
+        avatarPreviewOnTap: true,
       ),
     );
   }

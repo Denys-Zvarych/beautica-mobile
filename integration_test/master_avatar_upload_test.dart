@@ -24,6 +24,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -356,6 +357,75 @@ void main() {
       tester,
       () => editor(tester).state == AvatarEditState.pristine,
       description: 'editor to fall back to initials',
+    );
+  });
+
+  // 2026-11-21 — one photo behaviour everywhere: tapping the OWN photo opens
+  // the shared full-screen viewer (no report); its «Змінити фото» closes it
+  // and opens the SAME change sheet the badge opens.
+  testWidgets('own photo tap -> viewer -> «Змінити фото» -> the change sheet '
+      '-> remove', (tester) async {
+    final FakeBackend fb = FakeBackend();
+    final GoRouter router = await bootAs(
+      tester,
+      fb,
+      UserRole.independentMaster,
+    );
+
+    router.go(RouteNames.masterEditPersonal);
+    await AppHarness.settle(tester);
+
+    // No photo yet: the monogram tap opens the change sheet directly.
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(NeumorphicAvatarEditor.photoTapKey),
+    );
+    expect(find.byType(PortfolioPhotoViewer), findsNothing);
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const Key('image-source-gallery')),
+    );
+    await tester.pump();
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () =>
+          editor(tester).imageUrl == _firstUrl &&
+          editor(tester).state == AvatarEditState.loaded,
+      description: 'editor to render the uploaded avatar, preview released',
+    );
+    await AppHarness.pumpUntilGone(
+      tester,
+      find.text(l10n(tester).avatarUpdated),
+      timeout: const Duration(seconds: 15),
+    );
+
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(NeumorphicAvatarEditor.photoTapKey),
+    );
+    await AppHarness.pumpUntilFound(tester, find.byType(PortfolioPhotoViewer));
+    expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+    expect(find.byKey(const Key('image-source-remove')), findsNothing);
+
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(PortfolioPhotoViewer.changePhotoKey),
+    );
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const Key('image-source-remove')),
+    );
+    expect(find.byType(PortfolioPhotoViewer), findsNothing);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.text(l10n(tester).avatarRemoved),
+    );
+    expect(fb.mediaAvatarDeleteCalls, 1);
+    expectSelfOnlyAvatarRequests(fb, uploads: 1, deletes: 1);
+    await AppHarness.pumpUntilGone(
+      tester,
+      find.text(l10n(tester).avatarRemoved),
+      timeout: const Duration(seconds: 15),
     );
   });
 

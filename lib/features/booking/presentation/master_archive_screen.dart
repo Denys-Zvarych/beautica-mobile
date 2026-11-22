@@ -32,7 +32,7 @@
 // (2026-08-17 through 2026-08-18) dropped the status term on the theory that
 // the server's `isReviewEligible` predicate already covered it; that was
 // wrong for this direction, because it let an elapsed-but-unclosed CONFIRMED
-// row (ticking «Підтверджено» alone, the archive's «Потребують закриття»
+// row (ticking «Заплановано» alone, the archive's «Потребують закриття»
 // filter) offer the «Відгук» CTA stacked next to «Виконано» — the master
 // could rate the client before ever closing the booking. The provider is the
 // party who performs that closing action, so the rating is meant to follow
@@ -55,7 +55,7 @@
 // The filter sheet is the SAME `BookingsFilterSheet`
 // (`widgets/bookings_filter_sheet.dart`) «Мої записи» already opens — no
 // bespoke chip row. Its three rows (`BookingStatusFilterGroup`:
-// confirmed/completed/cancelled) are reused verbatim; ticking «Підтверджено»
+// confirmed/completed/cancelled) are reused verbatim; ticking «Заплановано»
 // alone IS the «Потребують закриття» filter with NO new UI — see
 // `master_archive_notifier.dart`'s file header for exactly why that holds.
 //

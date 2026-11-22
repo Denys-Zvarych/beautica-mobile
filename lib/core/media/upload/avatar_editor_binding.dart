@@ -13,7 +13,9 @@
 //     client / admin / owner «Особисті дані»).
 //
 // The badge is ALWAYS live: a tap opens the 071 source sheet, then the 073
-// flow (pick, crop 1:1, progress, retry, remove). Read-only surfaces (another
+// flow (pick, crop 1:1, progress, retry, remove). A tap on the photo itself
+// (2026-11-21) opens the SAME full-screen viewer every profile photo opens,
+// with «Змінити фото» → that sheet; no photo → the sheet directly. Read-only surfaces (another
 // person, a public card) must not use this — they render `ProfileAvatar`.
 //
 // Own avatar only: the controller targets `UploadTarget.selfAvatar()`; there
@@ -33,6 +35,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 
 /// The signed-in user's own avatar URL, or `null` (no photo / not signed in).
 /// A `.select` narrowing: a token refresh does not rebuild the avatar.
@@ -120,6 +123,10 @@ mixin AvatarEditorBinding<T extends ConsumerStatefulWidget>
 
   Future<void> _onAvatarTap(String? currentUrl) => _actions.tap(currentUrl);
 
+  /// A tap on the photo disc itself → [MediaEditActions.view].
+  Future<void> _onAvatarPhotoTap(String? currentUrl) =>
+      _actions.view(currentUrl);
+
   /// Maps the controller state onto the 072 editor states. [initials] is read
   /// on every editor rebuild (it may follow live name input). [badgeOnRing]
   /// is forwarded to [NeumorphicAvatarEditor.badgeOnRing].
@@ -188,6 +195,10 @@ mixin AvatarEditorBinding<T extends ConsumerStatefulWidget>
             initials: monogram,
             badgeOnRing: badgeOnRing,
             onTap: onTap,
+            onPhotoTap: () => _onAvatarPhotoTap(url),
+            photoSemanticLabel: url != null
+                ? AppLocalizations.of(context).profilePhotoViewAction
+                : null,
             imageUrl: url,
           ),
         };
@@ -339,6 +350,22 @@ final class MediaEditActions {
         ? await flow.remove()
         : await flow.change(choice, labels: labels, precache: precache);
     showResult(result, choice);
+  }
+
+  /// 2026-11-21 — a tap on the OWN photo itself: the same full-screen viewer
+  /// every profile photo opens, with «Змінити фото» (→ [tap]) in its action
+  /// slot and no report. No photo (monogram) → straight to [tap]'s sheet.
+  /// Ignored while an upload / removal is in flight, like [tap].
+  Future<void> view(String? currentUrl) async {
+    if (!host.mounted) return;
+    if (currentUrl == null) return tap(null);
+    final AvatarUploadState current = readState();
+    if (current is AvatarUploading || current is AvatarRemoving) return;
+    await showProfilePhotoViewer(
+      host.context,
+      currentUrl,
+      onChangePhoto: () => tap(currentUrl),
+    );
   }
 
   /// The failed-state retry target: re-sends the SAME photo (no picker).

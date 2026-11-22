@@ -19,6 +19,9 @@ import 'package:beautica_mobile/core/media/local_preview_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
+import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 
 /// Extent (height == width) of the rounded-square controls that float over
 /// the cover photo (back button, favourite heart). 48, not 44 — matches the
@@ -51,6 +54,8 @@ class SalonLogo extends StatelessWidget {
     this.previewFile,
     this.overlay,
     this.editBadge,
+    this.previewOnTap = false,
+    this.previewReport,
   });
 
   final double diameter;
@@ -75,6 +80,17 @@ class SalonLogo extends StatelessWidget {
   /// mark's lower-right inside its [diameter] box (no overhang, so the hero's
   /// text column keeps its gutter). Never passed on a read-only surface.
   final Widget? editBadge;
+
+  /// ADDITIVE (2026-11-21): `true` → a tap on the PHOTO opens it full
+  /// screen ([ProfilePhotoPreviewTap]); no photo → inert. `false` (the
+  /// default) — every list row / navigating card — renders and behaves
+  /// exactly as before.
+  final bool previewOnTap;
+
+  /// ADDITIVE (MOD-39): with [previewOnTap], the viewer's «Поскаржитися» for
+  /// this profile ([ProfilePhotoPreviewTap.report]). `null` (the default,
+  /// own-profile previews) → no report button.
+  final PhotoViewerReport? previewReport;
 
   @override
   Widget build(BuildContext context) {
@@ -103,7 +119,14 @@ class SalonLogo extends StatelessWidget {
         child: _content(),
       ),
     );
-    if (editBadge == null) return mark;
+    if (editBadge == null) {
+      if (!previewOnTap) return mark;
+      return ProfilePhotoPreviewTap(
+        imageUrl: imageUrl,
+        report: previewReport,
+        child: mark,
+      );
+    }
     return SizedBox(
       height: diameter,
       width: diameter,

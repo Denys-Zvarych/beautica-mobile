@@ -1369,6 +1369,54 @@ abstract final class RouteNames {
   static const String scheduleDayOverride = '/schedule/day';
   static const String schedulePropagate = '/schedule/copy';
 
+  // ─── M509 — «Клієнти» tab (provider client list, CLI-46 / CLI-47) ────────
+  //
+  // One list screen, four hosts. Each is a TOP-LEVEL tab root (a
+  // `VelvetBottomNavBar` precondition: `context.go` replaces the stack) and
+  // rides the prefix gate of its siblings — `/master/*` INDEPENDENT_MASTER,
+  // `/staff/*` SALON_MASTER, `/owner/master/*` SALON_OWNER — so no new role
+  // rule exists. The fourth host, the salon shell's «Клієнти» tab (owner /
+  // admin), is an in-screen index of `SalonShellScreen` (like «Команда») and
+  // has no route of its own.
+
+  /// INDEPENDENT_MASTER «Клієнти» — `GET /masters/me/clients`.
+  static const String masterClients = '/master/clients';
+
+  /// SALON_MASTER «Клієнти» (inside the `/staff/*` shell) —
+  /// `GET /masters/me/clients`, never the salon endpoint.
+  static const String salonMasterClients = '/staff/clients';
+
+  /// Owner master mode «Клієнти» (inside the `/owner/master/*` shell) — the
+  /// salon endpoint with `masterId` = the owner's own master row (B507 D2).
+  static const String ownerMasterClients = '/owner/master/clients';
+
+  /// A client's card, below the list route [listRoute] ([masterClients] /
+  /// [salonMasterClients], or [salonClients] for the salon shell and owner
+  /// master mode). Literal `user` / `guest` segments, then the id — a row
+  /// carries exactly one of `userId` / `guestBookingId`.
+  static String clientCardUser(String listRoute, String userId) =>
+      '$listRoute/user/${Uri.encodeComponent(userId)}';
+
+  /// See [clientCardUser]; the id is the guest's latest `bookingId`.
+  static String clientCardGuest(String listRoute, String bookingId) =>
+      '$listRoute/guest/${Uri.encodeComponent(bookingId)}';
+
+  /// «Рейтинг клієнта» of a registered client — below [clientCardUser]. A
+  /// literal `rating` segment after the dynamic id (nothing can shadow it).
+  static String clientRatingUser(String listRoute, String userId) =>
+      '${clientCardUser(listRoute, userId)}/rating';
+
+  /// See [clientRatingUser]; the id is the guest's latest `bookingId`.
+  static String clientRatingGuest(String listRoute, String bookingId) =>
+      '${clientCardGuest(listRoute, bookingId)}/rating';
+
+  /// The salon-scoped list base `/salons/{salonId}/clients` the salon shell
+  /// and owner master mode hang their card routes under (the list itself is
+  /// an in-shell tab, so this base is not a route). Owner master mode appends
+  /// `?masterId=` via [kClientCardMasterIdQuery].
+  static String salonClients(String salonId) =>
+      '${salonPublicProfile(salonId)}/clients';
+
   // Phase 13.7 (revised) — CLIENT rating screen.
   //   • /rating — CLIENT's aggregate two-sided rating (★ n.n or empty).
   //     Backend GET /clients/me/rating is not yet shipped; the screen shows
@@ -1390,3 +1438,9 @@ const String kSalonShellTabReviews = 'reviews';
 /// member) because it is a query KEY, not a route — `navigation_links_test`'s
 /// NL-R01 ledger checks every `RouteNames` member resolves to a GoRoute.
 const String kMasterProfileFromBookingQuery = 'fromBooking';
+
+/// M509 — query key the salon-scoped client card carries in owner master mode
+/// (`?masterId=<own master row>`), narrowing the salon endpoint to the owner's
+/// own clients. Top-level (a query KEY, not a route) like
+/// [kMasterProfileFromBookingQuery].
+const String kClientCardMasterIdQuery = 'masterId';

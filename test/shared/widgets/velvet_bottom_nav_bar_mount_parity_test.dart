@@ -287,7 +287,7 @@ void main() {
         tester,
         const OwnerOwnProfileScreen(
           bottomNavBar: VelvetBottomNavBar(
-            activeIndex: 3,
+            activeIndex: 4,
             profileRoute: RouteNames.ownerMasterProfile,
           ),
         ),

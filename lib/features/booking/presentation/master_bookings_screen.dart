@@ -136,6 +136,7 @@ class MasterBookingsScreen extends ConsumerWidget {
     this.navScheduleRoute,
     this.navProfileRoute,
     this.navBookingsRoute,
+    this.navClientsRoute,
     this.canAddWorkingHours = true,
     this.asOwnerMaster = false,
     this.bottomNavBar,
@@ -168,6 +169,9 @@ class MasterBookingsScreen extends ConsumerWidget {
   final String? navServicesRoute;
   final String? navScheduleRoute;
   final String? navProfileRoute;
+
+  /// M509 — tile 3's («Клієнти») route override; `null` = [RouteNames.masterClients].
+  final String? navClientsRoute;
 
   /// Tile 1's («Мої записи») route — phase 485 (backlog INFO 154): passed
   /// like the three sibling screens do. Tile 1 is this screen, so the bar
@@ -277,7 +281,8 @@ class MasterBookingsScreen extends ConsumerWidget {
       navServicesRoute == null &&
           navScheduleRoute == null &&
           navProfileRoute == null &&
-          navBookingsRoute == null
+          navBookingsRoute == null &&
+          navClientsRoute == null
       ? const VelvetBottomNavBar(
           activeIndex: 1,
           showSetupHints: true,
@@ -289,6 +294,7 @@ class MasterBookingsScreen extends ConsumerWidget {
           scheduleRoute: navScheduleRoute,
           profileRoute: navProfileRoute,
           bookingsRoute: navBookingsRoute,
+          clientsRoute: navClientsRoute,
         );
 
   @override

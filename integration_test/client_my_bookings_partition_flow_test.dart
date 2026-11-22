@@ -66,8 +66,10 @@ import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_tab.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/leave_review_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/my_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_card.dart';
+import 'package:beautica_mobile/features/notifications/presentation/notifications_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -77,6 +79,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -248,6 +251,325 @@ void main() {
       expect(fb.bookingStatus, 'CONFIRMED');
       expect(fb.cancelBookingCalls, 0);
       expect(fb.rescheduleBookingCalls, 0);
+    },
+  );
+
+  // ==========================================================================
+  // M528 / B527 (CLI-63) — attached website LINK + walk-in STAFF bookings
+  // ==========================================================================
+  // A link or walk-in booking made with the client's verified phone is the
+  // client's own: listed in «Записи» beside APP bookings, opened, cancelled
+  // like one. The wire carries no source today, so each row also carries a
+  // `bookingSource` key the decoder must tolerate. The LINK row is
+  // `booking-1` so its DETAIL is served by the seeded literal route (same
+  // convention as the first test), its window kept equal to the list row.
+  testWidgets(
+    'CLIENT «Записи»: a mixed APP / LINK / STAFF page renders every row in '
+    'Майбутні and Минулі; the LINK booking opens its detail and cancels like '
+    'an APP booking (M528)',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      fb.bookingStartsAt = futureStartsAt.toIso8601String();
+      fb.bookingEndsAt = futureStartsAt
+          .add(const Duration(minutes: 90))
+          .toIso8601String();
+
+      Map<String, dynamic> row(
+        String id,
+        String status,
+        DateTime start,
+        String? source,
+      ) => <String, dynamic>{
+        ...fb.datasetBookingRow(
+          id: id,
+          status: status,
+          startsAt: start,
+          duration: const Duration(minutes: 90),
+        ),
+        'clientId': 'client-1',
+        'bookingSource': ?source,
+      };
+
+      final DateTime elapsed = DateTime.parse(elapsedStartsAt);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        row('app-up', 'CONFIRMED', futureStartsAt, null),
+        row('booking-1', 'CONFIRMED', futureStartsAt, 'LINK'),
+        row('staff-up', 'CONFIRMED', futureStartsAt, 'STAFF'),
+        row('app-past', 'COMPLETED', elapsed, null),
+        row('link-past', 'COMPLETED', elapsed, 'LINK'),
+        row('staff-past', 'COMPLETED', elapsed, 'STAFF'),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.clientBookings);
+
+      final Finder upcomingList = find.byKey(
+        const ValueKey<String>('my-bookings-list-upcoming'),
+      );
+      for (final String id in <String>['app-up', 'booking-1', 'staff-up']) {
+        expect(
+          find.descendant(
+            of: upcomingList,
+            matching: find.byKey(ValueKey<String>('service-$id')),
+          ),
+          findsOneWidget,
+          reason: '$id must render under Майбутні',
+        );
+      }
+
+      await tester.tap(find.byKey(const ValueKey<BookingTab>(BookingTab.past)));
+      await AppHarness.settle(tester);
+      final Finder pastList = find.byKey(
+        const ValueKey<String>('my-bookings-list-past'),
+      );
+      for (final String id in <String>['app-past', 'link-past', 'staff-past']) {
+        expect(
+          find.descendant(
+            of: pastList,
+            matching: find.byKey(ValueKey<String>('service-$id')),
+          ),
+          findsOneWidget,
+          reason: '$id must render under Минулі',
+        );
+      }
+
+      // ── Back to Майбутні, open the LINK booking. ─────────────────────────
+      await tester.tap(
+        find.byKey(const ValueKey<BookingTab>(BookingTab.upcoming)),
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const ValueKey<String>('service-booking-1')));
+      await AppHarness.settle(tester);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.bookingDetail('booking-1'),
+      );
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(
+        find.textContaining('LINK'),
+        findsNothing,
+        reason: 'no source label',
+      );
+      // The app's only source-like copy («Запис за посиланням») must not
+      // render on the client's detail of an attached booking either.
+      expect(
+        find.text(
+          l10nOf(tester, BookingDetailScreen).bookingDetailGuestBookingLabel,
+        ),
+        findsNothing,
+        reason: 'no «Запис за посиланням» label for the client',
+      );
+
+      // ── Cancel it like an APP booking. ───────────────────────────────────
+      await tester.tap(find.byKey(const Key('booking-detail-cancel')));
+      await AppHarness.settle(tester);
+      expect(find.byKey(const Key('cancel-booking-dialog')), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('cancel-booking-note-field')),
+        'Не встигаю.',
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('cancel-booking-confirm')));
+      await AppHarness.settle(tester);
+
+      expect(fb.cancelBookingCalls, 1);
+      expect(fb.bookingStatus, 'CANCELLED');
+      final AppLocalizations detailL10n = l10nOf(tester, BookingDetailScreen);
+      expect(find.text(detailL10n.bookingStatusCancelled), findsWidgets);
+    },
+  );
+
+  // M528 — shared row builder for the three flows below: a dataset row with
+  // the client's id and an optional `bookingSource` (absent = APP).
+  Map<String, dynamic> attachedRow(
+    FakeBackend fb,
+    String id,
+    String status,
+    DateTime start,
+    String? source,
+  ) => <String, dynamic>{
+    ...fb.datasetBookingRow(
+      id: id,
+      status: status,
+      startsAt: start,
+      duration: const Duration(minutes: 90),
+    ),
+    'clientId': 'client-1',
+    'bookingSource': ?source,
+  };
+
+  // M528 — Головна «Найближчий запис»: the nearest upcoming booking is an
+  // attached LINK booking (an APP and a STAFF one start later), so the card
+  // must render it and open its detail. RED WHEN the home card's source
+  // (`nextAppointmentProvider`) drops or filters the attached row.
+  testWidgets(
+    'CLIENT Головна: «Найближчий запис» shows an attached LINK booking that is '
+    'the nearest upcoming one, and tapping it opens its detail (M528)',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      fb.bookingStartsAt = futureStartsAt.toIso8601String();
+      fb.bookingEndsAt = futureStartsAt
+          .add(const Duration(minutes: 90))
+          .toIso8601String();
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        attachedRow(
+          fb,
+          'staff-later',
+          'CONFIRMED',
+          futureStartsAt.add(const Duration(days: 2)),
+          'STAFF',
+        ),
+        attachedRow(fb, 'booking-1', 'CONFIRMED', futureStartsAt, 'LINK'),
+        attachedRow(
+          fb,
+          'app-later',
+          'CONFIRMED',
+          futureStartsAt.add(const Duration(days: 1)),
+          null,
+        ),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await AppHarness.settle(tester);
+
+      expect(
+        find.byKey(const Key('next_appointment_populated')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const ValueKey<String>('next-appointment-booking-booking-1'),
+        ),
+        findsOneWidget,
+        reason: 'the nearest upcoming booking is the attached LINK one',
+      );
+
+      await tester.tap(
+        find.byKey(
+          const ValueKey<String>('next-appointment-booking-booking-1'),
+        ),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.bookingDetail('booking-1'),
+      );
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+    },
+  );
+
+  // M528 — review on an attached past booking: the CTA is gated on the
+  // server's `canReview` alone, so a COMPLETED LINK booking with
+  // `canReview: true` is reviewed exactly like an APP one. RED WHEN the
+  // detail's `canReview` gate is bypassed/inverted or the review POST
+  // carries another booking id.
+  testWidgets(
+    'CLIENT «Записи» → Минулі: a COMPLETED attached LINK booking with server '
+    'canReview offers «Залишити відгук» and the review posts for it (M528)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStartsAt = elapsedStartsAt
+        ..bookingEndsAt = elapsedEndsAt
+        ..bookingStatus = 'COMPLETED'
+        ..bookingCanReview = true;
+      final DateTime elapsed = DateTime.parse(elapsedStartsAt);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        attachedRow(fb, 'booking-1', 'COMPLETED', elapsed, 'LINK'),
+        attachedRow(fb, 'staff-past', 'COMPLETED', elapsed, 'STAFF'),
+      ]);
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const ValueKey<BookingTab>(BookingTab.past)));
+      await AppHarness.settle(tester);
+
+      await tester.tap(find.byKey(const ValueKey<String>('service-booking-1')));
+      await AppHarness.settle(tester);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.bookingDetail('booking-1'),
+      );
+      final Finder leaveReview = find.byKey(
+        const Key('booking-detail-leave-review'),
+      );
+      expect(leaveReview, findsOneWidget);
+
+      await tester.tap(leaveReview);
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveReviewScreen), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('leave-review-submit')));
+      await AppHarness.settle(tester);
+
+      expect(fb.createReviewCalls, 1, reason: 'exactly one POST /reviews');
+      expect(fb.lastReviewBookingId, 'booking-1');
+      expect(fb.lastReviewRating, 5);
+      expect(fb.bookingCanReview, isFalse);
+      await AppHarness.pumpUntilGone(tester, leaveReview);
+      expect(leaveReview, findsNothing, reason: 'no second review offered');
+      await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  // M528 / NTF-67 — the client's feed item for a booking a provider created
+  // (link / walk-in attached by phone) reads «Вас записано», not the
+  // provider's «Новий запис», and opens the booking detail on the
+  // feed-scoped route. RED WHEN the client title arm is dropped or the
+  // client BookingTarget route is removed.
+  testWidgets(
+    'CLIENT feed: a BOOKING_CREATED item reads «Вас записано» and opens the '
+    'booking detail (M528, NTF-67)',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final String id = fb.seedNotification(
+        type: 'BOOKING_CREATED',
+        bookingId: FakeBackend.kNotificationBookingId,
+      );
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('home_hub_bell_button')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.notifications);
+
+      final Finder tile = find.byKey(Key('notification-tile-$id'));
+      final AppLocalizations l10n = l10nOf(tester, NotificationsScreen);
+      expect(
+        find.descendant(
+          of: tile,
+          matching: find.text(l10n.notificationTitleBookingCreatedClient),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: tile,
+          matching: find.text(l10n.notificationTitleBookingCreated),
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(tile);
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(
+        router,
+        RouteNames.notificationBookingDetail(
+          FakeBackend.kNotificationBookingId,
+        ),
+      );
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(fb.notificationMarkedReadIds, <String>[id]);
     },
   );
 

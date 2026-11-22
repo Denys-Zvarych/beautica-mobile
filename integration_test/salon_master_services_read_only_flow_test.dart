@@ -184,7 +184,7 @@ void main() {
         // ── Tap «Профіль» returns to /staff/profile ──────────────────────
         await AppHarness.tapVisible(
           tester,
-          find.byKey(const Key('master-nav-tile-3')),
+          find.byKey(const Key('master-nav-tile-4')),
         );
         await AppHarness.settle(tester);
 

@@ -3438,6 +3438,10 @@
   "@notificationTitleBookingCreated": {
     "description": "Phase 363 — title of a BOOKING_CREATED notification (provider audience)."
   },
+  "notificationTitleBookingCreatedClient": "Вас записано",
+  "@notificationTitleBookingCreatedClient": {
+    "description": "M528 — title of a BOOKING_CREATED notification for the client: a link or walk-in booking attached to their account by phone (B527, NTF-67). Must equal the backend push title (PushCopy)."
+  },
   "notificationTitleCancelledByClient": "Клієнт скасував запис",
   "@notificationTitleCancelledByClient": {
     "description": "Phase 363 — title of a BOOKING_CANCELLED_BY_CLIENT notification (provider audience). Gender-neutral: the API sends no gender."
@@ -4725,7 +4729,7 @@
       "text": { "type": "String" }
     }
   },
-  "bookingStatusConfirmed": "Підтверджено",
+  "bookingStatusConfirmed": "Заплановано",
   "@bookingStatusConfirmed": {
     "description": "Booking status badge label — CONFIRMED."
   },
@@ -5987,14 +5991,6 @@
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
   },
-  "bookingDetailGuestPhone": "Телефон гостя",
-  "@bookingDetailGuestPhone": {
-    "description": "Caption above the guest's phone number on the provider view of «Деталі запису» (guest/LINK bookings only; independent master, salon owner, salon admin)."
-  },
-  "bookingDetailCallGuest": "Зателефонувати",
-  "@bookingDetailCallGuest": {
-    "description": "Accessibility label of the tap-to-call guest phone row on «Деталі запису»; tapping opens the phone dialer."
-  },
   "bookingDetailGuestBookingLabel": "Запис за посиланням",
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
@@ -7129,6 +7125,14 @@
   "@portfolioDeleteFailed": {
     "description": "Phase 405 (9.10, D5) — error snack when a portfolio photo delete fails (the photo reappears)."
   },
+  "profilePhotoViewAction": "Переглянути фото",
+  "@profilePhotoViewAction": {
+    "description": "Spoken label of a tappable profile photo and the photo source sheet row that opens it full screen."
+  },
+  "profilePhotoViewerSemantics": "Фото профілю",
+  "@profilePhotoViewerSemantics": {
+    "description": "Spoken label of the single photo in the full-screen profile photo viewer."
+  },
   "portfolioViewerClose": "Закрити перегляд фото",
   "@portfolioViewerClose": {
     "description": "Phase 407 (9.12, D1) — accessibility label / tooltip of the close button in the full-screen portfolio photo viewer."
@@ -7803,5 +7807,71 @@
   "registerHaveEmailAccount": "Вже маєте акаунт з email?",
   "@registerHaveEmailAccount": {"description": "AUTH-D28 — first half of the login hint on the phone register step 1 (link part: registerSignInImperative)."},
   "registerSignInImperative": "Увійдіть",
-  "@registerSignInImperative": {"description": "AUTH-D28 — link half of the register step 1 login hint."}
+  "@registerSignInImperative": {"description": "AUTH-D28 — link half of the register step 1 login hint."},
+  "providerNavClients": "Клієнти",
+  "@providerNavClients": {"description": "M509 — «Клієнти» tab label on the provider bottom bars (salon shell + master bar)."},
+  "clientsTitle": "Клієнти",
+  "@clientsTitle": {"description": "M509 — «Клієнти» list screen title."},
+  "clientsSearchHint": "Пошук за імʼям",
+  "@clientsSearchHint": {"description": "M509 — placeholder of the clients-list name search."},
+  "clientsSearchMinLengthError": "Введіть щонайменше 2 символи для пошуку",
+  "@clientsSearchMinLengthError": {"description": "M509 — error line while the clients search holds 1 character (B507 `q` is 2-50)."},
+  "clientsEmptyTitle": "Тут зʼявляться ваші клієнти",
+  "@clientsEmptyTitle": {"description": "M509 — empty-roster notice title."},
+  "clientsEmptyBody": "Клієнт додається сам після першого запису.",
+  "@clientsEmptyBody": {"description": "M509 — empty-roster notice body."},
+  "clientsNoMatchTitle": "Нікого не знайдено",
+  "@clientsNoMatchTitle": {"description": "M509 — no-match notice title (search found nobody)."},
+  "clientsNoMatchBody": "Перевірте імʼя або введіть його коротше.",
+  "@clientsNoMatchBody": {"description": "M509 — no-match notice body."},
+  "clientsLoadMoreFailed": "Не вдалося завантажити клієнтів",
+  "@clientsLoadMoreFailed": {"description": "M509 — footer notice after the next «Клієнти» page failed; a retry action sits beside it."},
+  "clientsRowLastVisit": "Останній візит",
+  "@clientsRowLastVisit": {"description": "M509 — long label of the last-visit date, used only in the row's screen-reader text."},
+  "clientsRowNextVisit": "Наступний",
+  "@clientsRowNextVisit": {"description": "M509 — long label of the next-visit date, used only in the row's screen-reader text."},
+  "clientsRowLastVisitShort": "Ост.",
+  "@clientsRowLastVisitShort": {"description": "M509 — short visible prefix «Ост.: 7 лис» of the last-visit line."},
+  "clientsRowNextVisitShort": "Наст.",
+  "@clientsRowNextVisitShort": {"description": "M509 — short visible prefix «Наст.: пт, 20 лис, 14:00» of the next-visit line."},
+  "clientBlockedBadge": "Заблоковано",
+  "@clientBlockedBadge": {"description": "M509 — chip on a blocked client's list row (and the M510 card)."},
+  "clientsRowSemantics": "Клієнт: {name}, останній візит {last}",
+  "@clientsRowSemantics": {"description": "M509 — screen-reader label of a list row that has a last visit.", "placeholders": {"name": {"type": "String"}, "last": {"type": "String"}}},
+  "clientsRowSemanticsNoVisit": "Клієнт: {name}",
+  "@clientsRowSemanticsNoVisit": {"description": "M509 — screen-reader label of a list row with no completed visit yet.", "placeholders": {"name": {"type": "String"}}},
+  "clientCardTitle": "Клієнт",
+  "@clientCardTitle": {"description": "M509/M510 — title of the client card screen (a placeholder until M510 builds the card)."},
+  "clientNextVisitTitle": "Наступний візит",
+  "@clientNextVisitTitle": {"description": "M510 — Heading of the next-visit head node on the client card."},
+  "clientHistoryTitle": "Історія візитів",
+  "@clientHistoryTitle": {"description": "M510 — Heading of the visit history on the client card."},
+  "clientMastersFilterAll": "Усі майстри",
+  "@clientMastersFilterAll": {"description": "CLI-73 — First master chip on the salon client card: no master filter."},
+  "clientHistoryEmptyTitle": "Ще немає візитів",
+  "@clientHistoryEmptyTitle": {"description": "M510 — Empty-history notice title on the client card."},
+  "clientHistoryEmptyBody": "Тут з'являться записи цього клієнта.",
+  "@clientHistoryEmptyBody": {"description": "M510 — Empty-history notice body on the client card."},
+  "clientRatingTitle": "Рейтинг клієнта",
+  "@clientRatingTitle": {"description": "M510 — Title of the client rating page."},
+  "clientRatingEmpty": "Ще немає оцінок",
+  "@clientRatingEmpty": {"description": "M510 — Rating chip text for a client with no ratings (always for guests)."},
+  "clientRatingOpenHint": "Відкрити рейтинг клієнта",
+  "@clientRatingOpenHint": {"description": "M510 — Screen-reader hint on the tappable rating chip."},
+  "clientRatingPrivacyNote": "Коментарі до оцінок приватні й тут не показуються.",
+  "@clientRatingPrivacyNote": {"description": "M510 — Muted note on the rating page: comments never appear."},
+  "clientCall": "Зателефонувати",
+  "@clientCall": {"description": "M510 — Phone sheet action: open the dialer."},
+  "clientCopyPhone": "Скопіювати номер",
+  "@clientCopyPhone": {"description": "M510 — Phone sheet action: copy the number."},
+  "clientPhoneCopied": "Номер скопійовано",
+  "@clientPhoneCopied": {"description": "M510 — Snackbar after copying the phone number."},
+  "clientNotFound": "Клієнта не знайдено",
+  "@clientNotFound": {"description": "M510 — Not-found state of the client card (uniform 404)."},
+  "clientPhoneSemantics": "Телефон {phone}",
+  "@clientPhoneSemantics": {"description": "M510 — Screen-reader label of the phone chip.", "placeholders": {"phone": {"type": "String"}}},
+  "clientRatingCount": "{count, plural, one{{count} оцінка} few{{count} оцінки} many{{count} оцінок} other{{count} оцінок}}",
+  "@clientRatingCount": {"description": "M510 — Rating count next to the average, e.g. «12 оцінок».", "placeholders": {"count": {"type": "int"}}},
+  "clientVisitSemantics": "Візит {when}",
+  "@clientVisitSemantics": {"description": "M510 — Screen-reader label of a visit card.", "placeholders": {"when": {"type": "String"}}}
 }
