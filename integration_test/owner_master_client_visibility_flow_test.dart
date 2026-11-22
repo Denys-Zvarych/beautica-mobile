@@ -251,7 +251,7 @@ Future<void> _confirmLogout(
   );
 }
 
-/// Owner login → salon shell → «Профіль» (`salon-nav-tile-3`, the real
+/// Owner login → salon shell → «Профіль» (`salon-nav-tile-4`, the real
 /// phase-384 entry) → master mode.
 Future<void> _ownerEntersMasterMode(
   WidgetTester tester,
@@ -265,7 +265,7 @@ Future<void> _ownerEntersMasterMode(
 
   await AppHarness.tapVisible(
     tester,
-    find.byKey(const Key('salon-nav-tile-3')),
+    find.byKey(const Key('salon-nav-tile-4')),
   );
   await AppHarness.settle(tester);
   AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);

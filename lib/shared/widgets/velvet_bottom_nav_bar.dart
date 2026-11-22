@@ -39,6 +39,7 @@ typedef _NavLabel = String Function(AppLocalizations l10n);
 String _servicesLabel(AppLocalizations l10n) => l10n.masterNavTabServices;
 String _bookingsLabel(AppLocalizations l10n) => l10n.masterNavTabBookings;
 String _scheduleLabel(AppLocalizations l10n) => l10n.masterNavTabSchedule;
+String _clientsLabel(AppLocalizations l10n) => l10n.providerNavClients;
 String _profileLabel(AppLocalizations l10n) => l10n.masterNavTabProfile;
 
 class _NavItem {
@@ -58,7 +59,8 @@ class _NavItem {
   final _NavLabel label;
 }
 
-/// Full left→right layout: [Послуги(0)] [Мої записи(1)] [Графік(2)] [Профіль(3)].
+/// Full left→right layout: [Послуги(0)] [Мої записи(1)] [Графік(2)]
+/// [Клієнти(3)] [Профіль(4)] (M509 inserted «Клієнти» before «Профіль»).
 const List<_NavItem> _navItems = <_NavItem>[
   _NavItem(
     icon: Icons.design_services_outlined,
@@ -76,18 +78,31 @@ const List<_NavItem> _navItems = <_NavItem>[
     label: _scheduleLabel,
   ),
   _NavItem(
+    // M509 (approved design): `contacts`, not `group` — see
+    // `SalonBottomNav.ownerAdminItems` for the same pick.
+    icon: Icons.contacts_outlined,
+    activeIcon: Icons.contacts_rounded,
+    label: _clientsLabel,
+  ),
+  _NavItem(
     icon: Icons.person_outline,
     activeIcon: Icons.person_rounded,
     label: _profileLabel,
   ),
 ];
 
+/// The «Клієнти» tile's index in [_navItems] (M509).
+const int kMasterClientsNavTab = 3;
+
+/// The «Профіль» tile's index in [_navItems] (3 before M509).
+const int kMasterProfileNavTab = 4;
+
 /// Neumorphic bottom navigation bar for the master surface. The bar is
 /// extruded from the surface — a top-facing light highlight raises it above the
 /// content, the dark shadow anchors it to the page floor.
 ///
 /// [activeIndex] selects the highlighted item (0 = Послуги, 1 = Мої записи,
-/// 2 = Графік, 3 = Профіль). A camel accent pill floats above the active icon.
+/// 2 = Графік, 3 = Клієнти, 4 = Профіль). A camel accent pill floats above the active icon.
 ///
 /// Every master "tab" screen renders its OWN instance of this bar (the master
 /// surface has no `StatefulShellRoute` — see `app_router.dart`'s
@@ -112,6 +127,7 @@ class VelvetBottomNavBar extends StatelessWidget {
     this.profileRoute,
     this.servicesRoute,
     this.bookingsRoute,
+    this.clientsRoute,
     this.showSetupHints = false,
     this.showBookingsBadge = false,
     this.bookingsBadgeAsOwnerMaster = false,
@@ -181,6 +197,13 @@ class VelvetBottomNavBar extends StatelessWidget {
   /// four bounces for a SALON_MASTER any more.
   final String? bookingsRoute;
 
+  /// M509 — additive override for tile 3's («Клієнти») destination. `null`
+  /// (the INDEPENDENT_MASTER call sites) means [RouteNames.masterClients].
+  /// The SALON_MASTER bars pass [RouteNames.salonMasterClients], the owner
+  /// master-mode bars [RouteNames.ownerMasterClients]. Same
+  /// top-level-tab-root precondition as the other overrides.
+  final String? clientsRoute;
+
   static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
 
   _VelvetNavTile _buildTile(
@@ -196,6 +219,7 @@ class VelvetBottomNavBar extends StatelessWidget {
     profileRoute: profileRoute,
     servicesRoute: servicesRoute,
     bookingsRoute: bookingsRoute,
+    clientsRoute: clientsRoute,
     setupHint: setupHint,
     pendingCount: pendingCount,
   );
@@ -314,6 +338,7 @@ class _VelvetNavTile extends StatelessWidget {
     this.profileRoute,
     this.servicesRoute,
     this.bookingsRoute,
+    this.clientsRoute,
     this.setupHint = false,
     this.pendingCount = 0,
   });
@@ -325,6 +350,7 @@ class _VelvetNavTile extends StatelessWidget {
   final String? profileRoute;
   final String? servicesRoute;
   final String? bookingsRoute;
+  final String? clientsRoute;
 
   /// Show the setup-hint dot + semantics hint (tiles 0 and 2 only).
   final bool setupHint;
@@ -351,6 +377,7 @@ class _VelvetNavTile extends StatelessWidget {
       0 => servicesRoute ?? RouteNames.services, // Послуги
       1 => bookingsRoute ?? RouteNames.masterBookings, // Мої записи → Phase 7.6
       2 => scheduleRoute ?? RouteNames.masterSchedule, // Графік
+      3 => clientsRoute ?? RouteNames.masterClients, // Клієнти (M509)
       _ => profileRoute ?? RouteNames.masterProfile, // Профіль
     };
   }
@@ -389,7 +416,7 @@ class _VelvetNavTile extends StatelessWidget {
         // earlier push decision (see `profile_nav_bar_navigation_test.dart`'s
         // header for that decision's own history). `push` stacked a new tab
         // route on top of the previous one on every tab tap, so hopping
-        // between the four tabs grew the back stack unboundedly (4 tabs
+        // between the five tabs grew the back stack unboundedly (4 tabs
         // visited → 4 deep). `go` replaces the whole stack with the tapped
         // tab's single route instead, so tab-switching never grows the stack.
         //

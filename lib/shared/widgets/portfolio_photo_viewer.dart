@@ -61,6 +61,64 @@ Future<void> showPortfolioPhotoViewer(
   );
 }
 
+/// 2026-11-21 — opens the SAME full-screen viewer on ONE profile photo (a
+/// person's avatar or a salon's logo): no counter, spoken as «Фото профілю».
+/// [url] is the full-size photo when the model has one. Same root-navigator,
+/// single-flight push as [showPortfolioPhotoViewer].
+///
+/// [report] (ADDITIVE, MOD-39): non-null → the viewer's SAME report button
+/// (the portfolio flag), wired to the profile's report target. `null` (the
+/// default — own-profile previews) shows no report button.
+///
+/// [onChangePhoto] (ADDITIVE, 2026-11-21): non-null → the viewer's action
+/// slot shows «Змінити фото» (own photo). A tap closes the viewer, THEN calls
+/// it, so the caller opens its change flow over the profile, not the viewer.
+/// Never combined with [report] (own photo → no report).
+Future<void> showProfilePhotoViewer(
+  BuildContext context,
+  String url, {
+  PhotoViewerReport? report,
+  VoidCallback? onChangePhoto,
+}) {
+  assert(
+    report == null || onChangePhoto == null,
+    'own photo (onChangePhoto) never carries a report',
+  );
+  final String label = AppLocalizations.of(context).profilePhotoViewerSemantics;
+  bool changeRequested = false;
+  final MaterialPageRoute<void> route = MaterialPageRoute<void>(
+    fullscreenDialog: true,
+    builder: (BuildContext _) => PortfolioPhotoViewer(
+      photos: <PortfolioPhoto>[PortfolioPhoto(id: 'profile', url: url)],
+      showIndicator: false,
+      pageSemanticsLabel: label,
+      // Own photo never carries a report — enforced here too, not only by
+      // the assert (a release build must not show both).
+      onReport: onChangePhoto == null ? report?.onReport : null,
+      isReported: onChangePhoto == null ? report?.isReported : null,
+      onChangePhoto: onChangePhoto == null
+          ? null
+          : () => changeRequested = true,
+    ),
+  );
+  final Future<void> shown = runOnce<void>(
+    context,
+    () => Navigator.of(context, rootNavigator: true).push<void>(route),
+    present: () =>
+        route.isActive ? true : (route.navigator == null ? null : false),
+  );
+  if (onChangePhoto == null) return shown;
+  // Hand over only once the viewer route has COMPLETED (its close animation
+  // dismissed, not merely popped), so the change flow opens over the profile,
+  // never sliding up under the still-closing viewer (nested navigators).
+  // `changeRequested` implies the route was pushed, so `completed` resolves.
+  return shown.then((_) async {
+    if (!changeRequested) return;
+    await route.completed;
+    onChangePhoto();
+  });
+}
+
 /// Phase 424 D3 — reports the photo currently shown. [context] is the
 /// VIEWER's context (the viewer sits on the root navigator, so a sheet must be
 /// shown from it to appear above the photo).
@@ -72,6 +130,20 @@ typedef PortfolioPhotoReportCallback =
 /// `ref.watch`: the flag hides the moment the answer flips.
 typedef PortfolioPhotoReportedCheck =
     bool Function(WidgetRef ref, PortfolioPhoto photo);
+
+/// MOD-39 — the viewer's report wiring as ONE value, so an avatar can carry
+/// it to [showProfilePhotoViewer] without knowing the moderation feature.
+/// Built by `profilePhotoReport` (moderation `report_sheet.dart`).
+@immutable
+class PhotoViewerReport {
+  const PhotoViewerReport({required this.onReport, this.isReported});
+
+  /// [PortfolioPhotoViewer.onReport].
+  final PortfolioPhotoReportCallback onReport;
+
+  /// [PortfolioPhotoViewer.isReported] — `true` hides the button.
+  final PortfolioPhotoReportedCheck? isReported;
+}
 
 /// Phase 407 (9.12, D1) — the full-screen, READ-ONLY portfolio photo viewer:
 /// a horizontal [PageView] of pinch-zoomable photos ([InteractiveViewer],
@@ -114,7 +186,13 @@ class PortfolioPhotoViewer extends StatefulWidget {
     this.initialIndex = 0,
     this.onReport,
     this.isReported,
-  });
+    this.showIndicator = true,
+    this.pageSemanticsLabel,
+    this.onChangePhoto,
+  }) : assert(
+         onChangePhoto == null || onReport == null,
+         'own photo (onChangePhoto) never carries a report',
+       );
 
   /// The photos to page through, in rail order.
   final List<PortfolioPhoto> photos;
@@ -131,10 +209,26 @@ class PortfolioPhotoViewer extends StatefulWidget {
   /// shows for every photo, chrome unchanged.
   final PortfolioPhotoReportedCheck? isReported;
 
+  /// ADDITIVE (2026-11-21, profile-photo preview): `false` hides the «n / N»
+  /// counter (a single profile photo has nothing to count). `true` (the
+  /// default) keeps the chrome unchanged.
+  final bool showIndicator;
+
+  /// ADDITIVE (2026-11-21): the spoken label of every page. `null` (the
+  /// default) keeps the portfolio's «Фото n» label.
+  final String? pageSemanticsLabel;
+
+  /// ADDITIVE (2026-11-21, own profile photo): non-null → «Змінити фото» in
+  /// the action slot; a tap calls this, then closes the viewer
+  /// ([showProfilePhotoViewer] defers the hand-over until it is closed).
+  /// `null` (the default) → chrome unchanged.
+  final VoidCallback? onChangePhoto;
+
   static const Key pagerKey = Key('portfolio-viewer-pager');
   static const Key closeKey = Key('portfolio-viewer-close');
   static const Key indicatorKey = Key('portfolio-viewer-indicator');
   static const Key reportKey = Key('portfolio-viewer-report');
+  static const Key changePhotoKey = Key('portfolio-viewer-change-photo');
 
   /// The page of [photo] (keyed by photo id).
   static Key pageKey(String photoId) => Key('portfolio-viewer-page-$photoId');
@@ -328,7 +422,9 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
                         key: PortfolioPhotoViewer.pageKey(photos[i].id),
                         url: photos[i].url,
                         box: box,
-                        semanticLabel: l10n.portfolioPhotoSemantics(i + 1),
+                        semanticLabel:
+                            widget.pageSemanticsLabel ??
+                            l10n.portfolioPhotoSemantics(i + 1),
                         onZoomChanged: _onZoomChanged,
                       );
                     },
@@ -348,7 +444,7 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
                   padding: const EdgeInsets.all(VelvetSpacing.sm),
                   child: Row(
                     children: <Widget>[
-                      if (total > 0)
+                      if (total > 0 && widget.showIndicator)
                         ValueListenableBuilder<int>(
                           valueListenable: _index,
                           builder: (BuildContext _, int index, Widget? _) =>
@@ -359,6 +455,11 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
                               ),
                         ),
                       const Spacer(),
+                      if (widget.onChangePhoto
+                          case final VoidCallback change) ...<Widget>[
+                        _changePhotoButton(context, l10n, change),
+                        const SizedBox(width: VelvetSpacing.sm),
+                      ],
                       if (report != null &&
                           total > 0 &&
                           widget.isReported == null) ...<Widget>[
@@ -435,6 +536,27 @@ extension on _PortfolioPhotoViewerState {
       foregroundColor: BrandColors.white,
     ),
     icon: const Icon(Icons.outlined_flag_rounded),
+  );
+
+  /// «Змінити фото» (own photo) — same chrome fill, labelled: records the
+  /// request, then closes the viewer.
+  Widget _changePhotoButton(
+    BuildContext context,
+    AppLocalizations l10n,
+    VoidCallback change,
+  ) => TextButton.icon(
+    key: PortfolioPhotoViewer.changePhotoKey,
+    onPressed: () {
+      change();
+      Navigator.of(context).maybePop();
+    },
+    style: TextButton.styleFrom(
+      backgroundColor: _kChromeFill,
+      foregroundColor: BrandColors.white,
+      shape: const StadiumBorder(),
+    ),
+    icon: const Icon(Icons.photo_camera_outlined),
+    label: Text(l10n.changePhotoCaption),
   );
 }
 

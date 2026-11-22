@@ -49,8 +49,9 @@ abstract class Booking with _$Booking {
     ///
     /// Null for an `INDEPENDENT_MASTER` booking. Exists to key salon-side cache
     /// invalidation after a review (`invalidateSalonReviewSurfaces` in
-    /// `features/review/presentation/review_surface_invalidation.dart`) — and
-    /// for nothing else. It is the id whose `avgRating` / `reviewCount` the
+    /// `features/review/presentation/review_surface_invalidation.dart`) (and
+    /// see the second use below). It is the id whose `avgRating` /
+    /// `reviewCount` the
     /// backend just moved: `ReviewService#createReview` stamps the review with
     /// the BOOKING's salon, and `ReviewEventListener` recalculates THAT salon.
     ///
@@ -62,6 +63,10 @@ abstract class Booking with _$Booking {
     /// pre-242 contract can send one without the other. `atSalon` stays
     /// `salonName != null` — do not re-express it on this field, and do not
     /// derive either field from the other at the mapping boundary.
+    ///
+    /// Second use (2026-11-21): the fallback salon of the provider detail's
+    /// salon-scoped client-card route when the mount got no board salon id
+    /// (`BookingDetailScreen.clientCardBase`).
     String? salonId,
 
     // ── The COUNTERPARTY as the PROVIDER sees it (Phase 7.2) ──────────────
@@ -75,16 +80,6 @@ abstract class Booking with _$Booking {
     /// V89 `chk_bookings_guest_fields`). Present only so a caller can tell a
     /// registered client from a guest; never render it.
     String? clientId,
-
-    /// The GUEST's E.164 phone, for the provider's tap-to-call (Phase 417).
-    ///
-    /// **Guest bookings only** (`clientId == null`): a registered client's
-    /// phone is NEVER shown to a provider. Non-null only on the detail read
-    /// (`GET /bookings/{id}`) for an independent master / salon owner /
-    /// salon admin; null on every list row and for a salon master, a client
-    /// or an anonymised booking. The render gate is
-    /// `BookingDisplayX.guestPhoneFor`. PII — never log, never route-param.
-    String? guestPhone,
 
     /// The client's first name.
     ///
@@ -348,11 +343,9 @@ abstract class Booking with _$Booking {
 
   /// Phase 417 (mobile-security LOW) — redacting `toString`. The freezed
   /// default prints EVERY field, so a stray `log('$booking')` would leak the
-  /// guest's E.164 [guestPhone] (and the free-text notes / names). Only
-  /// non-PII identity fields are printed; [guestPhone] shows presence only.
-  /// `==` / `hashCode` stay freezed-generated and still include [guestPhone].
+  /// free-text notes / names. Only non-PII identity fields are printed.
+  /// No phone is held at all (CLI-D08 / GST-D14: «Деталі запису» shows none;
+  /// the wire `guestPhone` / `clientPhone` are deliberately NOT mapped).
   @override
-  String toString() =>
-      'Booking(id: $id, masterId: $masterId, status: $status, '
-      'guestPhone: ${guestPhone == null ? 'null' : '<redacted>'})';
+  String toString() => 'Booking(id: $id, masterId: $masterId, status: $status)';
 }

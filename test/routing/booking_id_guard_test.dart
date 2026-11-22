@@ -8,6 +8,8 @@ import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_rating_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_review_screen.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
@@ -49,6 +51,12 @@ final Map<String, Type> _guardedRoutes = <String, Type>{
   '/salon/bookings/b-1/review': LeaveClientFeedbackScreen,
   '/staff/bookings/b-1': BookingDetailScreen,
   '/staff/bookings/b-1/review': LeaveClientFeedbackScreen,
+  '/salons/s-1/clients/guest/b-1': ClientCardScreen,
+  '/salons/s-1/clients/guest/b-1/rating': ClientRatingScreen,
+  '/master/clients/guest/b-1': ClientCardScreen,
+  '/master/clients/guest/b-1/rating': ClientRatingScreen,
+  '/staff/clients/guest/b-1': ClientCardScreen,
+  '/staff/clients/guest/b-1/rating': ClientRatingScreen,
 };
 
 /// Every non-booking route taking an id path param. `{x}` placeholders are
@@ -74,6 +82,14 @@ const List<String> _idRoutes = <String>[
   '/salons/{salonId}/shell',
   '/owner/master/services/{serviceId}/edit',
   '/services/{id}/edit',
+  '/salons/{salonId}/clients/user/{userId}',
+  '/salons/{salonId}/clients/user/{userId}/rating',
+  '/salons/{salonId}/clients/guest/b-1',
+  '/salons/{salonId}/clients/guest/b-1/rating',
+  '/master/clients/user/{userId}',
+  '/master/clients/user/{userId}/rating',
+  '/staff/clients/user/{userId}',
+  '/staff/clients/user/{userId}/rating',
 ];
 
 bool _isInvalidIdScaffold(Widget w) =>
@@ -161,6 +177,7 @@ void main() {
         'salonId',
         'memberId',
         'serviceId',
+        'userId',
         'id',
       }),
       isEmpty,

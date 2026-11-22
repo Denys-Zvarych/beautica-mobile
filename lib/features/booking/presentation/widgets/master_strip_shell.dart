@@ -32,6 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 
 import 'master_avatar_badge.dart';
 
@@ -54,11 +56,9 @@ class MasterStripShell extends StatelessWidget {
     this.avatarImageKey,
     this.onTap,
     this.action,
-  }) : assert(
-         action == null || onTap == null,
-         'MasterStripShell: `action` and `onTap` are mutually exclusive — a '
-         'tappable card cannot also host its own button.',
-       );
+    this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
+  });
 
   /// The full localized accessibility label for the card.
   final String semanticsLabel;
@@ -120,7 +120,22 @@ class MasterStripShell extends StatelessWidget {
   /// (which still announces [semanticsLabel]) so the control stays its own
   /// focusable button. `null` (every other call site) emits the exact tree
   /// this shell had before.
+  ///
+  /// May be combined with [onTap] (2026-11-21, provider «Деталі запису» →
+  /// client card): the press wash then covers the IDENTITY part only, beside
+  /// the action — never the action itself, so the two never nest.
   final Widget? action;
+
+  /// ADDITIVE (2026-11-21): `true` → a tap on the avatar PHOTO opens it full
+  /// screen (forwarded to [MasterAvatarBadge.previewOnTap]); the rest of the
+  /// card keeps [onTap]. `false` (the default, every booking-flow screen)
+  /// renders and behaves exactly as before.
+  final bool avatarPreviewOnTap;
+
+  /// ADDITIVE (MOD-39): with [avatarPreviewOnTap], the viewer's «Поскаржитися»
+  /// for this profile (forwarded to [MasterAvatarBadge.previewReport]).
+  /// `null` (the default) → no report button.
+  final PhotoViewerReport? avatarPreviewReport;
 
   /// Camel-wash surface — the same lighter taupe used by the pinned booking
   /// summary shelf, so the strip reads as sitting on its own elevated card.
@@ -136,6 +151,12 @@ class MasterStripShell extends StatelessWidget {
   /// alpha, NOT Material's default ink. A stock M3 ripple reads as a foreign
   /// flat-design idiom on a neumorphic camel-wash card; tinting it keeps the
   /// press inside the locked palette.
+  /// Ink clip of the identity part when [action] and [onTap] are combined —
+  /// the inner field radius, inset from the card's own corners.
+  static const BorderRadius _identityRadius = BorderRadius.all(
+    Radius.circular(VelvetRadii.field),
+  );
+
   static final Color _splash = BrandColors.accent.withValues(alpha: 0.14);
   static final Color _highlight = BrandColors.accent.withValues(alpha: 0.07);
 
@@ -236,6 +257,8 @@ class MasterStripShell extends StatelessWidget {
           imageUrl: avatarImageUrl,
           initials: avatarInitials,
           imageKey: avatarImageKey,
+          previewOnTap: avatarPreviewOnTap,
+          previewReport: avatarPreviewReport,
         ),
         const SizedBox(width: VelvetSpacing.md),
         Expanded(
@@ -275,9 +298,29 @@ class MasterStripShell extends StatelessWidget {
       // ([semanticsLabel], so `getSemantics(card)` reads exactly as before);
       // its visible identity text is excluded (the label already says it),
       // and the action stays its own focusable child button.
+      //
+      // With [onTap] as well, the identity part gets its own ink (a nested
+      // transparency `Material` INSIDE the fill, as on the tap branch below)
+      // and the card node carries the tap; the action stays a sibling.
+      final VoidCallback? identityTap = onTap;
+      final Widget identityPart = identityTap == null
+          ? ExcludeSemantics(child: identity)
+          : Material(
+              type: MaterialType.transparency,
+              borderRadius: _identityRadius,
+              child: InkWell(
+                onTap: identityTap,
+                borderRadius: _identityRadius,
+                splashColor: _splash,
+                highlightColor: _highlight,
+                child: ExcludeSemantics(child: identity),
+              ),
+            );
       return Semantics(
         container: true,
         label: semanticsLabel,
+        button: identityTap != null ? true : null,
+        onTap: identityTap,
         child: Material(
           type: MaterialType.transparency,
           child: DecoratedBox(
@@ -286,7 +329,7 @@ class MasterStripShell extends StatelessWidget {
               padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
               child: Row(
                 children: <Widget>[
-                  Expanded(child: ExcludeSemantics(child: identity)),
+                  Expanded(child: identityPart),
                   const SizedBox(width: VelvetSpacing.xs),
                   Semantics(container: true, child: trailingAction),
                 ],

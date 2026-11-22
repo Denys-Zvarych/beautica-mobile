@@ -63,7 +63,7 @@
 // entry would serve the wrong list. The branch itself lives in exactly one
 // place, [_fetchPage], which both [_fetchFirstPage] and [loadMore] call.
 //
-// ## Outcome filtering («Підтверджено»/«Виконано»/«Скасовано») is applied
+// ## Outcome filtering («Заплановано»/«Виконано»/«Скасовано») is applied
 // CLIENT-SIDE, on top of the fixed `partition: HISTORY` fetch
 //
 // The backend has no way to combine `partition=HISTORY` with a `status`
@@ -72,7 +72,7 @@
 // not expressible server-side without giving up partition's correctness (the
 // elapsed-CONFIRMED computation `status` alone cannot do). Filtering the
 // already-fetched HISTORY page in Dart instead is what makes
-// [BookingStatusFilterGroup.confirmed] ("Підтверджено") work as the
+// [BookingStatusFilterGroup.confirmed] ("Заплановано") work as the
 // «Потребують закриття» filter with NO new UI (the amendment this phase
 // shipped under, 2026-08-16): within `BookingPartition.history`, a booking
 // is (still-open) CONFIRMED if and only if `awaitingClosure` is `true` — no
@@ -712,7 +712,7 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
   /// this field after a successful write is exactly the `false` written here.
   ///
   /// Contrast `_confirmComplete`, which DOES change status (a row can leave
-  /// the «Підтверджено» filter for «Виконано») and therefore legitimately
+  /// the «Заплановано» filter for «Виконано») and therefore legitimately
   /// reloads through `_reloadArchive` rather than patching locally.
   ///
   /// A NO-OP when the notifier holds no data yet (loading/error — nothing to

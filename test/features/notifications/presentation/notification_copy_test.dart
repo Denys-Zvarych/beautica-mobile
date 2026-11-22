@@ -494,6 +494,43 @@ void main() {
       expect(body, uk.notificationsParamsGone);
     });
 
+    // M528 / B527 (NTF-67): a client gets BOOKING_CREATED only for a link or
+    // walk-in booking attached to their account. RED WHEN the `isClient` arm
+    // in `NotificationCopy.title` is dropped (the client would read the
+    // provider's «Новий запис»).
+    test('bookingCreated: client title is «Вас записано» (equals the backend '
+        'push), provider keeps «Новий запис»; client body leads with the '
+        'service and names the master', () {
+      const AppNotificationType t = AppNotificationType.bookingCreated;
+      expect(NotificationCopy.title(uk, t, isClient: true), 'Вас записано');
+      expect(NotificationCopy.title(uk, t, isClient: false), 'Новий запис');
+      expect(
+        NotificationCopy.title(AppLocalizationsEn(), t, isClient: true),
+        "You're booked",
+      );
+
+      final NotificationParams p = NotificationParams(
+        counterpartName: 'Софія Бондар',
+        serviceName: 'Манікюр',
+        serviceCount: 1,
+        startsAt: DateTime.utc(2026, 10, 3, 11, 30),
+      );
+      final String? clientBody = NotificationCopy.body(
+        uk,
+        row(p),
+        isClient: true,
+      );
+      final String? providerBody = NotificationCopy.body(
+        uk,
+        row(p),
+        isClient: false,
+      );
+      expect(clientBody, isNotNull);
+      expect(clientBody, isNot(providerBody));
+      expect(clientBody, startsWith(_iso('Манікюр')));
+      expect(clientBody, contains(_iso('Софія Бондар')));
+    });
+
     group('masterName', () {
       NotificationParams params({String? master}) => NotificationParams(
         counterpartName: 'Олена',

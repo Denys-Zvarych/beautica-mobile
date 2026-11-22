@@ -551,4 +551,37 @@ void main() {
     expect(_result, isTrue, reason: 'the confirmation path still runs');
     await pumpPastVelvetSnack(tester);
   });
+
+  group('profilePhotoReport target guard', () {
+    for (final ReportTargetType type in <ReportTargetType>[
+      ReportTargetType.clientProfile,
+      ReportTargetType.masterProfile,
+      ReportTargetType.salonProfile,
+    ]) {
+      test('${type.wireName} → a report', () {
+        expect(
+          profilePhotoReport(targetType: type, targetId: 't-1', name: 'Оксана'),
+          isNotNull,
+        );
+      });
+    }
+
+    for (final ReportTargetType type in <ReportTargetType>[
+      ReportTargetType.review,
+      ReportTargetType.clientReview,
+      ReportTargetType.portfolioPhoto,
+    ]) {
+      // Debug fails the assert; release returns null (no report button).
+      test('${type.wireName} → assert in debug (null in release)', () {
+        expect(
+          () => profilePhotoReport(
+            targetType: type,
+            targetId: 't-1',
+            name: 'Оксана',
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+      });
+    }
+  });
 }

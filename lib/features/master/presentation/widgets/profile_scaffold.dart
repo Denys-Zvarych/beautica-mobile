@@ -43,7 +43,16 @@ class ProfileScaffold extends StatelessWidget {
     this.onBack,
     this.backKey,
     this.fitWholeTitle = false,
+    this.slivers,
   });
+
+  /// Optional LAZY body tail (M510). When non-null the body is a
+  /// [CustomScrollView] — [child] as its first box, then these slivers — with
+  /// the SAME physics, padding and refresh wiring as the default
+  /// [SingleChildScrollView], so a long list (e.g. a [SliverList.builder])
+  /// builds only its visible rows. `null` (the default) → the unchanged
+  /// [SingleChildScrollView] tree every pre-existing caller renders.
+  final List<Widget>? slivers;
 
   /// Optional [Key] for the back button (Phase 24.1b), forwarded to
   /// [VelvetTopBar.backKey] so a test can tap it directly. `null` → no key,
@@ -159,21 +168,39 @@ class ProfileScaffold extends StatelessWidget {
   /// scroll physics always allow the indicator to be triggered, even when
   /// content underflows the viewport.
   Widget _buildScrollable(Widget content) {
-    final Widget scrollable = SingleChildScrollView(
-      // AlwaysScrollableScrollPhysics ensures the RefreshIndicator gesture is
-      // always interceptable, even when the content is shorter than the
-      // viewport (e.g. loading skeleton or error state).
-      physics: onRefresh != null
-          ? const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics())
-          : const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.md,
-        VelvetSpacing.lg,
-        VelvetSpacing.xxl,
-      ),
-      child: content,
+    // AlwaysScrollableScrollPhysics ensures the RefreshIndicator gesture is
+    // always interceptable, even when the content is shorter than the
+    // viewport (e.g. loading skeleton or error state).
+    final ScrollPhysics physics = onRefresh != null
+        ? const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics())
+        : const BouncingScrollPhysics();
+    const EdgeInsets padding = EdgeInsets.fromLTRB(
+      VelvetSpacing.lg,
+      VelvetSpacing.md,
+      VelvetSpacing.lg,
+      VelvetSpacing.xxl,
     );
+    final List<Widget>? tail = slivers;
+    final Widget scrollable = tail == null
+        ? SingleChildScrollView(
+            physics: physics,
+            padding: padding,
+            child: content,
+          )
+        : CustomScrollView(
+            physics: physics,
+            slivers: <Widget>[
+              SliverPadding(
+                padding: padding,
+                sliver: SliverMainAxisGroup(
+                  slivers: <Widget>[
+                    SliverToBoxAdapter(child: content),
+                    ...tail,
+                  ],
+                ),
+              ),
+            ],
+          );
 
     final Future<void> Function()? refresh = onRefresh;
     if (refresh == null) return scrollable;

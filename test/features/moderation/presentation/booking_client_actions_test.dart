@@ -1,8 +1,14 @@
-// Phase 425 D2/D3/D4 — the booking-detail client strip «⋯»: who sees it,
-// what the actions sheet offers per role × booking kind, the block / unblock
+// Phase 425 D2/D3/D4 — the shared client actions flow
+// (`client_actions_flow.dart`): who gets the «⋯», what the actions sheet
+// offers per role × booking kind, the block / unblock
 // confirmations (copy verbatim from the approved UgcSafety preview), the
 // server gates (`clientBlockable` / `clientBlocked` + `clientBlockId`, backend
 // 397), the single-DELETE unblock and the 429 copy.
+//
+// 2026-11-21 (user): the «⋯» left «Деталі запису» — report / block live only
+// on the client card now (`client_card_screen_test.dart` pins that mount).
+// This file keeps the FLOW coverage on a minimal host that runs exactly the
+// gate + flow every mount uses, over the same `bookingDetailProvider` read.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -16,11 +22,11 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
-import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/data/block_repository.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/client_actions_flow.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
@@ -87,6 +93,49 @@ Booking _booking({
   );
 }
 
+const Key _moreKey = Key('flow-host-more');
+
+/// A mount of the shared flow: the booking read, the report-once watch, the
+/// gate and [runClientActions] — the same calls the client card makes.
+class _FlowHost extends ConsumerWidget {
+  const _FlowHost({required this.bookingId, this.salonId});
+
+  final String bookingId;
+  final String? salonId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final Booking? booking = ref.watch(bookingDetailProvider(bookingId)).value;
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    if (booking == null) return const Scaffold(body: SizedBox.shrink());
+    final String? clientId = booking.clientId;
+    final ClientActionsGate? gate = clientActionsGateFor(
+      booking,
+      role,
+      reported:
+          clientId != null &&
+          watchIsReported(ref, ReportTargetType.clientProfile, clientId),
+    );
+    return Scaffold(
+      body: Center(
+        child: gate == null
+            ? const SizedBox.shrink()
+            : IconButton(
+                key: _moreKey,
+                icon: const Icon(Icons.more_horiz_rounded),
+                onPressed: () => runClientActions(
+                  context,
+                  ref,
+                  booking: booking,
+                  gate: gate,
+                  salonId: salonId,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
 class _Env {
   _Env({ClientBlockRepository? blocks, Set<ReportedTarget>? preReported})
     : blocks = blocks ?? FakeClientBlockRepository(),
@@ -110,7 +159,7 @@ Future<_Env> _pump(
   addTearDown(tester.view.resetDevicePixelRatio);
   final _Env env = _Env(blocks: blocks, preReported: preReported);
   await tester.pumpApp(
-    BookingDetailScreen(bookingId: booking.id, salonId: salonId),
+    _FlowHost(bookingId: booking.id, salonId: salonId),
     overrides: <Object>[
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
@@ -128,9 +177,9 @@ Future<_Env> _pump(
 }
 
 AppLocalizations _l10n(WidgetTester tester) =>
-    AppLocalizations.of(tester.element(find.byType(BookingDetailScreen)));
+    AppLocalizations.of(tester.element(find.byType(_FlowHost)));
 
-final Finder _more = find.byKey(BookingCounterpartyHeader.clientMoreKey);
+final Finder _more = find.byKey(_moreKey);
 
 Future<void> _openSheet(WidgetTester tester) async {
   await tester.tap(_more);
@@ -264,7 +313,7 @@ void main() {
         _booking(clientId: null, clientBlockable: false),
         role: UserRole.salonOwner,
       );
-      expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
+      expect(find.byType(_FlowHost), findsOne);
       expect(_more, findsNothing);
     });
 
@@ -294,7 +343,7 @@ void main() {
       tester,
     ) async {
       await _pump(tester, _booking(clientId: null), role: UserRole.salonMaster);
-      expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
+      expect(find.byType(_FlowHost), findsOne);
       expect(_more, findsNothing);
     });
 
@@ -484,7 +533,7 @@ void main() {
 
       expect(find.text(l10n.clientBlockCancelledBookingsSnack(2)), findsOne);
       final SalonBoardRefreshGate gate = ProviderScope.containerOf(
-        tester.element(find.byType(BookingDetailScreen)),
+        tester.element(find.byType(_FlowHost)),
       ).read(salonBoardRefreshGateProvider);
       expect(gate.takeStale('salon-1'), isTrue);
     });
@@ -530,7 +579,7 @@ void main() {
         role: UserRole.independentMaster,
         blocks: FakeClientBlockRepository(staffBookingIds: <String>{'b1'}),
       );
-      final BuildContext ctx = tester.element(find.byType(BookingDetailScreen));
+      final BuildContext ctx = tester.element(find.byType(_FlowHost));
       final String expected = const ValidationFailure(
         fieldErrors: <String, String>{},
       ).userMessage(ctx);

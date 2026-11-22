@@ -8,9 +8,9 @@
 //  * `+N` = `serviceCount - 1`, appended to the first service of a visit;
 //  * titles avoid gendered verbs: the API sends a display name, not a gender.
 //
-// AUDIENCE: the wire row carries no audience, so the two types that read
-// differently for a client and a provider (declined, rescheduled) are decided
-// by the viewer's role — `isClient`.
+// AUDIENCE: the wire row carries no audience, so the types that read
+// differently for a client and a provider (created, declined, rescheduled) are
+// decided by the viewer's role — `isClient`.
 //
 // DATES: `startsAt` is a canonical-UTC instant; it is shown in Europe/Kyiv via
 // the shared booking formatters (`toBeauticaTime`), never the device zone.
@@ -34,7 +34,13 @@ abstract final class NotificationCopy {
     AppNotificationType type, {
     required bool isClient,
   }) => switch (type) {
-    AppNotificationType.bookingCreated => l10n.notificationTitleBookingCreated,
+    // M528 — a client receives BOOKING_CREATED only for a link / walk-in
+    // booking attached to their account (B527, NTF-67); the title matches the
+    // backend push («Вас записано»). The provider copy is unchanged.
+    AppNotificationType.bookingCreated =>
+      isClient
+          ? l10n.notificationTitleBookingCreatedClient
+          : l10n.notificationTitleBookingCreated,
     AppNotificationType.bookingCancelledByClient =>
       l10n.notificationTitleCancelledByClient,
     AppNotificationType.bookingDeclined =>

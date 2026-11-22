@@ -238,8 +238,8 @@ void main() {
     testWidgets(
       'active tab uses the filled icon variant; inactive tabs use the outlined variant',
       (tester) async {
-        // activeIndex: 3 → 'Профіль' — active icon is Icons.person_rounded.
-        await tester.pumpApp(const VelvetBottomNavBar(activeIndex: 3));
+        // activeIndex: 4 → 'Профіль' — active icon is Icons.person_rounded.
+        await tester.pumpApp(const VelvetBottomNavBar(activeIndex: 4));
         await tester.pump();
 
         // Active icon (filled) must be present.

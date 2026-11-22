@@ -11,18 +11,28 @@
 // optional params, so its render is unchanged; [topLabel], [shellKey] and
 // [avatarImageKey] are additive and default to the detail screen's values.
 //
+// M509 (2026-11-20): three more ADDITIVE params — [details], [onTap] and
+// [semanticsLabel] — so the «Клієнти» list renders its rows with this same
+// strip (avatar, name, ★ readout) instead of a fork. All default to `null`, so
+// «Деталі запису» and the reschedule confirm render byte-identically.
+//
 // Reuses [MasterStripShell] directly rather than [MasterStrip]: that widget is
 // master-shaped (a role sub-line, the «Запис до майстра» caption, master-worded
 // semantics), whereas the shell is the data-agnostic frame this needs.
+//
+// 2026-11-21 (user): the provider «⋯» (report / block) left this strip — it
+// lives only on the client card now (tap the strip → card → «⋯»).
 //
 // SEC: the client's name is PII. Hosting screens hold the
 // `ScreenProtectionManager`; this widget adds no logging.
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
+    show PhotoViewerReport;
 
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
@@ -42,9 +52,13 @@ class BookingClientStrip extends StatelessWidget {
     this.isGuest = false,
     this.dimmed = false,
     this.topLabel,
-    this.onMore,
     this.shellKey = defaultShellKey,
     this.avatarImageKey = defaultAvatarImageKey,
+    this.details,
+    this.onTap,
+    this.semanticsLabel,
+    this.avatarPreviewOnTap = false,
+    this.avatarPreviewReport,
   });
 
   /// The «Деталі запису» render of [booking]'s client — the exact derivation
@@ -52,7 +66,9 @@ class BookingClientStrip extends StatelessWidget {
   factory BookingClientStrip.fromBooking(
     Booking booking, {
     Key? key,
-    VoidCallback? onMore,
+    VoidCallback? onTap,
+    bool avatarPreviewOnTap = false,
+    PhotoViewerReport? avatarPreviewReport,
   }) => BookingClientStrip(
     key: key,
     name: booking.clientName,
@@ -68,7 +84,11 @@ class BookingClientStrip extends StatelessWidget {
     dimmed:
         booking.status == BookingStatus.cancelled ||
         booking.status == BookingStatus.declined,
-    onMore: onMore,
+    // ADDITIVE (2026-11-21): the provider detail's route into the client
+    // card. `null` (every other caller) keeps the strip inert.
+    onTap: onTap,
+    avatarPreviewOnTap: avatarPreviewOnTap,
+    avatarPreviewReport: avatarPreviewReport,
   );
 
   static const Key defaultShellKey = Key('booking-detail-client-strip');
@@ -76,14 +96,21 @@ class BookingClientStrip extends StatelessWidget {
     'booking-detail-client-avatar-photo',
   );
 
-  /// Widget key of the strip's «⋯» hit target.
-  static const Key moreKey = Key('booking-detail-client-more');
-
   /// The client's display name; `null` renders the localized «Гість».
   final String? name;
 
   /// Public photo URL; `null` renders the [initials] monogram.
   final String? avatarUrl;
+
+  /// ADDITIVE (2026-11-21): forwarded to
+  /// [MasterStripShell.avatarPreviewOnTap]; `false` (the default) changes
+  /// nothing.
+  final bool avatarPreviewOnTap;
+
+  /// ADDITIVE (MOD-39): with [avatarPreviewOnTap], the viewer's «Поскаржитися»
+  /// for this profile (forwarded to [MasterStripShell.avatarPreviewReport]).
+  /// `null` (the default) → no report button.
+  final PhotoViewerReport? avatarPreviewReport;
   final String? initials;
 
   /// Already display-normalized (`BookingDisplayX.clientDisplayRating`);
@@ -101,16 +128,25 @@ class BookingClientStrip extends StatelessWidget {
   /// reschedule confirm screen). `null` (the detail screen) shows none.
   final String? topLabel;
 
-  /// Provider-only «⋯» actions (report / block). `null` renders none.
-  final VoidCallback? onMore;
-
   final Key shellKey;
   final Key avatarImageKey;
+
+  /// ADDITIVE (M509): extra sub-lines under the guest qualifier (the list row's
+  /// «Ост.: …» / «Наст.: …» dates and «Заблоковано» chip). `null` (every other
+  /// call site) renders the sub-line exactly as before.
+  final Widget? details;
+
+  /// ADDITIVE (M509): makes the whole strip tappable, forwarded to
+  /// [MasterStripShell.onTap] (press wash only, nothing at rest). `null` = inert.
+  final VoidCallback? onTap;
+
+  /// ADDITIVE (M509): replaces the computed screen-reader label. `null` keeps
+  /// the label derived from [name] / [rating] / [isGuest].
+  final String? semanticsLabel;
 
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final VoidCallback? more = onMore;
     final double? rating = this.rating;
 
     final String displayName = name ?? l10n.bookingDetailGuestClient;
@@ -119,7 +155,9 @@ class BookingClientStrip extends StatelessWidget {
         : null;
 
     final String semantics;
-    if (isGuest) {
+    if (semanticsLabel != null) {
+      semantics = semanticsLabel!;
+    } else if (isGuest) {
       semantics = <String>[
         l10n.bookingDetailClientSemantics(displayName),
         ?qualifier,
@@ -139,6 +177,28 @@ class BookingClientStrip extends StatelessWidget {
       );
     }
 
+    final Widget? qualifierLine = qualifier == null
+        ? null
+        : Text(
+            qualifier,
+            style: VelvetText.feedbackMutedSm,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          );
+    final Widget? extra = details;
+    final Widget? middle = extra == null
+        ? qualifierLine
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ?qualifierLine,
+              if (qualifierLine != null)
+                const SizedBox(height: VelvetSpacing.xs / 2),
+              extra,
+            ],
+          );
+
     // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
     return Opacity(
       opacity: dimmed ? 0.7 : 1,
@@ -150,25 +210,13 @@ class BookingClientStrip extends StatelessWidget {
         avatarImageUrl: avatarUrl,
         avatarInitials: initials,
         avatarImageKey: avatarImageKey,
-        middleLine: qualifier == null
-            ? null
-            : Text(
-                qualifier,
-                style: VelvetText.feedbackMutedSm,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+        avatarPreviewOnTap: avatarPreviewOnTap,
+        avatarPreviewReport: avatarPreviewReport,
+        middleLine: middle,
         trailing: isGuest
             ? null
             : MasterRatingReadout(avgRating: rating, reviewCount: reviewCount),
-        action: more == null
-            ? null
-            : ReviewMoreButton(
-                tapKey: moreKey,
-                icon: Icons.more_horiz_rounded,
-                semanticLabel: l10n.clientMoreActions,
-                onTap: more,
-              ),
+        onTap: onTap,
       ),
     );
   }

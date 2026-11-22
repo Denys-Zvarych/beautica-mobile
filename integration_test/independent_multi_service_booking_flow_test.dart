@@ -816,7 +816,7 @@ void main() {
     expect(
       find.text(listL10n.bookingStatusConfirmed),
       findsOneWidget,
-      reason: 'the new card carries the «Підтверджено» badge',
+      reason: 'the new card carries the «Заплановано» badge',
     );
     expect(tester.takeException(), isNull);
   }, timeout: const Timeout(Duration(seconds: 120)));

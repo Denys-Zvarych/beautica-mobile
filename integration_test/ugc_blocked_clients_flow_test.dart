@@ -10,7 +10,8 @@
 //       `DELETE /blocks/{id}` → the row is gone (list refetched) + snack.
 //       Empty list → the empty notice. SALON_ADMIN sees the row; SALON_MASTER
 //       and CLIENT do not.
-//   (b) «Деталі запису»: a blocked client → «Розблокувати клієнта» → ONE
+//   (b) «Деталі запису» → client card «⋯» (2026-11-21: the «⋯» left the
+//       detail strip): a blocked client → «Розблокувати клієнта» → ONE
 //       DELETE of `clientBlockId`, no POST, and the refreshed detail offers
 //       «Заблокувати» again; block → ONE POST → refreshed detail offers
 //       «Розблокувати». A walk-in the server marks `clientBlockable: false`
@@ -26,7 +27,6 @@ import 'dart:async';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/moderation/presentation/blocked_clients_screen.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
@@ -42,11 +42,11 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
+import 'support/client_card_actions.dart';
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
 
 const Key _row = Key('row-blocked-clients');
-final Finder _clientMore = find.byKey(BookingCounterpartyHeader.clientMoreKey);
 
 Key _card(String id) => ValueKey<String>('blocked-card-$id');
 Key _phone(String id) => ValueKey<String>('blocked-phone-$id');
@@ -109,6 +109,8 @@ Future<void> _openSettingsAs(
 }
 
 Future<void> _bootDetail(WidgetTester tester, FakeBackend fb) async {
+  // 2026-11-21 — block / unblock live on the client card (strip → card → «⋯»).
+  seedClientCardForBooking1(fb);
   final GoRouter router = await AppHarness.boot(tester, fb);
   await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
   unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
@@ -117,8 +119,7 @@ Future<void> _bootDetail(WidgetTester tester, FakeBackend fb) async {
 }
 
 Future<void> _openClientSheet(WidgetTester tester) async {
-  await AppHarness.pumpUntilFound(tester, _clientMore);
-  await AppHarness.tapVisible(tester, _clientMore);
+  await openClientCardMore(tester);
   await AppHarness.settle(tester);
   expect(find.byType(ClientActionsSheet), findsOneWidget);
 }
@@ -280,7 +281,7 @@ void main() {
 
   // Backend 398 — a NEW block DECLINEs the client's future visits in scope
   // and answers only their COUNT. The real journey: «Мої записи» day list →
-  // card → «Деталі запису» → block → the plural snack names the count (and
+  // card → «Деталі запису» → client card «⋯» → block → the plural snack names the count (and
   // replaces «Клієнта заблоковано») → back → the cancelled visit is gone from
   // the day list (DECLINED is hidden by default), refetched on the REAL wire.
   testWidgets('block that auto-cancels visits: «Скасовано 3 записи» snack, '
@@ -298,6 +299,7 @@ void main() {
           .add(const Duration(hours: 2, minutes: 30))
           .toIso8601String()
       ..blockCancelsFutureVisits = 3;
+    seedClientCardForBooking1(fb);
     final GoRouter router = await AppHarness.boot(tester, fb);
     // A working window on the landing day (opening at 15:00 Kyiv = kFixedNow,
     // so the 16:00 card sits inside the grid's first viewport), or the grid
@@ -343,6 +345,10 @@ void main() {
     expect(find.text(_l10n.clientBlockedSnack), findsNothing);
     await pumpPastVelvetSnack(tester);
 
+    // Back out of the client card, then «Деталі запису».
+    router.pop();
+    await AppHarness.settle(tester);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
     router.pop();
     await AppHarness.settle(tester);
     expect(find.byType(MasterBookingsScreen), findsOneWidget);

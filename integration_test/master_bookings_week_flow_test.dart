@@ -102,7 +102,7 @@ bool _isWeekRange(Map<String, dynamic> q, DateTime monday) =>
 /// waits for the login form — the bounded poll `master_archive_review_flow`
 /// documents (logout schedules no frames of its own).
 Future<void> _logoutMaster(WidgetTester tester) async {
-  await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+  await tester.tap(find.byKey(const Key('master-nav-tile-4')));
   await AppHarness.settle(tester);
   await tester.tap(find.byKey(const Key('btn-menu-master')));
   await AppHarness.settle(tester);

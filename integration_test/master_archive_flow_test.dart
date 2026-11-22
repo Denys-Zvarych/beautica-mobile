@@ -25,14 +25,14 @@
 // Scenarios:
 //   1. PRIMARY JOURNEY — master logs in, opens «Мої записи», taps the header
 //      archive button, sees past bookings INCLUDING an elapsed-unclosed
-//      (`awaitingClosure`) one, filters to «Підтверджено», closes it via
+//      (`awaitingClosure`) one, filters to «Заплановано», closes it via
 //      «Виконано» — the write lands on the real HTTP boundary and the row
 //      leaves the still-active filter on the very next re-fetch (a sibling
 //      `awaitingClosure` row stays, proving this is a genuine per-row
 //      reclassification, not the whole list going empty).
 //   2. AUTO-CONTINUE — mobile-perf HIGH-1/2's fix, pinned end-to-end: a raw
 //      first page (20 rows) with ZERO rows matching the active
-//      «Підтверджено» filter, `hasMore: true`, and the one matching row
+//      «Заплановано» filter, `hasMore: true`, and the one matching row
 //      sitting on raw page 2. The screen must not settle on the terminal
 //      empty state — it auto-continues and surfaces the later-page match.
 //   3. TERMINAL EMPTY — a raw page with zero matches AND `hasMore: false`
@@ -119,7 +119,7 @@ void main() {
     return router;
   }
 
-  /// Applies the «Підтверджено» row of the reused `BookingsFilterSheet` —
+  /// Applies the «Заплановано» row of the reused `BookingsFilterSheet` —
   /// which, within the archive's fixed `partition: HISTORY` scope, IS the
   /// «Потребують закриття» filter with no bespoke UI (see
   /// `master_archive_notifier.dart`'s file header). Deliberately NOT
@@ -147,7 +147,7 @@ void main() {
   // ==========================================================================
   testWidgets(
     'MASTER «Архів»: past bookings include an elapsed-unclosed CONFIRMED '
-    'row; filtering to «Підтверджено» narrows to it; closing it via '
+    'row; filtering to «Заплановано» narrows to it; closing it via '
     '«Виконано» succeeds on the real HTTP boundary and the row leaves the '
     'still-active filter, while a sibling awaitingClosure row stays',
     (tester) async {
@@ -231,7 +231,7 @@ void main() {
         findsOneWidget,
       );
 
-      // ── Filter to «Підтверджено» — narrows to the two CONFIRMED/
+      // ── Filter to «Заплановано» — narrows to the two CONFIRMED/
       //    awaitingClosure rows, client-side, on top of the fixed HISTORY
       //    fetch. ────────────────────────────────────────────────────────
       await applyConfirmedFilter(tester);
@@ -271,7 +271,7 @@ void main() {
                 .evaluate()
                 .isEmpty,
         description:
-            'the «Підтверджено» page to render: booking-1 present AND '
+            'the «Заплановано» page to render: booking-1 present AND '
             'past-completed-1 filtered out (neither half alone distinguishes '
             'the filtered list from the stale one or the loading skeleton)',
       );
@@ -287,7 +287,7 @@ void main() {
       expect(
         find.byKey(const Key('master-booking-card-past-completed-1')),
         findsNothing,
-        reason: 'COMPLETED must not survive the «Підтверджено» filter',
+        reason: 'COMPLETED must not survive the «Заплановано» filter',
       );
 
       // ── Close `booking-1` via «Виконано». ───────────────────────────────
@@ -312,7 +312,7 @@ void main() {
       // [AppHarness.settle] can return in the lull between the PATCH
       // resolving and the follow-up re-fetch landing, reading a stale
       // pre-write card. Wait for the closed row to genuinely leave this
-      // still-active «Підтверджено» filter before asserting below.
+      // still-active «Заплановано» filter before asserting below.
       await AppHarness.pumpUntilGone(
         tester,
         find.byKey(const Key('master-booking-card-booking-1')),
@@ -331,7 +331,7 @@ void main() {
         reason: 'the dialog closed on confirm',
       );
 
-      // ── The closed row leaves the STILL-ACTIVE «Підтверджено» filter on
+      // ── The closed row leaves the STILL-ACTIVE «Заплановано» filter on
       //    the post-close re-fetch; the sibling CONFIRMED row survives —
       //    proving this is a genuine per-row reclassification (COMPLETED no
       //    longer matches), not the whole list going empty or the filter
@@ -340,7 +340,7 @@ void main() {
         find.byKey(const Key('master-booking-card-booking-1')),
         findsNothing,
         reason:
-            'booking-1 is now COMPLETED — it must leave the «Підтверджено» '
+            'booking-1 is now COMPLETED — it must leave the «Заплановано» '
             'filter it was just closed from',
       );
       expect(
@@ -362,7 +362,7 @@ void main() {
   // ==========================================================================
   // 2. AUTO-CONTINUE — mobile-perf HIGH-1/2, pinned end-to-end
   // ==========================================================================
-  testWidgets('a first raw page with ZERO rows matching «Підтверджено» plus '
+  testWidgets('a first raw page with ZERO rows matching «Заплановано» plus '
       'hasMore:true is NOT the terminal empty state — the archive '
       'auto-continues and surfaces the match sitting on raw page 2', (
     tester,
@@ -371,7 +371,7 @@ void main() {
 
     // Page 0 (20 rows, server page size): every row COMPLETED — PAST by
     // definition regardless of elapsed time, and excluded outright by the
-    // «Підтверджено» predicate. Page 1 (1 row): the CONFIRMED/
+    // «Заплановано» predicate. Page 1 (1 row): the CONFIRMED/
     // awaitingClosure match. Sort is `startsAt,desc` (newest-first), so the
     // filler rows get RECENT dates and the match gets a far-older one to
     // guarantee it lands on the second raw page, not scrambled into the
@@ -488,7 +488,7 @@ void main() {
       fb.getMyBookingsCalls - callsBeforeFilter,
       greaterThanOrEqualTo(2),
       reason:
-          'the «Підтверджено» apply must have cost a page-0 fetch AND an '
+          'the «Заплановано» apply must have cost a page-0 fetch AND an '
           'auto-continued page-1 fetch — a single fetch here would mean the '
           'match came from somewhere other than the continuation',
     );
@@ -506,14 +506,14 @@ void main() {
   // 3. TERMINAL EMPTY STATE
   // ==========================================================================
   testWidgets(
-    'a raw page with zero «Підтверджено» matches AND hasMore:false renders '
+    'a raw page with zero «Заплановано» matches AND hasMore:false renders '
     'the terminal empty state — the auto-continue fix must not regress '
     'into never showing an empty state at all',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
       // A small, single-page dataset — every row COMPLETED, so
-      // «Підтверджено» matches nothing, and `totalPages: 1` means `hasMore`
+      // «Заплановано» matches nothing, and `totalPages: 1` means `hasMore`
       // is `false` from the very first (and only) fetch. No auto-continue
       // branch is ever reachable here.
       fb.seedManyBookingsDataset(<Map<String, dynamic>>[

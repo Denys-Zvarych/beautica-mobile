@@ -92,7 +92,7 @@ import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
-import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/shared/widgets/public_profile_skeleton.dart';
 
 import 'widgets/master_address_block.dart';
 import 'widgets/master_profile_tabs.dart';
@@ -340,7 +340,7 @@ class _PublicMasterProfileScreenState
               orElse: () => null,
             ),
       child: async.when(
-        loading: () => const _PublicProfileSkeleton(),
+        loading: () => const PublicProfileSkeleton(),
         error: (Object e, _) => ErrorState(
           failure: e is Failure ? e : UnknownFailure(cause: e),
           onRetry: () =>
@@ -487,7 +487,23 @@ class _PublicProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                ProfileAvatar(imageUrl: master.avatarUrl),
+                // MOD-39 — a client reports the photo as the master profile,
+                // the same gate as the «⋯» (MOD-35: a non-client here is the
+                // viewer's OWN profile — no report).
+                Consumer(
+                  builder: (BuildContext _, WidgetRef ref, Widget? _) =>
+                      ProfileAvatar(
+                        imageUrl: master.avatarUrl,
+                        previewOnTap: true,
+                        previewReport: ref.watch(isClientProvider)
+                            ? profilePhotoReport(
+                                targetType: ReportTargetType.masterProfile,
+                                targetId: masterId,
+                                name: displayName,
+                              )
+                            : null,
+                      ),
+                ),
                 const SizedBox(width: VelvetSpacing.md),
                 Expanded(
                   child: Column(
@@ -1050,89 +1066,6 @@ class _BookingShelf extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _PublicProfileSkeleton — loading state
-// ---------------------------------------------------------------------------
-
-class _PublicProfileSkeleton extends StatelessWidget {
-  const _PublicProfileSkeleton();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SkeletonShimmerScope(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          // Identity card.
-          NeumorphicCard(
-            color: Color(0xFFEDE4D5),
-            padding: EdgeInsets.all(VelvetSpacing.md),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                SkeletonBlock(width: 80, height: 80, circle: true),
-                SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      SkeletonBlock(width: 140, height: 16),
-                      SizedBox(height: VelvetSpacing.xs + 2),
-                      SkeletonBlock(width: 100, height: 24, radius: 999),
-                      SizedBox(height: VelvetSpacing.xs),
-                      SkeletonBlock(width: 160, height: 10),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: VelvetSpacing.xl),
-          // Stat cards placeholder — 3 equal tiles (rating / services / reviews).
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: SkeletonBlock(
-                  width: double.infinity,
-                  height: 96,
-                  radius: VelvetRadii.field + 2,
-                ),
-              ),
-              SizedBox(width: VelvetSpacing.sm),
-              Expanded(
-                child: SkeletonBlock(
-                  width: double.infinity,
-                  height: 96,
-                  radius: VelvetRadii.field + 2,
-                ),
-              ),
-              SizedBox(width: VelvetSpacing.sm),
-              Expanded(
-                child: SkeletonBlock(
-                  width: double.infinity,
-                  height: 96,
-                  radius: VelvetRadii.field + 2,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: VelvetSpacing.lg),
-          // Tab bar placeholder.
-          SkeletonBlock(width: double.infinity, height: 44),
-          SizedBox(height: VelvetSpacing.lg),
-          // Tab body placeholder.
-          SkeletonBlock(
-            width: double.infinity,
-            height: 160,
-            radius: VelvetRadii.card,
-          ),
-        ],
       ),
     );
   }

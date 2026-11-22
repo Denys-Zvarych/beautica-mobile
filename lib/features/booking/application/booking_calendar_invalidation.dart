@@ -28,6 +28,7 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:beautica_mobile/features/clients/application/client_views_invalidation.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
@@ -194,6 +195,8 @@ void invalidateBookingViewsAfterExternalDecline(
   // nonexistent / idle element dirty — no request.
   ref.invalidate(ownerMasterBookedDaysProvider);
   invalidatePendingBookingActionsCount(ref);
+  // Client-profile audit — the declined visits' client views.
+  invalidateClientViews(ref.invalidate);
 }
 
 /// Invalidates every master-facing booking cache a PROVIDER-INITIATED close
@@ -380,6 +383,10 @@ void invalidateBookingViewsAfterProviderClose(
     );
   }
   invalidatePendingBookingActionsCount(ref);
+  // Client-profile audit — the client list «Наст.» line, the card's
+  // «Наступний візит» and the timeline status badges; whole families (see
+  // `client_views_invalidation.dart`).
+  invalidateClientViews(ref.invalidate);
 }
 
 /// Invalidates every master-facing booking cache the CREATION of a booking on
@@ -633,6 +640,9 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
     }
   }
   invalidatePendingBookingActionsCountFromRef(ref);
+  // Client-profile audit — the client list / card / visit timeline
+  // («Наступний візит», «Наст.»); see `client_views_invalidation.dart`.
+  invalidateClientViews(ref.invalidate);
 }
 
 /// Phase 398 — invalidates every provider-side booking view after a SERVER-

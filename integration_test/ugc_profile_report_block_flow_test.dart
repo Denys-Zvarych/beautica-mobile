@@ -16,12 +16,14 @@
 //   (a) CLIENT: public master profile → «⋯» (right of the heart) → report sheet
 //       with the profile subject → {MASTER_PROFILE, master id}; same for the
 //       salon cover → {SALON_PROFILE, salon id}.
-//   (b) INDEPENDENT_MASTER: client strip «⋯» → «Заблокувати клієнта» →
+//   (b) INDEPENDENT_MASTER: strip → client card «⋯» → «Заблокувати клієнта» →
 //       confirm dialog → block → success snack + booking detail re-fetched.
-//       SALON_OWNER: report + block rows. SALON_MASTER: report only, which
+//       SALON_OWNER: strip → card «⋯» → report + block rows → block. SALON_MASTER: report only, which
 //       sends {CLIENT_PROFILE, client id}. SALON_MASTER on a guest booking: no
 //       «⋯» (an independent master on the same guest booking gets block-only).
 //       CLIENT on their own booking: no «⋯» (clients never block).
+//       Public master avatar photo → full-screen viewer; no photo → the
+//       monogram is not tappable (2026-11-21).
 //   (c) CLIENT booking create (independent visit + salon) 409
 //       BOOKING_UNAVAILABLE → the neutral banner with the SERVER text, one
 //       POST only, no generic error card, no conflict dialog.
@@ -42,9 +44,17 @@ import 'package:beautica_mobile/features/booking/domain/salon_master_schedule.da
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
+import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
 import 'package:beautica_mobile/features/moderation/data/block_repository.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
@@ -68,14 +78,16 @@ import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/features/moderation/support/fake_client_block_repository.dart';
 import '../test/features/moderation/support/fake_content_report_repository.dart';
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
+import 'support/client_card_actions.dart';
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
 
 final Finder _sheet = find.byType(ReportSheet);
-final Finder _clientMore = find.byKey(BookingCounterpartyHeader.clientMoreKey);
 final Finder _actions = find.byType(ClientActionsSheet);
 
 /// The backend's own neutral wording — deliberately NOT the app's
@@ -114,6 +126,8 @@ Future<GoRouter> _bootDetail(
   FakeClientBlockRepository? blocks,
   FakeContentReportRepository? reports,
 }) async {
+  // 2026-11-21 — report / block live on the client card (strip → card → «⋯»).
+  if (role != UserRole.client) seedClientCardForBooking1(fb);
   final GoRouter router = await AppHarness.boot(
     tester,
     fb,
@@ -226,6 +240,169 @@ void main() {
     await pumpPastVelvetSnack(tester);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
+  // 2026-11-21 (CLI-69) — the public master profile's avatar opens the ONE
+  // shared full-screen viewer on that photo; the default monogram does not.
+  for (final bool withPhoto in <bool>[true, false]) {
+    testWidgets(
+      withPhoto
+          ? 'CLIENT on a public master profile: tap the avatar photo → the '
+                'full-screen viewer on that url, no counter; close returns'
+          : 'CLIENT on a public master profile with NO photo: the monogram '
+                'is not tappable, no viewer',
+      (tester) async {
+        await mockNetworkImagesFor(() async {
+          const String photo = 'https://media.test/avatars/master-aaa.jpg';
+          MediaConfig.debugAllowedHosts = <String>{'media.test'};
+          debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+          addTearDown(() {
+            debugMediaCacheManager = null;
+            MediaConfig.debugAllowedHosts = null;
+          });
+          final FakeBackend fb = FakeBackend()
+            ..currentRole = UserRole.client
+            ..publicMasterAvatarUrl = withPhoto ? photo : null;
+          final GoRouter router = await AppHarness.boot(tester, fb);
+          await AppHarness.loginAs(tester, fb, UserRole.client);
+          await AppHarness.settle(tester);
+          unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byKey(const Key('public-master-profile-about-tab')),
+          );
+          await AppHarness.settle(tester);
+
+          final Finder avatar = find.byType(ProfileAvatar);
+          expect(avatar, findsOneWidget);
+          if (!withPhoto) {
+            expect(
+              find.descendant(
+                of: find.byType(ProfilePhotoPreviewTap),
+                matching: find.byType(GestureDetector),
+              ),
+              findsNothing,
+              reason: 'a monogram is not tappable',
+            );
+            await tester.tap(avatar, warnIfMissed: false);
+            await AppHarness.settle(tester);
+            expect(find.byType(PortfolioPhotoViewer), findsNothing);
+            expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+            return;
+          }
+          await AppHarness.tapVisible(
+            tester,
+            find.descendant(
+              of: avatar,
+              matching: find.byType(ProfilePhotoPreviewTap),
+            ),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byType(PortfolioPhotoViewer),
+          );
+          expect(
+            renderedImageUrls(
+              tester,
+              within: find.byKey(PortfolioPhotoViewer.pageKey('profile')),
+            ),
+            <String>[photo],
+          );
+          expect(find.byKey(PortfolioPhotoViewer.indicatorKey), findsNothing);
+          await AppHarness.tapVisible(
+            tester,
+            find.byKey(PortfolioPhotoViewer.closeKey),
+          );
+          await AppHarness.settle(tester);
+          expect(find.byType(PortfolioPhotoViewer), findsNothing);
+          expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+          AppHarness.expectLocation(
+            router,
+            RouteNames.masterPublicProfile('master-aaa'),
+          );
+        });
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+  }
+
+  // 2026-11-21 (MOD-39) — the avatar viewer's «Поскаржитися» reports the
+  // photo as the master profile; once reported the flag is gone (MOD-06).
+  testWidgets('CLIENT on a public master profile: avatar photo → viewer '
+      '«Поскаржитися» → report sheet → {MASTER_PROFILE, master id}; the flag '
+      'then hides', (tester) async {
+    await mockNetworkImagesFor(() async {
+      const String photo = 'https://media.test/avatars/master-aaa.jpg';
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..publicMasterAvatarUrl = photo;
+      final FakeContentReportRepository repo = FakeContentReportRepository();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: <Object>[
+          contentReportRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await AppHarness.settle(tester);
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('public-master-profile-about-tab')),
+      );
+      await AppHarness.settle(tester);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.descendant(
+          of: find.byType(ProfileAvatar),
+          matching: find.byType(ProfilePhotoPreviewTap),
+        ),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(PortfolioPhotoViewer),
+      );
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsOneWidget);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(PortfolioPhotoViewer.reportKey),
+      );
+      await AppHarness.pumpUntilFound(tester, _sheet);
+      expect(
+        find.descendant(
+          of: _sheet,
+          // i18n-finder-ok: fixture provider name (locale-invariant data)
+          matching: find.text(_l10n.reportSubjectProfile('Софія Бондар')),
+        ),
+        findsOneWidget,
+      );
+
+      await _pickAndSubmit(tester, ReportReason.falseInfo);
+
+      expect(
+        repo.requests.single,
+        const ContentReportRequest(
+          targetType: ReportTargetType.masterProfile,
+          targetId: 'master-aaa',
+          reason: ReportReason.falseInfo,
+        ),
+      );
+      expect(_sheet, findsNothing);
+      _expectSnack(_l10n.reportSent);
+      // Still in the viewer; reported once → no second flag.
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
   testWidgets('CLIENT on a public salon profile: the cover «⋯» sits right of '
       'the heart and reports {SALON_PROFILE, salon id} with the salon name '
       'as subject', (tester) async {
@@ -301,8 +478,7 @@ void main() {
     );
     final String name = '${fb.clientFirstName} ${fb.clientLastName}';
 
-    await AppHarness.pumpUntilFound(tester, _clientMore);
-    await AppHarness.tapVisible(tester, _clientMore);
+    await openClientCardMore(tester);
     await AppHarness.settle(tester);
     expect(_actions, findsOneWidget);
     expect(
@@ -335,13 +511,20 @@ void main() {
     expect(blocks.stored, hasLength(1));
     expect(find.byType(BlockClientDialog), findsNothing);
     _expectSnack(_l10n.clientBlockedSnack);
-    expect(
-      fb.getBookingDetailCalls,
-      greaterThan(detailCallsBefore),
-      reason: 'D6 — the booking detail is invalidated after a block',
-    );
-    expect(find.byType(BookingDetailScreen), findsOneWidget);
+    expect(find.byType(ClientCardScreen), findsOneWidget);
     await pumpPastVelvetSnack(tester);
+    // Back on «Деталі запису» (paused offstage under the card): D6 — the
+    // block invalidated it, so it re-fetches.
+    await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+    // The paused-offstage detail re-fetches on resume, a frame or more after
+    // the pop — poll for it (a bare settle raced it, 1 in 2 full-file runs).
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.getBookingDetailCalls > detailCallsBefore,
+      description: 'D6 — the booking detail re-fetched after a block',
+    );
+    await AppHarness.settle(tester);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('INDEPENDENT_MASTER backs out of the block dialog: nothing is '
@@ -356,8 +539,7 @@ void main() {
       path: RouteNames.masterBookingDetail('booking-1'),
       blocks: blocks,
     );
-    await AppHarness.pumpUntilFound(tester, _clientMore);
-    await AppHarness.tapVisible(tester, _clientMore);
+    await openClientCardMore(tester);
     await AppHarness.settle(tester);
     await AppHarness.tapVisible(
       tester,
@@ -375,21 +557,64 @@ void main() {
     expect(find.byType(VelvetSnack), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
-  testWidgets('SALON_OWNER on a registered-client booking: the sheet offers '
-      'report AND block', (tester) async {
-    final FakeBackend fb = FakeBackend()..currentRole = UserRole.salonOwner;
+  testWidgets('SALON_OWNER on a registered-client booking: «Деталі запису» '
+      'strip → client card → «⋯» offers report AND block; block → confirm → '
+      'block(booking-1) → snack, card stays, detail re-fetched on back', (
+    tester,
+  ) async {
+    // The salon card is salon-scoped: the strip opens it under the booking's
+    // own salon.
+    final FakeBackend fb = FakeBackend()
+      ..currentRole = UserRole.salonOwner
+      ..bookingSalonId = 'salon-owner-1';
+    final FakeClientBlockRepository blocks = FakeClientBlockRepository();
     await _bootDetail(
       tester,
       fb,
       role: UserRole.salonOwner,
       path: RouteNames.salonStaffBookingDetail('booking-1'),
+      blocks: blocks,
     );
-    await AppHarness.pumpUntilFound(tester, _clientMore);
-    await AppHarness.tapVisible(tester, _clientMore);
+    final String name = '${fb.clientFirstName} ${fb.clientLastName}';
+    await openClientCardMore(tester);
     await AppHarness.settle(tester);
+    // `push` keeps the shell as the configuration's path, so pin the card
+    // the strip opened: THIS client, under the booking's salon.
+    final ClientCardScreen card = tester.widget<ClientCardScreen>(
+      find.byType(ClientCardScreen),
+    );
+    expect(card.client, RegisteredClientRef(fb.bookingRegisteredClientId));
+    expect(card.cardBase, contains('salon-owner-1'));
 
     expect(find.byKey(ClientActionsSheet.reportKey), findsOneWidget);
     expect(find.byKey(ClientActionsSheet.blockKey), findsOneWidget);
+    expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
+
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(ClientActionsSheet.blockKey),
+    );
+    await AppHarness.settle(tester);
+    expect(find.text(_l10n.blockDialogTitle(name)), findsOneWidget);
+    expect(blocks.calls, isEmpty, reason: 'nothing sent before confirming');
+
+    final int detailCallsBefore = fb.getBookingDetailCalls;
+    await tester.tap(find.byKey(BlockClientDialog.confirmKey));
+    await AppHarness.settle(tester);
+
+    expect(blocks.calls, <String>['block:booking-1']);
+    expect(find.byType(BlockClientDialog), findsNothing);
+    _expectSnack(_l10n.clientBlockedSnack);
+    expect(find.byType(ClientCardScreen), findsOneWidget);
+    await pumpPastVelvetSnack(tester);
+    await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.getBookingDetailCalls > detailCallsBefore,
+      description: 'the booking detail re-fetched after the salon block',
+    );
+    await AppHarness.settle(tester);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('SALON_MASTER on a registered-client booking: report only (no '
@@ -409,8 +634,7 @@ void main() {
     );
     final String name = '${fb.clientFirstName} ${fb.clientLastName}';
 
-    await AppHarness.pumpUntilFound(tester, _clientMore);
-    await AppHarness.tapVisible(tester, _clientMore);
+    await openClientCardMore(tester);
     await AppHarness.settle(tester);
     expect(find.byKey(ClientActionsSheet.reportKey), findsOneWidget);
     expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
@@ -435,7 +659,8 @@ void main() {
       reports.requests.single,
       const ContentReportRequest(
         targetType: ReportTargetType.clientProfile,
-        targetId: 'client-1',
+        // `seedClientCardForBooking1` gives the client a `u-` id.
+        targetId: 'u-client-1',
         reason: ReportReason.offensive,
       ),
     );
@@ -458,7 +683,8 @@ void main() {
     await AppHarness.settle(tester);
 
     expect(find.byType(BookingCounterpartyHeader), findsOneWidget);
-    expect(_clientMore, findsNothing);
+    await openClientCard(tester);
+    expect(clientCardMore, findsNothing);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('guest booking (positive control): INDEPENDENT_MASTER gets «⋯» '
@@ -472,8 +698,7 @@ void main() {
       role: UserRole.independentMaster,
       path: RouteNames.masterBookingDetail('booking-1'),
     );
-    await AppHarness.pumpUntilFound(tester, _clientMore);
-    await AppHarness.tapVisible(tester, _clientMore);
+    await openClientCardMore(tester);
     await AppHarness.settle(tester);
 
     expect(find.byKey(ClientActionsSheet.blockKey), findsOneWidget);
@@ -481,8 +706,8 @@ void main() {
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('guest booking the server marks NOT blockable (walk-in / erased '
-      'guest, backend 397 clientBlockable=false): INDEPENDENT_MASTER gets no '
-      '«⋯» at all', (tester) async {
+      'guest, backend 397 clientBlockable=false): INDEPENDENT_MASTER\'s card '
+      '«⋯» offers nothing (no sheet)', (tester) async {
     final FakeBackend fb = FakeBackend()
       ..currentRole = UserRole.independentMaster
       ..bookingClientIsGuest = true
@@ -496,7 +721,9 @@ void main() {
     await AppHarness.settle(tester);
 
     expect(find.byType(BookingCounterpartyHeader), findsOneWidget);
-    expect(_clientMore, findsNothing);
+    await openClientCardMore(tester);
+    await AppHarness.settle(tester);
+    expect(_actions, findsNothing);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('a blocked client: «Розблокувати клієнта» sends ONE DELETE of '
@@ -512,8 +739,7 @@ void main() {
       path: RouteNames.masterBookingDetail('booking-1'),
       blocks: blocks,
     );
-    await AppHarness.pumpUntilFound(tester, _clientMore);
-    await AppHarness.tapVisible(tester, _clientMore);
+    await openClientCardMore(tester);
     await AppHarness.settle(tester);
     expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
 
@@ -542,7 +768,8 @@ void main() {
     await AppHarness.settle(tester);
 
     expect(find.byType(BookingCounterpartyHeader), findsOneWidget);
-    expect(_clientMore, findsNothing);
+    expect(find.byKey(BookingClientStrip.defaultShellKey), findsNothing);
+    expect(clientCardMore, findsNothing);
     expect(find.text(_l10n.clientActionBlock), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 90)));
 

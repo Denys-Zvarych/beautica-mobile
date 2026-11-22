@@ -41,7 +41,7 @@ const String _kOwnerSalonId = 'salon-owner-1';
 
 /// `SalonBottomNav.ownerAdminItems` — «Профіль» is destination 3 (an owner
 /// leaves the shell for master mode).
-const Key _navProfile = Key('salon-nav-tile-3');
+const Key _navProfile = Key('salon-nav-tile-4');
 
 const Key _tune = Key('btn-owner-own-profile-settings');
 

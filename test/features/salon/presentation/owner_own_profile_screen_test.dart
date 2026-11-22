@@ -1601,12 +1601,12 @@ void _masterModeTests() {
     }
 
     testWidgets('bottomNavBar renders the independent-master nav with '
-        '«Профіль» (tile 3) active', (tester) async {
+        '«Профіль» (tile 4) active', (tester) async {
       await tester.pumpApp(
         const OwnerOwnProfileScreen(
           embedded: true,
           bottomNavBar: VelvetBottomNavBar(
-            activeIndex: 3,
+            activeIndex: 4,
             profileRoute: RouteNames.ownerMasterProfile,
           ),
         ),
@@ -1615,8 +1615,8 @@ void _masterModeTests() {
       await tester.pumpAndSettle();
 
       expect(find.byType(VelvetBottomNavBar), findsOneWidget);
-      expect(_navTileSelected(tester, 3), isTrue);
-      for (final int i in <int>[0, 1, 2]) {
+      expect(_navTileSelected(tester, 4), isTrue);
+      for (final int i in <int>[0, 1, 2, 3]) {
         expect(_navTileSelected(tester, i), isFalse, reason: 'tile $i');
       }
     });
@@ -1733,7 +1733,7 @@ void _masterModeTests() {
       await enterMasterMode(tester);
 
       expect(find.byType(VelvetBottomNavBar), findsOneWidget);
-      expect(_navTileSelected(tester, 3), isTrue);
+      expect(_navTileSelected(tester, 4), isTrue);
       expect(find.byKey(_masterModeBack), findsOneWidget);
       expect(
         find.descendant(

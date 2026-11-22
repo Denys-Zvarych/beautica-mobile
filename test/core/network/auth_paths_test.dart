@@ -788,6 +788,30 @@ void main() {
       expect(kPiiPaths.length, equals(25));
     });
   });
+  group('provider client list paths (M509 / B507)', () {
+    test('both list endpoints and the card / visits / ratings tails are PII '
+        'routes whose query (`q` = a typed name) is masked', () {
+      for (final String p in const <String>[
+        // The salon-scoped twin rides the `/api/v1/salons/` prefix…
+        '/api/v1/salons/3f2c/clients',
+        '/api/v1/salons/3f2c/clients/users/9a1b/visits',
+        // …the master-scoped one has its own prefix.
+        '/api/v1/masters/me/clients',
+        '/api/v1/masters/me/clients/guests/9a1b/ratings',
+      ]) {
+        expect(isPiiPath(p), isTrue, reason: p);
+        expect(kAuthPaths.contains(p), isFalse, reason: p);
+        expect(
+          redactLogPath('$p?page=0&size=20&q=Олена'),
+          '$p?[REDACTED]',
+          reason: p,
+        );
+      }
+      expect(kPiiPathPrefixes, contains('/api/v1/masters/me/clients'));
+      // A prefix, not an exact entry: the ledger count is unchanged.
+      expect(kPiiPaths.length, equals(25));
+    });
+  });
   group('media upload paths (Phase 070)', () {
     test('every /media/ route is a PII path and never a public path', () {
       for (final p in const <String>[

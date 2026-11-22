@@ -871,7 +871,7 @@ void mainPhase345() {
           (Map<String, dynamic> r) => r['awaitingClosure'] == true,
         ),
         isNotEmpty,
-        reason: 'the elapsed-unclosed rows are what «Підтверджено» selects',
+        reason: 'the elapsed-unclosed rows are what «Заплановано» selects',
       );
       expect(
         fb.salonArchiveBookings.where(
@@ -888,7 +888,7 @@ void mainPhase345() {
       final Map<String, Set<String>> filters = <String, Set<String>>{
         'Виконано': <String>{'COMPLETED'},
         'Скасовано': <String>{'CANCELLED', 'DECLINED'},
-        'Підтверджено': <String>{'CONFIRMED'},
+        'Заплановано': <String>{'CONFIRMED'},
       };
 
       final Map<String, int> measured = <String, int>{};
@@ -902,7 +902,7 @@ void mainPhase345() {
       expect(measured['Виконано'], 0);
       expect(measured['Скасовано'], 0);
       expect(
-        measured['Підтверджено'],
+        measured['Заплановано'],
         1,
         reason:
             'the sparsest outcome in the fixture (4 %) — one extra round trip '

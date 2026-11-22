@@ -17,6 +17,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/load_more_retry_footer.dart';
 import 'package:beautica_mobile/shared/widgets/section_header.dart';
 
 import '../../domain/notifications_feed_state.dart';
@@ -235,38 +236,10 @@ class NotificationsLoadMoreFooter extends StatelessWidget {
       );
     }
     if (failure != null) {
-      final AppLocalizations l10n = AppLocalizations.of(context);
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.sm),
-        child: Column(
-          children: <Widget>[
-            Text(
-              l10n.notificationsLoadMoreFailed,
-              textAlign: TextAlign.center,
-              style: VelvetText.body(),
-            ),
-            InkWell(
-              key: retryKey,
-              onTap: onRetry,
-              borderRadius: BorderRadius.circular(VelvetRadii.field),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: NeumorphicIconButton.extent,
-                  minWidth: NeumorphicIconButton.extent,
-                ),
-                child: Center(
-                  widthFactor: 1,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: VelvetSpacing.md,
-                    ),
-                    child: Text(l10n.retryLabel, style: VelvetText.link()),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+      return LoadMoreRetryFooter(
+        message: AppLocalizations.of(context).notificationsLoadMoreFailed,
+        onRetry: onRetry,
+        retryKey: retryKey,
       );
     }
     return _LoadMoreTrigger(

@@ -10,6 +10,8 @@ import 'package:beautica_mobile/shared/widgets/velvet_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+// Viewing the current photo is NOT a row here (2026-11-21): tapping the photo
+// opens the shared viewer, whose «Змінити фото» opens this sheet.
 enum ImageSourceChoice { gallery, camera, remove }
 
 /// Shows the sheet; resolves with the choice, or `null` when dismissed.

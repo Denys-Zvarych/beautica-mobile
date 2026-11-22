@@ -17,6 +17,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/clients/application/client_views_invalidation.dart';
 import 'package:beautica_mobile/features/moderation/application/blocked_list_notifier.dart';
 import 'package:beautica_mobile/features/moderation/data/block_repository.dart';
 
@@ -119,6 +120,11 @@ class ClientBlockController extends _$ClientBlockController {
     // cycle-safe: see above — blockedClientsProvider watches only the
     // repository.
     ref.invalidate(blockedClientsProvider);
+    // Client-profile audit — the «Заблоковано» chip / tag on every cached
+    // «Клієнти» list scope and client card (block from the card, the booking
+    // strip or unblock from «Заблоковані клієнти»). Whole families: the write
+    // knows no list scope. cycle-safe: neither family watches this controller.
+    invalidateClientViews(ref.invalidate);
     if (cancelledBookings > 0) {
       // Phase 398 — the server cancelled this client's other future visits;
       // only their count comes back, so drop every live provider-side booking

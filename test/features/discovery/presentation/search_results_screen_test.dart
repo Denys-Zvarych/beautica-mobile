@@ -39,7 +39,7 @@ import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/master_result_card.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/salon_result_card.dart';
-import 'package:beautica_mobile/features/discovery/presentation/widgets/search_query_field.dart';
+import 'package:beautica_mobile/shared/widgets/search_query_field.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';

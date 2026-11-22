@@ -430,6 +430,27 @@ Map<String, dynamic> withSeededSalonLocality(Map<String, dynamic> salon) {
 ///
 /// Each test creates a fresh instance so state never leaks between tests.
 /// The [dio] field is the instance to inject into [dioProvider].
+/// M509 — one recorded client-list request; see [FakeBackend.clientListCalls].
+final class ClientListCall {
+  const ClientListCall({
+    required this.path,
+    required this.page,
+    required this.size,
+    this.q,
+    this.masterId,
+  });
+
+  final String path;
+  final int page;
+  final int size;
+  final String? q;
+  final String? masterId;
+
+  @override
+  String toString() =>
+      'ClientListCall($path page=$page size=$size q=$q masterId=$masterId)';
+}
+
 final class FakeBackend {
   FakeBackend({
     this.masterRowId = 'user-master-1',
@@ -888,12 +909,26 @@ final class FakeBackend {
   /// no account behind it). False (default) = the registered `client-1`.
   bool bookingClientIsGuest = false;
 
+  /// The registered client id the seeded `booking-1` detail carries when not
+  /// [bookingClientIsGuest]. Default `client-1` (every existing flow); a flow
+  /// that opens the client card from the detail sets a `u-…` id so
+  /// [wireClientCard] serves it under `…/users/`.
+  String bookingRegisteredClientId = 'client-1';
+
   /// Phase 417 — opt-in: the `guestPhone` (E.164) the seeded `booking-1`'s
   /// DETAIL response carries (the backend gates it to guest bookings viewed
   /// by an independent master / salon owner / salon admin; the fake serves it
   /// verbatim so a flow can also prove the APP's own defence-in-depth gate
   /// by seeding it onto a registered-client booking). Never on a listing.
   String? bookingGuestPhone;
+
+  /// M519 / backend B518 — opt-in: the `clientPhone` (E.164) the seeded
+  /// `booking-1`'s DETAIL response carries — a registered client's VERIFIED
+  /// phone (or a guest's). The real backend sends it only to an independent
+  /// master / salon owner / salon admin; the fake serves it verbatim to every
+  /// role so a flow can prove the APP's own role gate. Never on a listing.
+  /// Null (default) = the pre-B518 wire, byte-identical for every older flow.
+  String? bookingClientPhone;
 
   /// Phase 425 — backend 397 `clientBlockable` on the seeded `booking-1`'s
   /// DETAIL response. Null (default) = derived like the server: `true` for a
@@ -914,6 +949,37 @@ final class FakeBackend {
   /// (204, also when already gone) and clears [bookingClientBlockId] if it
   /// was that block.
   final List<Map<String, dynamic>> blocks = <Map<String, dynamic>>[];
+
+  /// M509 — one recorded `GET …/clients` request (B507): which endpoint, the
+  /// FLAT `page` / `size` / `q` / `masterId` query the app sent. [q] and
+  /// [masterId] are `null` when the parameter was ABSENT (the app omits `q`
+  /// for a blank / 1-char term).
+  /// See [wireClientList].
+  final List<ClientListCall> clientListCalls = <ClientListCall>[];
+
+  /// M509 — the roster `GET /salons/{salonId}/clients` and
+  /// `GET /masters/me/clients` serve, newest activity first (B507 `ClientListItemResponse`
+  /// JSON). Filled by the caller before [wireClientList]. Rows carry no phone.
+  final List<Map<String, dynamic>> clientRows = <Map<String, dynamic>>[];
+
+  /// M510 — card bodies for [wireClientCard], keyed by the client id (a
+  /// registered `userId` or a guest's `bookingId`): B508/B526 `ClientCardResponse`
+  /// JSON. An id with no entry answers the uniform 404.
+  final Map<String, Map<String, dynamic>> clientCards =
+      <String, Map<String, dynamic>>{};
+
+  /// M510 — `…/visits` rows (B508 `ClientVisitResponse` JSON) per client id.
+  final Map<String, List<Map<String, dynamic>>> clientVisits =
+      <String, List<Map<String, dynamic>>>{};
+
+  /// M510 — every card-family request (`card`, `visits`) as
+  /// `<kind> <path> page=<n> masterId=<m>`, newest last.
+  final List<String> clientCardCalls = <String>[];
+
+  /// M509 QA — pages (0-based) for which [wireClientList] answers with an
+  /// unusable envelope (`success: false`, no `data`) → the app's
+  /// `ResponseUnusableFailure`. The request is still recorded.
+  final Set<int> clientFailPages = <int>{};
 
   /// Backend 398 — `cancelledBookings` a NEW block reports: the server
   /// DECLINEs every future CONFIRMED visit of that client in scope and returns
@@ -4119,6 +4185,11 @@ final class FakeBackend {
   /// pre-existing flow's heart starts empty exactly as before.
   bool publicMasterIsFavorite = false;
 
+  /// 2026-11-21 (CLI-69 photo preview) — `master-aaa`'s public detail wires
+  /// `avatarUrl: <this>` when non-null. Defaults to `null` (key omitted), so
+  /// every pre-existing flow renders the monogram exactly as before.
+  String? publicMasterAvatarUrl;
+
   /// Moderation takedown seam — ids of `master-aaa`'s seeded public reviews
   /// the moderator has removed. Removed rows are dropped from every
   /// `GET /masters/master-aaa/reviews` response from then on (the summary is
@@ -4150,6 +4221,7 @@ final class FakeBackend {
         : kPublicMasterReviewCountBeforeReview,
     'masterType': publicMasterTypeSalon ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
     'isFavorite': publicMasterIsFavorite,
+    'avatarUrl': ?publicMasterAvatarUrl,
   });
 
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
@@ -6158,9 +6230,11 @@ final class FakeBackend {
     // so the master's booking detail shows the client whose session the client
     // flows drive; a divergence here would let the provider-view flow pass
     // against a name no other surface uses.
-    'clientId': bookingClientIsGuest ? null : 'client-1',
+    'clientId': bookingClientIsGuest ? null : bookingRegisteredClientId,
     if (includeReviewByClient && bookingGuestPhone != null)
       'guestPhone': bookingGuestPhone,
+    if (includeReviewByClient && bookingClientPhone != null)
+      'clientPhone': bookingClientPhone,
     // Phase 425 / backend 397 — the block state, DETAIL-only (every list row
     // and non-blocker viewer gets false/null/false on the real wire).
     if (includeReviewByClient) ...<String, dynamic>{
@@ -11284,7 +11358,7 @@ final class FakeBackend {
     // CONFIRMED row come back — the write would appear to succeed (200,
     // `completeBookingCalls` climbs) while the list silently kept showing
     // stale data, which is a materially weaker proof than "the booking
-    // actually left the «Підтверджено» filter after closing". Every other
+    // actually left the «Заплановано» filter after closing". Every other
     // field on the row is preserved via spread; only `status` moves. Mirrors
     // [declineChild]'s existing per-row mutation for the non-dataset seeded
     // booking.
@@ -12596,7 +12670,7 @@ final class FakeBackend {
           // `/bookings/me` dataset. The salon archive re-reads
           // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
           // this, that re-read would hand back the unchanged CONFIRMED row and
-          // "the closed row left the «Підтверджено» filter" would be
+          // "the closed row left the «Заплановано» filter" would be
           // unprovable at the salon host while passing at the master host —
           // a fake-fidelity divergence between two callers of one write.
           final int salonIdx = salonArchiveBookings.indexWhere(
@@ -13170,6 +13244,181 @@ final class FakeBackend {
         };
       }),
     );
+  }
+
+  /// M509 — backend B507 `GET /api/v1/salons/{salonId}/clients` (for each id
+  /// in [salonIds]) and `GET /api/v1/masters/me/clients`, served on the wire
+  /// so the REAL `HttpClientRepository` + generated row models are on the E2E
+  /// path. Both read [clientRows], filter by `q` (case-insensitive substring
+  /// of `displayName`, like the real endpoint) and page by the FLAT
+  /// `page` / `size` query. Every request is recorded in [clientListCalls].
+  /// Re-callable: a later registration of the same route replaces the earlier.
+  void wireClientList({
+    List<String> salonIds = const <String>['salon-owner-1'],
+  }) {
+    Map<String, dynamic> serve(RequestOptions req, String path) {
+      final Map<String, dynamic> query = req.queryParameters;
+      final int page = int.parse('${query['page'] ?? 0}');
+      final int size = int.parse('${query['size'] ?? 20}');
+      final String? q =
+          query['q']
+              as String?; // query-param-cast-ok: the app sends `q` as a String or omits it
+      final String? masterId =
+          query['masterId'] as String?; // query-param-cast-ok: String or absent
+      clientListCalls.add(
+        ClientListCall(
+          path: path,
+          page: page,
+          size: size,
+          q: q,
+          masterId: masterId,
+        ),
+      );
+      if (clientFailPages.contains(page)) {
+        return <String, dynamic>{'success': false, 'message': 'boom'};
+      }
+      final List<Map<String, dynamic>> matching = <Map<String, dynamic>>[
+        for (final Map<String, dynamic> row in clientRows)
+          if (q == null ||
+              ('${row['displayName'] ?? ''}').toLowerCase().contains(
+                q.toLowerCase(),
+              ))
+            row,
+      ];
+      final int from = page * size;
+      final List<Map<String, dynamic>> slice = from >= matching.length
+          ? <Map<String, dynamic>>[]
+          : matching.sublist(
+              from,
+              (from + size) > matching.length ? matching.length : from + size,
+            );
+      return <String, dynamic>{
+        'success': true,
+        'message': 'ok',
+        'data': <String, dynamic>{
+          'success': true,
+          'data': slice,
+          'page': page,
+          'size': size,
+          'totalElements': matching.length,
+          'totalPages': (matching.length / size).ceil(),
+        },
+      };
+    }
+
+    for (final String salonId in salonIds) {
+      final String path = '/api/v1/salons/$salonId/clients';
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) => serve(req, path)),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
+    const String mePath = '/api/v1/masters/me/clients';
+    _adapter.onRoute(
+      mePath,
+      (server) => server.replyCallback(200, (req) => serve(req, mePath)),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// M510 — backend B508 client-card reads for every salon in [salonIds]
+  /// and `/masters/me`, for the ids in [clientCards] / [clientVisits]:
+  /// `…/clients/{users|guests}/{id}` and `…/visits`. An unknown id answers the
+  /// uniform 404. Visits page by the FLAT `page` / `size` query; a `masterId`
+  /// query (CLI-74) drops a visit whose items name a DIFFERENT `masterId`
+  /// (a visit without one is kept, so fixtures that never set it are
+  /// unaffected). Recorded in [clientCardCalls]. Call AFTER filling the maps.
+  void wireClientCard({
+    List<String> salonIds = const <String>['salon-owner-1'],
+  }) {
+    Map<String, dynamic> pageOf(
+      List<Map<String, dynamic>> all,
+      RequestOptions req,
+    ) {
+      final int page = int.parse('${req.queryParameters['page'] ?? 0}');
+      final int size = int.parse('${req.queryParameters['size'] ?? 20}');
+      final int from = page * size;
+      final List<Map<String, dynamic>> slice = from >= all.length
+          ? <Map<String, dynamic>>[]
+          : all.sublist(
+              from,
+              (from + size) > all.length ? all.length : from + size,
+            );
+      return <String, dynamic>{
+        'success': true,
+        'message': 'ok',
+        'data': <String, dynamic>{
+          'success': true,
+          'data': slice,
+          'page': page,
+          'size': size,
+          'totalElements': all.length,
+          'totalPages': (all.length / size).ceil(),
+        },
+      };
+    }
+
+    void register(String base) {
+      final Set<String> ids = <String>{
+        ...clientCards.keys,
+        ...clientVisits.keys,
+      };
+      for (final String id in ids) {
+        final bool guest = !id.startsWith('u-');
+        final String root = '$base/${guest ? 'guests' : 'users'}/$id';
+        void record(String kind, RequestOptions req) => clientCardCalls.add(
+          '$kind $root page=${req.queryParameters['page']} '
+          'masterId=${req.queryParameters['masterId']}',
+        );
+        _adapter.onRoute(root, (server) {
+          if (clientCards[id] == null) {
+            server.reply(404, <String, dynamic>{
+              'success': false,
+              'message': 'CLIENT_NOT_FOUND',
+            });
+            return;
+          }
+          server.replyCallback(200, (req) {
+            record('card', req);
+            return <String, dynamic>{
+              'success': true,
+              'message': 'ok',
+              'data': clientCards[id],
+            };
+          });
+        }, request: const Request(method: RequestMethods.get));
+        _adapter.onRoute(
+          '$root/visits',
+          (server) => server.replyCallback(200, (req) {
+            record('visits', req);
+            final Object? masterId = req.queryParameters['masterId'];
+            final List<Map<String, dynamic>> all =
+                clientVisits[id] ?? <Map<String, dynamic>>[];
+            return pageOf(
+              masterId == null
+                  ? all
+                  : <Map<String, dynamic>>[
+                      for (final Map<String, dynamic> v in all)
+                        if ((v['items'] as List<dynamic>? ?? <dynamic>[]).every(
+                          (dynamic i) =>
+                              (i as Map<String, dynamic>)['masterId'] == null ||
+                              i['masterId'] == masterId,
+                        ))
+                          v,
+                    ],
+              req,
+            );
+          }),
+          request: const Request(method: RequestMethods.get),
+        );
+      }
+    }
+
+    for (final String salonId in salonIds) {
+      register('/api/v1/salons/$salonId/clients');
+    }
+    register('/api/v1/masters/me/clients');
   }
 
   /// Phase 438 — `GET /api/v1/app/config` fails at the transport (the

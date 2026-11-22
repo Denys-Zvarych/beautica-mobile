@@ -35,7 +35,9 @@
 
 import 'dart:async';
 
+import 'package:beautica_api/beautica_api.dart' as api;
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/booking/data/booking_mapper.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -733,6 +735,115 @@ void main() {
 
       expect(find.byKey(const Key('booking_detail_stub')), findsOneWidget);
       expect(pushedLocation, '/bookings/b9');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // M528 / B527 (CLI-63) — attached website LINK + walk-in STAFF bookings
+  // -------------------------------------------------------------------------
+
+  group('M528 — mixed APP / LINK / STAFF page', () {
+    // Wire rows go through the REAL mapper, so the sparse attached shapes (no
+    // photo, no comments, no arrival note) reach the cards as on a device.
+    // The wire carries no source today; `bookingSource` is an unknown key the
+    // decoder must tolerate. Rows are told apart by id only.
+    Booking fromWire(String id, String status, DateTime start, String? src) {
+      final api.BookingDetailResponse? dto = api.standardSerializers
+          .deserializeWith(
+            api.BookingDetailResponse.serializer,
+            <String, Object?>{
+              'id': id,
+              'masterId': 'master-1',
+              'masterServiceId': 'service-1',
+              'masterFirstName': 'Оля',
+              'masterLastName': 'Коваль',
+              'masterType': 'INDEPENDENT_MASTER',
+              'serviceName': 'Манікюр',
+              'status': status,
+              'startsAt': start.toIso8601String(),
+              'endsAt': start.add(const Duration(hours: 1)).toIso8601String(),
+              'priceAtBooking': 500,
+              'durationMinutesAtBooking': 60,
+              'clientId': '7b1d6f0e-2c4a-4f1e-9a51-3a4d2b1c0e9f',
+              'canReview': false,
+              'bookingSource': ?src,
+            },
+          );
+      return BookingMapper.fromDto(dto!);
+    }
+
+    testWidgets('every tab renders its APP, LINK and STAFF rows exactly once, '
+        'with no source label', (tester) async {
+      final DateTime future = DateTime.utc(2027, 1, 1, 10);
+      final DateTime past = DateTime.utc(2000, 1, 1, 10);
+      const List<(String, String?)> sources = <(String, String?)>[
+        ('app', null),
+        ('link', 'LINK'),
+        ('staff', 'STAFF'),
+      ];
+      final Map<BookingTab, List<Booking>> byTab = <BookingTab, List<Booking>>{
+        BookingTab.upcoming: <Booking>[
+          for (final (String k, String? src) in sources)
+            fromWire('u-$k', 'CONFIRMED', future, src),
+        ],
+        BookingTab.past: <Booking>[
+          for (final (String k, String? src) in sources)
+            fromWire('p-$k', 'COMPLETED', past, src),
+        ],
+        BookingTab.cancelled: <Booking>[
+          for (final (String k, String? src) in sources)
+            fromWire('c-$k', 'CANCELLED', past, src),
+        ],
+      };
+
+      final repo = _MockBookingRepository();
+      _stubAllTabs(
+        repo,
+        upcoming: byTab[BookingTab.upcoming]!,
+        past: byTab[BookingTab.past]!,
+        cancelled: byTab[BookingTab.cancelled]!,
+      );
+
+      await tester.pumpWidget(_host(repo));
+      await tester.pumpAndSettle();
+      final l10n = _l10n(tester);
+
+      for (final BookingTab tab in BookingTab.values) {
+        if (tab != BookingTab.upcoming) {
+          await tester.tap(
+            find.text(
+              tab == BookingTab.past
+                  ? l10n.myBookingsTabPast
+                  : l10n.myBookingsTabCancelled,
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+        final Finder ownList = find.byKey(
+          ValueKey<String>('my-bookings-list-${tab.name}'),
+        );
+        for (final Booking b in byTab[tab]!) {
+          expect(
+            find.descendant(
+              of: ownList,
+              matching: find.byKey(ValueKey<String>('service-${b.id}')),
+            ),
+            findsOneWidget,
+            reason: '${b.id} must render exactly once under ${tab.name}',
+          );
+        }
+        expect(
+          find.descendant(of: ownList, matching: find.byType(BookingCard)),
+          findsNWidgets(3),
+        );
+        for (final String label in <String>['LINK', 'STAFF']) {
+          expect(
+            find.descendant(of: ownList, matching: find.textContaining(label)),
+            findsNothing,
+            reason: 'no source label on a client card (M528 scope 2)',
+          );
+        }
+      }
     });
   });
 }

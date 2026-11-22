@@ -243,6 +243,36 @@ void main() {
       ); // i18n-finder-ok: test fixture value, not app copy
     });
 
+    // 2026-11-21 (user) — report / block left «Деталі запису»: they live
+    // only on the client card. No provider role gets a «⋯» on the strip.
+    for (final UserRole role in <UserRole>[
+      UserRole.independentMaster,
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+      UserRole.salonMaster,
+    ]) {
+      testWidgets('$role: the client strip has NO «⋯»', (tester) async {
+        await _pump(tester, _booking(), role: role);
+        final Finder strip = find.byKey(
+          const Key('booking-detail-client-strip'),
+        );
+        expect(strip, findsOne);
+        expect(
+          find.descendant(
+            of: strip,
+            matching: find.byIcon(Icons.more_horiz_rounded),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.bySemanticsLabel(
+            AppLocalizations.of(tester.element(strip)).clientMoreActions,
+          ),
+          findsNothing,
+        );
+      });
+    }
+
     testWidgets('the CLIENT still sees the MASTER (14.4 regression gate)', (
       tester,
     ) async {

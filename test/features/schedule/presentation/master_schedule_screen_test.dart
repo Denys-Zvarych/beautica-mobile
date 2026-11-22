@@ -5354,7 +5354,7 @@ void main() {
 
     testWidgets('tile 3 lands on /owner/master/profile', (tester) async {
       await pumpOwner(tester);
-      await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+      await tester.tap(find.byKey(const Key('master-nav-tile-4')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('owner-profile-stub')), findsOneWidget);
     });
