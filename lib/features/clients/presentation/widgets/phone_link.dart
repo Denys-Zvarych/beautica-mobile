@@ -11,6 +11,7 @@
 // The number is NEVER logged.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart' show LaunchMode;
 
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
@@ -75,7 +76,7 @@ Future<void> showPhoneSheet(
             color: BrandColors.accentDeep,
           ),
           onTap: () {
-            Navigator.of(sheet).pop();
+            sheet.pop();
             openExternalUri(
               context,
               canonicalTelUri(phone),
@@ -94,7 +95,7 @@ Future<void> showPhoneSheet(
             color: BrandColors.accentDeep,
           ),
           onTap: () async {
-            Navigator.of(sheet).pop();
+            sheet.pop();
             final bool copied = await clipboard.copyText(
               phone.replaceAll(' ', ''),
             );
