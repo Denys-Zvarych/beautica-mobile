@@ -22,18 +22,29 @@
 // `servedByMasters` entry (salon-wide, server order). A chip re-keys ONLY the
 // visits controller with that `masterId` (history + «Наступний візит»); the card
 // itself is never refetched, so the chips stay put. Hidden with 0 masters, and
-// when the route's `masterId` is not one of the chips (owner master mode: the
-// view stays scoped to the owner's own master row). The selection lives in a
+// whenever the route carries a `masterId` (owner master mode, phase 510: the
+// view stays scoped to the owner's own master row — `servedByMasters` is
+// salon-wide and always lists that row, so «Усі майстри» would leak the whole
+// salon's visits into master mode). The selection lives in a
 // [ValueNotifier] read only by the chip row and the timeline, so a chip tap
 // never rebuilds the header. A non-UUID chip id is ignored (never queried).
 //
-// PII: name, photo and phone are rendered, never logged.
+// PII: name, photo and phone are rendered, never logged. The card holds the
+// app-switcher guard ([ScreenProtectionManager]) for its lifetime, like
+// «Деталі запису».
+//
+// FRESHNESS: a pull-to-refresh that fails keeps the loaded card / timeline and
+// shows an error snack (a first-load failure is still the full error state).
+// On app resume the timeline's "now" is re-read, so a «Наступний візит» whose
+// start has passed while backgrounded moves into the history.
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -130,6 +141,26 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
   /// `my_bookings_screen`'s load-more threshold.
   static const double _loadMoreThreshold = 320;
 
+  // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
+  // throws on a post-dispose `ref` read) — `booking_detail_screen.dart`'s
+  // pattern: the card renders the client's phone.
+  late final ScreenProtectionManager _screenProtection;
+
+  /// Re-reads the timeline's "now" on resume (no polling).
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    _lifecycle = AppLifecycleListener(
+      onResume: () {
+        if (!mounted) return;
+        ref.read(_visitsProvider.notifier).refreshNow();
+      },
+    );
+  }
+
   ClientCardProvider get _cardProvider =>
       clientCardProvider(widget.scope, widget.client);
 
@@ -205,6 +236,8 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
 
   @override
   void dispose() {
+    _lifecycle.dispose();
+    _screenProtection.release();
     _filterMasterId.dispose();
     super.dispose();
   }
@@ -216,19 +249,17 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
     _filterMasterId.value = masterId;
   }
 
-  /// CLI-73 — chips only on a salon card for owner / admin with ≥1 master,
-  /// and only when the route's `masterId` (if any) is one of the chips.
+  /// CLI-73 — chips only on a whole-salon card (no route `masterId`) for
+  /// owner / admin with ≥1 master. A route `masterId` is owner master mode
+  /// (phase 510: chips hidden) — `servedByMasters` is salon-wide and always
+  /// holds the owner's own row, so «Усі майстри» must never be offered there.
   bool _showMasterChips(UserRole? role, ClientCard card) {
     if (widget.scope is! SalonClientListScope) return false;
+    if (_masterId != null) return false;
     if (role != UserRole.salonOwner && role != UserRole.salonAdmin) {
       return false;
     }
-    if (card.servedByMasters.isEmpty) return false;
-    final String? routeMasterId = _masterId;
-    return routeMasterId == null ||
-        card.servedByMasters.any(
-          (ClientServedMaster m) => m.masterId == routeMasterId,
-        );
+    return card.servedByMasters.isNotEmpty;
   }
 
   bool _onScroll(ScrollNotification n) {
@@ -240,14 +271,30 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
     return false;
   }
 
+  /// Pull to refresh. A failure while data is on screen keeps it and shows
+  /// an error snack; with nothing loaded the error state renders it.
   Future<void> _refresh() async {
+    final bool hadCard = ref.read(_cardProvider).hasValue;
+    final bool hadVisits = ref.read(_visitsProvider).hasValue;
     ref.invalidate(_cardProvider);
     _invalidateVisits();
+    Object? failure;
     try {
       await ref.read(_cardProvider.future);
-    } catch (_) {
-      // The error state renders it; the indicator just stops.
+    } catch (e) {
+      if (hadCard) failure = e;
     }
+    try {
+      await ref.read(_visitsProvider.future);
+    } catch (e) {
+      if (hadVisits) failure ??= e;
+    }
+    if (failure == null || !mounted) return;
+    showErrorSnack(
+      context,
+      (failure is Failure ? failure : UnknownFailure(cause: failure))
+          .userMessage(context),
+    );
   }
 
   /// Single-flight for the «⋯»: the anchor booking read + sheet.
@@ -304,10 +351,11 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
       if (!mounted) return;
       final String? clientId = booking.clientId;
       // A registered card acts through its newest visit; if that booking no
-      // longer belongs to the route's client, act on nothing (no snack).
+      // longer belongs to the route's client, act on nothing — and say so.
       if (widget.client case RegisteredClientRef(
         :final String userId,
       ) when clientId != userId) {
+        showErrorSnack(context, AppLocalizations.of(context).errUnknown);
         return;
       }
       final ClientActionsGate? gate = clientActionsGateFor(
@@ -331,7 +379,9 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
           SalonClientListScope(:final String salonId) => salonId,
           MyClientListScope() => null,
         },
-        // The «Заблоковано» tag (and any visit the block cancelled).
+        // The «Заблоковано» tag (and any visit the block cancelled). The
+        // list rows' chip is dropped by the block write itself
+        // (`ClientBlockController` → `invalidateClientViews`).
         onChanged: () {
           ref.invalidate(_cardProvider);
           _invalidateVisits();
@@ -359,7 +409,9 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
     );
     final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
 
+    // A failed refresh keeps the loaded card (the snack reports it).
     final (Widget body, List<Widget> slivers) = card.when(
+      skipError: card.hasValue,
       loading: () => (const _CardSkeleton(), const <Widget>[]),
       error: (Object e, StackTrace _) {
         final Failure failure = e is Failure ? e : UnknownFailure(cause: e);
@@ -416,8 +468,9 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
                 _VisitsTimeline(
                   scope: _visitsScopeFor(masterId),
                   client: widget.client,
-                  onOpenBooking: (String bookingId) =>
-                      context.pushOnce<void>(widget.bookingRoute(bookingId)),
+                  onOpenBooking: (String bookingId) => context.pushOnce<void>(
+                    bookingFromClientCard(widget.bookingRoute(bookingId)),
+                  ),
                 ),
           ),
         ],
@@ -432,9 +485,13 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
         backKey: ClientCardScreen.backKey,
         backSemanticLabel: l10n.registerBackStep,
         trailing: card.hasValue && _showMore(role)
-            ? NeumorphicIconButton(
-                key: ClientCardScreen.moreKey,
-                icon: Icons.more_horiz_rounded,
+            ? _MoreButton(
+                client: widget.client,
+                filterMasterId: _filterMasterId,
+                visitsFor: (String? masterId) => clientVisitsControllerProvider(
+                  _visitsScopeFor(masterId),
+                  widget.client,
+                ),
                 semanticLabel: l10n.clientMoreActions,
                 onTap: () => _onMore(role),
               )
@@ -442,6 +499,54 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
         onRefresh: _refresh,
         slivers: slivers,
         child: body,
+      ),
+    );
+  }
+}
+
+/// The top bar's «⋯». A guest card acts through its own anchor booking, so it
+/// is always enabled; a registered card acts through its newest loaded visit,
+/// so it stays DISABLED until the current chip's visits hold one (loading,
+/// failed or empty → nothing to act through). Watches only that bool, so a
+/// load-more toggle never rebuilds it.
+class _MoreButton extends StatelessWidget {
+  const _MoreButton({
+    required this.client,
+    required this.filterMasterId,
+    required this.visitsFor,
+    required this.semanticLabel,
+    required this.onTap,
+  });
+
+  final ClientRef client;
+  final ValueListenable<String?> filterMasterId;
+  final ClientVisitsControllerProvider Function(String? masterId) visitsFor;
+  final String semanticLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(bool enabled) => NeumorphicIconButton(
+      key: ClientCardScreen.moreKey,
+      icon: Icons.more_horiz_rounded,
+      semanticLabel: semanticLabel,
+      enabled: enabled,
+      onTap: onTap,
+    );
+    // The same tree for both kinds (CLI-D07): only the enabled DATA differs.
+    return ValueListenableBuilder<String?>(
+      valueListenable: filterMasterId,
+      builder: (BuildContext context, String? masterId, Widget? _) => Consumer(
+        builder: (BuildContext context, WidgetRef ref, Widget? _) =>
+            button(switch (client) {
+              GuestClientRef() => true,
+              RegisteredClientRef() => ref.watch(
+                visitsFor(masterId).select(
+                  (AsyncValue<ClientVisitsState> v) =>
+                      v.value?.visits.isNotEmpty ?? false,
+                ),
+              ),
+            }),
       ),
     );
   }
@@ -562,6 +667,16 @@ class _MasterChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // The row scrolls sideways, so a chip gets unbounded width and its
+    // one-line label would never ellipsise: cap each master chip at the row's
+    // own width. Normal names sit far below the cap and lay out as before.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) =>
+          _row(l10n, constraints.maxWidth),
+    );
+  }
+
+  Widget _row(AppLocalizations l10n, double maxChipWidth) {
     return Padding(
       padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
       child: SingleChildScrollView(
@@ -580,11 +695,14 @@ class _MasterChips extends StatelessWidget {
             ),
             for (final ClientServedMaster m in masters) ...<Widget>[
               const SizedBox(width: VelvetSpacing.sm),
-              FavoriteCategoryChip(
-                key: ClientCardScreen.masterChipKey(m.masterId),
-                label: m.name,
-                selected: selectedId == m.masterId,
-                onTap: () => onSelect(m.masterId),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxChipWidth),
+                child: FavoriteCategoryChip(
+                  key: ClientCardScreen.masterChipKey(m.masterId),
+                  label: m.name,
+                  selected: selectedId == m.masterId,
+                  onTap: () => onSelect(m.masterId),
+                ),
               ),
             ],
           ],
@@ -611,24 +729,25 @@ class _VisitsTimeline extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ClientVisitsControllerProvider provider =
         clientVisitsControllerProvider(scope, client);
-    return ref
-        .watch(provider)
-        .when(
-          loading: () =>
-              const SliverToBoxAdapter(child: BookingsSkeleton(count: 2)),
-          error: (Object e, StackTrace _) => SliverToBoxAdapter(
-            child: ErrorState(
-              key: ClientCardScreen.visitsErrorKey,
-              failure: e is Failure ? e : UnknownFailure(cause: e),
-              onRetry: () => ref.invalidate(provider),
-            ),
-          ),
-          data: (ClientVisitsState v) => _Timeline(
-            state: v,
-            onRetryMore: () => ref.read(provider.notifier).retryLoadMore(),
-            onOpenBooking: onOpenBooking,
-          ),
-        );
+    final AsyncValue<ClientVisitsState> visits = ref.watch(provider);
+    // A failed refresh keeps the loaded timeline (the card's snack reports it).
+    return visits.when(
+      skipError: visits.hasValue,
+      loading: () =>
+          const SliverToBoxAdapter(child: BookingsSkeleton(count: 2)),
+      error: (Object e, StackTrace _) => SliverToBoxAdapter(
+        child: ErrorState(
+          key: ClientCardScreen.visitsErrorKey,
+          failure: e is Failure ? e : UnknownFailure(cause: e),
+          onRetry: () => ref.invalidate(provider),
+        ),
+      ),
+      data: (ClientVisitsState v) => _Timeline(
+        state: v,
+        onRetryMore: () => ref.read(provider.notifier).retryLoadMore(),
+        onOpenBooking: onOpenBooking,
+      ),
+    );
   }
 }
 

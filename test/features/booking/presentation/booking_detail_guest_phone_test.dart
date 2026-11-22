@@ -11,6 +11,8 @@
 //   • inert for a CLIENT viewer, a mount with no card base, and an
 //     anonymised («Гість») or detached («Видалений клієнт») guest-shaped row.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -33,10 +35,6 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 
-const String _phone = '+380671234567';
-const String _phoneShown = '+380 67 123 45 67';
-const String _clientPhone = '+380501112233';
-const String _clientPhoneShown = '+380 50 111 22 33';
 const Key _oldRowKey = Key('booking-detail-guest-phone');
 const Key _cardMarker = Key('test-client-card');
 Finder _strip() => find.byKey(BookingClientStrip.defaultShellKey);
@@ -59,8 +57,6 @@ class _StubAuth extends AuthNotifier {
 
 Booking _booking({
   String? clientId,
-  String? guestPhone = _phone,
-  String? clientPhone = _clientPhone,
   String? firstName = 'Ірина',
   String? lastName = 'Коваль',
   String? salonId,
@@ -76,8 +72,6 @@ Booking _booking({
     clientId: clientId,
     clientFirstName: firstName,
     clientLastName: lastName,
-    guestPhone: guestPhone,
-    clientPhone: clientPhone,
     serviceId: 's1',
     serviceName: 'Манікюр',
     categoryName: 'NAIL_SERVICE',
@@ -156,6 +150,71 @@ Future<GoRouter> _pump(
   return router;
 }
 
+/// Client-profile audit — the detail PUSHED from a client card
+/// (`?fromClientCard=1`) over a `/card` route; with [deepLink] the detail is
+/// the only route (nothing to pop).
+Future<GoRouter> _pumpFromCard(
+  WidgetTester tester,
+  Booking booking, {
+  bool deepLink = false,
+}) async {
+  tester.view.physicalSize = const Size(800, 2400);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  const String detail = '/detail?$kBookingFromClientCardQuery=1';
+  final GoRouter router = GoRouter(
+    initialLocation: deepLink ? detail : '/card',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/card',
+        builder: (_, _) => const Scaffold(body: Text('the-card')),
+      ),
+      GoRoute(
+        path: '/detail',
+        builder: (_, GoRouterState s) => BookingDetailScreen(
+          bookingId: booking.id,
+          clientCardBase: _baseFor(UserRole.independentMaster),
+          openedFromClientCard:
+              s.uri.queryParameters[kBookingFromClientCardQuery] == '1',
+        ),
+      ),
+      GoRoute(
+        path: '/:a/:b/:c/:d',
+        builder: (_, GoRouterState s) => Text(s.uri.path, key: _cardMarker),
+      ),
+    ],
+  );
+  addTearDown(router.dispose);
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+      bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
+      bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
+      authProvider.overrideWith(
+        () => _StubAuth(
+          const AuthSession.authenticated(
+            user: User(
+              id: 'u1',
+              email: 'u@e.com',
+              role: UserRole.independentMaster,
+            ),
+            accessToken: 't',
+          ),
+        ),
+      ),
+    ],
+  );
+  await tester.pumpAndSettle();
+  if (!deepLink) {
+    // `push` (not `go`) — the real card → detail navigation.
+    unawaited(router.push<void>(detail));
+    await tester.pumpAndSettle();
+  }
+  return router;
+}
+
 Future<String?> _tapStrip(WidgetTester tester) async {
   await tester.tap(_strip());
   await tester.pumpAndSettle();
@@ -167,23 +226,17 @@ Future<String?> _tapStrip(WidgetTester tester) async {
 void main() {
   const List<UserRole> allRoles = UserRole.values;
 
-  group('no phone on «Деталі запису» for any role', () {
+  // CLI-D08 — `Booking` holds no phone at all (the mapper drops the wire
+  // fields — booking_mapper_test.dart); this pins the old row's absence.
+  group('no phone row on «Деталі запису» for any role', () {
     for (final UserRole role in allRoles) {
-      testWidgets('$role, guest booking carrying guestPhone + clientPhone', (
-        tester,
-      ) async {
-        await _pump(tester, _booking(clientPhone: _phone), role);
+      testWidgets('$role, guest booking', (tester) async {
+        await _pump(tester, _booking(), role);
         expect(find.byKey(_oldRowKey), findsNothing);
-        expect(find.text(_phoneShown), findsNothing);
-        expect(find.text(_phone), findsNothing);
       });
-      testWidgets('$role, registered booking carrying clientPhone', (
-        tester,
-      ) async {
+      testWidgets('$role, registered booking', (tester) async {
         await _pump(tester, _booking(clientId: 'c1'), role);
         expect(find.byKey(_oldRowKey), findsNothing);
-        expect(find.text(_clientPhoneShown), findsNothing);
-        expect(find.text(_clientPhone), findsNothing);
       });
     }
   });
@@ -261,13 +314,32 @@ void main() {
       ) async {
         await _pump(
           tester,
-          _booking(firstName: sentinel, lastName: null, guestPhone: null),
+          _booking(firstName: sentinel, lastName: null),
           UserRole.independentMaster,
         );
         expect(_strip(), findsOneWidget);
         expect(await _tapStrip(tester), isNull);
       });
     }
+  });
+
+  group('card → detail → client strip (no endless push)', () {
+    testWidgets('pushed from the client card: the strip POPS back to that '
+        'card instead of pushing another', (tester) async {
+      await _pumpFromCard(tester, _booking(clientId: 'c1'));
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      await tester.tap(_strip());
+      await tester.pumpAndSettle();
+      expect(find.text('the-card'), findsOneWidget);
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(find.byKey(_cardMarker), findsNothing, reason: 'no new card');
+    });
+
+    testWidgets('the flag on a deep link (nothing to pop) still pushes the '
+        'card', (tester) async {
+      await _pumpFromCard(tester, _booking(clientId: 'c1'), deepLink: true);
+      expect(await _tapStrip(tester), '/master/clients/user/c1');
+    });
   });
 
   group('BookingDisplayX.clientCardReachable', () {

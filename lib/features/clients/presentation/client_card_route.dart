@@ -47,3 +47,18 @@ String clientRatingRoute(String listRoute, ClientRef ref, {String? masterId}) {
       ? path
       : '$path?$kClientCardMasterIdQuery=${Uri.encodeQueryComponent(masterId)}';
 }
+
+/// The booking-detail location a card's visit opens: [bookingPath] plus
+/// `?fromClientCard=1` ([kBookingFromClientCardQuery]), so that detail's
+/// client strip pops back to this card instead of pushing another one.
+String bookingFromClientCard(String bookingPath) {
+  final Uri uri = Uri.parse(bookingPath);
+  return uri
+      .replace(
+        queryParameters: <String, String>{
+          ...uri.queryParameters,
+          kBookingFromClientCardQuery: '1',
+        },
+      )
+      .toString();
+}

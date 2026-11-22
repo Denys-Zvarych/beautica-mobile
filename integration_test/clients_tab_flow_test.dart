@@ -28,6 +28,17 @@
 //        own booking detail; phone formatted on the card (none on the
 //        detail), tel: canonical.
 //
+// Client-profile audit (2026-11-22) — cross-screen freshness (Rule 3b):
+//   (j)  card → booking detail → provider decline → back: the card's
+//        «Наступний візит» is gone (the visit drops to the history) and the
+//        list row's «Наст.» is gone;
+//   (k)  block on the card → back: the list row carries «Заблоковано»;
+//        unblock on «Заблоковані клієнти» → back: the chip is gone;
+//   (l)  list first-load error → retry → rows;
+//   (m)  card pull-to-refresh after a server-side change shows fresh data;
+//   (n)  card → detail → client strip POPS back to the card (stack does not
+//        grow; one back reaches the list).
+//
 // Search: `q` is sent only for a trimmed 2–50-char term; the 300 ms debounce
 // is a `Timer`, driven with an explicit `pump(kClientSearchDebounce)`
 // (`pumpAndSettle` fires no Timer). 800×600 surface: the list is scrolled
@@ -51,7 +62,10 @@ import 'package:beautica_mobile/features/clients/presentation/widgets/client_ava
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
 import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/client_list_row.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
+import 'package:beautica_mobile/features/moderation/presentation/blocked_clients_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
@@ -168,10 +182,15 @@ void _seedCards(
         <String, int>{'rating': 1, 'count': 0},
       ],
       'nextVisitAt': _kNextVisitAt,
-      // CLI-73 — salon-wide, most recent first.
+      // CLI-73 — salon-wide, most recent first. Realistic: the owner's own
+      // master row is part of the salon-wide list too.
       'servedByMasters': <Map<String, dynamic>>[
         <String, dynamic>{'masterId': _kMasterA, 'name': 'Олена Шевчук'},
         <String, dynamic>{'masterId': _kMasterB, 'name': 'Марта Бондар'},
+        <String, dynamic>{
+          'masterId': _kOwnerMasterRowId,
+          'name': 'Власниця Салону',
+        },
       ],
     }
     ..['b-iryna'] = <String, dynamic>{
@@ -296,6 +315,78 @@ Future<void> _search(WidgetTester tester, String text) async {
   await tester.pump();
 }
 
+/// Client-profile audit — a registered client [userId] whose ONLY visit is the
+/// fake's seeded `booking-1` (CONFIRMED at [at], after [kFixedNow]): the list
+/// row («Наст.»), the card and its timeline («Наступний візит») all carry it.
+/// Inserted as the list's first row so it is on screen without scrolling.
+void _seedOneVisitClient(FakeBackend fb, String userId, DateTime at) {
+  final String iso = at.toUtc().toIso8601String();
+  fb
+    ..bookingRegisteredClientId = userId
+    ..bookingStartsAt = iso
+    ..bookingEndsAt = at
+        .add(const Duration(hours: 1))
+        .toUtc()
+        .toIso8601String();
+  _seedRoster(fb);
+  fb.clientRows.insert(0, <String, dynamic>{
+    'kind': 'REGISTERED',
+    'userId': userId,
+    'displayName': 'Клієнтка Аудит',
+    'lastVisitAt': '2026-06-01T10:00:00Z',
+    'nextVisitAt': iso,
+    'completedVisits': 1,
+    'ratingCount': 0,
+    'blocked': false,
+  });
+  _seedCards(
+    fb,
+    more: () {
+      fb.clientCards[userId] = <String, dynamic>{
+        'kind': 'REGISTERED',
+        'userId': userId,
+        'displayName': 'Клієнтка Аудит',
+        'blocked': false,
+        'ratingCount': 0,
+        'ratingDistribution': <Map<String, int>>[],
+        'nextVisitAt': iso,
+      };
+      fb.clientVisits[userId] = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'visitKey': 'booking-1',
+          'startsAt': iso,
+          'items': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'bookingId': 'booking-1',
+              'serviceName': 'Манікюр',
+              'status': 'CONFIRMED',
+              'startsAt': iso,
+              'priceAtBooking': 650,
+            },
+          ],
+        },
+      ];
+    },
+  );
+}
+
+/// The list row's own [ClientListRow] meta / chip under the row of [id].
+Finder _rowPart(String id, Key part) =>
+    find.descendant(of: _row(id), matching: find.byKey(part));
+
+/// Opens the master «Клієнти» tab (INDEPENDENT_MASTER, bar index 3).
+Future<void> _openMasterClients(WidgetTester tester) async {
+  await AppHarness.tapVisible(
+    tester,
+    find.byKey(const Key('master-nav-tile-3')),
+  );
+  await _waitForList(tester);
+}
+
+/// Routes on the navigator stack (pushes included).
+int _stackDepth(GoRouter router) =>
+    router.routerDelegate.currentConfiguration.matches.length;
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -358,12 +449,19 @@ void main() {
       // i18n-finder-ok: asserts the exact approved UA copy / data value
       expect(find.text('Оксана Мельник'), findsOneWidget);
       expect(find.text('4.9'), findsOneWidget);
-      // i18n-finder-ok: asserts the exact approved UA copy / data value
-      expect(find.text('Ост.: 7 чер'), findsOneWidget);
-      // i18n-finder-ok: asserts the exact approved UA copy / data value
-      expect(find.text('Наст.: сб, 20 чер, 15:00'), findsOneWidget);
-      // i18n-finder-ok: asserts the exact approved UA copy / data value
-      expect(find.text('Запис за посиланням'), findsNothing);
+      // The row's short dates by key; the values pin the approved format.
+      expect(
+        tester.widget<Text>(_rowPart('u-oksana', ClientListRow.lastKey)).data,
+        'Ост.: 7 чер',
+      );
+      expect(
+        tester.widget<Text>(_rowPart('u-oksana', ClientListRow.nextKey)).data,
+        'Наст.: сб, 20 чер, 15:00',
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ClientsScreen)),
+      );
+      expect(find.text(l10n.bookingDetailGuestBookingLabel), findsNothing);
       expect(find.textContaining('+380'), findsNothing);
       expect(_row('b-iryna'), findsOneWidget);
 
@@ -546,8 +644,14 @@ void main() {
       await AppHarness.tapVisible(tester, find.byKey(kPhoneSheetCopyKey));
       await AppHarness.settle(tester);
       expect(find.byKey(kPhoneSheetCopyKey), findsNothing);
-      // i18n-finder-ok: asserts the exact approved UA copy / data value
-      expect(find.text('Номер скопійовано'), findsOneWidget);
+      expect(
+        find.text(
+          AppLocalizations.of(
+            tester.element(find.byType(ClientCardScreen)),
+          ).clientPhoneCopied,
+        ),
+        findsOneWidget,
+      );
 
       // ── rating chip → «Рейтинг клієнта» → back ───────────────────────
       await AppHarness.tapVisible(
@@ -1030,13 +1134,15 @@ void main() {
         router,
         '/salons/$_kSalonId/clients/user/u-oksana?masterId=$_kOwnerMasterRowId',
       );
-      // The owner's own master row is not among the card's served masters →
-      // no master chip row (the view stays scoped to the owner).
+      // Owner master mode (route ?masterId=): no master chip row and no
+      // «Усі майстри», even though the salon-wide servedByMasters lists the
+      // owner's own row (phase 510 — the view stays scoped to the owner).
       await AppHarness.pumpUntilFound(
         tester,
         find.byKey(ClientCardScreen.nameKey),
       );
       expect(find.byKey(ClientCardScreen.masterChipsKey), findsNothing);
+      expect(find.byKey(ClientCardScreen.masterChipAllKey), findsNothing);
     });
   });
 
@@ -1536,4 +1642,306 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    '(j) card → booking detail → provider decline → back: the card\'s '
+    '«Наступний візит» and the list row\'s «Наст.» are both fresh',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        const String userId = 'u-j';
+        final FakeBackend fb = FakeBackend()..wireClientList();
+        _seedOneVisitClient(fb, userId, kFixedNow.add(const Duration(days: 6)));
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+        await AppHarness.settle(tester);
+        await _openMasterClients(tester);
+        expect(_rowPart(userId, ClientListRow.nextKey), findsOneWidget);
+
+        await AppHarness.tapVisible(tester, _row(userId));
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(ClientCardScreen.nextVisitKey),
+        );
+        await AppHarness.settle(tester);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientCardScreen.nextVisitKey),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('booking-detail-decline')),
+        );
+        await AppHarness.settle(tester);
+
+        await tester.tap(find.byKey(const Key('booking-detail-decline')));
+        await AppHarness.settle(tester);
+        await tester.enterText(
+          find.byKey(const Key('cancel-booking-note-field')),
+          'Audit decline',
+        );
+        // The fake's client reads are static: the server now has no next visit.
+        ((fb.clientVisits[userId]!.first['items'] as List<Map<String, dynamic>>)
+                .first)['status'] =
+            'DECLINED';
+        fb.clientCards[userId]!.remove('nextVisitAt');
+        fb.clientRows
+            .firstWhere((Map<String, dynamic> r) => r['userId'] == userId)
+            .remove('nextVisitAt');
+        await tester.tap(find.byKey(const Key('decline-booking-confirm')));
+        await AppHarness.settle(tester);
+        await AppHarness.pumpUntilGone(
+          tester,
+          find.byKey(const Key('booking-detail-decline')),
+        );
+        expect(fb.declineBookingCalls, 1);
+
+        // Back on the card: the declined visit is history, no head any more.
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('booking-detail-back')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(ClientCardScreen.visitKey('booking-1')),
+        );
+        await AppHarness.settle(tester);
+        AppHarness.expectLocation(router, '/master/clients/user/$userId');
+        expect(find.byKey(ClientCardScreen.nextVisitKey), findsNothing);
+
+        // Back on the list: the row's «Наст.» is gone, «Ост.» stays.
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientCardScreen.backKey),
+        );
+        await _waitForList(tester);
+        expect(_rowPart(userId, ClientListRow.lastKey), findsOneWidget);
+        expect(_rowPart(userId, ClientListRow.nextKey), findsNothing);
+      });
+    },
+  );
+
+  testWidgets('(k) block on the card → back: the list row shows «Заблоковано»; '
+      'unblock on «Заблоковані клієнти» → back: the chip is gone', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      const String userId = 'u-k';
+      final FakeBackend fb = FakeBackend()..wireClientList();
+      _seedOneVisitClient(fb, userId, kFixedNow.add(const Duration(days: 6)));
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      await _openMasterClients(tester);
+      expect(_rowPart(userId, ClientListRow.blockedKey), findsNothing);
+
+      // ── block from the card «⋯» ─────────────────────────────────────────
+      await AppHarness.tapVisible(tester, _row(userId));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.moreKey));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientActionsSheet.blockKey),
+      );
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientActionsSheet.blockKey),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(BlockClientDialog.confirmKey),
+      );
+      fb.clientCards[userId]!['blocked'] = true;
+      fb.clientRows.firstWhere(
+        (Map<String, dynamic> r) => r['userId'] == userId,
+      )['blocked'] = true;
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(BlockClientDialog.confirmKey),
+      );
+      await AppHarness.pumpUntilFound(tester, find.byKey(BlockedTag.tagKey));
+      await AppHarness.settle(tester);
+      expect(fb.blockPostBookingIds, <String>['booking-1']);
+
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+      await _waitForList(tester);
+      expect(
+        _rowPart(userId, ClientListRow.blockedKey),
+        findsOneWidget,
+        reason: 'the block write dropped the cached list',
+      );
+
+      // ── unblock on «Заблоковані клієнти» ────────────────────────────────
+      final String blockId = fb.blocks.first['id'] as String;
+      unawaited(router.push(RouteNames.blockedClients));
+      final Finder unblock = find.byKey(
+        ValueKey<String>('blocked-unblock-$blockId'),
+      );
+      await AppHarness.pumpUntilFound(tester, unblock);
+      await AppHarness.settle(tester);
+      fb.clientRows.firstWhere(
+        (Map<String, dynamic> r) => r['userId'] == userId,
+      )['blocked'] = false;
+      await AppHarness.tapVisible(tester, unblock);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(UnblockClientDialog.confirmKey),
+      );
+      await tester.tap(find.byKey(UnblockClientDialog.confirmKey));
+      await AppHarness.settle(tester);
+      expect(fb.blockDeleteIds, <String>[blockId]);
+      expect(find.byType(BlockedClientsScreen), findsOneWidget);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('btn-back-blocked-clients')),
+      );
+      await _waitForList(tester);
+      expect(_row(userId), findsOneWidget);
+      expect(_rowPart(userId, ClientListRow.blockedKey), findsNothing);
+    });
+  });
+
+  testWidgets('(l) a failed first list load → the error state → retry → rows', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()..wireClientList();
+      _seedRoster(fb);
+      _seedCards(fb);
+      fb.clientFailPages.add(0);
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('master-nav-tile-3')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientsScreen.errorKey),
+      );
+      await AppHarness.settle(tester);
+      expect(_row('u-oksana'), findsNothing);
+      final int calls = fb.clientListCalls.length;
+
+      fb.clientFailPages.clear();
+      await AppHarness.tapVisible(
+        tester,
+        find.descendant(
+          of: find.byKey(ClientsScreen.errorKey),
+          matching: find.byKey(const Key('error_state_retry_button')),
+        ),
+      );
+      await _waitForList(tester);
+      expect(fb.clientListCalls.length, greaterThan(calls));
+      expect(fb.clientListCalls.last.page, 0);
+      expect(find.byKey(ClientsScreen.errorKey), findsNothing);
+      expect(_row('u-oksana'), findsOneWidget);
+      expect(_row('b-iryna'), findsOneWidget);
+    });
+  });
+
+  testWidgets('(m) card pull-to-refresh after a server-side change shows the '
+      'fresh card and timeline', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()..wireClientList();
+      _seedRoster(fb);
+      _seedCards(fb);
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      await _openMasterClients(tester);
+      await AppHarness.tapVisible(tester, _row('u-oksana'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byKey(ClientCardScreen.visitKey('bk-v-next')), findsNothing);
+      final int cardReads = fb.clientCardCalls
+          .where((String c) => c.startsWith('card '))
+          .length;
+
+      // Server-side: the upcoming visit was cancelled and the name changed.
+      ((fb.clientVisits['u-oksana']!.first['items']
+                  as List<Map<String, dynamic>>)
+              .first)['status'] =
+          'CANCELLED';
+      fb.clientCards['u-oksana']!['displayName'] = 'Оксана Нова';
+
+      await tester.fling(_cardScroll(), const Offset(0, 400), 1000);
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        fb.clientCardCalls.where((String c) => c.startsWith('card ')).length,
+        greaterThan(cardReads),
+      );
+      expect(
+        find.byKey(ClientCardScreen.visitKey('bk-v-next')),
+        findsOneWidget,
+        reason: 'the cancelled visit moved into the history',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(ClientCardScreen.nameKey)).data,
+        'Оксана Нова',
+      );
+    });
+  });
+
+  testWidgets('(n) card → booking detail → client strip POPS back to the card: '
+      'the stack does not grow and one back reaches the list', (tester) async {
+    await mockNetworkImagesFor(() async {
+      const String userId = 'u-n';
+      final FakeBackend fb = FakeBackend()..wireClientList();
+      _seedOneVisitClient(fb, userId, kFixedNow.add(const Duration(days: 6)));
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+      await _openMasterClients(tester);
+      await AppHarness.tapVisible(tester, _row(userId));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      await AppHarness.settle(tester);
+      final int cardDepth = _stackDepth(router);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(ClientCardScreen.nextVisitKey),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('booking-detail-client-strip')),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        AppHarness.location(router),
+        contains('$kBookingFromClientCardQuery=1'),
+      );
+      expect(_stackDepth(router), cardDepth + 1);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('booking-detail-client-strip')),
+      );
+      await AppHarness.pumpUntilGone(tester, find.byType(BookingDetailScreen));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, '/master/clients/user/$userId');
+      expect(_stackDepth(router), cardDepth, reason: 'popped, not pushed');
+      expect(find.byKey(ClientCardScreen.screenKey), findsOneWidget);
+
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+      await _waitForList(tester);
+      expect(find.byKey(ClientCardScreen.screenKey), findsNothing);
+      AppHarness.expectLocation(router, RouteNames.masterClients);
+    });
+  });
 }

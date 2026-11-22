@@ -374,6 +374,11 @@ GoRouter appRouter(Ref ref) {
   /// (it is put in the request query); anything else is ignored, so the card
   /// reads the whole-salon scope — the server stays the authority (M509 audit
   /// carry-over).
+  /// Client-profile audit — the detail was pushed from a client card
+  /// ([kBookingFromClientCardQuery]); its client strip pops back to it.
+  bool openedFromClientCard(GoRouterState state) =>
+      state.uri.queryParameters[kBookingFromClientCardQuery] == '1';
+
   ClientListScope salonClientScope(GoRouterState state, String salonId) {
     final String? raw = state.uri.queryParameters[kClientCardMasterIdQuery];
     final session = ref.read(authProvider).value;
@@ -2382,6 +2387,7 @@ GoRouter appRouter(Ref ref) {
                 onUnavailable: notificationUnavailableHandler(context, state),
                 // The client strip opens the master's own client card.
                 clientCardBase: (_) => RouteNames.masterClients,
+                openedFromClientCard: openedFromClientCard(state),
               ),
             ),
           ),
@@ -2590,6 +2596,7 @@ GoRouter appRouter(Ref ref) {
             // board's salon from `extra`, else the booking's own salon).
             clientCardBase: (String? salonId) =>
                 salonId == null ? null : RouteNames.salonClients(salonId),
+            openedFromClientCard: openedFromClientCard(state),
             // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
             // `widget.salonId`, carried on `extra` because NOTHING on this
             // route's path holds it (`/salon/bookings/:bookingId`) and
@@ -3356,6 +3363,7 @@ GoRouter appRouter(Ref ref) {
             onUnavailable: notificationUnavailableHandler(context, state),
             // The client strip opens the salon master's own client card.
             clientCardBase: (_) => RouteNames.salonMasterClients,
+            openedFromClientCard: openedFromClientCard(state),
           ),
         ),
       ),

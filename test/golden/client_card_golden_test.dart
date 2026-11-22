@@ -14,6 +14,9 @@
 //     bars (replaces the removed client_rating_own_empty_360_1x)
 //   • client_card_owner_master_chips_360_1x  — SALON_OWNER salon card with the
 //     CLI-73 master chip row («Усі майстри» selected) above the timeline
+//   • client_card_owner_master_mode_no_chips_360_1x — client-profile audit
+//     (2026-11-22): owner master mode (route masterId = the owner's own row,
+//     servedByMasters salon-wide INCLUDING that row) → NO chip row
 //
 // Preview parity: `docs/signup-designs/ClientCardVariants/` at 360 px. The
 // registered photo renders its monogram fallback here (the media loader is not
@@ -273,6 +276,44 @@ void main() {
     ),
     builder: () =>
         _cardScreen(_reg, scope: const ClientListScope.salon(salonId: 's1')),
+  );
+
+  // Client-profile audit — owner master mode: the route carries the owner's
+  // own master row and the (salon-wide) servedByMasters lists it beside the
+  // others; the card must show NO chip row (phase 510).
+  const String ownRow = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+  goldenTest(
+    'client card — owner master mode, no chips',
+    fileName: 'client_card_owner_master_mode_no_chips_360_1x',
+    constraints: BoxConstraints.tight(screen),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      width: width,
+      overrides: _overrides(
+        _Repo(
+          _card(
+            _reg,
+            served: const <ClientServedMaster>[
+              ClientServedMaster(
+                masterId: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+                name: 'Ірина Коваль',
+              ),
+              ClientServedMaster(masterId: ownRow, name: 'Власниця Салону'),
+              ClientServedMaster(
+                masterId: 'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+                name: 'Марта Бондар',
+              ),
+            ],
+          ),
+          visits: _visits,
+        ),
+        role: UserRole.salonOwner,
+      ),
+    ),
+    builder: () => _cardScreen(
+      _reg,
+      scope: const ClientListScope.salon(salonId: 's1', masterId: ownRow),
+    ),
   );
 
   goldenTest(

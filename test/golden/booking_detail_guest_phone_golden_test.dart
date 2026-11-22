@@ -3,7 +3,8 @@
 // History: Phase 417 / M519 locked a guest-phone / client-phone ContactTile
 // row here. 2026-11-21 (user) the detail shows NO phone for any role (the
 // phone lives on the client card), so these baselines now lock the NO-PHONE
-// layout even though every fixture still carries a phone on the wire. The
+// layout. Since the 2026-11-22 audit (CLI-D08) `Booking` cannot carry a
+// phone at all, so the fixtures hold none; the render is unchanged. The
 // client strip is tappable (→ client card) but pixel-identical at rest: the
 // `salon_master` baseline (which never had a row) passed UNCHANGED through
 // that change and is the regression proof.
@@ -37,7 +38,6 @@ final Booking _guest = Booking(
   masterType: 'INDEPENDENT_MASTER',
   clientFirstName: 'Ірина',
   clientLastName: 'Коваль',
-  guestPhone: '+380671234567',
   serviceId: 's1',
   serviceName: 'Манікюр з покриттям',
   categoryName: 'NAIL_SERVICE',
@@ -53,13 +53,9 @@ final Booking _guest = Booking(
   clientBlockable: true,
 );
 
-// M519 — a registered client (clientId set) whose verified phone arrives as
-// `clientPhone`; `guestPhone` stays null exactly as B518 serves it.
-final Booking _registered = _guest.copyWith(
-  clientId: 'c1',
-  guestPhone: null,
-  clientPhone: '+380501112233',
-);
+// M519 — a registered client (clientId set). Its phone is not mapped into
+// `Booking` at all (CLI-D08), so no fixture can carry one.
+final Booking _registered = _guest.copyWith(clientId: 'c1');
 
 // The same registered client on a SALON booking — the owner / admin / salon
 // master views.

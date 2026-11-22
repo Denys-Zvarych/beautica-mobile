@@ -34,6 +34,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_notification_repository.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 typedef _Hook =
     Future<PageResponse<ClientSummary>>? Function(int page, String? q);
@@ -116,6 +117,9 @@ class _Harness {
   final ClientListScope scope;
   final List<String> opened = <String>[];
 
+  /// The injected clock's value (mutable for the app-resume test).
+  DateTime now = _now;
+
   late final GoRouter router = GoRouter(
     routes: <RouteBase>[
       GoRoute(
@@ -143,7 +147,7 @@ class _Harness {
   List<Object> get overrides => <Object>[
     clientRepositoryProvider.overrideWithValue(repo),
     authProvider.overrideWith(() => FixedRoleAuth(UserRole.independentMaster)),
-    clockProvider.overrideWithValue(() => _now),
+    clockProvider.overrideWithValue(() => now),
   ];
 }
 
@@ -395,6 +399,35 @@ void main() {
     }
   });
 
+  group('app resume re-reads now', () {
+    testWidgets('a «Наст.» whose start passed while backgrounded is dropped '
+        'on resume, with no refetch', (tester) async {
+      final _FakeRepo repo = _FakeRepo(<ClientSummary>[
+        _registered(next: _now.add(const Duration(hours: 1))),
+      ]);
+      final _Harness h = await _pump(tester, repo);
+      expect(find.byKey(ClientListRow.nextKey), findsOneWidget);
+      final int reads = repo.calls.length;
+
+      h.now = _now.add(const Duration(hours: 2));
+      for (final AppLifecycleState st in <AppLifecycleState>[
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(st);
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(ClientListRow.nextKey), findsNothing);
+      expect(find.byKey(ClientListRow.lastKey), findsOneWidget);
+      expect(repo.calls.length, reads, reason: 'no refetch on resume');
+    });
+  });
+
   group('search (B507 `q`)', () {
     testWidgets('2 chars → debounce → q sent; the list is re-queried', (
       tester,
@@ -616,6 +649,29 @@ void main() {
         reason: 'the refresh itself fires exactly ONE extra request',
       );
       expect(repo.calls.last.page, 0);
+    });
+
+    testWidgets('a FAILED pull to refresh keeps the rows and shows an error '
+        'snack, no full-page error', (tester) async {
+      final repo = _FakeRepo(<ClientSummary>[_registered()]);
+      await _pump(tester, repo);
+      repo.hook = (int page, _) =>
+          Future<PageResponse<ClientSummary>>.error(const NetworkFailure());
+      final int base = repo.calls.length;
+      await tester.fling(
+        find.byKey(ClientsScreen.listKey),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      expect(repo.calls.length, base + 1);
+      expect(find.byKey(ClientsScreen.errorKey), findsNothing);
+      expect(find.byKey(const Key('client-row-u1')), findsOneWidget);
+      expectVelvetSnack(
+        const NetworkFailure().userMessage(
+          tester.element(find.byType(ClientsScreen)),
+        ),
+      );
     });
 
     testWidgets('a refresh keeps the rows (no skeleton flash)', (tester) async {

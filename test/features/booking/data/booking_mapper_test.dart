@@ -617,78 +617,21 @@ void main() {
   // pinned too: a backend rename or a regenerated client that drops the field
   // fails HERE, at unit level, instead of shipping as a blank slot.
   // ==========================================================================
-  group('BookingMapper.fromDto — guestPhone (phase 417)', () {
-    BookingDetailResponse dto(String? phone) =>
-        (BookingDetailResponseBuilder()
-              ..id = 'b-guest'
-              ..masterId = 'master-1'
-              ..masterServiceId = 'service-1'
-              ..masterFirstName = 'Оля'
-              ..masterLastName = 'Коваль'
-              ..serviceName = 'Манікюр'
-              ..status = BookingDetailResponseStatusEnum.CONFIRMED
-              ..startsAt = DateTime.utc(2026, 7, 10, 10)
-              ..endsAt = DateTime.utc(2026, 7, 10, 11)
-              ..priceAtBooking = 500
-              ..durationMinutesAtBooking = 60
-              ..canReview = false
-              ..guestPhone = phone
-              ..masterType =
-                  BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
-            .build();
-
-    test('a present guestPhone maps through verbatim', () {
-      expect(
-        BookingMapper.fromDto(dto('+380671234567')).guestPhone,
-        '+380671234567',
-      );
-    });
-
-    test('an absent guestPhone stays null', () {
-      expect(BookingMapper.fromDto(dto(null)).guestPhone, isNull);
-    });
-  });
-
-  // M519 / B518 — `clientPhone` is mapped verbatim and INDEPENDENTLY of
-  // `guestPhone`; the old-server fallback lives in
-  // `BookingDisplayX.clientPhoneFor` (covered in
-  // booking_detail_guest_phone_test.dart). Serialised through
-  // `standardSerializers` so the wire name is pinned too.
-  group('BookingMapper.fromDto — clientPhone (M519)', () {
-    BookingDetailResponse dto({String? clientPhone, String? guestPhone}) =>
-        (_validDto(id: 'b-phone').toBuilder()
-              ..clientPhone = clientPhone
-              ..guestPhone = guestPhone)
-            .build();
-
-    test('a present clientPhone maps through verbatim', () {
-      final Booking b = BookingMapper.fromDto(
-        dto(clientPhone: '+380501112233'),
-      );
-      expect(b.clientPhone, '+380501112233');
-      expect(b.guestPhone, isNull, reason: 'never copied into guestPhone');
-    });
-
-    test('a pre-B518 payload (guestPhone only) leaves clientPhone null', () {
-      final Booking b = BookingMapper.fromDto(dto(guestPhone: '+380671234567'));
-      expect(b.clientPhone, isNull);
-      expect(b.guestPhone, '+380671234567');
-    });
-
-    test('the clientPhone wire key is bound', () {
-      final Object? wire = standardSerializers.serializeWith(
-        BookingDetailResponse.serializer,
-        _validDto(id: 'b-wire'),
-      );
-      final BookingDetailResponse? parsed = standardSerializers.deserializeWith(
-        BookingDetailResponse.serializer,
-        <String, Object?>{
-          ...(wire! as Map<String, Object?>),
-          'clientPhone': '+380509998877',
-        },
-      );
-      expect(parsed, isNotNull);
-      expect(BookingMapper.fromDto(parsed!).clientPhone, '+380509998877');
+  // CLI-D08 / GST-D14 (client-profile audit 2026-11-22) — «Деталі запису»
+  // shows no phone, so the wire `guestPhone` / `clientPhone` are NOT mapped:
+  // a payload carrying both maps to exactly the booking one without them.
+  group('BookingMapper.fromDto — phones are never mapped (CLI-D08)', () {
+    test('guestPhone / clientPhone on the wire change nothing', () {
+      final BookingDetailResponse bare = _validDto(id: 'b-phone');
+      final BookingDetailResponse withPhones =
+          (bare.toBuilder()
+                ..clientPhone = '+380501112233'
+                ..guestPhone = '+380671234567')
+              .build();
+      final Booking mapped = BookingMapper.fromDto(withPhones);
+      expect(mapped, BookingMapper.fromDto(bare));
+      expect(mapped.toString(), isNot(contains('501112233')));
+      expect(mapped.toString(), isNot(contains('671234567')));
     });
   });
 

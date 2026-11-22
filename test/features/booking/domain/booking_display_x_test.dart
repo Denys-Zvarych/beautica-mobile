@@ -492,15 +492,15 @@ void main() {
   });
 }
 
-// Phase 417 — `Booking.toString` must never leak the guest phone.
+// Phase 417 — `Booking.toString` prints only non-PII identity fields (the
+// booking holds no phone at all since the 2026-11-22 audit, CLI-D08).
 void _guestPhoneToStringTests() {
-  Booking b(String? phone) => Booking(
+  Booking b({String? notes, String? firstName}) => Booking(
     id: 'b1',
     masterId: 'm1',
     masterFirstName: 'М',
     masterLastName: 'І',
     masterType: 'INDEPENDENT_MASTER',
-    guestPhone: phone,
     serviceId: 's1',
     serviceName: 'Манікюр',
     categoryName: 'NAIL_SERVICE',
@@ -511,35 +511,25 @@ void _guestPhoneToStringTests() {
     endAt: DateTime.utc(2099, 1, 1, 11),
     status: BookingStatus.confirmed,
     canReview: false,
+    clientCancellationNote: notes,
+    clientFirstName: firstName,
   );
 
-  group('Booking.toString / equality — guestPhone (phase 417)', () {
-    test('toString never contains the phone digits', () {
-      final String out = b('+380671234567').toString();
-      expect(out, isNot(contains('380671234567')));
-      expect(out, isNot(contains('671234567')));
-      expect(out, contains('<redacted>'));
-      expect('${b('+380671234567')}', isNot(contains('1234567')));
+  group('Booking.toString (phase 417)', () {
+    test('prints id / master / status only — never names or notes', () {
+      final String out = b(notes: 'secret-note', firstName: 'Олена').toString();
+      expect(
+        out,
+        'Booking(id: b1, masterId: m1, status: ${BookingStatus.confirmed})',
+      );
+      expect(out, isNot(contains('secret-note')));
+      expect(out, isNot(contains('Олена')));
     });
 
-    test('M519: toString never contains the clientPhone digits', () {
-      final String out = b(
-        null,
-      ).copyWith(clientPhone: '+380501112233').toString();
-      expect(out, isNot(contains('501112233')));
-      expect(out, contains('clientPhone: <redacted>'));
-      expect(b(null).toString(), contains('clientPhone: null'));
-    });
-
-    test('M519: equality considers clientPhone', () {
-      expect(b(null).copyWith(clientPhone: '+380501112233'), isNot(b(null)));
-    });
-
-    test('equality and hashCode still consider guestPhone', () {
-      expect(b('+380671234567'), b('+380671234567'));
-      expect(b('+380671234567').hashCode, b('+380671234567').hashCode);
-      expect(b('+380671234567'), isNot(b('+380501112233')));
-      expect(b('+380671234567'), isNot(b(null)));
+    test('equality still considers every field', () {
+      expect(b(notes: 'a'), b(notes: 'a'));
+      expect(b(notes: 'a').hashCode, b(notes: 'a').hashCode);
+      expect(b(notes: 'a'), isNot(b(notes: 'b')));
     });
   });
 }

@@ -14,6 +14,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_views_invalidation.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -422,6 +423,103 @@ void main() {
         hasLength(20),
       );
     });
+
+    test('a failed refresh over loaded rows keeps them (incl. appended pages) '
+        'and returns the error for the snack', () async {
+      final repo = _FakeClientRepository();
+      final c = _container(repo);
+      await _load(c, _me);
+      final notifier = c.read(clientListControllerProvider(_me).notifier);
+      await notifier.loadMore();
+      repo.hook = (_Call call) =>
+          Future<PageResponse<ClientSummary>>.error(const NetworkFailure());
+
+      final Object? error = await notifier.refresh();
+      expect(error, isA<NetworkFailure>());
+      final AsyncValue<ClientListState> st = c.read(
+        clientListControllerProvider(_me),
+      );
+      expect(st.hasError, isFalse, reason: 'no full-page error');
+      expect(st.requireValue.items, hasLength(40));
+      expect(st.requireValue.page, 1);
+
+      // The list stays usable: paging resumes from the kept cursor.
+      repo.hook = null;
+      await notifier.loadMore();
+      expect(repo.calls.last.page, 2);
+    });
+
+    test('a successful refresh returns null', () async {
+      final repo = _FakeClientRepository();
+      final c = _container(repo);
+      await _load(c, _me);
+      expect(
+        await c.read(clientListControllerProvider(_me).notifier).refresh(),
+        isNull,
+      );
+    });
+  });
+
+  group('cache-for (kClientListCacheFor)', () {
+    test('unlistened: pages + applied search survive inside the window, no '
+        're-read; released after it', () {
+      fakeAsync((FakeAsync fa) {
+        final repo = _FakeClientRepository();
+        final c = _container(repo);
+        c.read(authProvider.future);
+        fa.flushMicrotasks();
+        ProviderSubscription<AsyncValue<ClientListState>> sub = c.listen(
+          clientListControllerProvider(_me),
+          (_, _) {},
+        );
+        fa.flushMicrotasks();
+        final notifier = c.read(clientListControllerProvider(_me).notifier);
+        notifier.loadMore();
+        fa.flushMicrotasks();
+        notifier.setQuery('ол');
+        fa.elapse(kClientSearchDebounce);
+        fa.flushMicrotasks();
+        notifier.loadMore();
+        fa.flushMicrotasks();
+        final int calls = repo.calls.length;
+        final ClientListState before = c
+            .read(clientListControllerProvider(_me))
+            .requireValue;
+        expect(before.query, 'ол');
+
+        sub.close(); // tab left with context.go — the screen unmounts
+        fa.elapse(kClientListCacheFor - const Duration(seconds: 1));
+        expect(c.exists(clientListControllerProvider(_me)), isTrue);
+        sub = c.listen(clientListControllerProvider(_me), (_, _) {});
+        fa.flushMicrotasks();
+        expect(repo.calls.length, calls, reason: 'served from the cache');
+        expect(c.read(clientListControllerProvider(_me)).requireValue, before);
+
+        sub.close();
+        fa.elapse(kClientListCacheFor + const Duration(seconds: 1));
+        expect(c.exists(clientListControllerProvider(_me)), isFalse);
+      });
+    });
+
+    test(
+      'invalidateClientViews refetches a cached (unlistened) list',
+      () async {
+        final repo = _FakeClientRepository();
+        final c = _container(repo);
+        await c.read(authProvider.future);
+        final sub = c.listen(clientListControllerProvider(_me), (_, _) {});
+        await c.read(clientListControllerProvider(_me).future);
+        sub.close();
+        await Future<void>.delayed(Duration.zero);
+        expect(c.exists(clientListControllerProvider(_me)), isTrue);
+        final int calls = repo.calls.length;
+
+        invalidateClientViews(c.invalidate);
+        await _load(c, _me);
+        expect(repo.calls.length, calls + 1);
+        expect(repo.calls.last.page, 0);
+      },
+    );
   });
 
   group('scope → call', () {
