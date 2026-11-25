@@ -278,6 +278,35 @@ class StepIndicator extends StatelessWidget {
 // Step — Client
 // ---------------------------------------------------------------------------
 
+/// M543 D7 — the ONE write path from a [ClientPrefill] into a host's three
+/// client controllers, promoted from `ClientStep._pickClient` (REUSE-FIRST):
+/// the picker (M553) and the client-card launch (CLI-80) both call it.
+///
+/// A part the client lacks leaves its field EMPTY (never a stale value from a
+/// previous pick or a manual entry) — `ClientStep._canAdvance` then keeps
+/// «Далі» disabled until it is typed. The phone is shown in the UA display
+/// format. PII: never logged.
+void applyClientPrefill(
+  ClientPrefill prefill, {
+  required TextEditingController first,
+  required TextEditingController last,
+  required TextEditingController phone,
+}) {
+  final String? e164 = prefill.phone;
+  _setPrefillText(first, prefill.firstName ?? '');
+  _setPrefillText(last, prefill.lastName ?? '');
+  _setPrefillText(
+    phone,
+    e164 == null ? '' : UaPhoneInputFormatter.display(e164),
+  );
+}
+
+void _setPrefillText(TextEditingController ctrl, String text) =>
+    ctrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+
 class ClientStep extends StatefulWidget {
   const ClientStep({
     super.key,
@@ -330,32 +359,21 @@ class _ClientStepState extends State<ClientStep> {
       _picking = false;
     }
     if (!mounted || prefill == null) return;
-    final String first = prefill.firstName ?? '';
-    final String last = prefill.lastName ?? '';
-    final String? phone = prefill.phone;
+    final ClientPrefill picked = prefill;
     setState(() {
-      // A part the client lacks leaves its field EMPTY (never a stale value
-      // from a previous pick or a manual entry) — `_canAdvance` then keeps
-      // «Далі» disabled until it is typed.
-      _setText(widget.firstNameCtrl, first);
-      _setText(widget.lastNameCtrl, last);
-      _setText(
-        widget.phoneCtrl,
-        phone == null ? '' : UaPhoneInputFormatter.display(phone),
+      applyClientPrefill(
+        picked,
+        first: widget.firstNameCtrl,
+        last: widget.lastNameCtrl,
+        phone: widget.phoneCtrl,
       );
       final String label = <String>[
-        first,
-        last,
+        picked.firstName ?? '',
+        picked.lastName ?? '',
       ].where((String p) => p.isNotEmpty).join(' ');
       _pickedLabel = label.isEmpty ? null : label;
     });
   }
-
-  static void _setText(TextEditingController ctrl, String text) =>
-      ctrl.value = TextEditingValue(
-        text: text,
-        selection: TextSelection.collapsed(offset: text.length),
-      );
 
   bool get _canAdvance =>
       widget.firstNameCtrl.text.trim().isNotEmpty &&

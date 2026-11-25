@@ -210,6 +210,7 @@ class SalonCreateBookingScreen extends ConsumerStatefulWidget {
     super.key,
     required this.salonId,
     this.onPickClient,
+    this.initialPrefill,
   });
 
   /// Used ONLY to list this salon's masters (`SalonMastersStep`) — never
@@ -219,6 +220,12 @@ class SalonCreateBookingScreen extends ConsumerStatefulWidget {
   /// M553 — forwarded verbatim to [ClientStep.onPickClient]; the route binds
   /// it to `ClientListScope.salon(salonId)` (D1). `null` → no picker.
   final Future<ClientPrefill?> Function(BuildContext context)? onPickClient;
+
+  /// M543 (BOOK-80) — the client-card launch's prefill (CLI-80), applied
+  /// ONCE to the client controllers in `initState`, so stepping back to the
+  /// client step never overwrites edits. `null` (the default) → today.
+  /// PII: never logged.
+  final ClientPrefill? initialPrefill;
 
   @override
   ConsumerState<SalonCreateBookingScreen> createState() =>
@@ -276,6 +283,15 @@ class _SalonCreateBookingScreenState
     // who never installed the app and never consented in it. Mirrors
     // `master_create_booking_screen.dart`'s identical guard.
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    final ClientPrefill? prefill = widget.initialPrefill;
+    if (prefill != null) {
+      applyClientPrefill(
+        prefill,
+        first: _firstNameCtrl,
+        last: _lastNameCtrl,
+        phone: _phoneCtrl,
+      );
+    }
   }
 
   @override

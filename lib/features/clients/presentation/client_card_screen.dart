@@ -60,6 +60,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/my_booking
 import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
 import 'package:beautica_mobile/features/clients/application/client_visits_controller.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
@@ -87,6 +88,7 @@ import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
     show PhotoViewerReport;
 import 'package:beautica_mobile/shared/widgets/public_profile_skeleton.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
+import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
 
 /// The client card. See the file header.
 class ClientCardScreen extends ConsumerStatefulWidget {
@@ -96,6 +98,7 @@ class ClientCardScreen extends ConsumerStatefulWidget {
     required this.client,
     required this.cardBase,
     required this.bookingRoute,
+    this.onBookClient,
   });
 
   /// Which clients the card is read from (salon / salon + masterId / me).
@@ -108,12 +111,21 @@ class ClientCardScreen extends ConsumerStatefulWidget {
   /// The booking-detail route of the host shell for a visit's first booking.
   final String Function(String bookingId) bookingRoute;
 
+  /// M543 (CLI-80) — «Записати»: opens the staff walk-in flow with the
+  /// loaded card's [ClientPrefill]. ADDITIVE: `null` (the default) renders
+  /// the card exactly as before — no button. The ROUTE binds it, only where
+  /// `canPickClients(role)` (never SALON_MASTER); this widget never decides
+  /// role. PII: the prefill is never logged.
+  final void Function(BuildContext context, ClientPrefill prefill)?
+  onBookClient;
+
   static const Key screenKey = Key('client-card-screen');
   static const Key backKey = Key('btn-back-client-card');
 
   /// The top bar's «⋯» — report / block / unblock (R3), the same flow as the
   /// provider «Деталі запису» client strip.
   static const Key moreKey = Key('client-card-more');
+  static const Key bookKey = Key('client-card-book');
   static const Key nameKey = Key('client-card-name');
   static const Key phoneChipKey = Key('phone-link');
   static const Key ratingChipKey = Key('rating-link');
@@ -392,6 +404,23 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
     }
   }
 
+  /// D8 — the «Записати» tap for a loaded [card], or `null` (no button)
+  /// without a launcher or when the card has nothing to prefill (no name
+  /// part and no phone: anonymised / detached). Prefill = the card as shown
+  /// at tap time (D5).
+  VoidCallback? _bookLauncherFor(ClientCard card) {
+    final void Function(BuildContext, ClientPrefill)? launch =
+        widget.onBookClient;
+    if (launch == null) return null;
+    final ClientPrefill prefill = ClientPrefill.fromCard(card);
+    if (prefill.firstName == null &&
+        prefill.lastName == null &&
+        prefill.phone == null) {
+      return null;
+    }
+    return () => launch(context, prefill);
+  }
+
   void _openRating() => context.pushOnce<void>(
     clientRatingRoute(widget.cardBase, widget.client, masterId: _masterId),
   );
@@ -440,6 +469,7 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
       data: (ClientCard c) => (
         _CardHeader(
           card: c,
+          onBook: _bookLauncherFor(c),
           // D5 — fail closed on the role; no `kind` check.
           showPhone: canSeeClientPhone(role),
           onOpenRating: _openRating,
@@ -578,9 +608,13 @@ class _CardHeader extends StatelessWidget {
     required this.onOpenRating,
     required this.clipboard,
     this.avatarReport,
+    this.onBook,
   });
 
   final ClientCard card;
+
+  /// M543 — «Записати» under the chips; `null` → no button (today's layout).
+  final VoidCallback? onBook;
   final ClipboardService clipboard;
   final bool showPhone;
   final VoidCallback onOpenRating;
@@ -644,6 +678,15 @@ class _CardHeader extends StatelessWidget {
             ),
           ],
         ),
+        if (onBook case final VoidCallback book) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.md),
+          SuccessSecondaryButton(
+            buttonKey: ClientCardScreen.bookKey,
+            label: l10n.clientCardBookCta,
+            icon: Icons.event_available_rounded,
+            onPressed: book,
+          ),
+        ],
         const SizedBox(height: 22),
       ],
     );

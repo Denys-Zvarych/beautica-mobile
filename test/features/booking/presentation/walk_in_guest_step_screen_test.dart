@@ -50,6 +50,7 @@ final List<String?> _pushedAts = <String?>[];
 
 GoRouter _router({
   Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
+  ClientPrefill? initialPrefill,
 }) {
   _pushedExtras.clear();
   _pushedAts.clear();
@@ -67,6 +68,7 @@ GoRouter _router({
         builder: (context, state) => WalkInGuestStepScreen(
           seed: BookingCreateSeed.fromQuery(state.uri.queryParameters['at']),
           onPickClient: onPickClient,
+          initialPrefill: initialPrefill,
         ),
         routes: <RouteBase>[
           GoRoute(
@@ -93,8 +95,12 @@ Future<GoRouter> _pump(
   WidgetTester tester, {
   String location = RouteNames.masterBookingNew,
   Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
+  ClientPrefill? initialPrefill,
 }) async {
-  final GoRouter router = _router(onPickClient: onPickClient);
+  final GoRouter router = _router(
+    onPickClient: onPickClient,
+    initialPrefill: initialPrefill,
+  );
   await tester.pumpRoutedApp(router);
   unawaited(router.push(location));
   await tester.pumpAndSettle();
@@ -283,6 +289,67 @@ void main() {
     expect(guest.name, _kFirstName);
     expect(guest.surname, _kLastName);
     expect(guest.phone, '+380501234567');
+  });
+
+  group('M543 initialPrefill (BOOK-80)', () {
+    String text(WidgetTester tester, String key) => tester
+        .widget<NeumorphicTextField>(find.byKey(Key(key)))
+        .controller
+        .text;
+    NeumorphicButton next(WidgetTester tester) => tester.widget(
+      find.byKey(const Key('master-create-booking-client-next')),
+    );
+
+    testWidgets('fills the three fields, «Далі» enabled, no picked chip', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        initialPrefill: const ClientPrefill(
+          firstName: _kFirstName,
+          lastName: _kLastName,
+          phone: '+380501234567',
+        ),
+      );
+      expect(text(tester, 'master-create-booking-first-name'), _kFirstName);
+      expect(text(tester, 'master-create-booking-last-name'), _kLastName);
+      expect(text(tester, 'master-create-booking-phone'), isNot(isEmpty));
+      expect(next(tester).onPressed, isNotNull);
+      expect(find.byKey(ClientStep.pickedChipKey), findsNothing);
+
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await tester.pumpAndSettle();
+      final WalkInGuest guest = _pushedExtras.single! as WalkInGuest;
+      expect(guest.name, _kFirstName);
+      expect(guest.surname, _kLastName);
+      expect(guest.phone, '+380501234567');
+    });
+
+    testWidgets('no phone → phone empty, «Далі» disabled until typed', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        initialPrefill: const ClientPrefill(
+          firstName: _kFirstName,
+          lastName: _kLastName,
+        ),
+      );
+      expect(text(tester, 'master-create-booking-phone'), isEmpty);
+      expect(next(tester).onPressed, isNull);
+      await _enter(tester, const Key('master-create-booking-phone'), _kPhone);
+      expect(next(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('null → empty form, «Далі» disabled (today)', (tester) async {
+      await _pump(tester);
+      expect(text(tester, 'master-create-booking-first-name'), isEmpty);
+      expect(text(tester, 'master-create-booking-last-name'), isEmpty);
+      expect(text(tester, 'master-create-booking-phone'), isEmpty);
+      expect(next(tester).onPressed, isNull);
+    });
   });
 
   testWidgets('should_notRenderStepIndicator_when_guestStepShown — the 4-dot '

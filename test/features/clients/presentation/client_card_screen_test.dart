@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
@@ -202,9 +203,13 @@ class _Harness {
     this.role,
     this.extra = const <Object>[],
     this.scope = const ClientListScope.me(),
+    this.onBook,
   });
 
   final _Repo repo;
+
+  /// M543 — the card's «Записати» launcher; `null` → no button (today).
+  final void Function(BuildContext, ClientPrefill)? onBook;
   final ClientListScope scope;
   final List<Object> extra;
   final ClientRef client;
@@ -225,6 +230,7 @@ class _Harness {
               client: client,
               cardBase: RouteNames.masterClients,
               bookingRoute: RouteNames.masterBookingDetail,
+              onBookClient: onBook,
             ),
       ),
       GoRoute(
@@ -271,6 +277,7 @@ Future<_Harness> _pump(
   double? textScale,
   List<Object> extra = const <Object>[],
   ClientListScope scope = const ClientListScope.me(),
+  void Function(BuildContext, ClientPrefill)? onBook,
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1.0;
@@ -286,6 +293,7 @@ Future<_Harness> _pump(
     role: role,
     extra: extra,
     scope: scope,
+    onBook: onBook,
   );
   await tester.pumpRoutedApp(
     h.router,
@@ -1805,6 +1813,177 @@ void main() {
         extra: env(anchor('b-1', clientId: null)),
       );
       expect(moreEnabled(tester), isTrue);
+    });
+  });
+  group('«Записати» (M543 / CLI-80)', () {
+    Finder book() => find.byKey(ClientCardScreen.bookKey);
+
+    ClientCard parts(
+      ClientRef ref, {
+      String? first = 'Оксана',
+      String? last = 'Мельник',
+      String? phone = _phone,
+      bool blocked = false,
+      List<ClientServedMaster> served = const <ClientServedMaster>[],
+    }) => _card(
+      ref,
+      phone: phone,
+      blocked: blocked,
+      served: served,
+    ).copyWith(firstName: first, lastName: last);
+
+    testWidgets('no launcher → no button (today\'s card)', (tester) async {
+      await _pump(tester, _Repo(card: (ref) => parts(ref)));
+      expect(book(), findsNothing);
+    });
+
+    for (final ClientRef client in <ClientRef>[_reg, _gst]) {
+      testWidgets('launcher + loaded ${client.runtimeType} card → button '
+          'under the chips; tap hands the fromCard prefill once', (
+        tester,
+      ) async {
+        final List<ClientPrefill> launched = <ClientPrefill>[];
+        await _pump(
+          tester,
+          _Repo(card: (ref) => parts(ref)),
+          client: client,
+          onBook: (_, ClientPrefill p) => launched.add(p),
+        );
+        expect(book(), findsOneWidget);
+        expect(find.text(_l10n(tester).clientCardBookCta), findsOneWidget);
+        expect(
+          tester.getTopLeft(book()).dy,
+          greaterThan(tester.getBottomLeft(_ratingChip()).dy),
+        );
+        await tester.tap(book());
+        await tester.pump();
+        expect(launched, <ClientPrefill>[
+          const ClientPrefill(
+            firstName: 'Оксана',
+            lastName: 'Мельник',
+            phone: _phone,
+          ),
+        ]);
+      });
+    }
+
+    testWidgets('blocked client → button shown (owner rule)', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: (ref) => parts(ref, blocked: true)),
+        onBook: (_, _) {},
+      );
+      expect(find.byType(BlockedTag), findsOneWidget);
+      expect(book(), findsOneWidget);
+    });
+
+    testWidgets('no phone → button shown, prefill phone null', (tester) async {
+      final List<ClientPrefill> launched = <ClientPrefill>[];
+      await _pump(
+        tester,
+        _Repo(card: (ref) => parts(ref, phone: null)),
+        onBook: (_, ClientPrefill p) => launched.add(p),
+      );
+      await tester.tap(book());
+      await tester.pump();
+      expect(launched.single.phone, isNull);
+      expect(launched.single.firstName, 'Оксана');
+      expect(launched.single.lastName, 'Мельник');
+    });
+
+    testWidgets('nameless guest with a phone → button shown, names null', (
+      tester,
+    ) async {
+      final List<ClientPrefill> launched = <ClientPrefill>[];
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) =>
+              _card(ref, name: null).copyWith(firstName: null, lastName: null),
+        ),
+        client: _gst,
+        onBook: (_, ClientPrefill p) => launched.add(p),
+      );
+      await tester.tap(book());
+      await tester.pump();
+      expect(launched, <ClientPrefill>[const ClientPrefill(phone: _phone)]);
+    });
+
+    testWidgets('no name and no phone (anonymised) → no button', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) => _card(
+            ref,
+            name: null,
+            phone: null,
+          ).copyWith(firstName: null, lastName: null),
+        ),
+        onBook: (_, _) => fail('must not launch'),
+      );
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
+      expect(book(), findsNothing);
+    });
+
+    testWidgets('loading → no button', (tester) async {
+      final Completer<void> gate = Completer<void>();
+      final _Harness h = _Harness(
+        _Repo(card: (ref) => parts(ref), cardGate: gate),
+        onBook: (_, _) {},
+      );
+      await tester.pumpRoutedApp(h.router, overrides: h.overrides);
+      await tester.pump();
+      expect(find.byKey(ClientCardScreen.skeletonKey), findsOneWidget);
+      expect(book(), findsNothing);
+      gate.complete();
+      await _loaded(tester);
+      expect(book(), findsOneWidget);
+    });
+
+    for (final Failure failure in const <Failure>[
+      NotFoundFailure(),
+      NetworkFailure(),
+    ]) {
+      testWidgets('${failure.runtimeType} → no button', (tester) async {
+        final _Repo repo = _Repo(card: (ref) => parts(ref))
+          ..cardFailure = failure;
+        await _pump(tester, repo, onBook: (_, _) {});
+        expect(find.byType(ErrorState), findsOneWidget);
+        expect(book(), findsNothing);
+      });
+    }
+
+    testWidgets('a selected master chip does not change the prefill; the '
+        'launcher is called once', (tester) async {
+      const String m1 = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      final List<ClientPrefill> launched = <ClientPrefill>[];
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) => parts(
+            ref,
+            served: const <ClientServedMaster>[
+              ClientServedMaster(masterId: m1, name: 'Олена'),
+            ],
+          ),
+        ),
+        role: UserRole.salonOwner,
+        scope: const ClientListScope.salon(salonId: 's-1'),
+        onBook: (_, ClientPrefill p) => launched.add(p),
+      );
+      await tester.tap(find.byKey(ClientCardScreen.masterChipKey(m1)));
+      await tester.pumpAndSettle();
+      await tester.tap(book());
+      await tester.pump();
+      expect(launched, <ClientPrefill>[
+        const ClientPrefill(
+          firstName: 'Оксана',
+          lastName: 'Мельник',
+          phone: _phone,
+        ),
+      ]);
     });
   });
 }
