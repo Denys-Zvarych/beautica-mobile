@@ -127,7 +127,6 @@ import 'widgets/booking_recap.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/client_booking_conflict_dialog.dart';
-import 'widgets/guest_identity_card.dart';
 import 'widgets/master_profile_tap.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/reschedule_limit_dialog.dart';
@@ -920,16 +919,25 @@ class _ConfirmBody extends StatelessWidget {
         children: <Widget>[
           // FIX 1 (audit-fix cycle 3, 2026-08-21) — the walk-in guest
           // identity, occupying the visual slot the hidden master card would
-          // otherwise take. REUSE-FIRST: the SAME `GuestIdentityCard` the
-          // terminal success screen renders (promoted from that screen's own
-          // inline card — see that widget's file header) — no second
-          // hand-copied implementation. `null` on every client/reschedule
-          // call site, so those paths render byte-identically (no extra
-          // card, no extra gap).
-          if (guest != null) ...<Widget>[
-            GuestIdentityCard(
+          // otherwise take. `null` on every client/reschedule call site, so
+          // those paths render byte-identically (no extra card, no extra gap).
+          //
+          // 2026-11-25 — the walk-in guest now renders through the SAME
+          // [BookingClientStrip] as the reschedule branch below (photo + ★ of
+          // a picked existing client, monogram + «—» for a hand-typed one;
+          // the phone as its sub-line) instead of the bare label card.
+          if (guest case final WalkInGuest g) ...<Widget>[
+            BookingClientStrip.walkIn(
               key: const Key('booking-confirm-guest-card'),
-              guest: guest!,
+              firstName: g.name,
+              lastName: g.surname,
+              phone: g.phone,
+              avatarUrl: g.avatarUrl,
+              rating: g.rating,
+              reviewCount: g.ratingCount,
+              topLabel: l10n.masterCreateBookingGuestLabel,
+              shellKey: const Key('booking-confirm-guest-strip'),
+              avatarImageKey: const Key('booking-confirm-guest-avatar-photo'),
             ),
             const SizedBox(height: VelvetSpacing.md),
           ] else if (rescheduleClientName != null) ...<Widget>[

@@ -237,8 +237,8 @@ Future<void> startBookingReschedule({
     // this stays `false` and those paths are byte-for-byte unaffected.
     final bool rescheduleTargetIsWalkIn = booking.isGuestBooking;
     // CLIENT IDENTITY PARITY (2026-08-22): the walk-in CREATE flow renders a
-    // `GuestIdentityCard` on the confirm/done screens so the master always
-    // sees WHO the visit is for instead of their own (hidden) identity strip
+    // `BookingClientStrip.walkIn` on the confirm/done screens so the master
+    // always sees WHO the visit is for instead of their own (hidden) identity strip
     // staring back at them; the RESCHEDULE flow left that same slot EMPTY
     // because it has no guest step to source a `WalkInGuest` from. Reused
     // here off the SAME `hideMasterIdentity` boolean just above (not a second

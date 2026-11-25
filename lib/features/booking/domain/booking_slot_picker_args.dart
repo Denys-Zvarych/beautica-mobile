@@ -156,8 +156,8 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// must not see an identity card of themselves, so both stay `null` on
     /// that path. Threaded unchanged onto [BookingConfirmArgs] /
     /// [BookingSuccessArgs] so the confirm/done screens can render the SAME
-    /// [GuestIdentityCard] the walk-in CREATE path already renders (via
-    /// [GuestIdentityCard.identity]) instead of leaving that visual slot
+    /// client card (`BookingClientStrip`) the walk-in CREATE path renders
+    /// (via `BookingClientStrip.walkIn`) instead of leaving that visual slot
     /// empty. `Booking` carries no client phone field, so
     /// [rescheduleClientPhone] is always `null` today — kept nullable rather
     /// than dropped so a future phone field needs no new plumbing.

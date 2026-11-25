@@ -131,7 +131,7 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// every CREATE call site (client or walk-in) and on a CLIENT's own
     /// reschedule; non-null only when a PROVIDER rescheduled a booking with a
     /// registered client identity to show. Consumed by this screen to render
-    /// [GuestIdentityCard.identity] in the same visual slot the walk-in
+    /// a `BookingClientStrip` in the same visual slot the walk-in
     /// [guest] card occupies, then forwarded onto [BookingSuccessArgs] for
     /// the terminal done screen.
     String? rescheduleClientName,

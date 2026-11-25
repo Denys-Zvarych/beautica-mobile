@@ -2,6 +2,9 @@
 // name parts and, when the server sent one, the phone. Built from the client
 // CARD, fetched once on pick (D2): the list rows carry no phone (CLI-47).
 //
+// Also the card's photo + rating (display-only, for the walk-in review
+// card's [BookingClientStrip]) — never sent to the server.
+//
 // PII: names and phone — `toString` prints none of them; never logged.
 //
 // Pure Dart: no Flutter imports.
@@ -25,6 +28,17 @@ abstract class ClientPrefill with _$ClientPrefill {
     /// E.164, or `null` when the card has no (valid) phone — e.g. a
     /// registered client without a verified phone.
     String? phone,
+
+    /// Display-only identity for the walk-in review card (the picked
+    /// client's photo + ★ readout). ADDITIVE: absent → the card's
+    /// monogram + «—» fallback. Never sent, never in a route path/query,
+    /// never logged — in memory only, like the rest of this value.
+    String? avatarUrl,
+
+    /// The card's DISPLAY rating ([ClientCard.displayRating]: `null` when
+    /// unrated) and its rating count.
+    double? rating,
+    @Default(0) int ratingCount,
   }) = _ClientPrefill;
 
   const ClientPrefill._();
@@ -44,6 +58,9 @@ abstract class ClientPrefill with _$ClientPrefill {
           : first,
       lastName: last,
       phone: phone != null && _e164.hasMatch(phone) ? phone : null,
+      avatarUrl: card.avatarUrl,
+      rating: card.displayRating,
+      ratingCount: card.ratingCount,
     );
   }
 

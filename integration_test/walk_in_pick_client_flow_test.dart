@@ -34,15 +34,20 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart'
+    show debugMediaCacheManager;
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart'
     show NeumorphicButton;
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/walk_in_service_step_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
     show ClientStep;
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart'
     show kClientSearchDebounce;
@@ -58,7 +63,9 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/pump_app.dart';
+import '../test/helpers/rendered_image_url.dart';
 import 'support/app_harness.dart';
 import 'support/fake_backend.dart';
 
@@ -78,6 +85,13 @@ const String _kRegFirst = 'Оксана';
 const String _kRegLast = 'Мельник';
 const String _kRegPhone = '+380501112233';
 const String _kSearch = 'Ірин';
+const String _kGuestInitials = 'ІК';
+
+// 2026-11-25 — the picked client's display-only photo + ★ (CLI-80 card →
+// `ClientPrefill` → `WalkInGuest`, never on the wire).
+const String _kPickedAvatar = 'https://media.test/avatars/picked-client.png';
+const double _kPickedRating = 4.5;
+const int _kPickedRatingCount = 3;
 
 /// Digits of [_kGuestPhone] as a provider types them (B550 phone search).
 const String _kPhoneSearch = '067123';
@@ -235,6 +249,48 @@ Map<String, dynamic> _card(
   'ratingDistribution': <Map<String, int>>[],
 };
 
+/// Gives the card [id] a photo + ★ (read by the fake per request, so this
+/// works after `_seedClients`).
+void _ratePickedCard(FakeBackend fb, String id) {
+  fb.clientCards[id] = <String, dynamic>{
+    ...fb.clientCards[id]!,
+    'avatarUrl': _kPickedAvatar,
+    'ratingAvg': _kPickedRating,
+    'ratingCount': _kPickedRatingCount,
+  };
+}
+
+/// Lets `RemoteImage` build its network `Image` (allow-listed host, no I/O).
+void _allowMedia() {
+  MediaConfig.debugAllowedHosts = <String>{'media.test'};
+  debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+  addTearDown(() {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+  });
+}
+
+Finder _inReadout(Finder card, String text) => find.descendant(
+  of: find.descendant(of: card, matching: find.byType(MasterRatingReadout)),
+  matching: find.text(text),
+);
+
+/// The review/done card shows the PICKED client: their photo and ★ readout.
+void _expectPickedIdentity(WidgetTester tester, Finder card) {
+  expect(card, findsOneWidget);
+  expect(renderedImageUrls(tester, within: card), <String>[_kPickedAvatar]);
+  expect(_inReadout(card, _kPickedRating.toStringAsFixed(1)), findsOneWidget);
+  expect(_inReadout(card, '($_kPickedRatingCount)'), findsOneWidget);
+}
+
+/// The card shows a hand-typed identity: monogram, «—», no photo.
+void _expectTypedIdentity(WidgetTester tester, Finder card, String initials) {
+  expect(card, findsOneWidget);
+  expect(renderedImageUrls(tester, within: card), isEmpty);
+  expect(find.descendant(of: card, matching: find.text(initials)), findsOne);
+  expect(_inReadout(card, MasterStrip.noRatingLabel), findsOneWidget);
+}
+
 bool _nextEnabled(WidgetTester tester) =>
     tester.widget<NeumorphicButton>(find.byKey(_next)).onPressed != null;
 
@@ -245,9 +301,9 @@ String _text(WidgetTester tester, Key key) => tester
     .controller
     .text;
 
-/// «Далі» lies wholly inside the 800x600 surface WITHOUT scrolling — the
-/// picker link sits in the heading row's own 48 dp, so the form never moves
-/// below the fold.
+/// «Далі» lies wholly inside the 800x600 surface WITHOUT scrolling while no
+/// client is picked (no chip) — the full-width picker button (2026-11-25)
+/// still leaves the empty form above the fold.
 void _expectNextOnScreen(WidgetTester tester) {
   final Rect next = tester.getRect(find.byKey(_next));
   final Size screen = tester.view.physicalSize / tester.view.devicePixelRatio;
@@ -328,6 +384,7 @@ Future<Map<String, dynamic>> _submitMasterWalkIn(
   WidgetTester tester,
   FakeBackend fb, {
   bool scroll = true,
+  void Function()? onConfirm,
 }) async {
   if (scroll) {
     await tester.ensureVisible(find.byKey(_next));
@@ -367,6 +424,7 @@ Future<Map<String, dynamic>> _submitMasterWalkIn(
   await tester.tap(find.byKey(const Key('booking-summary-cta')));
   await AppHarness.settle(tester);
   expect(find.byType(BookingConfirmScreen), findsOneWidget);
+  onConfirm?.call();
 
   await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
   await AppHarness.settle(tester);
@@ -422,12 +480,63 @@ void main() {
     });
   });
 
+  testWidgets('M553 IM: the picker is a real BUTTON; the picked client\'s '
+      'photo + ★ reach the review card and the done screen, never the wire', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final semantics = tester.ensureSemantics();
+      _allowMedia();
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster;
+      await _openMasterGuestStep(tester, fb);
+      _ratePickedCard(fb, 'b-iryna');
+
+      // Found by key AND exposed to a screen reader as a button.
+      expect(
+        tester.getSemantics(find.byKey(ClientStep.pickClientKey)),
+        isSemantics(isButton: true, hasTapAction: true),
+      );
+
+      await _pick(tester, 'b-iryna');
+
+      final Map<String, dynamic> guest = await _submitMasterWalkIn(
+        tester,
+        fb,
+        onConfirm: () => _expectPickedIdentity(
+          tester,
+          find.byKey(const Key('booking-confirm-guest-card')),
+        ),
+      );
+      // Display-only: photo + rating never on the wire (D2).
+      expect(guest, <String, dynamic>{
+        'name': _kGuestFirst,
+        'surname': _kGuestLast,
+        'phone': _kGuestPhone,
+      });
+
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('booking-success-guest-card')),
+      );
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      _expectPickedIdentity(
+        tester,
+        find.byKey(const Key('booking-success-guest-card')),
+      );
+      semantics.dispose();
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets('M553 IM: «×» clears the chip only (fields stay); an edit after '
       'the pick wins on the wire', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.independentMaster;
+      _allowMedia();
       await _openMasterGuestStep(tester, fb);
+      _ratePickedCard(fb, 'b-iryna');
 
       await _pick(tester, 'b-iryna');
       expect(find.byKey(ClientStep.pickedChipKey), findsOneWidget);
@@ -444,10 +553,17 @@ void main() {
       await tester.pump();
 
       // Chip cleared → «Далі» is tapped where it stands, no scrolling.
+      // The edited phone is no longer the picked client: the review card
+      // drops their photo + ★ (`walkInGuestFrom`).
       final Map<String, dynamic> guest = await _submitMasterWalkIn(
         tester,
         fb,
         scroll: false,
+        onConfirm: () => _expectTypedIdentity(
+          tester,
+          find.byKey(const Key('booking-confirm-guest-card')),
+          _kGuestInitials,
+        ),
       );
       expect(guest, <String, dynamic>{
         'name': _kGuestFirst,
@@ -465,7 +581,9 @@ void main() {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.salonOwner
         ..salonBoardBookings = <Map<String, dynamic>>[];
+      _allowMedia();
       _seedClients(fb);
+      _ratePickedCard(fb, 'u-oksana');
       await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
       await AppHarness.pumpUntilFound(
@@ -547,6 +665,11 @@ void main() {
         const Key('salon-create-booking-submit-cta'),
       );
       await AppHarness.pumpUntilFound(tester, submit);
+      // The wizard's confirm step shows the picked client (photo + ★).
+      _expectPickedIdentity(
+        tester,
+        find.byKey(const Key('master-create-booking-guest-card')),
+      );
       await tester.ensureVisible(submit);
       await AppHarness.settle(tester);
       await tester.tap(submit);

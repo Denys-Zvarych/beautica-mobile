@@ -276,6 +276,24 @@ class _SalonCreateBookingScreenState
 
   late final ScreenProtectionManager _screenProtection;
 
+  /// The last picked client (or the client-card launch's prefill) — the
+  /// confirm card's photo + ★ source, applied only while the typed fields
+  /// still are that client ([walkInGuestFrom]). In memory only; PII: never
+  /// logged.
+  ClientPrefill? _picked;
+
+  /// [SalonCreateBookingScreen.onPickClient], remembering what was picked.
+  Future<ClientPrefill?> Function(BuildContext context)? get _pickClient {
+    final Future<ClientPrefill?> Function(BuildContext context)? pick =
+        widget.onPickClient;
+    if (pick == null) return null;
+    return (BuildContext context) async {
+      final ClientPrefill? picked = await pick(context);
+      if (picked != null) _picked = picked;
+      return picked;
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -284,6 +302,7 @@ class _SalonCreateBookingScreenState
     // `master_create_booking_screen.dart`'s identical guard.
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
     final ClientPrefill? prefill = widget.initialPrefill;
+    _picked = prefill;
     if (prefill != null) {
       applyClientPrefill(
         prefill,
@@ -485,7 +504,7 @@ class _SalonCreateBookingScreenState
           lastNameCtrl: _lastNameCtrl,
           phoneCtrl: _phoneCtrl,
           onNext: () => _goTo(_BookingStep.service),
-          onPickClient: widget.onPickClient,
+          onPickClient: _pickClient,
         );
       case _BookingStep.service:
         return ServiceStep(
@@ -530,6 +549,12 @@ class _SalonCreateBookingScreenState
               },
         );
       case _BookingStep.confirm:
+        final WalkInGuest shown = walkInGuestFrom(
+          firstName: _firstNameCtrl.text.trim(),
+          lastName: _lastNameCtrl.text.trim(),
+          phone: toE164UaPhone(_phoneCtrl.text) ?? '',
+          picked: _picked,
+        );
         return ConfirmStep(
           key: const ValueKey<_BookingStep>(_BookingStep.confirm),
           services: _selectedServices,
@@ -538,6 +563,9 @@ class _SalonCreateBookingScreenState
           lastName: _lastNameCtrl.text.trim(),
           phone: _phoneCtrl.text.trim(),
           masterCard: _buildMasterCard(_master!),
+          clientAvatarUrl: shown.avatarUrl,
+          clientRating: shown.rating,
+          clientReviewCount: shown.ratingCount,
         );
       case _BookingStep.done:
         // Unreachable — `done` is rendered directly from `build()` below,

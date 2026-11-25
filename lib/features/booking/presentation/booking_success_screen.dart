@@ -42,6 +42,7 @@ import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 
 import '../domain/booking_success_args.dart';
+import '../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'widgets/booking_recap.dart';
 import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
 
@@ -49,7 +50,6 @@ import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
 import 'widgets/booking_client_strip.dart';
-import 'widgets/guest_identity_card.dart';
 
 /// Phase 383 (security) — the ONLY routes a walk-in success «Готово» may
 /// honour from [BookingSuccessArgs.returnRoute]; anything else falls back to
@@ -288,17 +288,25 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         // (`docs/mobile-phases/mobile-backlog.md`) — this screen already
         // acquires `ScreenProtectionManager` above.
         //
-        // AUDIT-FIX CYCLE 3 (FIX 1) — PROMOTED to `GuestIdentityCard`
-        // (`widgets/guest_identity_card.dart`): `BookingConfirmScreen` needed
-        // the identical card and REUSE-FIRST forbids a second hand-copied
-        // `NeumorphicCard`+`LabelledRow` block. Byte-identical render (same
-        // key, same padding, same `LabelledRow` args) — proven by this
-        // screen's own goldens/widget tests, unmodified by the extraction.
-        if (widget.args.isWalkIn && widget.args.guest != null)
-          GuestIdentityCard(
-            key: const Key('booking-success-guest-card'),
-            guest: widget.args.guest!,
-          ),
+        //
+        // 2026-11-25 — the SAME [BookingClientStrip] the walk-in confirm
+        // screen shows (photo + ★ of a picked existing client, monogram + «—»
+        // for a hand-typed one; the phone as its sub-line), instead of the
+        // bare label card.
+        if (widget.args.isWalkIn)
+          if (widget.args.guest case final WalkInGuest g)
+            BookingClientStrip.walkIn(
+              key: const Key('booking-success-guest-card'),
+              firstName: g.name,
+              lastName: g.surname,
+              phone: g.phone,
+              avatarUrl: g.avatarUrl,
+              rating: g.rating,
+              reviewCount: g.ratingCount,
+              topLabel: l10n.masterCreateBookingGuestLabel,
+              shellKey: const Key('booking-success-guest-strip'),
+              avatarImageKey: const Key('booking-success-guest-avatar-photo'),
+            ),
         // CLIENT IDENTITY PARITY (2026-08-22) — the RESCHEDULE-path
         // counterpart of the walk-in guest card just above: a PROVIDER
         // rescheduling a booking with a registered client sees the SAME

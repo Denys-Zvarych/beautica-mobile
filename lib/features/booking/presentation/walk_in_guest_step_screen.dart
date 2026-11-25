@@ -34,7 +34,7 @@ import '../domain/booking_create_seed.dart';
 import '../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'widgets/booking_top_bar.dart';
 import 'widgets/booking_wizard_steps.dart'
-    show ClientStep, applyClientPrefill, toE164UaPhone;
+    show ClientStep, applyClientPrefill, toE164UaPhone, walkInGuestFrom;
 
 /// «Новий запис» step 1 — collects the walk-in guest's identity
 /// (ім'я/прізвище/телефон) via the shared [ClientStep].
@@ -84,11 +84,30 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
 
   late final ScreenProtectionManager _screenProtection;
 
+  /// The last picked client (or the client-card launch's prefill) — the
+  /// review card's photo + ★ source, carried on the [WalkInGuest] only while
+  /// the typed fields still are that client ([walkInGuestFrom]). In memory
+  /// only (route `extra`); PII: never logged.
+  ClientPrefill? _picked;
+
+  /// [WalkInGuestStepScreen.onPickClient], remembering what was picked.
+  Future<ClientPrefill?> Function(BuildContext context)? get _pickClient {
+    final Future<ClientPrefill?> Function(BuildContext context)? pick =
+        widget.onPickClient;
+    if (pick == null) return null;
+    return (BuildContext context) async {
+      final ClientPrefill? picked = await pick(context);
+      if (picked != null) _picked = picked;
+      return picked;
+    };
+  }
+
   @override
   void initState() {
     super.initState();
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
     final ClientPrefill? prefill = widget.initialPrefill;
+    _picked = prefill;
     if (prefill != null) {
       applyClientPrefill(
         prefill,
@@ -132,7 +151,12 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
         widget.servicesRoute ?? RouteNames.masterBookingNewServices,
         widget.seed,
       ),
-      extra: WalkInGuest(name: firstName, surname: lastName, phone: phone),
+      extra: walkInGuestFrom(
+        firstName: firstName,
+        lastName: lastName,
+        phone: phone,
+        picked: _picked,
+      ),
     );
   }
 
@@ -157,7 +181,7 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
                 lastNameCtrl: _lastNameCtrl,
                 phoneCtrl: _phoneCtrl,
                 onNext: _onNext,
-                onPickClient: widget.onPickClient,
+                onPickClient: _pickClient,
               ),
             ),
           ],

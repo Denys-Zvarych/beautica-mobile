@@ -20,6 +20,13 @@
 // master-shaped (a role sub-line, the «Запис до майстра» caption, master-worded
 // semantics), whereas the shell is the data-agnostic frame this needs.
 //
+// 2026-11-25: [BookingClientStrip.walkIn] — the walk-in review card (master
+// «Підтвердження» and the salon wizard's confirm step) renders the client with
+// this same strip (photo + ★ of a picked existing client; monogram + «—» for a
+// hand-typed one) instead of a bare «Клієнт / <name>» label card. One more
+// ADDITIVE param, [semanticsDetail] (default `null`: every other caller's
+// screen-reader label is unchanged).
+//
 // 2026-11-21 (user): the provider «⋯» (report / block) left this strip — it
 // lives only on the client card now (tap the strip → card → «⋯»).
 //
@@ -59,7 +66,62 @@ class BookingClientStrip extends StatelessWidget {
     this.semanticsLabel,
     this.avatarPreviewOnTap = false,
     this.avatarPreviewReport,
+    this.semanticsDetail,
   });
+
+  /// The walk-in review card's client: [firstName] + [lastName], the
+  /// [phone] (as typed/shown on the step) as the sub-line, and — only for a
+  /// picked existing client — [avatarUrl] / [rating] / [reviewCount]. A
+  /// hand-typed walk-in has none of those: the strip falls back to the
+  /// name's monogram and the «—» readout, exactly like a guest row of the
+  /// «Клієнти» list (CLI-47). [isGuest] stays `false` on purpose: that flag
+  /// draws the «Запис за посиланням» qualifier, which is not this booking.
+  factory BookingClientStrip.walkIn({
+    Key? key,
+    required String firstName,
+    required String lastName,
+    String? phone,
+    String? avatarUrl,
+    double? rating,
+    int reviewCount = 0,
+    String? topLabel,
+    Key shellKey = defaultShellKey,
+    Key avatarImageKey = defaultAvatarImageKey,
+  }) {
+    final String name = '$firstName $lastName'.trim();
+    final String? shownPhone = (phone == null || phone.isEmpty) ? null : phone;
+    return BookingClientStrip(
+      key: key,
+      name: name.isEmpty ? null : name,
+      avatarUrl: avatarUrl,
+      initials: _initialsOf(firstName, lastName),
+      rating: rating,
+      reviewCount: reviewCount,
+      topLabel: topLabel,
+      shellKey: shellKey,
+      avatarImageKey: avatarImageKey,
+      details: shownPhone == null
+          ? null
+          : Text(
+              shownPhone,
+              style: VelvetText.feedbackMutedSm,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+      semanticsDetail: shownPhone,
+    );
+  }
+
+  /// First letter of each non-blank name part, upper-cased; `null` when
+  /// both are blank (the shell then draws its generic glyph).
+  static String? _initialsOf(String first, String last) {
+    final String letters = <String>[first.trim(), last.trim()]
+        .where((String p) => p.isNotEmpty)
+        .map((String p) => String.fromCharCode(p.runes.first))
+        .join()
+        .toUpperCase();
+    return letters.isEmpty ? null : letters;
+  }
 
   /// The «Деталі запису» render of [booking]'s client — the exact derivation
   /// the private `_ClientStrip` used before the promotion.
@@ -144,6 +206,11 @@ class BookingClientStrip extends StatelessWidget {
   /// the label derived from [name] / [rating] / [isGuest].
   final String? semanticsLabel;
 
+  /// ADDITIVE (2026-11-25): appended to the COMPUTED screen-reader label
+  /// (e.g. the walk-in phone shown in [details]). Ignored when
+  /// [semanticsLabel] is set; `null` (every other caller) changes nothing.
+  final String? semanticsDetail;
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -154,28 +221,32 @@ class BookingClientStrip extends StatelessWidget {
         ? l10n.bookingDetailGuestBookingLabel
         : null;
 
-    final String semantics;
+    final String computed;
     if (semanticsLabel != null) {
-      semantics = semanticsLabel!;
+      computed = semanticsLabel!;
     } else if (isGuest) {
-      semantics = <String>[
+      computed = <String>[
         l10n.bookingDetailClientSemantics(displayName),
         ?qualifier,
       ].join(', ');
     } else if (rating == null) {
       // Unreviewed: spoken as plain "no reviews yet", never «Рейтинг —». The
       // visible readout keeps its em-dash.
-      semantics = <String>[
+      computed = <String>[
         l10n.bookingDetailClientSemantics(displayName),
         l10n.masterReviewsEmpty,
       ].join('. ');
     } else {
-      semantics = l10n.bookingDetailClientRatedSemantics(
+      computed = l10n.bookingDetailClientRatedSemantics(
         displayName,
         rating.toStringAsFixed(1),
         l10n.salonReviewCountLabel(reviewCount),
       );
     }
+    final String? extraSemantics = semanticsDetail;
+    final String semantics = semanticsLabel != null || extraSemantics == null
+        ? computed
+        : '$computed, $extraSemantics';
 
     final Widget? qualifierLine = qualifier == null
         ? null

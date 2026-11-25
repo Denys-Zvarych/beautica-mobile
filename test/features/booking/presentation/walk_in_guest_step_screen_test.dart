@@ -280,6 +280,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, 1);
 
+    // The full-width picker button + the picked chip put «Далі» below the
+    // 800x600 test surface's fold (2026-11-25) — scroll to it.
+    await tester.ensureVisible(
+      find.byKey(const Key('master-create-booking-client-next')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const Key('master-create-booking-client-next')),
     );
