@@ -1906,6 +1906,22 @@
   "@serviceTypeSuggestSuccess": {
     "description": "SnackBar message shown after a service-type suggestion is successfully submitted (Phase 16.6)."
   },
+  "serviceTypeSuggestErrDuplicatePending": "Таку пропозицію вже надіслано, вона чекає на розгляд.",
+  "@serviceTypeSuggestErrDuplicatePending": {
+    "description": "SnackBar error in the suggest-a-service-type dialog when POST /service-types/suggest returns 409 with data.code == DUPLICATE_PENDING (the same suggestion is already awaiting review)."
+  },
+  "serviceTypeSuggestErrCategoryBusy": "Категорія зараз оновлюється. Спробуйте ще раз за мить.",
+  "@serviceTypeSuggestErrCategoryBusy": {
+    "description": "SnackBar error in the suggest-a-service-type dialog when POST /service-types/suggest returns 409 with data.code == CATEGORY_BUSY (B505; the category is being updated). The dialog stays open with the input intact so the user can resubmit."
+  },
+  "serviceTypeSuggestErrTypeExists": "Такий тип послуги вже є в цій категорії.",
+  "@serviceTypeSuggestErrTypeExists": {
+    "description": "SnackBar error in the suggest-a-service-type dialog when POST /service-types/suggest returns 409 with data.code == TYPE_EXISTS (a service type with that name already exists in the category)."
+  },
+  "serviceTypeSuggestErrConflict": "Не вдалося надіслати пропозицію. Спробуйте ще раз пізніше.",
+  "@serviceTypeSuggestErrConflict": {
+    "description": "SnackBar error in the suggest-a-service-type dialog for a 409 from POST /service-types/suggest with no (or an unknown) data.code — a generic conflict; never the generic server-error copy."
+  },
 
   "deleteServiceTitle": "Видалити послугу?",
   "@deleteServiceTitle": {
