@@ -992,6 +992,40 @@ final class FakeBackend {
   final Map<String, List<Map<String, dynamic>>> clientVisits =
       <String, List<Map<String, dynamic>>>{};
 
+  /// M543 — client id (a [clientCards] key) by the E.164 phone a staff
+  /// walk-in names: a walk-in POST whose `guest.phone` is listed here gains
+  /// one visit row PER BOOKING at the head of that client's [clientVisits]
+  /// (the server links it by phone, CLI-62). Empty (the default) → inert.
+  final Map<String, String> clientIdByWalkInPhone = <String, String>{};
+
+  void _linkWalkInToClientVisits(
+    Map<String, dynamic> guest,
+    DateTime startsAt,
+    List<Map<String, dynamic>> items,
+  ) {
+    final String? id = clientIdByWalkInPhone[guest['phone']];
+    if (id == null) return;
+    (clientVisits[id] ??= <Map<String, dynamic>>[]).insertAll(
+      0,
+      <Map<String, dynamic>>[
+        for (final Map<String, dynamic> i in items)
+          <String, dynamic>{
+            'visitKey': 'v-${i['bookingId']}',
+            'startsAt': i['startsAt'] ?? startsAt.toIso8601String(),
+            'items': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'bookingId': i['bookingId'],
+                'serviceName': i['serviceName'],
+                'status': 'CONFIRMED',
+                'startsAt': i['startsAt'] ?? startsAt.toIso8601String(),
+                'priceAtBooking': i['priceAtBooking'] ?? 0,
+              },
+            ],
+          },
+      ],
+    );
+  }
+
   /// M510 — every card-family request (`card`, `visits`) as
   /// `<kind> <path> page=<n> masterId=<m>`, newest last.
   final List<String> clientCardCalls = <String>[];
@@ -9856,6 +9890,7 @@ final class FakeBackend {
             'masterType': 'SALON_OWNER',
           });
         }
+        _linkWalkInToClientVisits(guest, startsAt, items);
         return _ok(row);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -12655,6 +12690,7 @@ final class FakeBackend {
           'totalPriceMax': anyRange ? totalPriceMaxSum : null,
           'items': items,
         };
+        _linkWalkInToClientVisits(guest, startsAt, items);
         return _ok(row);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),

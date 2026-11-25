@@ -18,10 +18,14 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/booking/domain/walk_in_launch.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -436,4 +440,236 @@ void main() {
       });
     },
   );
+
+  // M543 (CLI-80, D2/D3/D6) — the card's «Записати» binding and the walk-in
+  // routes' typed `extra`.
+  group('M543 book from the client card', () {
+    const ClientPrefill prefill = ClientPrefill(
+      firstName: 'Оксана',
+      lastName: 'Мельник',
+      phone: '+380671234567',
+    );
+
+    Future<GoRouter> prodRouter(UserRole role) async {
+      final ProviderContainer container = makeTestContainer(
+        overrides: <Object>[
+          authProvider.overrideWith(
+            () => _FixedAuth(
+              AuthSession.authenticated(
+                user: User(
+                  id: 'u1',
+                  email: 'a@b.c',
+                  role: role,
+                  salonId: 's-1',
+                ),
+                accessToken: 't',
+              ),
+            ),
+          ),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ],
+      );
+      await container.read(authProvider.future);
+      final GoRouter router = container.read(appRouterProvider);
+      addTearDown(router.dispose);
+      return router;
+    }
+
+    Future<BuildContext> ctx(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox(key: Key('ctx')));
+      return tester.element(find.byKey(const Key('ctx')));
+    }
+
+    GoRouterState stateOf(GoRouter router, String location, Object? extra) {
+      final RouteMatchList match = router.configuration.findMatch(
+        Uri.parse(location),
+        extra: extra,
+      );
+      expect(match.isError, isFalse, reason: location);
+      return router.configuration.buildTopLevelGoRouterState(match);
+    }
+
+    GoRoute leaf(GoRouter router, String location) =>
+        router.configuration.findMatch(Uri.parse(location)).last.route;
+
+    Future<ClientCardScreen> cardAt(
+      WidgetTester tester,
+      UserRole role,
+      String location,
+    ) async {
+      final GoRouter router = await prodRouter(role);
+      final BuildContext context = await ctx(tester);
+      return leaf(router, location).builder!(
+            context,
+            stateOf(router, location, null),
+          )
+          as ClientCardScreen;
+    }
+
+    for (final (UserRole role, String location) in <(UserRole, String)>[
+      (UserRole.independentMaster, '/master/clients/user/u-1'),
+      (UserRole.independentMaster, '/master/clients/guest/b-1'),
+      (UserRole.salonOwner, '/salons/s-1/clients/user/u-1'),
+      (UserRole.salonOwner, '/salons/s-1/clients/guest/b-1'),
+      (UserRole.salonAdmin, '/salons/s-1/clients/user/u-1'),
+    ]) {
+      testWidgets('$role: $location binds «Записати»', (tester) async {
+        final ClientCardScreen card = await cardAt(tester, role, location);
+        expect(card.onBookClient, isNotNull);
+      });
+    }
+
+    for (final String location in <String>[
+      '/staff/clients/user/u-1',
+      '/staff/clients/guest/b-1',
+    ]) {
+      testWidgets('SALON_MASTER: $location has no «Записати»', (tester) async {
+        final ClientCardScreen card = await cardAt(
+          tester,
+          UserRole.salonMaster,
+          location,
+        );
+        expect(card.onBookClient, isNull);
+      });
+    }
+
+    testWidgets('SALON_MASTER on a salon card route → still no launcher '
+        '(canPickClients double gate)', (tester) async {
+      final ClientCardScreen card = await cardAt(
+        tester,
+        UserRole.salonMaster,
+        '/salons/s-1/clients/user/u-1',
+      );
+      expect(card.onBookClient, isNull);
+    });
+
+    /// Runs [card]'s launcher inside a recording router; returns the pushed
+    /// location and extra.
+    Future<(String, Object?)> launch(
+      WidgetTester tester,
+      ClientCardScreen card,
+    ) async {
+      final List<(String, Object?)> pushed = <(String, Object?)>[];
+      Widget record(BuildContext _, GoRouterState state) {
+        pushed.add((state.uri.toString(), state.extra));
+        return const SizedBox();
+      }
+
+      final GoRouter recorder = GoRouter(
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/',
+            builder: (_, _) => Builder(
+              builder: (BuildContext context) => TextButton(
+                key: const Key('go'),
+                onPressed: () => card.onBookClient?.call(context, prefill),
+                child: const Text('go'),
+              ),
+            ),
+          ),
+          GoRoute(path: RouteNames.masterBookingNew, builder: record),
+          GoRoute(path: RouteNames.salonStaffBookingNew, builder: record),
+        ],
+      );
+      addTearDown(recorder.dispose);
+      await tester.pumpWidget(MaterialApp.router(routerConfig: recorder));
+      await tester.tap(find.byKey(const Key('go')));
+      await tester.pumpAndSettle();
+      return pushed.single;
+    }
+
+    testWidgets('IM card → /master/bookings/new, typed extra, no PII in the '
+        'location', (tester) async {
+      final ClientCardScreen card = await cardAt(
+        tester,
+        UserRole.independentMaster,
+        '/master/clients/user/u-1',
+      );
+      final (String location, Object? extra) = await launch(tester, card);
+      expect(location, RouteNames.masterBookingNew);
+      expect(extra, isA<WalkInLaunch>());
+      final WalkInLaunch l = extra! as WalkInLaunch;
+      expect(l.prefill, prefill);
+      expect(l.salonId, isNull);
+      expect(l.toString(), 'WalkInLaunch()');
+    });
+
+    testWidgets('salon card → /salon/bookings/new with WalkInLaunch(salonId)', (
+      tester,
+    ) async {
+      final ClientCardScreen card = await cardAt(
+        tester,
+        UserRole.salonOwner,
+        '/salons/s-1/clients/guest/b-1?masterId=a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      );
+      final (String location, Object? extra) = await launch(tester, card);
+      expect(location, RouteNames.salonStaffBookingNew);
+      final WalkInLaunch l = extra! as WalkInLaunch;
+      expect(l.salonId, 's-1');
+      expect(l.prefill, prefill);
+    });
+
+    testWidgets('/master/bookings/new: WalkInLaunch → initialPrefill; none '
+        '→ null', (tester) async {
+      final GoRouter router = await prodRouter(UserRole.independentMaster);
+      final BuildContext context = await ctx(tester);
+      for (final (Object? extra, ClientPrefill? expected)
+          in <(Object?, ClientPrefill?)>[
+            (const WalkInLaunch(prefill: prefill), prefill),
+            (null, null),
+            ('junk', null),
+          ]) {
+        final Page<dynamic> page =
+            leaf(router, RouteNames.masterBookingNew).pageBuilder!(
+              context,
+              stateOf(router, RouteNames.masterBookingNew, extra),
+            );
+        final WalkInGuestStepScreen screen =
+            (page as MaterialPage<void>).child as WalkInGuestStepScreen;
+        expect(screen.initialPrefill, expected, reason: '$extra');
+      }
+    });
+
+    testWidgets('/salon/bookings/new accepts String and WalkInLaunch; '
+        'redirects on a missing salonId', (tester) async {
+      final GoRouter router = await prodRouter(UserRole.salonOwner);
+      final BuildContext context = await ctx(tester);
+      final GoRoute route = leaf(router, RouteNames.salonStaffBookingNew);
+
+      for (final Object? bad in <Object?>[
+        null,
+        '',
+        const WalkInLaunch(prefill: prefill),
+        const WalkInLaunch(prefill: prefill, salonId: ''),
+      ]) {
+        expect(
+          await route.redirect!(
+            context,
+            stateOf(router, RouteNames.salonStaffBookingNew, bad),
+          ),
+          isNotNull,
+          reason: '$bad',
+        );
+      }
+
+      for (final (Object extra, ClientPrefill? expected)
+          in <(Object, ClientPrefill?)>[
+            ('s-1', null),
+            (const WalkInLaunch(prefill: prefill, salonId: 's-1'), prefill),
+          ]) {
+        final GoRouterState state = stateOf(
+          router,
+          RouteNames.salonStaffBookingNew,
+          extra,
+        );
+        expect(await route.redirect!(context, state), isNull);
+        final Page<dynamic> page = route.pageBuilder!(context, state);
+        final SalonCreateBookingScreen screen =
+            (page as MaterialPage<void>).child as SalonCreateBookingScreen;
+        expect(screen.salonId, 's-1');
+        expect(screen.initialPrefill, expected);
+      }
+    });
+  });
 }

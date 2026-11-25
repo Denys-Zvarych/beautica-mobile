@@ -33,7 +33,8 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import '../domain/booking_create_seed.dart';
 import '../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'widgets/booking_top_bar.dart';
-import 'widgets/booking_wizard_steps.dart' show ClientStep, toE164UaPhone;
+import 'widgets/booking_wizard_steps.dart'
+    show ClientStep, applyClientPrefill, toE164UaPhone;
 
 /// «Новий запис» step 1 — collects the walk-in guest's identity
 /// (ім'я/прізвище/телефон) via the shared [ClientStep].
@@ -43,7 +44,14 @@ class WalkInGuestStepScreen extends ConsumerStatefulWidget {
     this.servicesRoute,
     this.seed,
     this.onPickClient,
+    this.initialPrefill,
   });
+
+  /// M543 (BOOK-80) — the client-card launch's prefill (CLI-80), applied
+  /// ONCE to this screen's controllers in `initState`; editable afterwards,
+  /// no picked-client chip. `null` (the default) → the form opens empty,
+  /// exactly as today. PII: never logged.
+  final ClientPrefill? initialPrefill;
 
   /// M553 — forwarded verbatim to [ClientStep.onPickClient]. The route binds
   /// the scope (D1): `/master/bookings/new` → `ClientListScope.me()`,
@@ -80,6 +88,15 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
   void initState() {
     super.initState();
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    final ClientPrefill? prefill = widget.initialPrefill;
+    if (prefill != null) {
+      applyClientPrefill(
+        prefill,
+        first: _firstNameCtrl,
+        last: _lastNameCtrl,
+        phone: _phoneCtrl,
+      );
+    }
   }
 
   @override

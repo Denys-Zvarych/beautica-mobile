@@ -7684,6 +7684,7 @@
   "clientsRowSemantics": "Client: {name}, last visit {last}",
   "clientsRowSemanticsNoVisit": "Client: {name}",
   "clientCardTitle": "Client",
+  "clientCardBookCta": "Book",
   "clientNextVisitTitle": "Next visit",
   "clientHistoryTitle": "Visit history",
   "clientMastersFilterAll": "All masters",

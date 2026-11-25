@@ -31,6 +31,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
@@ -174,11 +175,13 @@ List<Object> _overrides(
 Widget _cardScreen(
   ClientRef ref, {
   ClientListScope scope = const ClientListScope.me(),
+  void Function(BuildContext, ClientPrefill)? onBook,
 }) => ClientCardScreen(
   scope: scope,
   client: ref,
   cardBase: '/master/clients',
   bookingRoute: (String id) => '/master/bookings/$id',
+  onBookClient: onBook,
 );
 
 Widget _ratingScreen() =>
@@ -314,6 +317,22 @@ void main() {
       _reg,
       scope: const ClientListScope.salon(salonId: 's1', masterId: ownRow),
     ),
+  );
+
+  // M543 (CLI-80) — «Записати» under the phone / rating chips. A separate
+  // variant: every scenario above passes no launcher and stays unchanged.
+  goldenTest(
+    'client card — with Записати',
+    fileName: 'client_card_with_book_cta_360_1x',
+    constraints: BoxConstraints.tight(screen),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      width: width,
+      overrides: _overrides(
+        _Repo(_card(_reg, phone: '+380671234567'), visits: _visits),
+      ),
+    ),
+    builder: () => _cardScreen(_reg, onBook: (_, _) {}),
   );
 
   goldenTest(

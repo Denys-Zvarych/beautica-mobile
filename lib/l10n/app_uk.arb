@@ -7858,6 +7858,8 @@
   "@clientsRowSemanticsNoVisit": {"description": "M509 — screen-reader label of a list row with no completed visit yet.", "placeholders": {"name": {"type": "String"}}},
   "clientCardTitle": "Клієнт",
   "@clientCardTitle": {"description": "M509/M510 — title of the client card screen (a placeholder until M510 builds the card)."},
+  "clientCardBookCta": "Записати",
+  "@clientCardBookCta": {"description": "M543 (CLI-80) — client card secondary button that opens the staff walk-in booking flow with the client prefilled."},
   "clientNextVisitTitle": "Наступний візит",
   "@clientNextVisitTitle": {"description": "M510 — Heading of the next-visit head node on the client card."},
   "clientHistoryTitle": "Історія візитів",
