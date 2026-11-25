@@ -7683,5 +7683,9 @@
   "clientNotFound": "Client not found",
   "clientPhoneSemantics": "Phone {phone}",
   "clientRatingCount": "{count, plural, one{{count} rating} other{{count} ratings}}",
-  "clientVisitSemantics": "Visit {when}"
+  "clientVisitSemantics": "Visit {when}",
+  "walkInPickClientCta": "Choose from my clients",
+  "walkInPickClientTitle": "My clients",
+  "walkInPickClientSearchHint": "Name or phone",
+  "walkInPickClientClear": "Clear the picked client"
 }

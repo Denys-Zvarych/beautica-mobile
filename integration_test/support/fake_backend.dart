@@ -962,6 +962,26 @@ final class FakeBackend {
   /// JSON). Filled by the caller before [wireClientList]. Rows carry no phone.
   final List<Map<String, dynamic>> clientRows = <Map<String, dynamic>>[];
 
+  /// M553 QA — opt-in B550 phone search for [wireClientList]: a `q` with
+  /// digits ALSO matches a row whose [clientCards] phone contains those
+  /// digits (a leading `0` read as the UA `380` prefix). Off by default, so
+  /// every existing flow keeps the display-name-only filter.
+  bool clientSearchMatchesPhone = false;
+
+  bool _clientRowPhoneMatches(Map<String, dynamic> row, String q) {
+    if (!clientSearchMatchesPhone) return false;
+    final String digits = q.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return false;
+    final Object? id = row['userId'] ?? row['guestBookingId'];
+    final String phone = ('${clientCards[id]?['phone'] ?? ''}').replaceAll(
+      RegExp(r'\D'),
+      '',
+    );
+    if (phone.isEmpty) return false;
+    return phone.contains(digits) ||
+        (digits.startsWith('0') && phone.contains('38$digits'));
+  }
+
   /// M510 — card bodies for [wireClientCard], keyed by the client id (a
   /// registered `userId` or a guest's `bookingId`): B508/B526 `ClientCardResponse`
   /// JSON. An id with no entry answers the uniform 404.
@@ -13282,7 +13302,8 @@ final class FakeBackend {
           if (q == null ||
               ('${row['displayName'] ?? ''}').toLowerCase().contains(
                 q.toLowerCase(),
-              ))
+              ) ||
+              _clientRowPhoneMatches(row, q))
             row,
       ];
       final int from = page * size;

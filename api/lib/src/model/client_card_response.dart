@@ -30,6 +30,8 @@ part 'client_card_response.g.dart';
 /// * [nextVisitAt]
 /// * [stats]
 /// * [servedByMasters]
+/// * [firstName]
+/// * [lastName]
 @BuiltValue()
 abstract class ClientCardResponse
     implements Built<ClientCardResponse, ClientCardResponseBuilder> {
@@ -78,6 +80,12 @@ abstract class ClientCardResponse
 
   @BuiltValueField(wireName: r'servedByMasters')
   BuiltList<ServedMaster>? get servedByMasters;
+
+  @BuiltValueField(wireName: r'firstName')
+  String? get firstName;
+
+  @BuiltValueField(wireName: r'lastName')
+  String? get lastName;
 
   ClientCardResponse._();
 
@@ -210,6 +218,20 @@ class _$ClientCardResponseSerializer
         specifiedType: const FullType(BuiltList, [FullType(ServedMaster)]),
       );
     }
+    if (object.firstName != null) {
+      yield r'firstName';
+      yield serializers.serialize(
+        object.firstName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.lastName != null) {
+      yield r'lastName';
+      yield serializers.serialize(
+        object.lastName,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -339,6 +361,20 @@ class _$ClientCardResponseSerializer
             specifiedType: const FullType(BuiltList, [FullType(ServedMaster)]),
           ) as BuiltList<ServedMaster>;
           result.servedByMasters.replace(valueDes);
+          break;
+        case r'firstName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.firstName = valueDes;
+          break;
+        case r'lastName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.lastName = valueDes;
           break;
         default:
           unhandled.add(key);

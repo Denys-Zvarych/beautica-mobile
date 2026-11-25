@@ -99,6 +99,10 @@ class _$ClientCardResponse extends ClientCardResponse {
   final Stats? stats;
   @override
   final BuiltList<ServedMaster>? servedByMasters;
+  @override
+  final String? firstName;
+  @override
+  final String? lastName;
 
   factory _$ClientCardResponse(
           [void Function(ClientCardResponseBuilder)? updates]) =>
@@ -119,7 +123,9 @@ class _$ClientCardResponse extends ClientCardResponse {
       this.lastVisitAt,
       this.nextVisitAt,
       this.stats,
-      this.servedByMasters})
+      this.servedByMasters,
+      this.firstName,
+      this.lastName})
       : super._();
   @override
   ClientCardResponse rebuild(
@@ -148,7 +154,9 @@ class _$ClientCardResponse extends ClientCardResponse {
         lastVisitAt == other.lastVisitAt &&
         nextVisitAt == other.nextVisitAt &&
         stats == other.stats &&
-        servedByMasters == other.servedByMasters;
+        servedByMasters == other.servedByMasters &&
+        firstName == other.firstName &&
+        lastName == other.lastName;
   }
 
   @override
@@ -169,6 +177,8 @@ class _$ClientCardResponse extends ClientCardResponse {
     _$hash = $jc(_$hash, nextVisitAt.hashCode);
     _$hash = $jc(_$hash, stats.hashCode);
     _$hash = $jc(_$hash, servedByMasters.hashCode);
+    _$hash = $jc(_$hash, firstName.hashCode);
+    _$hash = $jc(_$hash, lastName.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -190,7 +200,9 @@ class _$ClientCardResponse extends ClientCardResponse {
           ..add('lastVisitAt', lastVisitAt)
           ..add('nextVisitAt', nextVisitAt)
           ..add('stats', stats)
-          ..add('servedByMasters', servedByMasters))
+          ..add('servedByMasters', servedByMasters)
+          ..add('firstName', firstName)
+          ..add('lastName', lastName))
         .toString();
   }
 }
@@ -265,6 +277,14 @@ class ClientCardResponseBuilder
   set servedByMasters(ListBuilder<ServedMaster>? servedByMasters) =>
       _$this._servedByMasters = servedByMasters;
 
+  String? _firstName;
+  String? get firstName => _$this._firstName;
+  set firstName(String? firstName) => _$this._firstName = firstName;
+
+  String? _lastName;
+  String? get lastName => _$this._lastName;
+  set lastName(String? lastName) => _$this._lastName = lastName;
+
   ClientCardResponseBuilder() {
     ClientCardResponse._defaults(this);
   }
@@ -287,6 +307,8 @@ class ClientCardResponseBuilder
       _nextVisitAt = $v.nextVisitAt;
       _stats = $v.stats?.toBuilder();
       _servedByMasters = $v.servedByMasters?.toBuilder();
+      _firstName = $v.firstName;
+      _lastName = $v.lastName;
       _$v = null;
     }
     return this;
@@ -325,6 +347,8 @@ class ClientCardResponseBuilder
             nextVisitAt: nextVisitAt,
             stats: _stats?.build(),
             servedByMasters: _servedByMasters?.build(),
+            firstName: firstName,
+            lastName: lastName,
           );
     } catch (_) {
       late String _$failedField;

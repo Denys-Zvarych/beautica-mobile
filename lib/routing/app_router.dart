@@ -84,6 +84,8 @@ import '../shared/validators/uuid_validator.dart';
 import '../features/clients/presentation/client_card_screen.dart';
 import '../features/clients/presentation/client_rating_screen.dart';
 import '../features/clients/presentation/clients_screen.dart';
+import '../features/clients/presentation/widgets/client_picker_sheet.dart';
+import '../features/clients/domain/client_prefill.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
@@ -378,6 +380,20 @@ GoRouter appRouter(Ref ref) {
   /// ([kBookingFromClientCardQuery]); its client strip pops back to it.
   bool openedFromClientCard(GoRouterState state) =>
       state.uri.queryParameters[kBookingFromClientCardQuery] == '1';
+
+  /// M553 (BOOK-79, D1) — the walk-in client step's picker, bound to
+  /// [scope]; `null` (no picker control) unless the settled role may pick
+  /// ([canPickClients] — never SALON_MASTER). The sheet re-checks the role
+  /// on open and the server enforces the scope (B550).
+  Future<ClientPrefill?> Function(BuildContext)? walkInClientPicker(
+    ClientListScope scope,
+  ) {
+    if (!canPickClients(authUserRoleSettledOrNull(ref.read(authProvider)))) {
+      return null;
+    }
+    return (BuildContext context) =>
+        showClientPickerSheet(context, scope: scope);
+  }
 
   ClientListScope salonClientScope(GoRouterState state, String salonId) {
     final String? raw = state.uri.queryParameters[kClientCardMasterIdQuery];
@@ -2313,7 +2329,11 @@ GoRouter appRouter(Ref ref) {
             // the (+) path → `seed: null`, today's screen exactly).
             pageBuilder: (context, state) => MaterialPage<void>(
               fullscreenDialog: true,
-              child: WalkInGuestStepScreen(seed: _createSeedOf(state)),
+              child: WalkInGuestStepScreen(
+                seed: _createSeedOf(state),
+                // M553 D1 — an independent master picks from own clients.
+                onPickClient: walkInClientPicker(const ClientListScope.me()),
+              ),
             ),
             routes: [
               // Phase 264 — /master/bookings/new/services, the walk-in
@@ -2445,7 +2465,13 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) => MaterialPage<void>(
           fullscreenDialog: true,
           child: switch (state.extra) {
-            final String salonId => SalonCreateBookingScreen(salonId: salonId),
+            final String salonId => SalonCreateBookingScreen(
+              salonId: salonId,
+              // M553 D1 — owner / admin pick from the booked salon's clients.
+              onPickClient: walkInClientPicker(
+                ClientListScope.salon(salonId: salonId),
+              ),
+            ),
             _ => _MissingRouteExtra(fallbackRoute: _staffLanding(ref)),
           },
         ),
@@ -3207,10 +3233,32 @@ GoRouter appRouter(Ref ref) {
             path: RouteNames.ownerMasterBookingNew,
             pageBuilder: (context, state) => MaterialPage<void>(
               fullscreenDialog: true,
-              child: WalkInGuestStepScreen(
-                servicesRoute: RouteNames.ownerMasterBookingNewServices,
-                // Phase 487 — see `/master/bookings/new`.
-                seed: _createSeedOf(state),
+              // M553 D1 — the owner's salon clients (never `/masters/me`,
+              // which 403s for an owner). A Consumer so the picker appears
+              // once the owner's profile resolves the salon id; until then
+              // the step renders exactly as before (no picker).
+              child: Consumer(
+                builder: (BuildContext context, WidgetRef ref, Widget? _) {
+                  // Select the salon id alone (not the whole
+                  // [_OwnMasterIds] record) so a profile refresh's
+                  // `isLoading`/error flips don't rebuild the step.
+                  final String? salonId = ref.watch(
+                    masterProfileProvider.select(
+                      (AsyncValue<Master> async) =>
+                          _selectOwnMasterIds(async).salonId,
+                    ),
+                  );
+                  return WalkInGuestStepScreen(
+                    servicesRoute: RouteNames.ownerMasterBookingNewServices,
+                    // Phase 487 — see `/master/bookings/new`.
+                    seed: _createSeedOf(state),
+                    onPickClient: salonId == null || salonId.isEmpty
+                        ? null
+                        : walkInClientPicker(
+                            ClientListScope.salon(salonId: salonId),
+                          ),
+                  );
+                },
               ),
             ),
             routes: [

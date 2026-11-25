@@ -148,6 +148,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart'
     show approvedCategoriesProvider;
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -284,6 +285,7 @@ class ClientStep extends StatefulWidget {
     required this.lastNameCtrl,
     required this.phoneCtrl,
     required this.onNext,
+    this.onPickClient,
   });
 
   final TextEditingController firstNameCtrl;
@@ -291,11 +293,70 @@ class ClientStep extends StatefulWidget {
   final TextEditingController phoneCtrl;
   final VoidCallback onNext;
 
+  /// M553 (BOOK-79) — opens the client picker and resolves the picked
+  /// client's [ClientPrefill] (`null` = dismissed). ADDITIVE: `null` (the
+  /// default) renders the step exactly as before — no picker control. The
+  /// ROUTE passes it, already bound to the role's scope (D1: IM → `me()`,
+  /// owner / admin → the booked salon) and only where `canPickClients(role)`;
+  /// this widget never decides scope or role.
+  final Future<ClientPrefill?> Function(BuildContext context)? onPickClient;
+
+  static const Key pickClientKey = Key('walk-in-pick-client');
+  static const Key pickedChipKey = Key('walk-in-pick-client-chip');
+  static const Key clearPickKey = Key('walk-in-pick-client-clear');
+
   @override
   State<ClientStep> createState() => _ClientStepState();
 }
 
 class _ClientStepState extends State<ClientStep> {
+  /// The picked client's name for the hint chip (D3: a hint only — never
+  /// sent, cleared by its «×» while the fields keep their text). PII: never
+  /// logged.
+  String? _pickedLabel;
+
+  /// Re-entrancy guard: a second tap while the sheet is up is ignored.
+  bool _picking = false;
+
+  Future<void> _pickClient(
+    Future<ClientPrefill?> Function(BuildContext context) pick,
+  ) async {
+    if (_picking) return;
+    _picking = true;
+    final ClientPrefill? prefill;
+    try {
+      prefill = await pick(context);
+    } finally {
+      _picking = false;
+    }
+    if (!mounted || prefill == null) return;
+    final String first = prefill.firstName ?? '';
+    final String last = prefill.lastName ?? '';
+    final String? phone = prefill.phone;
+    setState(() {
+      // A part the client lacks leaves its field EMPTY (never a stale value
+      // from a previous pick or a manual entry) — `_canAdvance` then keeps
+      // «Далі» disabled until it is typed.
+      _setText(widget.firstNameCtrl, first);
+      _setText(widget.lastNameCtrl, last);
+      _setText(
+        widget.phoneCtrl,
+        phone == null ? '' : UaPhoneInputFormatter.display(phone),
+      );
+      final String label = <String>[
+        first,
+        last,
+      ].where((String p) => p.isNotEmpty).join(' ');
+      _pickedLabel = label.isEmpty ? null : label;
+    });
+  }
+
+  static void _setText(TextEditingController ctrl, String text) =>
+      ctrl.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+
   bool get _canAdvance =>
       widget.firstNameCtrl.text.trim().isNotEmpty &&
       widget.lastNameCtrl.text.trim().isNotEmpty &&
@@ -307,21 +368,71 @@ class _ClientStepState extends State<ClientStep> {
     return toE164UaPhone(raw) == null ? l10n.errPhoneInvalid : null;
   }
 
+  /// The step heading. With a picker launcher (M553) the heading row also
+  /// carries the compact «Обрати з моїх клієнтів» link at its trailing edge —
+  /// in the heading's own line, so the manual-entry fields and «Далі» keep
+  /// their position (a full-width button would push «Далі» below the fold of
+  /// a short screen). That row is [kMinInteractiveDimension] (48 dp) tall so
+  /// the link's hit area is 48 dp; [build] pays for it out of the step's top
+  /// padding and the heading's two `xs` spacers, so the intro, fields and
+  /// «Далі» sit where they did. Without a launcher: exactly today's heading.
+  Widget _heading(AppLocalizations l10n) {
+    final Widget heading = Text(
+      l10n.masterCreateBookingClientHeading,
+      style: VelvetText.subheadingWizard15,
+    );
+    final Future<ClientPrefill?> Function(BuildContext context)? pick =
+        widget.onPickClient;
+    if (pick == null) return heading;
+    return SizedBox(
+      height: kMinInteractiveDimension,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: <Widget>[
+          Flexible(child: heading),
+          const SizedBox(width: VelvetSpacing.sm),
+          Flexible(
+            flex: 3,
+            child: _PickClientLink(
+              label: l10n.walkInPickClientCta,
+              onTap: () => _pickClient(pick),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // M553 — with the picker, the 48 dp heading row replaces the two `xs`
+    // spacers and most of the top padding (see [_heading]).
+    final bool picker = widget.onPickClient != null;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(VelvetSpacing.lg),
+      padding: picker
+          ? const EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              VelvetSpacing.sm,
+              VelvetSpacing.lg,
+              VelvetSpacing.lg,
+            )
+          : const EdgeInsets.all(VelvetSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const SizedBox(height: VelvetSpacing.xs),
-          Text(
-            l10n.masterCreateBookingClientHeading,
-            style: VelvetText.subheadingWizard15,
-          ),
-          const SizedBox(height: VelvetSpacing.xs),
+          if (!picker) const SizedBox(height: VelvetSpacing.xs),
+          _heading(l10n),
+          if (!picker) const SizedBox(height: VelvetSpacing.xs),
           Text(l10n.masterCreateBookingClientIntro, style: VelvetText.body()),
+          if (_pickedLabel case final String picked) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _PickedClientChip(
+              label: picked,
+              clearLabel: l10n.walkInPickClientClear,
+              onClear: () => setState(() => _pickedLabel = null),
+            ),
+          ],
           const SizedBox(height: VelvetSpacing.lg),
           NeumorphicTextField(
             key: const Key('master-create-booking-first-name'),
@@ -400,6 +511,136 @@ class _ClientStepState extends State<ClientStep> {
             onPressed: _canAdvance ? widget.onNext : null,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// M553 — the compact picker link in the client step's heading row: a mocha
+/// person-search glyph + the Comfortaa CTA label, no fill (the quiet
+/// secondary action beside the form; «Далі» stays the one raised CTA).
+class _PickClientLink extends StatelessWidget {
+  const _PickClientLink({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  static final TextStyle _style = VelvetText.cta().copyWith(
+    color: BrandColors.accentDeep,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: ClientStep.pickClientKey,
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        // The whole 48 dp heading row is the hit area (Material's minimum
+        // touch target); the glyph + label stay visually compact.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minWidth: kMinInteractiveDimension,
+            minHeight: kMinInteractiveDimension,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: <Widget>[
+              const Icon(
+                Icons.person_search_rounded,
+                size: 18,
+                color: BrandColors.accentDeep,
+              ),
+              const SizedBox(width: VelvetSpacing.xs),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _style,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// M553 — the picked client's name in a recessed well, with a «×» that
+/// clears the hint (D3: the fields keep their text). No shared removable
+/// chip exists — the codebase's close affordances are private row parts of
+/// unrelated controls — so this is composed from the shipped
+/// [NeumorphicInset] well and the 32 dp close target the selected-services
+/// shelf and attachment tray already use.
+class _PickedClientChip extends StatelessWidget {
+  const _PickedClientChip({
+    required this.label,
+    required this.clearLabel,
+    required this.onClear,
+  });
+
+  final String label;
+  final String clearLabel;
+  final VoidCallback onClear;
+
+  static const double _tapTarget = 32;
+
+  @override
+  Widget build(BuildContext context) {
+    return NeumorphicInset(
+      key: ClientStep.pickedChipKey,
+      child: Padding(
+        padding: const EdgeInsets.only(
+          left: VelvetSpacing.md,
+          right: VelvetSpacing.xs,
+          top: VelvetSpacing.sm,
+          bottom: VelvetSpacing.sm,
+        ),
+        child: Row(
+          children: <Widget>[
+            const Icon(
+              Icons.person_rounded,
+              size: 18,
+              color: BrandColors.accent,
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: VelvetText.input(),
+              ),
+            ),
+            Semantics(
+              container: true,
+              button: true,
+              label: clearLabel,
+              child: GestureDetector(
+                key: ClientStep.clearPickKey,
+                behavior: HitTestBehavior.opaque,
+                onTap: onClear,
+                child: const SizedBox(
+                  height: _tapTarget,
+                  width: _tapTarget,
+                  child: Center(
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: BrandColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

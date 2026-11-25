@@ -366,9 +366,17 @@ ClientCard clientCardFromDto(
     final int n when n > 0 => n,
     _ => 0,
   };
+  final String? displayName = _nonBlank(dto.displayName)?.trim();
+  final String? firstName = _nonBlank(dto.firstName)?.trim();
+  final String? lastName = _nonBlank(dto.lastName)?.trim();
+  // B550 name parts. Both absent (a pre-B550 backend) → fall back to
+  // `firstName = displayName`; one part present → the other stays null.
+  final bool noParts = firstName == null && lastName == null;
   return ClientCard(
     ref: client,
-    displayName: _nonBlank(dto.displayName)?.trim(),
+    displayName: displayName,
+    firstName: noParts ? displayName : firstName,
+    lastName: lastName,
     avatarUrl: _nonBlank(dto.avatarUrl),
     phone: _nonBlank(dto.phone)?.trim(),
     blocked: dto.blocked ?? false,

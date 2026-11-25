@@ -23,6 +23,8 @@ Name | Type | Description | Notes
 **nextVisitAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **stats** | [**Stats**](Stats.md) |  | [optional] 
 **servedByMasters** | [**BuiltList&lt;ServedMaster&gt;**](ServedMaster.md) |  | [optional] 
+**firstName** | **String** |  | [optional] 
+**lastName** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 
