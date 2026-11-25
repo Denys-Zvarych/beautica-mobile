@@ -3689,6 +3689,32 @@ final class FakeBackend {
   /// and the last decoded body.
   int requestCategoryCalls = 0;
   Map<String, dynamic>? lastCategoryRequestBody;
+
+  /// Count of `POST /service-types/suggest` (suggest-a-service-type submit)
+  /// and the last decoded body. Counted at dispatch, failures included, so a
+  /// flow can pin "409 → resubmit → exactly two requests".
+  int suggestServiceTypeCalls = 0;
+  Map<String, dynamic>? lastSuggestServiceTypeBody;
+
+  /// Status code the NEXT `POST /service-types/suggest` fails with (null =
+  /// the default 200), plus its optional `data.code`. One-shot: the handler
+  /// consumes it, so the following submit succeeds — the "409 CATEGORY_BUSY →
+  /// resubmit → success" journey. Set only via [forceSuggestServiceTypeFailure].
+  int? _suggestServiceTypeFailureStatusCode;
+  String? _suggestServiceTypeFailureErrorCode;
+
+  /// Makes the NEXT `POST /api/v1/service-types/suggest` fail with
+  /// [statusCode]; [errorCode], when given, is nested as
+  /// `data: {"code": errorCode}` (docs/specs/services.md § 10). Re-registers
+  /// the route because `replyCallback` bakes the status in at registration
+  /// (see [_inviteStaffFailureStatusCode]); the handler re-registers the
+  /// default 200 after the failure is served.
+  void forceSuggestServiceTypeFailure(int? statusCode, {String? errorCode}) {
+    _suggestServiceTypeFailureStatusCode = statusCode;
+    _suggestServiceTypeFailureErrorCode = errorCode;
+    _wireSuggestServiceType();
+  }
+
   int getScheduleCalls = 0;
   int postScheduleCalls = 0;
   int putScheduleCalls = 0;
@@ -7816,6 +7842,34 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers `POST /api/v1/service-types/suggest` (the «Запропонувати
+  /// тип послуги» dialog submit). Default: 200 `data: null` (`ApiResponseVoid`).
+  /// A forced failure answers once with `{success:false, data:{code}}` and then
+  /// restores the default, so the user's resubmit succeeds.
+  void _wireSuggestServiceType() {
+    final int? failStatus = _suggestServiceTypeFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/service-types/suggest',
+      (server) => server.replyCallback(failStatus ?? 200, (req) {
+        suggestServiceTypeCalls++;
+        lastSuggestServiceTypeBody = _decodeBody(req.data);
+        if (failStatus == null) return _okVoid;
+        final String? errorCode = _suggestServiceTypeFailureErrorCode;
+        _suggestServiceTypeFailureStatusCode = null;
+        _suggestServiceTypeFailureErrorCode = null;
+        _wireSuggestServiceType();
+        return <String, dynamic>{
+          'success': false,
+          'data': errorCode == null
+              ? null
+              : <String, dynamic>{'code': errorCode},
+          'message': 'Conflict',
+        };
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
   /// (Re-)registers `POST /api/v1/salons/salon-xyz/invite`.
   /// See [forceInviteStaffFailure]. The fake just records the decoded body
   /// (B520: phone/role) and counts the call, mirroring the PATCH/DELETE salon
@@ -10824,6 +10878,9 @@ final class FakeBackend {
       }, delay: requestCategoryDelay),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
+
+    // POST /api/v1/service-types/suggest — see [forceSuggestServiceTypeFailure].
+    _wireSuggestServiceType();
 
     // GET /api/v1/service-types?categoryName=X — second-level picker source
     // (Phase 16.5 regression). Keyed on the `categoryName` query param so a
