@@ -26,6 +26,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
@@ -37,7 +38,18 @@ import 'widgets/booking_wizard_steps.dart' show ClientStep, toE164UaPhone;
 /// «Новий запис» step 1 — collects the walk-in guest's identity
 /// (ім'я/прізвище/телефон) via the shared [ClientStep].
 class WalkInGuestStepScreen extends ConsumerStatefulWidget {
-  const WalkInGuestStepScreen({super.key, this.servicesRoute, this.seed});
+  const WalkInGuestStepScreen({
+    super.key,
+    this.servicesRoute,
+    this.seed,
+    this.onPickClient,
+  });
+
+  /// M553 — forwarded verbatim to [ClientStep.onPickClient]. The route binds
+  /// the scope (D1): `/master/bookings/new` → `ClientListScope.me()`,
+  /// `/owner/master/bookings/new` → `ClientListScope.salon(<owner's salon>)`.
+  /// `null` (the default) → no picker, today's step exactly.
+  final Future<ClientPrefill?> Function(BuildContext context)? onPickClient;
 
   /// Phase 383 (24.1f) — where «Далі» pushes the service step. `null` (the
   /// default) keeps [RouteNames.masterBookingNewServices]; the owner
@@ -128,6 +140,7 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
                 lastNameCtrl: _lastNameCtrl,
                 phoneCtrl: _phoneCtrl,
                 onNext: _onNext,
+                onPickClient: widget.onPickClient,
               ),
             ),
           ],

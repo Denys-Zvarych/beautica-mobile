@@ -38,6 +38,12 @@
 // mutation invalidate the WHOLE family (card / blocked-clients screen and
 // `booking_calendar_invalidation.dart`).
 //
+// HOST (M552): the family key also carries a [ClientListHost]. The «Клієнти»
+// tab ([ClientListHost.tab], the default) behaves exactly as above; the client
+// picker ([ClientListHost.picker]) gets its OWN instance — its search never
+// changes the tab's list — with no cache-for, so it is released when the sheet
+// closes and every open starts with an empty search.
+//
 // PII: names are never logged.
 
 import 'dart:async';
@@ -62,6 +68,16 @@ const Duration kClientSearchDebounce = Duration(milliseconds: 300);
 
 /// How long an unlistened [ClientListController] instance stays cached.
 const Duration kClientListCacheFor = Duration(seconds: 30);
+
+/// Which surface hosts a [ClientListController] instance (part of the family
+/// key, so the two never share a search).
+enum ClientListHost {
+  /// The «Клієнти» tab: cached for [kClientListCacheFor] once unlistened.
+  tab,
+
+  /// The client-picker sheet: released as soon as the sheet closes.
+  picker,
+}
 
 /// The loaded list and its paging cursor.
 @freezed
@@ -115,7 +131,10 @@ class ClientListController extends _$ClientListController {
   CancelToken? _token;
 
   @override
-  Future<ClientListState> build(ClientListScope scope) {
+  Future<ClientListState> build(
+    ClientListScope scope, {
+    ClientListHost host = ClientListHost.tab,
+  }) {
     ref.onDispose(() {
       _debounce?.cancel();
       _token?.cancel();
@@ -137,7 +156,8 @@ class ClientListController extends _$ClientListController {
     }
     final CancelToken token = _supersede();
     _reloading = false;
-    _cacheFor();
+    // The picker keeps nothing between opens (see the file header).
+    if (host == ClientListHost.tab) _cacheFor();
     // Logged out: nothing to show and nothing to fetch.
     if (userId == null) {
       return Future<ClientListState>.value(
@@ -192,6 +212,13 @@ class ClientListController extends _$ClientListController {
   void setQuery(String raw) {
     _debounce?.cancel();
     _debounce = Timer(kClientSearchDebounce, () => _applyQuery(raw));
+  }
+
+  /// Drops a pending [setQuery] debounce, so a search typed just before the
+  /// host closes never fetches (called from `ClientListView.dispose`).
+  void cancelPendingSearch() {
+    _debounce?.cancel();
+    _debounce = null;
   }
 
   Future<void> _applyQuery(String raw) async {

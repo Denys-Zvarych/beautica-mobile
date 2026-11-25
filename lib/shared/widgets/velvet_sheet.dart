@@ -53,6 +53,7 @@ class VelvetSheetChrome extends StatelessWidget {
     required this.children,
     this.subtitle,
     this.dismissOnOverscroll = false,
+    this.content,
   });
 
   final String title;
@@ -73,13 +74,19 @@ class VelvetSheetChrome extends StatelessWidget {
   /// every existing sheet unchanged.
   final bool dismissOnOverscroll;
 
+  /// ADDITIVE (M552): fills the sheet below the fixed header in place of the
+  /// padded scroll of [children] — for a sheet that owns its own scrolling
+  /// list and gutters (the client picker). [children] and
+  /// [dismissOnOverscroll] are ignored when set. `null` (the default) renders
+  /// exactly as before.
+  final Widget? content;
+
   static const BorderRadius _sheetRadius = BorderRadius.vertical(
     top: Radius.circular(VelvetRadii.card),
   );
 
-  @override
-  Widget build(BuildContext context) {
-    final String? sub = subtitle;
+  /// The padded scroll of [children] — built only when [content] is `null`.
+  Widget _scrollBody() {
     final Widget body = SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.lg,
@@ -99,6 +106,12 @@ class VelvetSheetChrome extends StatelessWidget {
         ],
       ),
     );
+    return dismissOnOverscroll ? _OverscrollDismiss(child: body) : body;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String? sub = subtitle;
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: BrandColors.base,
@@ -151,11 +164,7 @@ class VelvetSheetChrome extends StatelessWidget {
                 ],
               ),
             ),
-            Flexible(
-              child: dismissOnOverscroll
-                  ? _OverscrollDismiss(child: body)
-                  : body,
-            ),
+            Flexible(child: content ?? _scrollBody()),
           ],
         ),
       ),

@@ -38,6 +38,7 @@ import 'master_bookings_week_seeded_create_flow_test.dart'
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
+import 'walk_in_pick_client_flow_test.dart' as walk_in_pick_client;
 import 'master_avatar_upload_test.dart' as master_avatar_upload;
 import 'owner_admin_avatar_upload_test.dart' as owner_admin_avatar_upload;
 import 'salon_logo_cover_owner_test.dart' as salon_logo_cover_owner;
@@ -103,6 +104,8 @@ import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
 import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
+import 'service_type_suggestion_conflict_flow_test.dart'
+    as service_type_suggestion_conflict;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
@@ -150,6 +153,9 @@ void main() {
   // list. Registered beside `master_bookings_flow`, whose login/router
   // scaffolding it shares.
   group('master_create_booking_flow', master_create_booking.main);
+  // M553 (BOOK-79) — walk-in client step: pick an existing client (IM own
+  // list, owner salon list), prefill, submit; SALON_MASTER gets no picker.
+  group('walk_in_pick_client_flow', walk_in_pick_client.main);
   // Phase 231 (mobile-qa, Step 2.7 Rule 3b) — the master «Архів» page: past
   // bookings including an elapsed-unclosed row, filtering to «Заплановано»,
   // closing via «Виконано» on the real HTTP boundary, the client-side-filter
@@ -431,6 +437,12 @@ void main() {
   // Service-setup per-field 400 → inline row error (Step 2.7 Rule 3b) — the
   // bulk-save validation-error display fix, end-to-end.
   group('service_setup_field_error_flow', service_setup_field_error.main);
+  // Suggest-a-service-type 409 data.code → own copy + resubmit (Step 2.7
+  // Rule 3b) — fix/suggestion-conflict-messages, end-to-end.
+  group(
+    'service_type_suggestion_conflict_flow',
+    service_type_suggestion_conflict.main,
+  );
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);

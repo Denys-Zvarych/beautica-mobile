@@ -42,7 +42,8 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_str
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_avatar_badge.dart'
     show MasterAvatarBadge;
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
-    show StepIndicator;
+    show ClientStep, StepIndicator;
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -528,7 +529,9 @@ SalonStaffMember _staffRowOf(SalonMasterSummary m) => SalonStaffMember(
 // Router + pump helper
 // ---------------------------------------------------------------------------
 
-GoRouter _router() => GoRouter(
+GoRouter _router({
+  Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
+}) => GoRouter(
   initialLocation: '/root',
   routes: <RouteBase>[
     GoRoute(
@@ -537,8 +540,10 @@ GoRouter _router() => GoRouter(
     ),
     GoRoute(
       path: '/salon-test-target',
-      builder: (context, state) =>
-          const SalonCreateBookingScreen(salonId: _kSalonId),
+      builder: (context, state) => SalonCreateBookingScreen(
+        salonId: _kSalonId,
+        onPickClient: onPickClient,
+      ),
     ),
   ],
 );
@@ -565,8 +570,12 @@ Future<GoRouter> _pump(
   /// the caller then supplies the repository + auth via [extraOverrides].
   /// Every existing call site leaves it `true` and pumps byte-identically.
   bool fakeRoster = true,
+
+  /// ADDITIVE (M553) — the route's client-picker launcher; `null` (every
+  /// pre-M553 call site) pumps the step exactly as before.
+  Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
 }) async {
-  final GoRouter router = _router();
+  final GoRouter router = _router(onPickClient: onPickClient);
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
@@ -2809,6 +2818,57 @@ void _passAGroup() {
         1,
         reason: 'and no other salon\'s ±180-day sweep may be re-issued',
       );
+    });
+  });
+
+  // M553 (BOOK-79) — the route's picker launcher reaches the client step.
+  group('M553 client picker', () {
+    testWidgets('no launcher → no picker control', (tester) async {
+      await _pump(tester);
+      expect(find.byKey(ClientStep.pickClientKey), findsNothing);
+    });
+
+    testWidgets('a launcher → picker in the step; the pick prefills the '
+        'fields and «Далі» (not scrolled) advances to the service step', (
+      tester,
+    ) async {
+      int calls = 0;
+      await _pump(
+        tester,
+        onPickClient: (BuildContext _) async {
+          calls++;
+          return const ClientPrefill(
+            firstName: 'Оксана',
+            lastName: 'Мельник',
+            phone: '+380671234567',
+          );
+        },
+      );
+      expect(find.byKey(ClientStep.pickClientKey), findsOneWidget);
+
+      await tester.tap(find.byKey(ClientStep.pickClientKey));
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+      // i18n-finder-ok: the prefilled client name is data, not UI copy
+      expect(find.text('Оксана'), findsOneWidget);
+      expect(find.text('+380 67 123 45 67'), findsOneWidget);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('mcb_service_card_salon-svc-1')), findsOne);
+    });
+
+    testWidgets('with a launcher, manual entry + «Далі» still work without '
+        'scrolling (the link sits in the heading row)', (tester) async {
+      await _pump(tester, onPickClient: (BuildContext _) async => null);
+      await _fillClientStepAndAdvance(tester);
+      expect(find.byKey(const Key('mcb_service_card_salon-svc-1')), findsOne);
     });
   });
 }

@@ -29,6 +29,12 @@ abstract class ClientCard with _$ClientCard {
 
     /// `null` when the client gave no name — the card shows «Гість».
     String? displayName,
+
+    /// M552 — the name parts a picked client prefills a booking form with
+    /// (B550). When the server sends neither part (a pre-B550 backend) the
+    /// mapper falls back to `firstName = displayName`, `lastName = null`.
+    String? firstName,
+    String? lastName,
     String? avatarUrl,
 
     /// The server's phone for this client (a guest's, or a registered client's

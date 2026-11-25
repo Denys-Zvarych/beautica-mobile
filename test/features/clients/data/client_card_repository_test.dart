@@ -97,8 +97,12 @@ Map<String, Object?> _cardJson({
   int ratingCount = 12,
   num? ratingAvg = 4.9,
   Object? servedByMasters,
+  String? firstName,
+  String? lastName,
 }) => <String, Object?>{
   'servedByMasters': ?servedByMasters,
+  'firstName': ?firstName,
+  'lastName': ?lastName,
   'kind': kind,
   'userId': kind == 'REGISTERED' ? _userId : null,
   'guestBookingId': kind == 'GUEST' ? _bookingId : null,
@@ -242,6 +246,58 @@ void main() {
         _registered,
       );
       expect(c.ratingDistribution, <int>[9, 2, 0, 0, 1]);
+    });
+
+    test('B550 name parts are mapped (trimmed); the display name is not '
+        'used when either part is present', () async {
+      final both = _build(
+        body: _envelope(_cardJson(firstName: ' Оксана ', lastName: 'Мельник')),
+      );
+      final ClientCard a = await both.repo.getCard(
+        const ClientListScope.me(),
+        _registered,
+      );
+      expect(a.firstName, 'Оксана');
+      expect(a.lastName, 'Мельник');
+      expect(a.displayName, 'Оксана Мельник');
+
+      final lastOnly = _build(
+        body: _envelope(_cardJson(firstName: '  ', lastName: 'Мельник')),
+      );
+      final ClientCard b = await lastOnly.repo.getCard(
+        const ClientListScope.me(),
+        _guest,
+      );
+      expect(b.firstName, isNull);
+      expect(b.lastName, 'Мельник');
+
+      final firstOnly = _build(body: _envelope(_cardJson(firstName: 'Ірина')));
+      final ClientCard c = await firstOnly.repo.getCard(
+        const ClientListScope.me(),
+        _guest,
+      );
+      expect(c.firstName, 'Ірина');
+      expect(c.lastName, isNull);
+    });
+
+    test('no name parts on the wire (pre-B550) → firstName = display '
+        'name, lastName null; nameless → both null', () async {
+      final named = _build(body: _envelope(_cardJson()));
+      final ClientCard a = await named.repo.getCard(
+        const ClientListScope.me(),
+        _registered,
+      );
+      expect(a.firstName, a.displayName);
+      expect(a.firstName, isNotNull);
+      expect(a.lastName, isNull);
+
+      final blank = _build(body: _envelope(_cardJson(displayName: ' ')));
+      final ClientCard b = await blank.repo.getCard(
+        const ClientListScope.me(),
+        _guest,
+      );
+      expect(b.firstName, isNull);
+      expect(b.lastName, isNull);
     });
 
     test('blank name / phone → null', () async {

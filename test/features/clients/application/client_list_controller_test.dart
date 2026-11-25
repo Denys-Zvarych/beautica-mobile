@@ -520,6 +520,71 @@ void main() {
         expect(repo.calls.last.page, 0);
       },
     );
+
+    // M552 audit P2 — the picker host is its own instance with no cache-for.
+    test('picker host: its own list (a picker search never touches the tab '
+        'list) and released as soon as nothing listens', () {
+      fakeAsync((FakeAsync fa) {
+        final repo = _FakeClientRepository();
+        final c = _container(repo);
+        c.read(authProvider.future);
+        fa.flushMicrotasks();
+        final tabSub = c.listen(clientListControllerProvider(_me), (_, _) {});
+        final pickerProvider = clientListControllerProvider(
+          _me,
+          host: ClientListHost.picker,
+        );
+        final pickerSub = c.listen(pickerProvider, (_, _) {});
+        fa.flushMicrotasks();
+        expect(repo.calls, hasLength(2), reason: 'two instances, two lists');
+
+        c.read(pickerProvider.notifier).setQuery('ол');
+        fa.elapse(kClientSearchDebounce);
+        fa.flushMicrotasks();
+        expect(c.read(pickerProvider).requireValue.query, 'ол');
+        expect(
+          c.read(clientListControllerProvider(_me)).requireValue.query,
+          isNull,
+          reason: 'the tab list is untouched',
+        );
+
+        pickerSub.close();
+        // Riverpod's dispose pass runs on the next scheduler tick — far inside
+        // the tab's 30 s window.
+        fa.elapse(const Duration(milliseconds: 1));
+        expect(c.exists(pickerProvider), isFalse, reason: 'no cache-for');
+        final reopened = c.listen(pickerProvider, (_, _) {});
+        fa.flushMicrotasks();
+        expect(c.read(pickerProvider).requireValue.query, isNull);
+        reopened.close();
+        tabSub.close();
+      });
+    });
+
+    test('cancelPendingSearch: a debounced term never fetches', () {
+      fakeAsync((FakeAsync fa) {
+        final repo = _FakeClientRepository();
+        final c = _container(repo);
+        c.read(authProvider.future);
+        fa.flushMicrotasks();
+        final sub = c.listen(clientListControllerProvider(_me), (_, _) {});
+        fa.flushMicrotasks();
+        final notifier = c.read(clientListControllerProvider(_me).notifier);
+        final int calls = repo.calls.length;
+
+        notifier.setQuery('ол');
+        notifier.cancelPendingSearch();
+        fa.elapse(kClientSearchDebounce * 2);
+        fa.flushMicrotasks();
+
+        expect(repo.calls.length, calls);
+        expect(
+          c.read(clientListControllerProvider(_me)).requireValue.query,
+          isNull,
+        );
+        sub.close();
+      });
+    });
   });
 
   group('scope → call', () {

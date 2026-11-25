@@ -155,6 +155,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
@@ -205,11 +206,19 @@ enum _BookingStep { client, service, dateTime, masters, confirm, done }
 
 /// The salon «Новий запис» wizard — see file header for the full reuse map.
 class SalonCreateBookingScreen extends ConsumerStatefulWidget {
-  const SalonCreateBookingScreen({super.key, required this.salonId});
+  const SalonCreateBookingScreen({
+    super.key,
+    required this.salonId,
+    this.onPickClient,
+  });
 
   /// Used ONLY to list this salon's masters (`SalonMastersStep`) — never
   /// sent in the create call, see this file's header.
   final String salonId;
+
+  /// M553 — forwarded verbatim to [ClientStep.onPickClient]; the route binds
+  /// it to `ClientListScope.salon(salonId)` (D1). `null` → no picker.
+  final Future<ClientPrefill?> Function(BuildContext context)? onPickClient;
 
   @override
   ConsumerState<SalonCreateBookingScreen> createState() =>
@@ -460,6 +469,7 @@ class _SalonCreateBookingScreenState
           lastNameCtrl: _lastNameCtrl,
           phoneCtrl: _phoneCtrl,
           onNext: () => _goTo(_BookingStep.service),
+          onPickClient: widget.onPickClient,
         );
       case _BookingStep.service:
         return ServiceStep(
