@@ -27,6 +27,7 @@
 //    snack's only saturated element, it encodes severity at the very edge of
 //    peripheral vision, and it survives when the message is truncated.
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import 'package:material_symbols_icons/symbols.dart';
@@ -96,6 +97,7 @@ class VelvetSnack extends StatelessWidget {
     this.onAction,
     this.onDismiss,
     this.maxLines = 2,
+    this.countdown,
   }) : assert(
          (actionLabel == null) == (onAction == null),
          'actionLabel and onAction must be supplied together.',
@@ -120,10 +122,28 @@ class VelvetSnack extends StatelessWidget {
   /// behind it.
   final int maxLines;
 
+  /// M544 — ADDITIVE: the remaining undo time, `1` (full) → `0` (expired),
+  /// drawn as a thin bar along the snack's bottom edge in the variant accent.
+  /// `null` (the default, every pre-M544 caller) renders NO bar and the exact
+  /// pre-M544 tree. The host drives it (`showVelvetSnack(showCountdown:
+  /// true)`); this widget stays timer-free, so a golden passes a fixed
+  /// `AlwaysStoppedAnimation`.
+  final ValueListenable<double>? countdown;
+
+  static const Key countdownKey = Key('velvet-snack-countdown');
+
+  /// The trailing action button (e.g. «Повернути»). Same value the button
+  /// has always carried, now public for tests.
+  static const Key actionKey = ValueKey<String>('velvet_snack_action');
+
+  /// The optional close «×». Same value it has always carried, now public.
+  static const Key closeKey = ValueKey<String>('velvet_snack_close');
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final Color accent = variant.accent;
+    final ValueListenable<double>? countdown = this.countdown;
     final bool hasAction = actionLabel != null;
 
     return Semantics(
@@ -152,68 +172,135 @@ class VelvetSnack extends StatelessWidget {
                 // --- Signature: the accent spine. -------------------------
                 Container(width: VelvetSizes.snackSpine, color: accent),
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      VelvetSpacing.sm + VelvetSpacing.xs, // 12
-                      VelvetSpacing.sm + VelvetSpacing.xs,
-                      VelvetSpacing.sm + VelvetSpacing.xs,
-                      VelvetSpacing.sm + VelvetSpacing.xs,
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: <Widget>[
-                        _IconHolder(variant: variant),
-                        const SizedBox(
-                          width: VelvetSpacing.sm + VelvetSpacing.xs,
-                        ),
-                        Expanded(
-                          // The plain message Text otherwise emits its OWN
-                          // auto-generated semantics node, which — since
-                          // this whole tile is only a `container:true`
-                          // Semantics boundary, not `excludeSemantics:true`
-                          // (that would also swallow the action/close
-                          // buttons' own explicit button semantics below) —
-                          // merges UP into the outer node's `label` on top
-                          // of the explicit `'$prefix. $message'` label,
-                          // doubling the announcement (mobile-qa,
-                          // `test/shared/feedback/velvet_snack_test.dart`'s
-                          // semantics test, caught red before this fix).
-                          // Excluding just this leaf keeps the explicit
-                          // outer label as the ONLY thing a screen reader
-                          // speaks for the message, while leaving the
-                          // action/close affordances independently
-                          // announceable.
-                          child: ExcludeSemantics(
-                            child: Text(
-                              message,
-                              style: VelvetText.snackMessage(),
-                              maxLines: maxLines,
-                              overflow: TextOverflow.ellipsis,
+                  child: _withCountdown(
+                    countdown,
+                    accent,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        VelvetSpacing.sm + VelvetSpacing.xs, // 12
+                        VelvetSpacing.sm + VelvetSpacing.xs,
+                        VelvetSpacing.sm + VelvetSpacing.xs,
+                        VelvetSpacing.sm + VelvetSpacing.xs,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: <Widget>[
+                          _IconHolder(variant: variant),
+                          const SizedBox(
+                            width: VelvetSpacing.sm + VelvetSpacing.xs,
+                          ),
+                          Expanded(
+                            // The plain message Text otherwise emits its OWN
+                            // auto-generated semantics node, which — since
+                            // this whole tile is only a `container:true`
+                            // Semantics boundary, not `excludeSemantics:true`
+                            // (that would also swallow the action/close
+                            // buttons' own explicit button semantics below) —
+                            // merges UP into the outer node's `label` on top
+                            // of the explicit `'$prefix. $message'` label,
+                            // doubling the announcement (mobile-qa,
+                            // `test/shared/feedback/velvet_snack_test.dart`'s
+                            // semantics test, caught red before this fix).
+                            // Excluding just this leaf keeps the explicit
+                            // outer label as the ONLY thing a screen reader
+                            // speaks for the message, while leaving the
+                            // action/close affordances independently
+                            // announceable.
+                            child: ExcludeSemantics(
+                              child: Text(
+                                message,
+                                style: VelvetText.snackMessage(),
+                                maxLines: maxLines,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
-                        ),
-                        if (hasAction) ...<Widget>[
-                          const SizedBox(width: VelvetSpacing.sm),
-                          _SnackAction(
-                            label: actionLabel!,
-                            accent: accent,
-                            onPressed: onAction!,
-                          ),
+                          if (hasAction) ...<Widget>[
+                            const SizedBox(width: VelvetSpacing.sm),
+                            _SnackAction(
+                              label: actionLabel!,
+                              accent: accent,
+                              onPressed: onAction!,
+                            ),
+                          ],
+                          if (onDismiss != null) ...<Widget>[
+                            SizedBox(
+                              width: hasAction
+                                  ? VelvetSpacing.xs
+                                  : VelvetSpacing.sm,
+                            ),
+                            _SnackClose(onPressed: onDismiss!),
+                          ],
                         ],
-                        if (onDismiss != null) ...<Widget>[
-                          SizedBox(
-                            width: hasAction
-                                ? VelvetSpacing.xs
-                                : VelvetSpacing.sm,
-                          ),
-                          _SnackClose(onPressed: onDismiss!),
-                        ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// [content] alone when there is no [countdown] (the pre-M544 tree, byte for
+/// byte), else [content] with the [_CountdownBar] laid over its bottom edge —
+/// positioned, so it never changes the snack's height or the content layout.
+Widget _withCountdown(
+  ValueListenable<double>? countdown,
+  Color accent,
+  Widget content,
+) {
+  if (countdown == null) return content;
+  return Stack(
+    children: <Widget>[
+      content,
+      Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        // Its own layer: the bar repaints every countdown tick, the message,
+        // spine, icon and action above it do not.
+        child: RepaintBoundary(
+          child: _CountdownBar(countdown: countdown, accent: accent),
+        ),
+      ),
+    ],
+  );
+}
+
+/// M544 — the time-left bar. Starts right of the spine and drains toward
+/// it (end → start), so the remaining time always sits against the snack's
+/// signature edge. A faint accent track shows the full window; the fill is
+/// the accent itself — no new colour, no gradient. Decorative for screen
+/// readers: the action button already says what can be undone.
+class _CountdownBar extends StatelessWidget {
+  const _CountdownBar({required this.countdown, required this.accent});
+
+  /// Rebuilds the fill only when this notifies: every frame when animated,
+  /// once per second under reduced motion (the host's stepped notifier).
+  final ValueListenable<double> countdown;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: SizedBox(
+        key: VelvetSnack.countdownKey,
+        height: VelvetSizes.snackCountdownBar,
+        child: ColoredBox(
+          color: accent.withValues(alpha: 0.14),
+          child: ValueListenableBuilder<double>(
+            valueListenable: countdown,
+            builder: (BuildContext context, double value, Widget? bar) =>
+                FractionallySizedBox(
+                  alignment: AlignmentDirectional.centerStart,
+                  widthFactor: value.clamp(0.0, 1.0),
+                  child: bar,
+                ),
+            child: ColoredBox(color: accent),
           ),
         ),
       ),
@@ -265,11 +352,18 @@ class _SnackAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Its OWN semantics node (a11y audit, phase 544): `container` keeps it
+    // from merging into the snack's message node, `excludeSemantics` drops the
+    // InkWell's / Text's duplicate label, so a screen reader focuses one
+    // button announced once; `onTap` keeps it activatable from there.
     return Semantics(
+      container: true,
       button: true,
       label: label,
+      excludeSemantics: true,
+      onTap: onPressed,
       child: InkWell(
-        key: const ValueKey<String>('velvet_snack_action'),
+        key: VelvetSnack.actionKey,
         onTap: onPressed,
         borderRadius: BorderRadius.circular(VelvetRadii.field),
         splashColor: accent.withValues(alpha: 0.14),
@@ -298,11 +392,16 @@ class _SnackClose extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // Its OWN semantics node, like [_SnackAction]: never merged into the
+    // message node, labelled once, activatable from semantics.
     return Semantics(
+      container: true,
       button: true,
       label: l10n.velvetSnackDismissSemantic,
+      excludeSemantics: true,
+      onTap: onPressed,
       child: InkWell(
-        key: const ValueKey<String>('velvet_snack_close'),
+        key: VelvetSnack.closeKey,
         onTap: onPressed,
         borderRadius: BorderRadius.circular(VelvetRadii.pill),
         splashColor: BrandColors.accent.withValues(alpha: 0.14),

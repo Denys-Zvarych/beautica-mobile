@@ -1,5 +1,7 @@
 // Phase 425 / 428 — a provider's «⋯» on a CLIENT: report a registered client,
-// block / unblock (R3, docs/specs/moderation.md).
+// block / unblock (R3, docs/specs/moderation.md); M544 adds «Прибрати зі
+// списку» (CLI-86) for every provider role — the write itself is the host's
+// `onRemove` (the clients feature owns the list), this flow only offers it.
 //
 // PROMOTED (2026-11-21) out of `booking_detail_screen.dart`'s private
 // `_clientMoreFor` / `_onClientMore` / `_showBlockOutcome`, so the client card
@@ -35,6 +37,9 @@ typedef ClientActionsGate = ({
   bool canBlock,
   bool blocked,
   bool salonScope,
+
+  /// M544 — «Прибрати зі списку» (every provider role, CLI-69).
+  bool canRemove,
 });
 
 /// Phase 425 D2/D3 — the gate for [booking]'s client, or `null` when there is
@@ -43,7 +48,9 @@ typedef ClientActionsGate = ({
 /// roles [clientBlocksAllowedFor] admits (independent master, salon owner,
 /// salon admin — never a salon master), and then only as the server allows:
 /// «Заблокувати» when `clientBlockable`, «Розблокувати» when `clientBlocked`
-/// with its `clientBlockId`. A null role fails closed.
+/// with its `clientBlockId`. M544: remove from the list for every provider
+/// role, so a salon master on a guest card gets a gate with remove only
+/// (CLI-69). A null role fails closed.
 ClientActionsGate? clientActionsGateFor(
   Booking booking,
   UserRole? role, {
@@ -57,13 +64,14 @@ ClientActionsGate? clientActionsGateFor(
   final bool canBlock =
       roleMayBlock &&
       (blocked || (!booking.clientBlocked && booking.clientBlockable));
-  if (!canReport && !canBlock) return null;
+  // Every provider role may remove (M544), so a provider always gets a gate.
   return (
     canReport: canReport,
     canBlock: canBlock,
     blocked: blocked,
     // Phase 398 — a salon owner / admin blocks for the whole salon.
     salonScope: role == UserRole.salonOwner || role == UserRole.salonAdmin,
+    canRemove: true,
   );
 }
 
@@ -71,6 +79,8 @@ ClientActionsGate? clientActionsGateFor(
 /// action. [salonId] is the salon board the host was drilled into from
 /// (`null` everywhere else — see `BookingDetailScreen.salonId`). [onChanged]
 /// runs after a successful block / unblock (the card refreshes its tag).
+/// [onRemove] (M544) runs «Прибрати зі списку»; without it the item is not
+/// offered.
 Future<void> runClientActions(
   BuildContext context,
   WidgetRef ref, {
@@ -78,15 +88,20 @@ Future<void> runClientActions(
   required ClientActionsGate gate,
   String? salonId,
   VoidCallback? onChanged,
+  Future<void> Function()? onRemove,
 }) async {
   final AppLocalizations l10n = AppLocalizations.of(context);
   final String name = booking.clientName ?? l10n.bookingDetailGuestClient;
+  final bool canRemove = gate.canRemove && onRemove != null;
+  // A host without `onRemove` and nothing else to offer opens no sheet.
+  if (!gate.canReport && !gate.canBlock && !canRemove) return;
   final ClientAction? action = await showClientActionsSheet(
     context,
     name: name,
     canReport: gate.canReport,
     canBlock: gate.canBlock,
     blocked: gate.blocked,
+    canRemove: canRemove,
   );
   if (!context.mounted || action == null) return;
   switch (action) {
@@ -131,6 +146,8 @@ Future<void> runClientActions(
           .unblock(bookingId: booking.id, blockId: blockId);
       if (!context.mounted) return;
       _showBlockOutcome(context, result, l10n.clientUnblockedSnack, onChanged);
+    case ClientAction.remove:
+      await onRemove?.call();
   }
 }
 

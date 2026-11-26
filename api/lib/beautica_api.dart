@@ -170,6 +170,7 @@ export 'package:beautica_api/src/model/city_response.dart';
 export 'package:beautica_api/src/model/client_authored_review_response.dart';
 export 'package:beautica_api/src/model/client_card_response.dart';
 export 'package:beautica_api/src/model/client_list_item_response.dart';
+export 'package:beautica_api/src/model/client_list_removal_request.dart';
 export 'package:beautica_api/src/model/client_own_rating_response.dart';
 export 'package:beautica_api/src/model/client_review_response.dart';
 export 'package:beautica_api/src/model/client_visit_response.dart';

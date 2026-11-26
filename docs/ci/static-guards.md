@@ -458,15 +458,29 @@ marker (`//`, `///`, `/*`, or a `*` block-comment continuation) — real
 code with a trailing comment (`Navigator.push(ctx); // TODO`) is still
 flagged.
 
+Lives in `scripts/forbid_direct_navigator.sh` (moved out of the inline
+`pr-validate.yml` step 2026-11-26, logic unchanged); CI runs it as its own
+step and `scripts/verify_guards.sh` runs it locally. `--self-test` plants a
+real `Navigator.of(...)` (must fail) and comment-only mentions (must pass).
+A feature that needs the root navigator's context reads it through go_router
+(`GoRouter.of(context).routerDelegate.navigatorKey.currentContext`, see
+`push_tap_dispatcher.dart`), never `Navigator.of(rootNavigator: true)`.
+
 <a id="shared-preferences"></a>
 
 ### Forbid SharedPreferences in features (MS1)
 
 MS1 — SharedPreferences must never be used for tokens or PII in feature
 code. flutter_secure_storage is the only approved secure store.
-lib/features/ is currently empty so this always passes; the gate becomes
-live as soon as Phase 2.2 creates the auth feature directory.
-`2>/dev/null` suppresses "no such file" noise when the dir doesn't exist.
+The gate is live over the whole populated lib/features/ tree (it has no
+uses today). Lives in `scripts/forbid_shared_preferences.sh` (moved out of
+the inline `pr-validate.yml` step 2026-11-26); CI runs it as its own step and
+`scripts/verify_guards.sh` runs it locally. `--self-test` plants a real
+import + `SharedPreferences.getInstance()` (must fail) and comment-only
+mentions (must pass). One fix on the move: the inline step's comment filter
+(`grep -v "^\s*//"` on `grep -r` output, whose lines start with `path:`)
+never matched, so a commented mention was flagged; comment-only lines are now
+skipped with the same filter as the direct-Navigator gate.
 
 <a id="openapi-drift"></a>
 

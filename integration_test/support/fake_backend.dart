@@ -1009,6 +1009,11 @@ final class FakeBackend {
   ) {
     final String? id = clientIdByWalkInPhone[guest['phone']];
     if (id == null) return;
+    // M544 (CLI-83) — a booking created after a removal brings the client
+    // back on EVERY list that removed them (the server's comeback rule).
+    for (final Set<String> removed in clientRemovals.values) {
+      removed.remove(id);
+    }
     (clientVisits[id] ??= <Map<String, dynamic>>[]).insertAll(
       0,
       <Map<String, dynamic>>[
@@ -1033,6 +1038,18 @@ final class FakeBackend {
   /// M510 — every card-family request (`card`, `visits`) as
   /// `<kind> <path> page=<n> masterId=<m>`, newest last.
   final List<String> clientCardCalls = <String>[];
+
+  /// M544 (B564, CLI-82) — client ids REMOVED from a list, keyed by that
+  /// list's GET path (`/api/v1/salons/{id}/clients` — the owner AND admin
+  /// share it — or `/api/v1/masters/me/clients`). [wireClientList] drops a
+  /// row whose id is in its path's set; [wireClientListRemovals] fills /
+  /// empties the sets. Empty (the default) → inert for every other flow.
+  final Map<String, Set<String>> clientRemovals = <String, Set<String>>{};
+
+  /// M544 — every removal write as `<remove|restore> <list path> <body>`,
+  /// the body being the exact JSON map the app posted. See
+  /// [wireClientListRemovals].
+  final List<String> clientRemovalCalls = <String>[];
 
   /// M509 QA — pages (0-based) for which [wireClientList] answers with an
   /// unusable envelope (`success: false`, no `data`) → the app's
@@ -13406,11 +13423,15 @@ final class FakeBackend {
       }
       final List<Map<String, dynamic>> matching = <Map<String, dynamic>>[
         for (final Map<String, dynamic> row in clientRows)
-          if (q == null ||
-              ('${row['displayName'] ?? ''}').toLowerCase().contains(
-                q.toLowerCase(),
-              ) ||
-              _clientRowPhoneMatches(row, q))
+          if (!(clientRemovals[path]?.contains(
+                    '${row['userId'] ?? row['guestBookingId']}',
+                  ) ??
+                  false) &&
+              (q == null ||
+                  ('${row['displayName'] ?? ''}').toLowerCase().contains(
+                    q.toLowerCase(),
+                  ) ||
+                  _clientRowPhoneMatches(row, q)))
             row,
       ];
       final int from = page * size;
@@ -13448,6 +13469,62 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) => serve(req, mePath)),
       request: const Request(method: RequestMethods.get),
     );
+  }
+
+  /// M544 — backend B564 `POST …/clients/removals` and `…/removals/restore`
+  /// for every salon in [salonIds] and `/masters/me`, body `{clientId}` or
+  /// `{guestBookingId}`, 204. A removal adds the id to [clientRemovals] under
+  /// the matching LIST path (so the owner's and admin's shared salon list
+  /// drops it, the `me` list does not, and the reverse); a restore takes it
+  /// out. Recorded in [clientRemovalCalls].
+  ///
+  /// [removeFailureStatusCode] (M544 audit) — when non-null, every REMOVE
+  /// answers that status with an error envelope (a raw `FAKE-…` server
+  /// message the app must never show) and changes nothing; restore is
+  /// unaffected. Re-call this method to switch modes (the status is captured
+  /// at registration).
+  void wireClientListRemovals({
+    List<String> salonIds = const <String>['salon-owner-1'],
+    int? removeFailureStatusCode,
+  }) {
+    final int? fail = removeFailureStatusCode;
+    void register(String listPath) {
+      for (final bool restore in <bool>[false, true]) {
+        final int status = (!restore && fail != null) ? fail : 204;
+        _adapter.onRoute(
+          restore ? '$listPath/removals/restore' : '$listPath/removals',
+          (server) => server.replyCallback(status, (req) {
+            final Map<String, dynamic> body = _decodeBody(req.data);
+            clientRemovalCalls.add(
+              '${restore ? 'restore' : 'remove'} $listPath $body',
+            );
+            if (!restore && fail != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'FAKE-$fail: client removal refused',
+              };
+            }
+            final String id = '${body['clientId'] ?? body['guestBookingId']}';
+            final Set<String> removed = clientRemovals.putIfAbsent(
+              listPath,
+              () => <String>{},
+            );
+            restore ? removed.remove(id) : removed.add(id);
+            return null;
+          }),
+          request: const Request(
+            method: RequestMethods.post,
+            data: Matchers.any,
+          ),
+        );
+      }
+    }
+
+    for (final String salonId in salonIds) {
+      register('/api/v1/salons/$salonId/clients');
+    }
+    register('/api/v1/masters/me/clients');
   }
 
   /// M510 — backend B508 client-card reads for every salon in [salonIds]

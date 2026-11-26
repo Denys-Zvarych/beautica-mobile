@@ -70,6 +70,11 @@ abstract final class VelvetSizes {
   /// element, the signature of the component.
   static const double snackSpine = 4;
 
+  /// M544 — height of VelvetSnack's optional time-left countdown bar
+  /// (`showCountdown: true`, the undo snacks). A hairline-plus: thick enough to
+  /// read as a draining bar, thin enough to stay below the spine in rank.
+  static const double snackCountdownBar = 3;
+
   /// Extra bottom clearance a [VelvetSnack] (`shared/feedback/`) must pass as
   /// `bottomInset` on a screen sitting behind the MASTER's own 4-tile
   /// `VelvetBottomNavBar` (`shared/widgets/velvet_bottom_nav_bar.dart`) — a

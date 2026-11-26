@@ -14,6 +14,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_removal.dart'
+    show kClientRemovalBroadcastDelay;
 import 'package:beautica_mobile/features/clients/application/client_views_invalidation.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
@@ -64,11 +66,36 @@ class _FakeClientRepository implements ClientRepository {
     return Future<PageResponse<ClientSummary>>.value(_serve(q, page));
   }
 
+  /// M544 — server-side removals (`removeFromList` / `restoreToList`).
+  final Set<ClientRef> removed = <ClientRef>{};
+  final List<String> writes = <String>[];
+  Object? removeError;
+  Object? restoreError;
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) async {
+    writes.add('remove');
+    final Object? e = removeError;
+    if (e != null) throw e;
+    removed.add(client);
+  }
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) async {
+    writes.add('restore');
+    final Object? e = restoreError;
+    if (e != null) throw e;
+    removed.remove(client);
+  }
+
   PageResponse<ClientSummary> _serve(String? q, int page) {
     final int from = page * pageSize;
     final int to = (from + pageSize).clamp(0, total);
     return PageResponse<ClientSummary>(
-      items: <ClientSummary>[for (int i = from; i < to; i++) row(i, q: q)],
+      items: <ClientSummary>[
+        for (int i = from; i < to; i++)
+          if (!removed.contains(row(i).ref)) row(i, q: q),
+      ],
       page: page,
       totalPages: (total / pageSize).ceil(),
       totalElements: total,
@@ -875,4 +902,320 @@ void main() {
       expect(s.items, hasLength(repo._serve('ол', 0).items.length));
     },
   );
+
+  // M544 (CLI-86) — optimistic remove / undo.
+  group('remove / restore (M544)', () {
+    List<String> ids(ClientListState s) => <String>[
+      for (final ClientSummary c in s.items) c.id,
+    ];
+
+    test('remove drops the row at once, keeps its index, and the list keeps '
+        'its loaded pages (no refetch of its own)', () async {
+      final _FakeClientRepository repo = _FakeClientRepository(total: 5);
+      final ProviderContainer c = _container(repo);
+      await _load(c, _me);
+      final ClientListController notifier = c.read(
+        clientListControllerProvider(_me).notifier,
+      );
+      final Future<ClientRemoval?> pending = notifier.remove(
+        _FakeClientRepository.row(2),
+      );
+      // Optimistic: gone before the write resolves.
+      expect(
+        ids(c.read(clientListControllerProvider(_me)).requireValue),
+        <String>['u0', 'u1', 'u3', 'u4'],
+      );
+      final ClientRemoval? removal = await pending;
+      expect(removal?.index, 2);
+      expect(removal?.error, isNull);
+      expect(repo.writes, <String>['remove']);
+      final int fetches = repo.calls.length;
+      final ClientListState after = await c.read(
+        clientListControllerProvider(_me).future,
+      );
+      expect(repo.calls.length, fetches, reason: 'perf: no self-refetch');
+      expect(ids(after), <String>['u0', 'u1', 'u3', 'u4']);
+    });
+
+    test('the list keeps its appended pages through a remove', () async {
+      final _FakeClientRepository repo = _FakeClientRepository(total: 45);
+      final ProviderContainer c = _container(repo);
+      await _load(c, _me);
+      final ClientListController notifier = c.read(
+        clientListControllerProvider(_me).notifier,
+      );
+      await notifier.loadMore();
+      expect(
+        c.read(clientListControllerProvider(_me)).requireValue.items,
+        hasLength(40),
+      );
+      await notifier.remove(_FakeClientRepository.row(30));
+      final ClientListState after = c
+          .read(clientListControllerProvider(_me))
+          .requireValue;
+      expect(after.items, hasLength(39));
+      expect(after.page, 1, reason: 'page 1 still loaded');
+    });
+
+    test('a failed remove puts the row back at the same index', () async {
+      final _FakeClientRepository repo = _FakeClientRepository(total: 5)
+        ..removeError = const NetworkFailure();
+      final ProviderContainer c = _container(repo);
+      await _load(c, _me);
+      final int fetches = repo.calls.length;
+      final ClientRemoval? removal = await c
+          .read(clientListControllerProvider(_me).notifier)
+          .remove(_FakeClientRepository.row(1));
+      expect(removal?.error, isA<NetworkFailure>());
+      expect(
+        ids(c.read(clientListControllerProvider(_me)).requireValue),
+        <String>['u0', 'u1', 'u2', 'u3', 'u4'],
+      );
+      expect(repo.calls.length, fetches, reason: 'no refetch on failure');
+    });
+
+    test('remove of a row that is not listed does nothing', () async {
+      final _FakeClientRepository repo = _FakeClientRepository(total: 3);
+      final ProviderContainer c = _container(repo);
+      await _load(c, _me);
+      final ClientRemoval? removal = await c
+          .read(clientListControllerProvider(_me).notifier)
+          .remove(_FakeClientRepository.row(9));
+      expect(removal, isNull);
+      expect(repo.writes, isEmpty);
+    });
+
+    test('restore puts the row back at its index and calls restore', () async {
+      final _FakeClientRepository repo = _FakeClientRepository(total: 5);
+      final ProviderContainer c = _container(repo);
+      await _load(c, _me);
+      final ClientSummary row = _FakeClientRepository.row(3);
+      await c.read(clientListControllerProvider(_me).notifier).remove(row);
+      await c.read(clientListControllerProvider(_me).future);
+      final Future<Object?> pending = c
+          .read(clientListControllerProvider(_me).notifier)
+          .restore(row, 3);
+      expect(
+        ids(c.read(clientListControllerProvider(_me)).requireValue),
+        <String>['u0', 'u1', 'u2', 'u3', 'u4'],
+      );
+      expect(await pending, isNull);
+      expect(repo.writes, <String>['remove', 'restore']);
+      expect(
+        ids(await c.read(clientListControllerProvider(_me).future)),
+        <String>['u0', 'u1', 'u2', 'u3', 'u4'],
+      );
+    });
+
+    test('a failed restore returns the error and refetches the server '
+        'truth (row stays gone)', () async {
+      final _FakeClientRepository repo = _FakeClientRepository(total: 4);
+      final ProviderContainer c = _container(repo);
+      await _load(c, _me);
+      final ClientSummary row = _FakeClientRepository.row(0);
+      await c.read(clientListControllerProvider(_me).notifier).remove(row);
+      await c.read(clientListControllerProvider(_me).future);
+      repo.restoreError = const ServerFailure(statusCode: 500);
+      final int fetches = repo.calls.length;
+      final Object? error = await c
+          .read(clientListControllerProvider(_me).notifier)
+          .restore(row, 0);
+      expect(error, isA<ServerFailure>());
+      final ClientListState after = await c.read(
+        clientListControllerProvider(_me).future,
+      );
+      expect(repo.calls.length, fetches + 1);
+      expect(ids(after), <String>['u1', 'u2', 'u3']);
+    });
+
+    test('a swipe burst refreshes the OTHER lists ONCE, when the last '
+        'undo window closes (CLI-82); the swiping list keeps its pages', () {
+      final FakeAsync fa = FakeAsync();
+      fa.run((FakeAsync fa) {
+        final _FakeClientRepository repo = _FakeClientRepository(total: 4);
+        final ProviderContainer c = _container(repo);
+        int fetches(ClientListScope s) =>
+            repo.calls.where((_Call call) => call.scope == s).length;
+        unawaited(_load(c, _salon));
+        unawaited(_load(c, _ownerMaster));
+        fa.flushMicrotasks();
+        final int salon0 = fetches(_salon);
+        final int master0 = fetches(_ownerMaster);
+        final ClientListController salon = c.read(
+          clientListControllerProvider(_salon).notifier,
+        );
+
+        unawaited(salon.remove(_FakeClientRepository.row(1)));
+        fa.flushMicrotasks();
+        fa.elapse(const Duration(seconds: 2));
+        unawaited(salon.remove(_FakeClientRepository.row(2)));
+        fa.flushMicrotasks();
+        // Inside the second swipe's window: nobody refetched yet.
+        fa.elapse(kClientRemovalBroadcastDelay - const Duration(seconds: 1));
+        expect(fetches(_ownerMaster), master0);
+
+        fa.elapse(const Duration(seconds: 2));
+        c.read(clientListControllerProvider(_ownerMaster));
+        fa.flushMicrotasks();
+        expect(fetches(_ownerMaster), master0 + 1, reason: 'ONE refresh');
+        expect(fetches(_salon), salon0, reason: 'own burst: no refetch');
+        expect(
+          ids(c.read(clientListControllerProvider(_salon)).requireValue),
+          <String>['u0', 'u3'],
+        );
+      });
+    });
+
+    /// Runs [body] in virtual time with a salon list, an owner master-mode
+    /// list and a `me` list loaded; [fetches] counts list calls per scope.
+    void burst(
+      void Function(
+        FakeAsync fa,
+        ProviderContainer c,
+        _FakeClientRepository repo,
+        int Function(ClientListScope) fetches,
+      )
+      body,
+    ) {
+      FakeAsync().run((FakeAsync fa) {
+        final _FakeClientRepository repo = _FakeClientRepository(total: 4);
+        final ProviderContainer c = _container(repo);
+        int fetches(ClientListScope s) =>
+            repo.calls.where((_Call call) => call.scope == s).length;
+        unawaited(_load(c, _salon));
+        unawaited(_load(c, _ownerMaster));
+        unawaited(_load(c, _me));
+        fa.flushMicrotasks();
+        body(fa, c, repo, fetches);
+      });
+    }
+
+    /// Lets the burst flush and every invalidated list refetch.
+    void flush(FakeAsync fa, ProviderContainer c) {
+      fa.elapse(kClientRemovalBroadcastDelay + const Duration(seconds: 1));
+      for (final ClientListScope s in <ClientListScope>[
+        _salon,
+        _ownerMaster,
+        _me,
+      ]) {
+        c.read(clientListControllerProvider(s));
+      }
+      fa.flushMicrotasks();
+    }
+
+    test('the burst is keyed by the family key, not the notifier: a rebuild '
+        'of the swiping list still counts as the source (no self-refetch at '
+        'the flush); other scopes are left alone', () {
+      burst((fa, c, repo, fetches) {
+        unawaited(
+          c
+              .read(clientListControllerProvider(_salon).notifier)
+              .remove(_FakeClientRepository.row(1)),
+        );
+        fa.flushMicrotasks();
+        // A rebuild (new notifier instance) inside the window.
+        c.invalidate(clientListControllerProvider(_salon));
+        c.read(clientListControllerProvider(_salon));
+        fa.flushMicrotasks();
+        final int salon0 = fetches(_salon);
+        final int master0 = fetches(_ownerMaster);
+        final int me0 = fetches(_me);
+
+        flush(fa, c);
+        expect(fetches(_salon), salon0, reason: 'own burst across a rebuild');
+        expect(fetches(_ownerMaster), master0 + 1, reason: 'same salon');
+        expect(fetches(_me), me0, reason: 'another removal scope (CLI-82)');
+      });
+    });
+
+    test('undo with no net change: nobody refetches at the flush', () {
+      burst((fa, c, repo, fetches) {
+        final ClientListController salon = c.read(
+          clientListControllerProvider(_salon).notifier,
+        );
+        final ClientSummary row = _FakeClientRepository.row(2);
+        unawaited(salon.remove(row));
+        fa.flushMicrotasks();
+        unawaited(salon.restore(row, 2));
+        fa.flushMicrotasks();
+        final int salon0 = fetches(_salon);
+        final int master0 = fetches(_ownerMaster);
+
+        flush(fa, c);
+        expect(repo.writes, <String>['remove', 'restore']);
+        expect(fetches(_salon), salon0);
+        expect(fetches(_ownerMaster), master0, reason: 'remove + undo = 0');
+      });
+    });
+
+    test('a failed restore refetches the family ONCE (the pending flush is '
+        'cancelled)', () {
+      burst((fa, c, repo, fetches) {
+        final ClientListController salon = c.read(
+          clientListControllerProvider(_salon).notifier,
+        );
+        final ClientSummary row = _FakeClientRepository.row(0);
+        unawaited(salon.remove(row));
+        fa.flushMicrotasks();
+        // Baselines BEFORE the failing restore.
+        final int salon0 = fetches(_salon);
+        final int master0 = fetches(_ownerMaster);
+        repo.restoreError = const ServerFailure(statusCode: 500);
+        unawaited(
+          c.read(clientListControllerProvider(_salon).notifier).restore(row, 0),
+        );
+        fa.flushMicrotasks();
+        for (final ClientListScope s in <ClientListScope>[
+          _salon,
+          _ownerMaster,
+        ]) {
+          c.read(clientListControllerProvider(s));
+        }
+        fa.flushMicrotasks();
+        expect(fetches(_salon), salon0 + 1, reason: 'family refetch: salon');
+        expect(
+          fetches(_ownerMaster),
+          master0 + 1,
+          reason: 'family refetch reaches the OTHER list too',
+        );
+
+        flush(fa, c);
+        expect(fetches(_salon), salon0 + 1, reason: 'no second refetch');
+        expect(fetches(_ownerMaster), master0 + 1, reason: 'no second refetch');
+      });
+    });
+
+    test('a failed restore clears EVERY pending swipe: two lists each with a '
+        'pending remove → after the window, no extra refetch', () {
+      burst((fa, c, repo, fetches) {
+        final ClientSummary a = _FakeClientRepository.row(1);
+        final ClientSummary b = _FakeClientRepository.row(2);
+        unawaited(
+          c.read(clientListControllerProvider(_salon).notifier).remove(a),
+        );
+        unawaited(
+          c.read(clientListControllerProvider(_ownerMaster).notifier).remove(b),
+        );
+        fa.flushMicrotasks();
+        repo.restoreError = const ServerFailure(statusCode: 500);
+        unawaited(
+          c.read(clientListControllerProvider(_salon).notifier).restore(a, 1),
+        );
+        fa.flushMicrotasks();
+        for (final ClientListScope s in <ClientListScope>[
+          _salon,
+          _ownerMaster,
+        ]) {
+          c.read(clientListControllerProvider(s));
+        }
+        fa.flushMicrotasks();
+        final int salon1 = fetches(_salon);
+        final int master1 = fetches(_ownerMaster);
+
+        flush(fa, c);
+        expect(fetches(_salon), salon1, reason: 'owner-master pending cleared');
+        expect(fetches(_ownerMaster), master1, reason: 'salon pending cleared');
+      });
+    });
+  });
 }

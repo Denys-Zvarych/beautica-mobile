@@ -23,6 +23,11 @@ import 'velvet_snack_host.dart';
 /// above it rather than on it; the client shell's 5-tab bar is the only real
 /// caller.
 ///
+/// [showCountdown] (M544, ADDITIVE, default `false`) draws a thin bar along
+/// the snack's bottom edge that drains over the dwell — the visible time left
+/// on an undo snack. Pass an explicit [duration] with it. `false` renders
+/// exactly as before.
+///
 /// Safe to call from inside `showModalBottomSheet` / `showDialog` builders,
 /// and safe to call immediately before a route pop — see
 /// `velvet_snack_host.dart`'s file-level doc for why.
@@ -36,6 +41,7 @@ VelvetSnackHandle showVelvetSnack(
   bool showClose = false,
   int maxLines = 2,
   double bottomInset = 0,
+  bool showCountdown = false,
 }) {
   return showOnVelvetSnackHost(
     context: context,
@@ -47,6 +53,7 @@ VelvetSnackHandle showVelvetSnack(
     maxLines: maxLines,
     dwell: duration,
     bottomInset: bottomInset,
+    showCountdown: showCountdown,
   );
 }
 

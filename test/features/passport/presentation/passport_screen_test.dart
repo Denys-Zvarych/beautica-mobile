@@ -56,6 +56,7 @@ import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
 import 'package:beautica_mobile/features/passport/presentation/widgets/passport_derived_block.dart';
 import 'package:beautica_mobile/features/passport/presentation/widgets/passport_identity_strip.dart';
+import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
 import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
 import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/features/wishlist/presentation/widgets/wishlist_compact_card.dart';
@@ -250,6 +251,57 @@ void main() {
   // -------------------------------------------------------------------------
   // 1. Chrome + profile.
   // -------------------------------------------------------------------------
+  // Phase 544 device a11y audit — the passport branch's top-right settings
+  // icon (the shell's burger, `btn-menu-passport`) must carry a localized
+  // label: a focusable button announced «Налаштування», activatable from
+  // semantics. Pumped exactly as `client_shell.dart` builds the passport
+  // branch's bar (`burgerSemanticLabel: l10n.settingsHubMenuButton`).
+  testWidgets('passport top bar: the settings icon is a labelled button', (
+    tester,
+  ) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    try {
+      int opened = 0;
+      await tester.pumpApp(
+        Scaffold(
+          body: Builder(
+            builder: (BuildContext context) {
+              final AppLocalizations l10n = AppLocalizations.of(context);
+              return ClientTopBar(
+                onBell: () {},
+                onBurger: () => opened++,
+                bellSemanticLabel: l10n.notificationBellLabel,
+                burgerSemanticLabel: l10n.settingsHubMenuButton,
+                bellKey: const Key('passport_bell_button'),
+                burgerKey: const Key('btn-menu-passport'),
+              );
+            },
+          ),
+        ),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ClientTopBar)),
+      );
+      final SemanticsNode node = tester.getSemantics(
+        find.byKey(const Key('btn-menu-passport')),
+      );
+      expect(l10n.settingsHubMenuButton, isNotEmpty);
+      expect(
+        node,
+        matchesSemantics(
+          label: l10n.settingsHubMenuButton,
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
+      node.owner?.performAction(node.id, SemanticsAction.tap);
+      await tester.pump();
+      expect(opened, 1);
+    } finally {
+      handle.dispose();
+    }
+  });
+
   group('PassportScreen — chrome + profile block', () {
     testWidgets('body renders WITHOUT the top bar (bar is shell-owned)', (
       tester,

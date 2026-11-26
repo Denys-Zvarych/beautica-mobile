@@ -294,5 +294,199 @@ void main() {
         }
       },
     );
+
+    // Phase 544 a11y (device audit): the action was merged into the message
+    // node and announced twice («… / Повернути / Повернути»), with no focus of
+    // its own.
+    testWidgets('the action and the close are each their OWN button node, '
+        'labelled once, activatable from semantics; the message node does not repeat it; '
+        'the countdown bar is not in the tree', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        int undos = 0;
+        int closes = 0;
+        await tester.pumpApp(
+          _harness(
+            VelvetSnack(
+              variant: VelvetSnackVariant.info,
+              message: 'Клієнта прибрано зі списку',
+              actionLabel: 'Повернути',
+              onAction: () => undos++,
+              onDismiss: () => closes++,
+              countdown: const AlwaysStoppedAnimation<double>(0.5),
+            ),
+          ),
+        );
+
+        final SemanticsNode button = tester.getSemantics(
+          find.byKey(VelvetSnack.actionKey),
+        );
+        final SemanticsNode message = tester.getSemantics(
+          find.byType(VelvetSnack),
+        );
+        expect(button.id, isNot(message.id), reason: 'a separate node');
+        expect(
+          button,
+          matchesSemantics(
+            label: 'Повернути',
+            isButton: true,
+            hasTapAction: true,
+          ),
+        );
+        expect(message.label, isNot(contains('Повернути')));
+
+        // Exactly one node in the whole tree speaks «Повернути».
+        final List<String> labels = <String>[];
+        void collect(SemanticsNode n) {
+          labels.add(n.label);
+          n.visitChildren((SemanticsNode c) {
+            collect(c);
+            return true;
+          });
+        }
+
+        SemanticsNode root = button;
+        for (SemanticsNode? up = root.parent; up != null; up = up.parent) {
+          root = up;
+        }
+        collect(root);
+        expect(
+          labels.where((String l) => l.contains('Повернути')).toList(),
+          <String>['Повернути'],
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(VelvetSnack.countdownKey),
+            matching: find.byType(Semantics),
+          ),
+          findsNothing,
+        );
+
+        // Activating the node from semantics runs onAction.
+        button.owner?.performAction(button.id, SemanticsAction.tap);
+        await tester.pump();
+        expect(undos, 1);
+
+        // The close «×» is its own button node too, labelled once with the
+        // localized dismiss label, and activatable from semantics.
+        final String closeLabel =
+            AppLocalizationsUk().velvetSnackDismissSemantic;
+        final SemanticsNode close = tester.getSemantics(
+          find.byKey(VelvetSnack.closeKey),
+        );
+        expect(close.id, isNot(message.id));
+        expect(close.id, isNot(button.id));
+        expect(
+          close,
+          matchesSemantics(
+            label: closeLabel,
+            isButton: true,
+            hasTapAction: true,
+          ),
+        );
+        expect(message.label, isNot(contains(closeLabel)));
+        expect(
+          labels.where((String l) => l.contains(closeLabel)).toList(),
+          <String>[closeLabel],
+        );
+        close.owner?.performAction(close.id, SemanticsAction.tap);
+        await tester.pump();
+        expect(closes, 1);
+        expect(undos, 1, reason: 'the close never runs the action');
+      } finally {
+        handle.dispose();
+      }
+    });
+
+    testWidgets('a snack WITHOUT an action keeps its single node '
+        '(unchanged)', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        await tester.pumpApp(
+          _harness(
+            const VelvetSnack(
+              variant: VelvetSnackVariant.info,
+              message: 'Скоро буде доступно',
+            ),
+          ),
+        );
+        final SemanticsNode node = tester.getSemantics(
+          find.byType(VelvetSnack),
+        );
+        expect(node.mergeAllDescendantsIntoThisNode, isFalse);
+        int children = 0;
+        node.visitChildren((SemanticsNode _) {
+          children++;
+          return true;
+        });
+        expect(children, 0, reason: 'no extra nodes for an action-less snack');
+      } finally {
+        handle.dispose();
+      }
+    });
+  });
+
+  // M544 — the additive time-left bar.
+  group('countdown bar (M544)', () {
+    testWidgets('no countdown → no bar (every pre-M544 caller)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        _harness(
+          const VelvetSnack(
+            variant: VelvetSnackVariant.info,
+            message: 'Повідомлення',
+          ),
+        ),
+      );
+      expect(find.byKey(VelvetSnack.countdownKey), findsNothing);
+    });
+
+    testWidgets('a countdown draws the bar at its value, at the snack\'s '
+        'bottom edge, without changing the snack\'s height', (tester) async {
+      await tester.pumpApp(
+        _harness(
+          const VelvetSnack(
+            key: Key('plain'),
+            variant: VelvetSnackVariant.info,
+            message: 'Повідомлення',
+          ),
+        ),
+      );
+      final double plainHeight = tester
+          .getSize(find.byKey(const Key('plain')))
+          .height;
+      await tester.pumpApp(
+        _harness(
+          const VelvetSnack(
+            key: Key('timed'),
+            variant: VelvetSnackVariant.info,
+            message: 'Повідомлення',
+            countdown: AlwaysStoppedAnimation<double>(0.25),
+          ),
+        ),
+      );
+      final Finder bar = find.byKey(VelvetSnack.countdownKey);
+      expect(bar, findsOneWidget);
+      expect(
+        tester
+            .widget<FractionallySizedBox>(
+              find.descendant(
+                of: bar,
+                matching: find.byType(FractionallySizedBox),
+              ),
+            )
+            .widthFactor,
+        0.25,
+      );
+      expect(
+        tester.getSize(find.byKey(const Key('timed'))).height,
+        plainHeight,
+      );
+      expect(
+        tester.getBottomLeft(bar).dy,
+        closeTo(tester.getBottomLeft(find.byKey(const Key('timed'))).dy, 1.5),
+      );
+    });
   });
 }
