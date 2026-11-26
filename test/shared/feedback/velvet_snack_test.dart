@@ -298,12 +298,13 @@ void main() {
     // Phase 544 a11y (device audit): the action was merged into the message
     // node and announced twice («… / Повернути / Повернути»), with no focus of
     // its own.
-    testWidgets('the action is its OWN button node, labelled once, '
-        'activatable from semantics; the message node does not repeat it; '
+    testWidgets('the action and the close are each their OWN button node, '
+        'labelled once, activatable from semantics; the message node does not repeat it; '
         'the countdown bar is not in the tree', (tester) async {
       final SemanticsHandle handle = tester.ensureSemantics();
       try {
         int undos = 0;
+        int closes = 0;
         await tester.pumpApp(
           _harness(
             VelvetSnack(
@@ -311,6 +312,7 @@ void main() {
               message: 'Клієнта прибрано зі списку',
               actionLabel: 'Повернути',
               onAction: () => undos++,
+              onDismiss: () => closes++,
               countdown: const AlwaysStoppedAnimation<double>(0.5),
             ),
           ),
@@ -364,6 +366,33 @@ void main() {
         button.owner?.performAction(button.id, SemanticsAction.tap);
         await tester.pump();
         expect(undos, 1);
+
+        // The close «×» is its own button node too, labelled once with the
+        // localized dismiss label, and activatable from semantics.
+        final String closeLabel =
+            AppLocalizationsUk().velvetSnackDismissSemantic;
+        final SemanticsNode close = tester.getSemantics(
+          find.byKey(VelvetSnack.closeKey),
+        );
+        expect(close.id, isNot(message.id));
+        expect(close.id, isNot(button.id));
+        expect(
+          close,
+          matchesSemantics(
+            label: closeLabel,
+            isButton: true,
+            hasTapAction: true,
+          ),
+        );
+        expect(message.label, isNot(contains(closeLabel)));
+        expect(
+          labels.where((String l) => l.contains(closeLabel)).toList(),
+          <String>[closeLabel],
+        );
+        close.owner?.performAction(close.id, SemanticsAction.tap);
+        await tester.pump();
+        expect(closes, 1);
+        expect(undos, 1, reason: 'the close never runs the action');
       } finally {
         handle.dispose();
       }

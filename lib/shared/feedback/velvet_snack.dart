@@ -136,6 +136,9 @@ class VelvetSnack extends StatelessWidget {
   /// has always carried, now public for tests.
   static const Key actionKey = ValueKey<String>('velvet_snack_action');
 
+  /// The optional close «×». Same value it has always carried, now public.
+  static const Key closeKey = ValueKey<String>('velvet_snack_close');
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -389,11 +392,16 @@ class _SnackClose extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // Its OWN semantics node, like [_SnackAction]: never merged into the
+    // message node, labelled once, activatable from semantics.
     return Semantics(
+      container: true,
       button: true,
       label: l10n.velvetSnackDismissSemantic,
+      excludeSemantics: true,
+      onTap: onPressed,
       child: InkWell(
-        key: const ValueKey<String>('velvet_snack_close'),
+        key: VelvetSnack.closeKey,
         onTap: onPressed,
         borderRadius: BorderRadius.circular(VelvetRadii.pill),
         splashColor: BrandColors.accent.withValues(alpha: 0.14),
