@@ -811,6 +811,9 @@ abstract final class AppHarness {
     // Phase 438 — mounts the forced-update gate in the MaterialApp.router
     // builder, as `BeauticaApp` does. Off by default (no `/app/config` call).
     bool mountUpdateGate = false,
+    // M542 — mounts the signed-in category-icon prefetch
+    // (`categoryIconUrlsProvider`), as `BeauticaApp` does. Off by default.
+    bool mountCategoryIconPrefetch = false,
     // Phase 410 — the `diagnosticsStoreProvider` backing store, passed
     // straight to [e2eProviderOverrides] (NOT via [extraOverrides]: double
     // override). `null` → a fresh in-memory fake per boot.
@@ -850,6 +853,7 @@ abstract final class AppHarness {
         child: E2eHarnessApp(
           mountPushTapDispatcher: mountPushTapDispatcher,
           mountUpdateGate: mountUpdateGate,
+          mountCategoryIconPrefetch: mountCategoryIconPrefetch,
         ),
       ),
     );

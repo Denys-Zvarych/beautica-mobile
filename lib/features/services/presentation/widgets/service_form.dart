@@ -32,7 +32,7 @@
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icon_glyph.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -1666,7 +1666,12 @@ class _CategoryDropdown extends ConsumerWidget {
       // slug.
       leadingIcon: iconAsset == null
           ? null
-          : AppIcon(iconAsset, size: 20, color: BrandColors.accentDeep),
+          : CategoryIconGlyph(
+              iconAsset,
+              categoryKey: selected,
+              size: 20,
+              color: BrandColors.accentDeep,
+            ),
       options: <SelectOption<String>>[
         for (final ServiceCategoryOption o in options)
           SelectOption<String>(

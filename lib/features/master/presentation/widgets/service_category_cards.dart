@@ -29,7 +29,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icon_glyph.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -283,8 +283,9 @@ class _ServiceCategoryCardState extends State<ServiceCategoryCard> {
               height: _iconSize,
               child: iconAsset == null
                   ? null
-                  : AppIcon(
+                  : CategoryIconGlyph(
                       iconAsset,
+                      categoryKey: widget.slug,
                       size: _iconSize,
                       color: BrandColors.accentDeep,
                     ),

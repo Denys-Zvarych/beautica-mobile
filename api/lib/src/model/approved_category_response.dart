@@ -13,6 +13,7 @@ part 'approved_category_response.g.dart';
 /// Properties:
 /// * [name]
 /// * [displayName]
+/// * [iconUrl]
 @BuiltValue()
 abstract class ApprovedCategoryResponse
     implements
@@ -22,6 +23,9 @@ abstract class ApprovedCategoryResponse
 
   @BuiltValueField(wireName: r'displayName')
   String? get displayName;
+
+  @BuiltValueField(wireName: r'iconUrl')
+  String? get iconUrl;
 
   ApprovedCategoryResponse._();
 
@@ -67,6 +71,13 @@ class _$ApprovedCategoryResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.iconUrl != null) {
+      yield r'iconUrl';
+      yield serializers.serialize(
+        object.iconUrl,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -105,6 +116,13 @@ class _$ApprovedCategoryResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.displayName = valueDes;
+          break;
+        case r'iconUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.iconUrl = valueDes;
           break;
         default:
           unhandled.add(key);

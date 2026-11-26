@@ -1505,6 +1505,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
                     categoryKey: c.name,
                     categoryName: c.displayName,
                   ),
+                  iconCategoryKey: c.name,
                   label: c.displayName,
                   selected: _expanded.contains(c.name),
                   includedCount: _expanded.contains(c.name)
@@ -1590,6 +1591,7 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen>
             listenable: _aggregate,
             builder: (context, _) => CategoryGroupHeader(
               iconAsset: iconAsset,
+              iconCategoryKey: slug,
               label: c.displayName,
               includedCount: _includedCount(slug),
               total: selectable,
