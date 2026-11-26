@@ -66,7 +66,7 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     /// ._submit`. `null` on every CREATE call site (client or walk-in) and on
     /// a CLIENT's own reschedule; non-null only when a PROVIDER rescheduled a
     /// booking with a registered client identity to show. The done screen
-    /// gates its [GuestIdentityCard.identity] recap card on
+    /// gates its `BookingClientStrip` recap card on
     /// [rescheduleClientName] non-null, mirroring how it gates the walk-in
     /// card on `isWalkIn && guest != null`, so those paths render
     /// byte-identically.

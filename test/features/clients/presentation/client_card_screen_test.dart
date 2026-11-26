@@ -1823,10 +1823,12 @@ void main() {
       String? first = 'Оксана',
       String? last = 'Мельник',
       String? phone = _phone,
+      String? avatarUrl,
       bool blocked = false,
       List<ClientServedMaster> served = const <ClientServedMaster>[],
     }) => _card(
       ref,
+      avatarUrl: avatarUrl,
       phone: phone,
       blocked: blocked,
       served: served,
@@ -1842,10 +1844,11 @@ void main() {
           'under the chips; tap hands the fromCard prefill once', (
         tester,
       ) async {
+        const String photo = 'https://cdn.example.test/o.jpg';
         final List<ClientPrefill> launched = <ClientPrefill>[];
         await _pump(
           tester,
-          _Repo(card: (ref) => parts(ref)),
+          _Repo(card: (ref) => parts(ref, avatarUrl: photo)),
           client: client,
           onBook: (_, ClientPrefill p) => launched.add(p),
         );
@@ -1862,8 +1865,15 @@ void main() {
             firstName: 'Оксана',
             lastName: 'Мельник',
             phone: _phone,
+            avatarUrl: photo,
+            rating: 4.9,
+            ratingCount: 12,
           ),
         ]);
+        // M554 / CLI-D16 — the card's photo + rating ride along.
+        expect(launched.single.avatarUrl, photo);
+        expect(launched.single.rating, 4.9);
+        expect(launched.single.ratingCount, 12);
       });
     }
 
@@ -1906,7 +1916,12 @@ void main() {
       );
       await tester.tap(book());
       await tester.pump();
-      expect(launched, <ClientPrefill>[const ClientPrefill(phone: _phone)]);
+      expect(launched, <ClientPrefill>[
+        const ClientPrefill(phone: _phone, rating: 4.9, ratingCount: 12),
+      ]);
+      // No photo on the card → none in the prefill; the rating still rides.
+      expect(launched.single.avatarUrl, isNull);
+      expect(launched.single.rating, 4.9);
     });
 
     testWidgets('no name and no phone (anonymised) → no button', (
@@ -1982,8 +1997,12 @@ void main() {
           firstName: 'Оксана',
           lastName: 'Мельник',
           phone: _phone,
+          rating: 4.9,
+          ratingCount: 12,
         ),
       ]);
+      expect(launched.single.avatarUrl, isNull);
+      expect(launched.single.rating, 4.9);
     });
   });
 }

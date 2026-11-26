@@ -93,22 +93,25 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('the picker does not move the form: fields and «Далі» sit '
-      'within 4 dp of the no-picker layout', (tester) async {
-    await _pump(tester);
-    final double firstTop = tester.getTopLeft(find.byKey(_first)).dy;
-    final double nextTop = tester.getTopLeft(find.byKey(_next)).dy;
-
+  testWidgets('the picker is a full-width button between the intro and the '
+      'first field (2026-11-25: the heading link did not read as a button)', (
+    tester,
+  ) async {
     await _pump(tester, pick: () async => null);
-    expect(find.byKey(ClientStep.pickClientKey), findsOneWidget);
+    final Finder button = find.byKey(ClientStep.pickClientKey);
+    expect(button, findsOneWidget);
     expect(
-      (tester.getTopLeft(find.byKey(_first)).dy - firstTop).abs(),
-      lessThanOrEqualTo(4),
+      find.descendant(
+        of: button,
+        matching: find.byIcon(Icons.person_search_rounded),
+      ),
+      findsOneWidget,
     );
-    expect(
-      (tester.getTopLeft(find.byKey(_next)).dy - nextTop).abs(),
-      lessThanOrEqualTo(4),
-    );
+    final Rect rect = tester.getRect(button);
+    final Rect first = tester.getRect(find.byKey(_first));
+    // Full width: the same horizontal extent as the form fields.
+    expect((rect.width - first.width).abs(), lessThanOrEqualTo(1));
+    expect(rect.bottom, lessThanOrEqualTo(first.top));
   });
 
   testWidgets('pick → name, surname and masked phone filled; Next enabled; '
@@ -268,5 +271,60 @@ void main() {
     await tester.pump();
     await _tapPick(tester);
     expect(h.pickCalls, 2);
+  });
+
+  group('walkInGuestFrom', () {
+    const ClientPrefill picked = ClientPrefill(
+      firstName: 'Оксана',
+      lastName: 'Мельник',
+      phone: '+380671234567',
+      avatarUrl: 'https://media.example/a.jpg',
+      rating: 4.5,
+      ratingCount: 3,
+    );
+
+    test(
+      'carries the picked photo + rating while the identity is unchanged',
+      () {
+        final guest = walkInGuestFrom(
+          firstName: 'Оксана',
+          lastName: 'Мельник',
+          phone: '+380671234567',
+          picked: picked,
+        );
+        expect(guest.avatarUrl, 'https://media.example/a.jpg');
+        expect(guest.rating, 4.5);
+        expect(guest.ratingCount, 3);
+      },
+    );
+
+    test('drops them once a field was edited', () {
+      for (final (String f, String l, String p) in <(String, String, String)>[
+        ('Олена', 'Мельник', '+380671234567'),
+        ('Оксана', 'Коваль', '+380671234567'),
+        ('Оксана', 'Мельник', '+380671234568'),
+      ]) {
+        final guest = walkInGuestFrom(
+          firstName: f,
+          lastName: l,
+          phone: p,
+          picked: picked,
+        );
+        expect(guest.avatarUrl, isNull);
+        expect(guest.rating, isNull);
+        expect(guest.ratingCount, 0);
+        expect((guest.name, guest.surname, guest.phone), (f, l, p));
+      }
+    });
+
+    test('a hand-typed guest (no pick) has no photo or rating', () {
+      final guest = walkInGuestFrom(
+        firstName: 'Оксана',
+        lastName: 'Мельник',
+        phone: '+380671234567',
+      );
+      expect(guest.avatarUrl, isNull);
+      expect(guest.rating, isNull);
+    });
   });
 }

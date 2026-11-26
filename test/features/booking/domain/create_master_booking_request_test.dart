@@ -26,6 +26,8 @@
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../helpers/booking_fixture_dates.dart';
+
 // A fixed PAST literal, not `futureBookingStart()` — nothing here exercises
 // `BookingDisplayX.isPast`/"upcoming" rendering (that's the pure freezed
 // shape only), and a past instant can never expire into a stale-fixture
@@ -88,5 +90,36 @@ void main() {
 
     expect(a, b);
     expect(a, isNot(reordered));
+  });
+
+  test('WalkInGuest.toString redacts name, phone, photo and rating', () {
+    const WalkInGuest guest = WalkInGuest(
+      name: 'Оксана',
+      surname: 'Мельник',
+      phone: '+380671234567',
+      avatarUrl: 'https://media.example/avatar-xyz.jpg',
+      rating: 4.7,
+      ratingCount: 9,
+    );
+    final String text = guest.toString();
+    expect(text, 'WalkInGuest()');
+    for (final String secret in <String>[
+      'Оксана',
+      'Мельник',
+      '+380671234567',
+      '671234567',
+      'avatar-xyz',
+      '4.7',
+    ]) {
+      expect(text, isNot(contains(secret)));
+    }
+    // The request embedding it inherits the redaction for the guest part.
+    final String request = CreateMasterBookingRequest(
+      masterServiceIds: const <String>['s1'],
+      startsAt: futureBookingStart(),
+      guest: guest,
+    ).toString();
+    expect(request, isNot(contains('Оксана')));
+    expect(request, isNot(contains('+380671234567')));
   });
 }

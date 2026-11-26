@@ -14,12 +14,18 @@
 // (which that file's shared `_router()` does not), so the walk-in
 // destination test can assert on a REAL resolved page.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart'
+    show debugMediaCacheManager;
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
     show WalkInGuest;
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
+    show walkInGuestFrom;
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -30,7 +36,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 const Master _kMaster = Master(
   id: 'master-1',
@@ -533,7 +541,7 @@ void main() {
 
     // mobile-qa (client-identity parity, 2026-08-22) — the RESCHEDULE-path
     // counterpart of the guest-identity-card group above. REUSE-FIRST: same
-    // `GuestIdentityCard` widget (via its new `.identity` constructor), same
+    // client card (`BookingClientStrip`, 2026-11-14), same
     // key-naming convention (`booking-success-client-card` mirrors
     // `booking-success-guest-card`), gated the same way (present only when
     // its own arg is non-null). Both groups are independent `if`s on the
@@ -681,4 +689,79 @@ void main() {
       );
     });
   });
+
+  // 2026-11-25 (BOOK-79/80) — the done screen's walk-in card is the shared
+  // `BookingClientStrip.walkIn`: a picked client's photo + ★, and the
+  // monogram + «—» once the typed identity diverged from the pick
+  // (`walkInGuestFrom`, the same composition the guest step routes on).
+  group('walk-in client strip — picked vs typed (2026-11-25)', () {
+    const ClientPrefill picked = ClientPrefill(
+      firstName: _kPickedFirst,
+      lastName: _kPickedLast,
+      phone: _kPickedPhone,
+      avatarUrl: _kPickedAvatar,
+      rating: _kPickedRating,
+      ratingCount: _kPickedRatingCount,
+    );
+    final Finder card = find.byKey(const Key('booking-success-guest-card'));
+    Finder inReadout(String text) => find.descendant(
+      of: find.descendant(of: card, matching: find.byType(MasterRatingReadout)),
+      matching: find.text(text),
+    );
+
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+    });
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+    });
+
+    testWidgets('a picked client shows its photo and ★ rating', (tester) async {
+      final WalkInGuest guest = walkInGuestFrom(
+        firstName: _kPickedFirst,
+        lastName: _kPickedLast,
+        phone: _kPickedPhone,
+        picked: picked,
+      );
+      await _pump(tester, _args(isWalkIn: true, guest: guest));
+
+      expect(tester.widget(card), isA<BookingClientStrip>());
+      expect(renderedImageUrls(tester, within: card), <String>[_kPickedAvatar]);
+      expect(inReadout(_kPickedRating.toStringAsFixed(1)), findsOneWidget);
+      expect(inReadout('($_kPickedRatingCount)'), findsOneWidget);
+    });
+
+    testWidgets('a typed name that diverged from the pick shows initials and '
+        '«—», no photo', (tester) async {
+      final WalkInGuest guest = walkInGuestFrom(
+        firstName: _kTypedFirst,
+        lastName: _kPickedLast,
+        phone: _kPickedPhone,
+        picked: picked,
+      );
+      await _pump(tester, _args(isWalkIn: true, guest: guest));
+
+      expect(card, findsOneWidget);
+      expect(renderedImageUrls(tester, within: card), isEmpty);
+      expect(
+        find.descendant(of: card, matching: find.text(_kTypedInitials)),
+        findsOneWidget,
+      );
+      expect(inReadout(MasterStrip.noRatingLabel), findsOneWidget);
+      expect(inReadout(_kPickedRating.toStringAsFixed(1)), findsNothing);
+    });
+  });
 }
+
+// Fixture data for the picked-vs-typed group (named, never a literal at a
+// finder call site).
+const String _kPickedFirst = 'Оксана';
+const String _kPickedLast = 'Мельник';
+const String _kPickedPhone = '+380671234567';
+const String _kPickedAvatar = 'https://media.test/avatars/u-oksana.png';
+const double _kPickedRating = 4.5;
+const int _kPickedRatingCount = 3;
+const String _kTypedFirst = 'Олена';
+const String _kTypedInitials = 'ОМ';

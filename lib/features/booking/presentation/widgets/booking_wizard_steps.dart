@@ -164,14 +164,15 @@ import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
 
 import '../../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
 import '../../domain/create_master_booking_request.dart'
-    show kWalkInGuestNameMaxLength;
+    show WalkInGuest, kWalkInGuestNameMaxLength;
+import 'booking_client_strip.dart';
 import 'booking_recap.dart';
 import 'booking_summary_cards.dart';
-import 'labelled_row.dart';
 
 // ---------------------------------------------------------------------------
 // Phone normalization
@@ -301,6 +302,34 @@ void applyClientPrefill(
   );
 }
 
+/// The walk-in guest the review card and the create call use: the TYPED
+/// identity ([firstName] / [lastName] trimmed, [phone] E.164) plus — only
+/// while that identity still IS the [picked] client (names and phone
+/// unchanged since the pick or the client-card launch) — the picked client's
+/// display-only photo + ★ readout. An edited, cleared or hand-typed identity
+/// gets none of them (the strip's monogram + «—» fallback): the photo of
+/// someone the guest no longer is would be wrong. PII: never logged.
+WalkInGuest walkInGuestFrom({
+  required String firstName,
+  required String lastName,
+  required String phone,
+  ClientPrefill? picked,
+}) {
+  final bool same =
+      picked != null &&
+      (picked.firstName ?? '').trim() == firstName &&
+      (picked.lastName ?? '').trim() == lastName &&
+      picked.phone == phone;
+  return WalkInGuest(
+    name: firstName,
+    surname: lastName,
+    phone: phone,
+    avatarUrl: same ? picked.avatarUrl : null,
+    rating: same ? picked.rating : null,
+    ratingCount: same ? picked.ratingCount : 0,
+  );
+}
+
 void _setPrefillText(TextEditingController ctrl, String text) =>
     ctrl.value = TextEditingValue(
       text: text,
@@ -386,63 +415,37 @@ class _ClientStepState extends State<ClientStep> {
     return toE164UaPhone(raw) == null ? l10n.errPhoneInvalid : null;
   }
 
-  /// The step heading. With a picker launcher (M553) the heading row also
-  /// carries the compact «Обрати з моїх клієнтів» link at its trailing edge —
-  /// in the heading's own line, so the manual-entry fields and «Далі» keep
-  /// their position (a full-width button would push «Далі» below the fold of
-  /// a short screen). That row is [kMinInteractiveDimension] (48 dp) tall so
-  /// the link's hit area is 48 dp; [build] pays for it out of the step's top
-  /// padding and the heading's two `xs` spacers, so the intro, fields and
-  /// «Далі» sit where they did. Without a launcher: exactly today's heading.
-  Widget _heading(AppLocalizations l10n) {
-    final Widget heading = Text(
-      l10n.masterCreateBookingClientHeading,
-      style: VelvetText.subheadingWizard15,
-    );
-    final Future<ClientPrefill?> Function(BuildContext context)? pick =
-        widget.onPickClient;
-    if (pick == null) return heading;
-    return SizedBox(
-      height: kMinInteractiveDimension,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: <Widget>[
-          Flexible(child: heading),
-          const SizedBox(width: VelvetSpacing.sm),
-          Flexible(
-            flex: 3,
-            child: _PickClientLink(
-              label: l10n.walkInPickClientCta,
-              onTap: () => _pickClient(pick),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    // M553 — with the picker, the 48 dp heading row replaces the two `xs`
-    // spacers and most of the top padding (see [_heading]).
-    final bool picker = widget.onPickClient != null;
+    final Future<ClientPrefill?> Function(BuildContext context)? pick =
+        widget.onPickClient;
     return SingleChildScrollView(
-      padding: picker
-          ? const EdgeInsets.fromLTRB(
-              VelvetSpacing.lg,
-              VelvetSpacing.sm,
-              VelvetSpacing.lg,
-              VelvetSpacing.lg,
-            )
-          : const EdgeInsets.all(VelvetSpacing.lg),
+      padding: const EdgeInsets.all(VelvetSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          if (!picker) const SizedBox(height: VelvetSpacing.xs),
-          _heading(l10n),
-          if (!picker) const SizedBox(height: VelvetSpacing.xs),
+          const SizedBox(height: VelvetSpacing.xs),
+          Text(
+            l10n.masterCreateBookingClientHeading,
+            style: VelvetText.subheadingWizard15,
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
           Text(l10n.masterCreateBookingClientIntro, style: VelvetText.body()),
+          // M553 — «Обрати з моїх клієнтів» as a real button (2026-11-25,
+          // user: the compact heading link did not read as one): the shipped
+          // raised base-tone secondary [SuccessSecondaryButton] (54 dp,
+          // mocha person-search glyph + Comfortaa label), full width, so
+          // «Далі» stays the one gradient CTA. Without a launcher: nothing.
+          if (pick != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            SuccessSecondaryButton(
+              buttonKey: ClientStep.pickClientKey,
+              label: l10n.walkInPickClientCta,
+              icon: Icons.person_search_rounded,
+              onPressed: () => _pickClient(pick),
+            ),
+          ],
           if (_pickedLabel case final String picked) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),
             _PickedClientChip(
@@ -529,62 +532,6 @@ class _ClientStepState extends State<ClientStep> {
             onPressed: _canAdvance ? widget.onNext : null,
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// M553 — the compact picker link in the client step's heading row: a mocha
-/// person-search glyph + the Comfortaa CTA label, no fill (the quiet
-/// secondary action beside the form; «Далі» stays the one raised CTA).
-class _PickClientLink extends StatelessWidget {
-  const _PickClientLink({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  static final TextStyle _style = VelvetText.cta().copyWith(
-    color: BrandColors.accentDeep,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: label,
-      excludeSemantics: true,
-      child: GestureDetector(
-        key: ClientStep.pickClientKey,
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        // The whole 48 dp heading row is the hit area (Material's minimum
-        // touch target); the glyph + label stay visually compact.
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minWidth: kMinInteractiveDimension,
-            minHeight: kMinInteractiveDimension,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: <Widget>[
-              const Icon(
-                Icons.person_search_rounded,
-                size: 18,
-                color: BrandColors.accentDeep,
-              ),
-              const SizedBox(width: VelvetSpacing.xs),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _style,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -960,6 +907,9 @@ class ConfirmStep extends ConsumerWidget {
     required this.lastName,
     required this.phone,
     this.masterCard,
+    this.clientAvatarUrl,
+    this.clientRating,
+    this.clientReviewCount = 0,
   }) : assert(
          (service == null) != (services == null),
          'ConfirmStep needs exactly one of service (legacy single) or '
@@ -987,6 +937,13 @@ class ConfirmStep extends ConsumerWidget {
   /// header for why a master booking themselves has no business naming
   /// themselves here.
   final Widget? masterCard;
+
+  /// 2026-11-25 — the picked existing client's display-only photo and ★
+  /// readout for the client card (see [walkInGuestFrom]). ADDITIVE: `null` /
+  /// `0` (a hand-typed walk-in) → the strip's monogram + «—» fallback.
+  final String? clientAvatarUrl;
+  final double? clientRating;
+  final int clientReviewCount;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1048,25 +1005,24 @@ class ConfirmStep extends ConsumerWidget {
           // own calendar, so a card naming them would be self-referential
           // (see `master_create_booking_screen.dart`'s file-header deviation
           // list, item 4).
-          NeumorphicCard(
+          //
+          // 2026-11-25 — the SAME [BookingClientStrip] «Деталі запису», the
+          // «Клієнти» list and the reschedule confirm show the client in
+          // (photo / monogram, ★ readout), with the shipped «Клієнт» caption
+          // and the phone as its sub-line, instead of a bare label card. The
+          // strip bounds the third-party name to one ellipsized line.
+          BookingClientStrip.walkIn(
             key: const Key('master-create-booking-guest-card'),
-            padding: const EdgeInsets.all(VelvetSpacing.md),
-            child: LabelledRow(
-              label: l10n.masterCreateBookingGuestLabel,
-              value: '$firstName $lastName'.trim(),
-              detail: phone.isEmpty ? null : phone,
-              // THIRD-PARTY FREE TEXT (audit-fix cycle 1, FINDING 4 —
-              // mobile-security LOW, 2026-08-20). The guest's name is typed
-              // in by the master, not formatted by the backend, and the
-              // backend's own ceiling is 100 characters PER field
-              // (`StaffClientRef.Guest.MAX_NAME_LENGTH`) — 200 across the two.
-              // Unbounded, a pasted 200-character name flooded this recap card
-              // and pushed the booking details it exists to confirm off the
-              // step. `labelled_row.dart:37-47` prescribes exactly this pair
-              // for the case; two lines keeps a genuinely long-but-real
-              // Ukrainian double-barrelled name readable.
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            firstName: firstName,
+            lastName: lastName,
+            phone: phone,
+            avatarUrl: clientAvatarUrl,
+            rating: clientRating,
+            reviewCount: clientReviewCount,
+            topLabel: l10n.masterCreateBookingGuestLabel,
+            shellKey: const Key('master-create-booking-guest-strip'),
+            avatarImageKey: const Key(
+              'master-create-booking-guest-avatar-photo',
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
