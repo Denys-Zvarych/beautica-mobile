@@ -349,9 +349,16 @@ class _SnackAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Its OWN semantics node (a11y audit, phase 544): `container` keeps it
+    // from merging into the snack's message node, `excludeSemantics` drops the
+    // InkWell's / Text's duplicate label, so a screen reader focuses one
+    // button announced once; `onTap` keeps it activatable from there.
     return Semantics(
+      container: true,
       button: true,
       label: label,
+      excludeSemantics: true,
+      onTap: onPressed,
       child: InkWell(
         key: VelvetSnack.actionKey,
         onTap: onPressed,

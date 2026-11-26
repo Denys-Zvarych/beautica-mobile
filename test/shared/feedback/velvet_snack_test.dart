@@ -294,6 +294,107 @@ void main() {
         }
       },
     );
+
+    // Phase 544 a11y (device audit): the action was merged into the message
+    // node and announced twice («… / Повернути / Повернути»), with no focus of
+    // its own.
+    testWidgets('the action is its OWN button node, labelled once, '
+        'activatable from semantics; the message node does not repeat it; '
+        'the countdown bar is not in the tree', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        int undos = 0;
+        await tester.pumpApp(
+          _harness(
+            VelvetSnack(
+              variant: VelvetSnackVariant.info,
+              message: 'Клієнта прибрано зі списку',
+              actionLabel: 'Повернути',
+              onAction: () => undos++,
+              countdown: const AlwaysStoppedAnimation<double>(0.5),
+            ),
+          ),
+        );
+
+        final SemanticsNode button = tester.getSemantics(
+          find.byKey(VelvetSnack.actionKey),
+        );
+        final SemanticsNode message = tester.getSemantics(
+          find.byType(VelvetSnack),
+        );
+        expect(button.id, isNot(message.id), reason: 'a separate node');
+        expect(
+          button,
+          matchesSemantics(
+            label: 'Повернути',
+            isButton: true,
+            hasTapAction: true,
+          ),
+        );
+        expect(message.label, isNot(contains('Повернути')));
+
+        // Exactly one node in the whole tree speaks «Повернути».
+        final List<String> labels = <String>[];
+        void collect(SemanticsNode n) {
+          labels.add(n.label);
+          n.visitChildren((SemanticsNode c) {
+            collect(c);
+            return true;
+          });
+        }
+
+        SemanticsNode root = button;
+        for (SemanticsNode? up = root.parent; up != null; up = up.parent) {
+          root = up;
+        }
+        collect(root);
+        expect(
+          labels.where((String l) => l.contains('Повернути')).toList(),
+          <String>['Повернути'],
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(VelvetSnack.countdownKey),
+            matching: find.byType(Semantics),
+          ),
+          findsNothing,
+        );
+
+        // Activating the node from semantics runs onAction.
+        button.owner?.performAction(button.id, SemanticsAction.tap);
+        await tester.pump();
+        expect(undos, 1);
+      } finally {
+        handle.dispose();
+      }
+    });
+
+    testWidgets('a snack WITHOUT an action keeps its single node '
+        '(unchanged)', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        await tester.pumpApp(
+          _harness(
+            const VelvetSnack(
+              variant: VelvetSnackVariant.info,
+              message: 'Скоро буде доступно',
+            ),
+          ),
+        );
+        final SemanticsNode node = tester.getSemantics(
+          find.byType(VelvetSnack),
+        );
+        expect(node.mergeAllDescendantsIntoThisNode, isFalse);
+        int children = 0;
+        node.visitChildren((SemanticsNode _) {
+          children++;
+          return true;
+        });
+        expect(children, 0, reason: 'no extra nodes for an action-less snack');
+      } finally {
+        handle.dispose();
+      }
+    });
   });
 
   // M544 — the additive time-left bar.
