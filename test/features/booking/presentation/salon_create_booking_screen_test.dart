@@ -2881,17 +2881,23 @@ void _passAGroup() {
     });
   });
 
-  // M543 (BOOK-80) — the client-card launch prefills the client step once.
+  // M543 + user 2026-11-26 (BOOK-80 / CLI-80) — a COMPLETE client-card
+  // prefill opens the wizard on `service` (client step skipped, back pops to
+  // the card); an incomplete one prefills the client step once, as before.
   group('M543 initialPrefill', () {
     String text(WidgetTester tester, String key) => tester
         .widget<NeumorphicTextField>(find.byKey(Key(key)))
         .controller
         .text;
 
-    testWidgets('fills the client step; «Далі» advances; no picked chip', (
-      tester,
-    ) async {
-      await _pump(
+    const Key firstName = Key('master-create-booking-first-name');
+    const Key next = Key('master-create-booking-client-next');
+    const Key back = Key('salon-create-booking-back');
+    const Key serviceCard = Key('mcb_service_card_salon-svc-1');
+
+    testWidgets('complete prefill → opens on the service step; back pops '
+        'the wizard to the card', (tester) async {
+      final GoRouter router = await _pump(
         tester,
         initialPrefill: const ClientPrefill(
           firstName: 'Оксана',
@@ -2899,22 +2905,56 @@ void _passAGroup() {
           phone: '+380671234567',
         ),
       );
-      expect(text(tester, 'master-create-booking-first-name'), 'Оксана');
-      expect(text(tester, 'master-create-booking-last-name'), 'Мельник');
-      expect(text(tester, 'master-create-booking-phone'), '+380 67 123 45 67');
-      expect(find.byKey(ClientStep.pickedChipKey), findsNothing);
-      await tester.ensureVisible(
-        find.byKey(const Key('master-create-booking-client-next')),
-      );
+      expect(find.byKey(serviceCard), findsOne);
+      expect(find.byKey(firstName), findsNothing);
+
+      await tester.tap(find.byKey(back));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-client-next')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('mcb_service_card_salon-svc-1')), findsOne);
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+      expect(router.state.uri.path, '/root');
     });
 
-    testWidgets('edit → next → back → the edit is kept (applied once)', (
+    for (final (String label, ClientPrefill incomplete)
+        in <(String, ClientPrefill)>[
+          (
+            'no phone (CLI-E10)',
+            const ClientPrefill(firstName: 'Оксана', lastName: 'Мельник'),
+          ),
+          (
+            'first name only (legacy display-name fallback)',
+            const ClientPrefill(firstName: 'Оксана', phone: '+380671234567'),
+          ),
+          (
+            'surname only',
+            const ClientPrefill(lastName: 'Мельник', phone: '+380671234567'),
+          ),
+          (
+            'non-UA phone',
+            const ClientPrefill(
+              firstName: 'Оксана',
+              lastName: 'Мельник',
+              phone: '+48601234567',
+            ),
+          ),
+        ]) {
+      testWidgets('$label → opens on the client step, prefilled, no picked '
+          'chip', (tester) async {
+        await _pump(tester, initialPrefill: incomplete);
+        expect(find.byKey(serviceCard), findsNothing);
+        expect(
+          text(tester, 'master-create-booking-first-name'),
+          incomplete.firstName ?? '',
+        );
+        expect(
+          text(tester, 'master-create-booking-last-name'),
+          incomplete.lastName ?? '',
+        );
+        expect(find.byKey(ClientStep.pickedChipKey), findsNothing);
+      });
+    }
+
+    testWidgets('incomplete prefill: type the phone → next → back → the '
+        'client step again, with the edits kept (applied once)', (
       tester,
     ) async {
       await _pump(
@@ -2922,28 +2962,52 @@ void _passAGroup() {
         initialPrefill: const ClientPrefill(
           firstName: 'Оксана',
           lastName: 'Мельник',
+        ),
+      );
+      await tester.enterText(find.byKey(firstName), 'Олена');
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-phone')),
+        '0671234567',
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(next));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(next));
+      await tester.pumpAndSettle();
+      expect(find.byKey(serviceCard), findsOne);
+
+      await tester.tap(find.byKey(back));
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonCreateBookingScreen), findsOne);
+      expect(text(tester, 'master-create-booking-first-name'), 'Олена');
+      expect(text(tester, 'master-create-booking-last-name'), 'Мельник');
+    });
+
+    // User 2026-11-26 — the bookings «+» entry (no prefill) is unchanged:
+    // the client step first, with «Обрати з моїх клієнтів»; picking a
+    // complete client fills the fields and never skips the step.
+    testWidgets('«+» entry (no prefill) → the client step with the picker; '
+        'a picked complete client stays on the client step', (tester) async {
+      await _pump(
+        tester,
+        onPickClient: (BuildContext _) async => const ClientPrefill(
+          firstName: 'Оксана',
+          lastName: 'Мельник',
           phone: '+380671234567',
         ),
       );
-      await tester.enterText(
-        find.byKey(const Key('master-create-booking-first-name')),
-        'Олена',
-      );
-      await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const Key('master-create-booking-client-next')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const Key('master-create-booking-client-next')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('mcb_service_card_salon-svc-1')), findsOne);
+      expect(find.byKey(firstName), findsOne);
+      expect(find.byKey(serviceCard), findsNothing);
+      expect(find.byKey(ClientStep.pickClientKey), findsOne);
 
-      await tester.tap(find.byKey(const Key('salon-create-booking-back')));
+      await tester.tap(find.byKey(ClientStep.pickClientKey));
       await tester.pumpAndSettle();
-      expect(text(tester, 'master-create-booking-first-name'), 'Олена');
-      expect(text(tester, 'master-create-booking-last-name'), 'Мельник');
+      expect(text(tester, 'master-create-booking-first-name'), 'Оксана');
+      expect(find.byKey(serviceCard), findsNothing);
+
+      await tester.tap(find.byKey(back));
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
     });
   });
 }

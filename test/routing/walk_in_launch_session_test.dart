@@ -27,6 +27,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
+    show WalkInGuest;
 import 'package:beautica_mobile/features/booking/domain/walk_in_launch.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
 import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
@@ -195,6 +197,57 @@ void main() {
         final RouteMatchList to = await h.resolve(context, h.match(location));
         expect(to.uri.path, RouteNames.splash, reason: location);
       }
+    });
+  });
+
+  // BOOK-80 / CLI-80 (user 2026-11-26) — the IM card launch of a complete
+  // client pushes the service step directly; the production redirect chain
+  // admits it with the WalkInGuest extra and bounces it without one.
+  group('IM card launch skips the client step (BOOK-80)', () {
+    const WalkInGuest guest = WalkInGuest(
+      name: _kFirst,
+      surname: _kLast,
+      phone: _kPhone,
+    );
+
+    testWidgets('settled IM + WalkInGuest → admitted to the service step, '
+        'the extra intact, no PII in the location', (tester) async {
+      final _Harness h = _Harness();
+      final BuildContext context = await _context(tester);
+      await h.settle(UserRole.independentMaster);
+      final RouteMatchList to = await h.resolve(
+        context,
+        h.match(RouteNames.masterBookingNewServices, extra: guest),
+      );
+      expect(to.uri.path, RouteNames.masterBookingNewServices);
+      expect(to.extra, same(guest));
+      for (final String pii in <String>[_kFirst, _kLast, _kPhone]) {
+        expect('${to.uri}'.contains(pii), isFalse, reason: pii);
+      }
+    });
+
+    testWidgets('no extra → bounced to the client step', (tester) async {
+      final _Harness h = _Harness();
+      final BuildContext context = await _context(tester);
+      await h.settle(UserRole.independentMaster);
+      final RouteMatchList to = await h.resolve(
+        context,
+        h.match(RouteNames.masterBookingNewServices),
+      );
+      expect(to.uri.path, RouteNames.masterBookingNew);
+    });
+
+    testWidgets('salon owner + WalkInGuest → never the IM service step', (
+      tester,
+    ) async {
+      final _Harness h = _Harness();
+      final BuildContext context = await _context(tester);
+      await h.settle(UserRole.salonOwner);
+      final RouteMatchList to = await h.resolve(
+        context,
+        h.match(RouteNames.masterBookingNewServices, extra: guest),
+      );
+      expect(to.uri.path, isNot(RouteNames.masterBookingNewServices));
     });
   });
 

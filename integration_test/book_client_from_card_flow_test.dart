@@ -11,8 +11,15 @@
 //     phone}` equal to the card (CLI-D14: no client id in the body);
 //   • the card shows the new booking afterwards (the fake links a walk-in
 //     to the card's client by phone, as the server does by CLI-62);
-//   • a selected master chip (CLI-73) is not booking intent: the salon
-//     wizard still opens on its own client step, no master preselected.
+//   • a selected master chip (CLI-73) is not booking intent: no master is
+//     preselected in the salon wizard;
+//   • BOOK-80 / CLI-80 (2026-11-26) — a COMPLETE card (first + last name +
+//     UA phone) skips the client step: the IM lands on the REAL
+//     `/master/bookings/new/services` route with that client as the guest,
+//     the salon wizard opens on its service step, and back from there
+//     returns to the card; an incomplete card keeps the prefilled client
+//     step; the bookings «+» entry still opens the client step with the
+//     «Обрати з моїх клієнтів» picker.
 //
 // Own sibling of `walk_in_pick_client_flow_test.dart` (its helpers are
 // private — doc: phase 543 § Test Cases).
@@ -56,13 +63,11 @@ const String _kRegId = 'u-oksana';
 const String _kRegFirst = 'Оксана';
 const String _kRegLast = 'Мельник';
 const String _kRegPhone = '+380501112233';
-const String _kRegPhoneShown = '+380 50 111 22 33';
 
 const String _kGuestId = 'b-iryna';
 const String _kGuestFirst = 'Ірина';
 const String _kGuestLast = 'Коваль';
 const String _kGuestPhone = '+380671234567';
-const String _kGuestPhoneShown = '+380 67 123 45 67';
 
 /// A registered client without a verified (E.164) phone (CLI-E10).
 const String _kNoPhoneId = 'u-nophone';
@@ -222,14 +227,25 @@ Future<GoRouter> _bootMaster(WidgetTester tester, FakeBackend fb) async {
   return router;
 }
 
-/// IM walk-in: «Далі» → one service → today → first free slot → confirm →
-/// submit. Returns the wire guest payload.
+/// BOOK-80 — the IM card launch skipped the client step: the REAL service
+/// route is on top and no guest step is anywhere in the stack. WHICH client
+/// the step carries is pinned observably by the submitted wire `guest`
+/// (widget-field reads are vacuous — `project_widget_field_assertion_is_vacuous`).
+void _expectMasterServiceStep(GoRouter router) {
+  AppHarness.expectNestedPushLocation(
+    router,
+    RouteNames.masterBookingNewServices,
+  );
+  expect(find.byType(WalkInGuestStepScreen, skipOffstage: false), findsNothing);
+  expect(find.byType(WalkInServiceStepScreen), findsOneWidget);
+}
+
+/// IM walk-in from the service step: one service → today → first free slot
+/// → confirm → submit. Returns the wire guest payload.
 Future<Map<String, dynamic>> _submitMasterWalkIn(
   WidgetTester tester,
   FakeBackend fb,
 ) async {
-  await AppHarness.tapVisible(tester, find.byKey(_next));
-  await AppHarness.settle(tester);
   expect(find.byType(WalkInServiceStepScreen), findsOneWidget);
 
   await AppHarness.pumpUntilFound(
@@ -277,10 +293,10 @@ Future<Map<String, dynamic>> _submitMasterWalkIn(
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('M543 IM: registered card → «Записати» → prefilled walk-in → '
-      'the wire guest equals the card → the card shows the new booking', (
-    tester,
-  ) async {
+  testWidgets('BOOK-80 IM: complete registered card → «Записати» → the '
+      'service step with that client (client step skipped) → back returns to '
+      'the card → re-launch → the wire guest equals the card → the card shows '
+      'the new booking', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.independentMaster;
@@ -289,15 +305,30 @@ void main() {
       await _openCard(tester, router, cardLocation);
 
       await _tapBook(tester);
-      // D6 — the typed extra never reaches the location.
-      AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
-      expect(find.byType(WalkInGuestStepScreen), findsOneWidget);
-      expect(_text(tester, _first), _kRegFirst);
-      expect(_text(tester, _last), _kRegLast);
-      expect(_text(tester, _phone), _kRegPhoneShown);
-      // D7 — no picked-client chip for a card launch.
-      expect(find.byKey(ClientStep.pickedChipKey), findsNothing);
+      // D6 — the typed extra never reaches the location (PII-free path).
+      _expectMasterServiceStep(router);
+      // The service catalogue really renders on the real route.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('mcb_service_card_assign-1')),
+      );
 
+      // Back from the service step leaves the flow: the card, not a client
+      // step.
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('walk-in-service-back')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(WalkInServiceStepScreen), findsNothing);
+      expect(find.byType(WalkInGuestStepScreen), findsNothing);
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
+      AppHarness.expectNestedPushLocation(router, cardLocation);
+
+      await _tapBook(tester);
+      _expectMasterServiceStep(router);
+      // PRIMARY — the client the skipped step carried is the card's client,
+      // observed on the wire (CLI-D14 plain walk-in guest).
       final Map<String, dynamic> guest = await _submitMasterWalkIn(tester, fb);
       expect(guest, <String, dynamic>{
         'name': _kRegFirst,
@@ -314,9 +345,10 @@ void main() {
     });
   });
 
-  testWidgets('M543 owner: guest card with a master chip selected → the '
-      'salon wizard on its client step, no master preselected → submit → '
-      'closing returns to the card, which shows the booking', (tester) async {
+  testWidgets('BOOK-80 owner: complete guest card with a master chip '
+      'selected → the salon wizard opens on its SERVICE step, no master '
+      'preselected → submit → closing returns to the card, which shows the '
+      'booking', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.salonOwner
@@ -343,12 +375,9 @@ void main() {
         RouteNames.salonStaffBookingNew,
       );
       expect(find.byType(SalonCreateBookingScreen), findsOneWidget);
-      expect(_text(tester, _first), _kGuestFirst);
-      expect(_text(tester, _last), _kGuestLast);
-      expect(_text(tester, _phone), _kGuestPhoneShown);
-
-      await AppHarness.tapVisible(tester, find.byKey(_next));
-      await AppHarness.settle(tester);
+      // BOOK-80 — the client step is skipped: no client form, no «Далі».
+      expect(find.byKey(_first), findsNothing);
+      expect(find.byKey(_next), findsNothing);
       final Finder svc = find.byKey(
         const Key('mcb_service_card_${FakeBackend.kSalonWizSvcA}'),
       );
@@ -420,8 +449,9 @@ void main() {
     });
   });
 
-  testWidgets('M543 SALON_ADMIN: blocked client card → «Записати» shown → '
-      'the salon wizard opens prefilled', (tester) async {
+  testWidgets('BOOK-80 SALON_ADMIN: blocked complete card → «Записати» shown '
+      '→ the salon wizard opens on its service step → back closes it to the '
+      'card', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.salonAdmin
@@ -442,10 +472,20 @@ void main() {
       );
       await _tapBook(tester);
       expect(find.byType(SalonCreateBookingScreen), findsOneWidget);
-      expect(_text(tester, _first), _kRegFirst);
-      expect(_text(tester, _last), _kRegLast);
-      expect(_text(tester, _phone), _kRegPhoneShown);
-      expect(_nextEnabled(tester), isTrue);
+      expect(find.byKey(_first), findsNothing);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('mcb_service_card_${FakeBackend.kSalonWizSvcA}')),
+      );
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('salon-create-booking-back')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
+      expect(fb.createSalonWizardBookingCalls, 0);
       expect(tester.takeException(), isNull);
     });
   });
@@ -471,8 +511,9 @@ void main() {
     });
   });
 
-  testWidgets('M543 IM: a card without a phone → names prefilled, phone '
-      'empty, «Далі» disabled until a phone is typed', (tester) async {
+  testWidgets('BOOK-80 IM: a card without a phone → the CLIENT step (not '
+      'skipped), names prefilled, phone empty, «Далі» disabled until a phone '
+      'is typed', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.independentMaster;
@@ -484,7 +525,11 @@ void main() {
       );
 
       await _tapBook(tester);
+      AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
       expect(find.byType(WalkInGuestStepScreen), findsOneWidget);
+      expect(find.byType(WalkInServiceStepScreen), findsNothing);
+      // D7 — no picked-client chip for a card launch.
+      expect(find.byKey(ClientStep.pickedChipKey), findsNothing);
       expect(_text(tester, _first), _kNoPhoneFirst);
       expect(_text(tester, _last), _kNoPhoneLast);
       expect(_text(tester, _phone), isEmpty);
@@ -493,6 +538,9 @@ void main() {
       await tester.enterText(find.byKey(_phone), '0509998877');
       await tester.pump();
       expect(_nextEnabled(tester), isTrue);
+      await AppHarness.tapVisible(tester, find.byKey(_next));
+      await AppHarness.settle(tester);
+      expect(find.byType(WalkInServiceStepScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
@@ -511,6 +559,29 @@ void main() {
 
       expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
       expect(_book, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('BOOK-80 IM: the bookings «+» entry is unchanged — the empty '
+      'client step with the «Обрати з моїх клієнтів» picker', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster;
+      final GoRouter router = await _bootMaster(tester, fb);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-add')));
+      await AppHarness.settle(tester);
+
+      AppHarness.expectNestedPushLocation(router, RouteNames.masterBookingNew);
+      expect(find.byType(WalkInGuestStepScreen), findsOneWidget);
+      expect(find.byType(WalkInServiceStepScreen), findsNothing);
+      expect(find.byKey(ClientStep.pickClientKey), findsOneWidget);
+      expect(_text(tester, _first), isEmpty);
+      expect(_text(tester, _last), isEmpty);
+      expect(_text(tester, _phone), isEmpty);
+      expect(_nextEnabled(tester), isFalse);
       expect(tester.takeException(), isNull);
     });
   });
