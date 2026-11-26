@@ -80,6 +80,8 @@ import '../features/booking/presentation/service_selector_sheet.dart';
 import '../features/booking/presentation/slot_picker_screen.dart';
 import '../features/booking/presentation/walk_in_guest_step_screen.dart';
 import '../features/booking/presentation/walk_in_service_step_screen.dart';
+import '../features/booking/presentation/widgets/booking_wizard_steps.dart'
+    show walkInGuestFromPrefill;
 import '../features/clients/domain/client_summary.dart';
 import '../shared/validators/uuid_validator.dart';
 import '../features/clients/presentation/client_card_screen.dart';
@@ -402,18 +404,33 @@ GoRouter appRouter(Ref ref) {
   /// settled role may pick clients ([canPickClients] — never SALON_MASTER);
   /// the target route's own gate still decides. `context.push`, so closing
   /// the flow returns to the card.
+  ///
+  /// BOOK-80 / CLI-80 (user 2026-11-26) — with [servicesLocation] set and a
+  /// COMPLETE prefill ([walkInGuestFromPrefill]) the client step is skipped:
+  /// the service step is pushed directly with the minted [WalkInGuest]
+  /// `extra` (which satisfies its redirect), so back returns to the card.
+  /// `null` (the default) or an incomplete prefill → [location], as before.
   void Function(BuildContext, ClientPrefill)? cardBookLauncher(
     String location, {
     String? salonId,
+    String? servicesLocation,
   }) {
     if (!canPickClients(authUserRoleSettledOrNull(ref.read(authProvider)))) {
       return null;
     }
-    return (BuildContext context, ClientPrefill prefill) =>
-        context.pushOnce<void>(
-          location,
-          extra: WalkInLaunch(prefill: prefill, salonId: salonId),
-        );
+    return (BuildContext context, ClientPrefill prefill) {
+      final WalkInGuest? guest = servicesLocation == null
+          ? null
+          : walkInGuestFromPrefill(prefill);
+      if (servicesLocation != null && guest != null) {
+        context.pushOnce<void>(servicesLocation, extra: guest);
+        return;
+      }
+      context.pushOnce<void>(
+        location,
+        extra: WalkInLaunch(prefill: prefill, salonId: salonId),
+      );
+    };
   }
 
   /// M543 D6 — the card launch's prefill from a route `extra`, type-checked
@@ -2277,7 +2294,10 @@ GoRouter appRouter(Ref ref) {
                 cardBase: RouteNames.masterClients,
                 bookingRoute: RouteNames.masterBookingDetail,
                 // M543 D3 — the independent master's own walk-in.
-                onBookClient: cardBookLauncher(RouteNames.masterBookingNew),
+                onBookClient: cardBookLauncher(
+                  RouteNames.masterBookingNew,
+                  servicesLocation: RouteNames.masterBookingNewServices,
+                ),
               );
             }),
       ),
@@ -2301,7 +2321,10 @@ GoRouter appRouter(Ref ref) {
             client: ClientRef.guest(bookingId),
             cardBase: RouteNames.masterClients,
             bookingRoute: RouteNames.masterBookingDetail,
-            onBookClient: cardBookLauncher(RouteNames.masterBookingNew),
+            onBookClient: cardBookLauncher(
+              RouteNames.masterBookingNew,
+              servicesLocation: RouteNames.masterBookingNewServices,
+            ),
           ),
         ),
       ),

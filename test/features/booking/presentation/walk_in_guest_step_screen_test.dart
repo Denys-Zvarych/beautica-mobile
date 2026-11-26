@@ -279,6 +279,11 @@ void main() {
     await tester.tap(find.byKey(ClientStep.pickClientKey));
     await tester.pumpAndSettle();
     expect(calls, 1);
+    // User 2026-11-26 — the «+» entry is unchanged: a picked COMPLETE client
+    // only fills the fields; the client step stays until «Далі» (only the
+    // client-card launch skips it, in the router — BOOK-80).
+    expect(_pushedExtras, isEmpty);
+    expect(find.byKey(const Key('master-create-booking-first-name')), findsOne);
 
     // The full-width picker button + the picked chip put «Далі» below the
     // 800x600 test surface's fold (2026-11-25) — scroll to it.

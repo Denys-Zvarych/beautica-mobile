@@ -330,6 +330,27 @@ WalkInGuest walkInGuestFrom({
   );
 }
 
+/// BOOK-80 / CLI-80 (user 2026-11-26) — the client-card launch's walk-in
+/// guest when its [prefill] is COMPLETE: a non-blank first name AND surname
+/// plus a phone [toE164UaPhone] accepts. Then the flow skips the client step
+/// and opens on the service step with this guest (photo + ★ carried, BOOK-81,
+/// via [walkInGuestFrom]). `null` — a missing phone (CLI-E10), a single name
+/// part, a non-UA phone — keeps the client step, prefilled as before.
+/// PII: never logged.
+WalkInGuest? walkInGuestFromPrefill(ClientPrefill prefill) {
+  final String firstName = (prefill.firstName ?? '').trim();
+  final String lastName = (prefill.lastName ?? '').trim();
+  final String? raw = prefill.phone;
+  final String? phone = raw == null ? null : toE164UaPhone(raw);
+  if (firstName.isEmpty || lastName.isEmpty || phone == null) return null;
+  return walkInGuestFrom(
+    firstName: firstName,
+    lastName: lastName,
+    phone: phone,
+    picked: prefill,
+  );
+}
+
 void _setPrefillText(TextEditingController ctrl, String text) =>
     ctrl.value = TextEditingValue(
       text: text,

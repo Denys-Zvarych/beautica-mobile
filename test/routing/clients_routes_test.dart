@@ -18,6 +18,8 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
+    show WalkInGuest;
 import 'package:beautica_mobile/features/booking/domain/walk_in_launch.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
@@ -548,8 +550,10 @@ void main() {
     /// location and extra.
     Future<(String, Object?)> launch(
       WidgetTester tester,
-      ClientCardScreen card,
-    ) async {
+      ClientCardScreen card, {
+      ClientPrefill launched = prefill,
+      bool popAfter = false,
+    }) async {
       final List<(String, Object?)> pushed = <(String, Object?)>[];
       Widget record(BuildContext _, GoRouterState state) {
         pushed.add((state.uri.toString(), state.extra));
@@ -563,12 +567,13 @@ void main() {
             builder: (_, _) => Builder(
               builder: (BuildContext context) => TextButton(
                 key: const Key('go'),
-                onPressed: () => card.onBookClient?.call(context, prefill),
+                onPressed: () => card.onBookClient?.call(context, launched),
                 child: const Text('go'),
               ),
             ),
           ),
           GoRoute(path: RouteNames.masterBookingNew, builder: record),
+          GoRoute(path: RouteNames.masterBookingNewServices, builder: record),
           GoRoute(path: RouteNames.salonStaffBookingNew, builder: record),
         ],
       );
@@ -576,23 +581,143 @@ void main() {
       await tester.pumpWidget(MaterialApp.router(routerConfig: recorder));
       await tester.tap(find.byKey(const Key('go')));
       await tester.pumpAndSettle();
+      if (popAfter) {
+        // BOOK-80 — back from the first pushed step returns to the card.
+        recorder.pop();
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('go')), findsOneWidget);
+        expect(recorder.state.uri.toString(), '/');
+      }
       return pushed.single;
     }
 
-    testWidgets('IM card → /master/bookings/new, typed extra, no PII in the '
-        'location', (tester) async {
-      final ClientCardScreen card = await cardAt(
+    // BOOK-80 / CLI-80 (user 2026-11-26) — a COMPLETE prefill skips the
+    // client step: the service step is pushed straight from the card.
+    for (final String cardLocation in <String>[
+      '/master/clients/user/u-1',
+      '/master/clients/guest/b-1',
+    ]) {
+      testWidgets('IM $cardLocation, complete prefill → the service step with '
+          'a WalkInGuest, no PII in the location, back → the card', (
         tester,
-        UserRole.independentMaster,
-        '/master/clients/user/u-1',
+      ) async {
+        final ClientCardScreen card = await cardAt(
+          tester,
+          UserRole.independentMaster,
+          cardLocation,
+        );
+        const ClientPrefill withPhoto = ClientPrefill(
+          firstName: ' Оксана ',
+          lastName: 'Мельник',
+          phone: '+380671234567',
+          avatarUrl: 'https://cdn.example/a.jpg',
+          rating: 4.5,
+          ratingCount: 3,
+        );
+        final (String location, Object? extra) = await launch(
+          tester,
+          card,
+          launched: withPhoto,
+          popAfter: true,
+        );
+        expect(location, RouteNames.masterBookingNewServices);
+        expect(extra, isA<WalkInGuest>());
+        final WalkInGuest g = extra! as WalkInGuest;
+        expect(g.name, 'Оксана');
+        expect(g.surname, 'Мельник');
+        expect(g.phone, '+380671234567');
+        // BOOK-81 — the card's photo + ★ carry onto the review strip.
+        expect(g.avatarUrl, 'https://cdn.example/a.jpg');
+        expect(g.rating, 4.5);
+        expect(g.ratingCount, 3);
+        expect(g.toString(), 'WalkInGuest()');
+      });
+    }
+
+    // Incomplete prefill (CLI-E10 no phone, one name part, legacy
+    // display-name fallback, non-UA phone) → the client step, as before.
+    for (final (String label, ClientPrefill incomplete)
+        in <(String, ClientPrefill)>[
+          (
+            'no phone (CLI-E10)',
+            const ClientPrefill(firstName: 'Оксана', lastName: 'Мельник'),
+          ),
+          (
+            'first name only (legacy display-name fallback)',
+            const ClientPrefill(firstName: 'Оксана', phone: '+380671234567'),
+          ),
+          (
+            'surname only',
+            const ClientPrefill(lastName: 'Мельник', phone: '+380671234567'),
+          ),
+          (
+            'blank surname',
+            const ClientPrefill(
+              firstName: 'Оксана',
+              lastName: '  ',
+              phone: '+380671234567',
+            ),
+          ),
+          (
+            'non-UA phone',
+            const ClientPrefill(
+              firstName: 'Оксана',
+              lastName: 'Мельник',
+              phone: '+48601234567',
+            ),
+          ),
+        ]) {
+      testWidgets('IM card, $label → /master/bookings/new with the '
+          'WalkInLaunch, back → the card', (tester) async {
+        final ClientCardScreen card = await cardAt(
+          tester,
+          UserRole.independentMaster,
+          '/master/clients/user/u-1',
+        );
+        final (String location, Object? extra) = await launch(
+          tester,
+          card,
+          launched: incomplete,
+          popAfter: true,
+        );
+        expect(location, RouteNames.masterBookingNew);
+        expect(extra, isA<WalkInLaunch>());
+        final WalkInLaunch l = extra! as WalkInLaunch;
+        expect(l.prefill, incomplete);
+        expect(l.salonId, isNull);
+        expect(l.toString(), 'WalkInLaunch()');
+      });
+    }
+
+    testWidgets('/master/bookings/new/services: a WalkInGuest extra '
+        'satisfies the redirect; none bounces to /master/bookings/new', (
+      tester,
+    ) async {
+      final GoRouter router = await prodRouter(UserRole.independentMaster);
+      final BuildContext context = await ctx(tester);
+      const WalkInGuest guest = WalkInGuest(
+        name: 'Оксана',
+        surname: 'Мельник',
+        phone: '+380671234567',
       );
-      final (String location, Object? extra) = await launch(tester, card);
-      expect(location, RouteNames.masterBookingNew);
-      expect(extra, isA<WalkInLaunch>());
-      final WalkInLaunch l = extra! as WalkInLaunch;
-      expect(l.prefill, prefill);
-      expect(l.salonId, isNull);
-      expect(l.toString(), 'WalkInLaunch()');
+      final GoRoute services = leaf(
+        router,
+        RouteNames.masterBookingNewServices,
+      );
+      expect(
+        services.redirect!(
+          context,
+          stateOf(router, RouteNames.masterBookingNewServices, guest),
+        ),
+        isNull,
+      );
+      expect(
+        services.redirect!(
+          context,
+          stateOf(router, RouteNames.masterBookingNewServices, null),
+        ),
+        RouteNames.masterBookingNew,
+      );
     });
 
     testWidgets('salon card → /salon/bookings/new with WalkInLaunch(salonId)', (

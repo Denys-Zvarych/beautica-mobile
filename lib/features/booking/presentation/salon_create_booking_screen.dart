@@ -282,6 +282,11 @@ class _SalonCreateBookingScreenState
   /// logged.
   ClientPrefill? _picked;
 
+  /// BOOK-80 — `true` when a complete client-card prefill opened the wizard
+  /// on `service` (the client step skipped); [_handleBack] then pops from
+  /// `service` instead of stepping back to `client`.
+  bool _openedPastClient = false;
+
   /// [SalonCreateBookingScreen.onPickClient], remembering what was picked.
   Future<ClientPrefill?> Function(BuildContext context)? get _pickClient {
     final Future<ClientPrefill?> Function(BuildContext context)? pick =
@@ -310,6 +315,13 @@ class _SalonCreateBookingScreenState
         last: _lastNameCtrl,
         phone: _phoneCtrl,
       );
+      // BOOK-80 / CLI-80 (user 2026-11-26) — a COMPLETE card prefill skips
+      // the client step: open on `service`; back from there leaves the
+      // wizard (to the card) instead of revealing the client step.
+      if (walkInGuestFromPrefill(prefill) != null) {
+        _step = _BookingStep.service;
+        _openedPastClient = true;
+      }
     }
   }
 
@@ -358,13 +370,16 @@ class _SalonCreateBookingScreenState
 
   void _goTo(_BookingStep s) => setState(() => _step = s);
 
-  /// Header back-chevron handler. On `client`, pops the whole wizard route;
+  /// Header back-chevron handler. On `client` (or on `service` when a
+  /// complete card prefill skipped the client step, BOOK-80), pops the whole
+  /// wizard route;
   /// every other step steps back one index. Unlike the master wizard, there
   /// is no embedded date/time sub-phase to special-case here — `dateTime`
   /// and `masters` are two ordinary steps, not one combined widget with an
   /// internal phase.
   void _handleBack() {
-    if (_step == _BookingStep.client) {
+    if (_step == _BookingStep.client ||
+        (_openedPastClient && _step == _BookingStep.service)) {
       context.pop();
       return;
     }
