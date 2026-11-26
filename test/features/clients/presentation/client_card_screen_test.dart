@@ -149,7 +149,12 @@ class _Repo implements ClientRepository {
   @override
   Future<void> restoreToList(ClientListScope scope, ClientRef client) async {
     writes.add('restore');
+    final Failure? f = restoreFailure;
+    if (f != null) throw f;
   }
+
+  /// M544 — when set, the undo's restore throws it.
+  Failure? restoreFailure;
 
   @override
   Future<ClientCard> getCard(
@@ -1661,6 +1666,32 @@ void main() {
       await pumpUntilGone(tester, find.text(l10n.clientsRemovedSnack));
       expect(repo.writes, <String>['remove', 'restore']);
       await pumpPastVelvetSnack(tester, hasAction: true);
+    });
+
+    // PR #201 CI fix — the undo's error snack uses the ROOT navigator's
+    // context (read through go_router): the card is gone by the time
+    // «Повернути» fails, and the failure must still be shown on the list.
+    testWidgets('restore fails AFTER the card popped → the failure snack shows '
+        'on the list screen', (tester) async {
+      final _Repo repo = await pumpPushed(tester)
+        ..restoreFailure = const NetworkFailure();
+      final AppLocalizations l10n = _l10n(tester);
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.removeKey));
+      await tester.pump();
+      await pumpUntilGone(tester, find.byType(ClientCardScreen));
+      expect(find.text('list-page'), findsOneWidget);
+
+      await tester.tap(find.text(l10n.clientsRemoveUndo));
+      await tester.pump();
+      final String message = const NetworkFailure().userMessage(
+        tester.element(find.text('list-page')),
+      );
+      await pumpUntilFound(tester, find.text(message));
+      expect(repo.writes, <String>['remove', 'restore']);
+      expectVelvetSnack(message, variant: VelvetSnackVariant.error);
+      expect(find.byType(ClientCardScreen), findsNothing);
+      await pumpPastVelvetSnack(tester);
     });
 
     testWidgets('a failed remove stays on the card with the error snack', (

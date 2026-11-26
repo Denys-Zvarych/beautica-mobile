@@ -346,11 +346,13 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
       context,
       listen: false,
     );
-    // Outlives this card: the undo's error snack needs a live context.
-    final BuildContext rootContext = Navigator.of(
+    // Outlives this card: the undo's error snack needs a live context. The
+    // root navigator's context, read through go_router (no direct Navigator
+    // in features) — the canonical pattern of
+    // `notifications/presentation/push_tap_dispatcher.dart`.
+    final BuildContext? rootContext = GoRouter.of(
       context,
-      rootNavigator: true,
-    ).context;
+    ).routerDelegate.navigatorKey.currentContext;
     final ClientListScope scope = widget.scope;
     final ClientRef client = widget.client;
     try {
@@ -379,16 +381,44 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
           scope,
           client,
         );
-        if (error == null || !rootContext.mounted) return;
+        if (error == null || rootContext == null || !rootContext.mounted) {
+          return;
+        }
+        // The navigator's own context sits ABOVE its overlay; the snack host
+        // needs one inside it (a live route's).
+        final BuildContext? host = _insideRootOverlay(rootContext);
+        if (host == null) return;
         showErrorSnack(
-          rootContext,
+          host,
           (error is Failure ? error : UnknownFailure(cause: error)).userMessage(
-            rootContext,
+            host,
           ),
         );
       },
     );
     if (context.canPop()) context.pop();
+  }
+
+  /// The first element under [navigatorContext] that sits INSIDE the root
+  /// overlay (a mounted route's subtree) — what `showVelvetSnack` needs,
+  /// since `Overlay.of` looks for an overlay ANCESTOR and the navigator's own
+  /// context is above its overlay. `null` when nothing is mounted. Depth-first
+  /// and stops at the first hit (the bottom route's subtree, ~15 elements
+  /// down); the bound only caps a pathological tree.
+  static BuildContext? _insideRootOverlay(BuildContext navigatorContext) {
+    const int maxDepth = 40;
+    BuildContext? found;
+    void visit(Element e, int depth) {
+      if (found != null || depth > maxDepth) return;
+      if (Overlay.maybeOf(e, rootOverlay: true) != null) {
+        found = e;
+        return;
+      }
+      e.visitChildren((Element c) => visit(c, depth + 1));
+    }
+
+    (navigatorContext as Element).visitChildren((Element c) => visit(c, 1));
+    return found;
   }
 
   Future<void> _onMore(UserRole? role) async {
