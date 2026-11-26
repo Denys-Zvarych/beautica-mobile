@@ -92,6 +92,14 @@ class _Repo implements ClientRepository {
     int size = kClientPageSize,
     CancelToken? cancelToken,
   }) => throw UnimplementedError();
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
 }
 
 /// The injected clock's current value (mutable for the resume tests).

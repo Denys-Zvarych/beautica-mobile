@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/moderation/presentation/widgets/content
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
@@ -133,6 +134,22 @@ class _Repo implements ClientRepository {
 
   /// Visit pages (0-based) that fail with a [NetworkFailure].
   final Set<int> failVisitPages = <int>{};
+
+  /// M544 — the removal writes, in order (`remove:<scope>` / `restore:…`).
+  final List<String> writes = <String>[];
+  Failure? removeFailure;
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) async {
+    writes.add('remove');
+    final Failure? f = removeFailure;
+    if (f != null) throw f;
+  }
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) async {
+    writes.add('restore');
+  }
 
   @override
   Future<ClientCard> getCard(
@@ -1550,7 +1567,9 @@ void main() {
       expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
     });
 
-    testWidgets('salon master, guest: no «⋯» at all', (tester) async {
+    testWidgets('salon master, guest: remove only (CLI-69, M544)', (
+      tester,
+    ) async {
       await _pump(
         tester,
         _Repo(card: (ClientRef r) => _card(r)),
@@ -1558,7 +1577,110 @@ void main() {
         role: UserRole.salonMaster,
         extra: env(anchor('b-1', clientId: null, blockable: false)),
       );
-      expect(more, findsNothing);
+      await openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.removeKey), findsOne);
+    });
+
+    // M544 (CLI-86) — «Прибрати зі списку» from the card: the card pops back
+    // to where it was opened from and the undo snack shows there.
+    Future<_Repo> pumpPushed(
+      WidgetTester tester, {
+      UserRole role = UserRole.salonOwner,
+      Failure? removeFailure,
+    }) async {
+      final _Repo repo = regRepo()..removeFailure = removeFailure;
+      final GoRouter router = GoRouter(
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/',
+            builder: (BuildContext context, GoRouterState state) =>
+                const Scaffold(body: Text('list-page')),
+          ),
+          GoRoute(
+            path: '/card',
+            builder: (BuildContext context, GoRouterState state) =>
+                const ClientCardScreen(
+                  scope: ClientListScope.salon(salonId: 's-1'),
+                  client: _reg,
+                  cardBase: RouteNames.masterClients,
+                  bookingRoute: RouteNames.masterBookingDetail,
+                ),
+          ),
+        ],
+      );
+      final _Harness h = _Harness(repo, role: role, extra: env(anchor('bk-1')));
+      tester.view.physicalSize = const Size(360, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: h.overrides,
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+      unawaited(router.push<void>('/card'));
+      await _loaded(tester);
+      return repo;
+    }
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+      UserRole.independentMaster,
+      UserRole.salonMaster,
+    ]) {
+      testWidgets('$role: «Прибрати зі списку» is offered', (tester) async {
+        await _pump(tester, regRepo(), role: role, extra: env(anchor('bk-1')));
+        await openSheet(tester);
+        expect(find.byKey(ClientActionsSheet.removeKey), findsOne);
+      });
+    }
+
+    testWidgets('remove → back to the list + the undo snack with its '
+        'countdown; «Повернути» calls restore once', (tester) async {
+      final _Repo repo = await pumpPushed(tester);
+      final AppLocalizations l10n = _l10n(tester);
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.removeKey));
+      await tester.pump();
+      // The list page is in the stack (offstage) all along: wait for the
+      // card itself to leave.
+      await pumpUntilGone(tester, find.byType(ClientCardScreen));
+
+      expect(repo.writes, <String>['remove']);
+      expect(find.byType(ClientCardScreen), findsNothing);
+      expect(find.text('list-page'), findsOneWidget);
+      expect(find.text(l10n.clientsRemovedSnack), findsOneWidget);
+      expect(find.byKey(VelvetSnack.countdownKey), findsOneWidget);
+
+      await tester.tap(find.text(l10n.clientsRemoveUndo));
+      await tester.pump();
+      await pumpUntilGone(tester, find.text(l10n.clientsRemovedSnack));
+      expect(repo.writes, <String>['remove', 'restore']);
+      await pumpPastVelvetSnack(tester, hasAction: true);
+    });
+
+    testWidgets('a failed remove stays on the card with the error snack', (
+      tester,
+    ) async {
+      final _Repo repo = await pumpPushed(
+        tester,
+        removeFailure: const NetworkFailure(),
+      );
+      final AppLocalizations l10n = _l10n(tester);
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.removeKey));
+      await tester.pump();
+      await pumpUntilFound(tester, find.text(l10n.clientsRemoveFailed));
+
+      expect(repo.writes, <String>['remove']);
+      expect(find.byType(ClientCardScreen), findsOneWidget);
+      expect(find.text(l10n.clientsRemoveFailed), findsOneWidget);
+      expect(find.text(l10n.clientsRemovedSnack), findsNothing);
+      await pumpPastVelvetSnack(tester);
     });
 
     testWidgets('independent master, guest: block only, through the card\'s '

@@ -28,9 +28,17 @@
 // still inside its debounce when the view is disposed is cancelled — it never
 // fetches for a closed host.
 //
+// REMOVE (M544, CLI-86) — tab host only: each row sits in an end-to-start
+// `Dismissible` revealing the shared [SwipeActionBackground]; the swipe (or
+// the row's screen-reader action) removes it optimistically through
+// [ClientListController.remove], then the undo snack with its countdown
+// offers «Повернути». A failed remove puts the row back + an error snack.
+// [ClientListRow] itself is untouched; the picker host never swipes.
+//
 // PII: names render, never log; no phone anywhere (CLI-47).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -40,10 +48,12 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_removal.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_list_row.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/client_removed_snack.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -51,6 +61,7 @@ import 'package:beautica_mobile/shared/widgets/list_card_skeleton.dart';
 import 'package:beautica_mobile/shared/widgets/load_more_retry_footer.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:beautica_mobile/shared/widgets/search_query_field.dart';
+import 'package:beautica_mobile/shared/widgets/swipe_action_background.dart';
 
 /// The searchable, paged client list for one [scope]. Fills its parent's
 /// height (the list part is `Expanded`), so the host bounds it.
@@ -92,6 +103,10 @@ class ClientListView extends ConsumerStatefulWidget {
   static const Key emptyKey = Key('clients-empty');
   static const Key noMatchKey = Key('clients-no-match');
   static const Key loadMoreRetryKey = Key('clients-load-more-retry');
+
+  /// M544 — the swipe-to-remove wrapper of the row for [summary].
+  static Key dismissibleKey(ClientSummary summary) =>
+      ValueKey<String>('client-dismiss-${summary.id}');
 
   @override
   ConsumerState<ClientListView> createState() => _ClientListViewState();
@@ -178,6 +193,91 @@ class _ClientListViewState extends ConsumerState<ClientListView> {
     FocusManager.instance.primaryFocus?.unfocus();
     context.pushOnce<void>(
       clientCardRoute(cardBase, summary.ref, masterId: masterId),
+    );
+  }
+
+  /// Failed removes per row id: part of THAT row's swipe subtree key, so only
+  /// the failed row remounts.
+  final Map<String, int> _removeFailures = <String, int>{};
+
+  /// M544 — the swipe / screen-reader removal of [summary]'s row. The undo
+  /// snack shows only once the write landed; a failure re-shows the row
+  /// (the controller) and says so.
+  Future<void> _remove(ClientSummary summary) async {
+    final ProviderContainer container = ProviderScope.containerOf(
+      context,
+      listen: false,
+    );
+    final ClientRemoval? removal = await ref
+        .read(_provider.notifier)
+        .remove(summary);
+    if (removal == null || !mounted) return;
+    if (removal.error != null) {
+      // The row is back (the controller); its Dismissible element may still
+      // be the DISMISSED one when the failure lands before the next frame —
+      // re-key so it remounts at rest instead of collapsed.
+      setState(
+        () => _removeFailures.update(
+          summary.id,
+          (int n) => n + 1,
+          ifAbsent: () => 1,
+        ),
+      );
+      showErrorSnack(context, AppLocalizations.of(context).clientsRemoveFailed);
+      return;
+    }
+    showClientRemovedSnack(
+      context,
+      onUndo: () => _undo(container, summary, removal.index),
+    );
+  }
+
+  /// «Повернути»: back at [index] through the controller while this view is
+  /// mounted; after it left (tab switched inside the 5 s) the write still
+  /// runs through the root [container] and the next mount refetches.
+  Future<void> _undo(
+    ProviderContainer container,
+    ClientSummary summary,
+    int index,
+  ) async {
+    final Object? error = mounted
+        ? await ref.read(_provider.notifier).restore(summary, index)
+        : await restoreClientToList(
+            container.read(clientRepositoryProvider),
+            container.invalidate,
+            widget.scope,
+            summary.ref,
+          );
+    if (error == null || !mounted) return;
+    showErrorSnack(
+      context,
+      (error is Failure ? error : UnknownFailure(cause: error)).userMessage(
+        context,
+      ),
+    );
+  }
+
+  /// The row, wrapped for swipe-to-remove on the tab host (see the header).
+  Widget _removable(ClientSummary s, Widget row, AppLocalizations l10n) {
+    if (widget.host != ClientListHost.tab) return row;
+    return Semantics(
+      customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
+        CustomSemanticsAction(label: l10n.clientsRemoveAction): () =>
+            _remove(s),
+      },
+      child: KeyedSubtree(
+        key: ValueKey<int>(_removeFailures[s.id] ?? 0),
+        child: Dismissible(
+          key: ClientListView.dismissibleKey(s),
+          direction: DismissDirection.endToStart,
+          background: SwipeActionBackground(
+            icon: Icons.person_remove_outlined,
+            label: l10n.clientsRemoveSwipe,
+          ),
+          onDismissed: (DismissDirection _) => _remove(s),
+          child: row,
+        ),
+      ),
     );
   }
 
@@ -313,8 +413,12 @@ class _ClientListViewState extends ConsumerState<ClientListView> {
         return Padding(
           key: ValueKey<String>('client-${s.id}'),
           padding: EdgeInsets.only(top: i == 0 ? 0 : VelvetSpacing.md),
-          child: RepaintBoundary(
-            child: ClientListRow(summary: s, now: now, onTap: () => _tap(s)),
+          child: _removable(
+            s,
+            RepaintBoundary(
+              child: ClientListRow(summary: s, now: now, onTap: () => _tap(s)),
+            ),
+            l10n,
           ),
         );
       },

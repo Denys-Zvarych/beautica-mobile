@@ -19,6 +19,12 @@
 // on the SAME seam, with the same flat-paging wire format.
 // The card carries the client's PHONE (B518) — the redacted prefixes above
 // cover these paths, and nothing here ever logs a body or a path id.
+//
+// M544 adds the list removal writes (B564, CLI-82) through the GENERATED
+// `ProviderClientControllerApi` (`remove|restore` `SalonClient` / `MyClient`)
+// with the generated `ClientListRemovalRequest`; 204. Both sit under the same
+// redacted prefixes. The owner/admin `masterId` view is salon-scoped
+// server-side, so `masterId` is never sent on a write.
 
 import 'dart:developer';
 
@@ -96,6 +102,15 @@ abstract interface class ClientRepository {
     int size = kClientPageSize,
     CancelToken? cancelToken,
   });
+
+  /// M544 (B564, CLI-82) — removes [client] from [scope]'s list. Bookings,
+  /// history, ratings and blocks are untouched server-side. Throws a
+  /// [Failure] ([NotFoundFailure] for an out-of-scope client).
+  Future<void> removeFromList(ClientListScope scope, ClientRef client);
+
+  /// M544 (B564) — undoes [removeFromList] (the undo snack). Idempotent
+  /// server-side (204 even when nothing was removed).
+  Future<void> restoreToList(ClientListScope scope, ClientRef client);
 }
 
 /// HTTP implementation of [ClientRepository].
@@ -103,9 +118,14 @@ abstract interface class ClientRepository {
 /// Inject via [clientRepositoryProvider] — never construct directly outside
 /// tests.
 final class HttpClientRepository implements ClientRepository {
-  HttpClientRepository(this._dio);
+  HttpClientRepository(this._dio)
+    : _api = ProviderClientControllerApi(_dio, standardSerializers);
 
   final Dio _dio;
+
+  /// The generated client — used for the B564 removal writes. The reads stay
+  /// on [_dio] (flat paging, see the file header).
+  final ProviderClientControllerApi _api;
 
   @override
   Future<PageResponse<ClientSummary>> list(
@@ -186,6 +206,65 @@ final class HttpClientRepository implements ClientRepository {
     ),
     requestedPage: page,
   );
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) =>
+      _removal(scope, client, restore: false);
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) =>
+      _removal(scope, client, restore: true);
+
+  /// B564 — the generated removal operations with the generated
+  /// [ClientListRemovalRequest] (exactly one of `clientId` /
+  /// `guestBookingId`). A salon scope always writes the salon removal (its
+  /// `masterId` view is covered server-side), a master scope its own list.
+  Future<void> _removal(
+    ClientListScope scope,
+    ClientRef client, {
+    required bool restore,
+  }) async {
+    final ClientListRemovalRequest body = ClientListRemovalRequest(
+      (ClientListRemovalRequestBuilder b) => switch (client) {
+        RegisteredClientRef(:final String userId) => b.clientId = userId,
+        GuestClientRef(:final String bookingId) => b.guestBookingId = bookingId,
+      },
+    );
+    try {
+      await switch ((scope, restore)) {
+        (SalonClientListScope(:final String salonId), false) =>
+          _api.removeSalonClient(
+            salonId: salonId,
+            clientListRemovalRequest: body,
+          ),
+        (SalonClientListScope(:final String salonId), true) =>
+          _api.restoreSalonClient(
+            salonId: salonId,
+            clientListRemovalRequest: body,
+          ),
+        (MyClientListScope(), false) => _api.removeMyClient(
+          clientListRemovalRequest: body,
+        ),
+        (MyClientListScope(), true) => _api.restoreMyClient(
+          clientListRemovalRequest: body,
+        ),
+      };
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        // Transport metadata only — never the body, the path or an id.
+        log(
+          '${restore ? 'restore' : 'remove'} failed: '
+          '${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw mapClientDioException(e);
+    }
+  }
 
   /// `…/clients/{users|guests}/{id}{suffix}` below [scope]'s base.
   String _cardPath(ClientListScope scope, ClientRef client, String suffix) {

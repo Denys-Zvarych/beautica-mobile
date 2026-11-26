@@ -174,6 +174,10 @@ Class | Method | HTTP request | Description
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserVisits**](doc/ProviderClientControllerApi.md#getsalonuservisits) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**listMyClients**](doc/ProviderClientControllerApi.md#listmyclients) | **GET** /api/v1/masters/me/clients | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**listSalonClients**](doc/ProviderClientControllerApi.md#listsalonclients) | **GET** /api/v1/salons/{salonId}/clients | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**removeMyClient**](doc/ProviderClientControllerApi.md#removemyclient) | **POST** /api/v1/masters/me/clients/removals | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**removeSalonClient**](doc/ProviderClientControllerApi.md#removesalonclient) | **POST** /api/v1/salons/{salonId}/clients/removals | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**restoreMyClient**](doc/ProviderClientControllerApi.md#restoremyclient) | **POST** /api/v1/masters/me/clients/removals/restore | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**restoreSalonClient**](doc/ProviderClientControllerApi.md#restoresalonclient) | **POST** /api/v1/salons/{salonId}/clients/removals/restore | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**availability**](doc/PublicBookingControllerApi.md#availability) | **GET** /api/v1/book/{slug}/availability | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**book**](doc/PublicBookingControllerApi.md#book) | **POST** /api/v1/book/{slug}/booking | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**bookableDays**](doc/PublicBookingControllerApi.md#bookabledays) | **GET** /api/v1/book/{slug}/bookable-days | 
@@ -375,6 +379,7 @@ Class | Method | HTTP request | Description
  - [ClientAuthoredReviewResponse](doc/ClientAuthoredReviewResponse.md)
  - [ClientCardResponse](doc/ClientCardResponse.md)
  - [ClientListItemResponse](doc/ClientListItemResponse.md)
+ - [ClientListRemovalRequest](doc/ClientListRemovalRequest.md)
  - [ClientOwnRatingResponse](doc/ClientOwnRatingResponse.md)
  - [ClientReviewResponse](doc/ClientReviewResponse.md)
  - [ClientVisitResponse](doc/ClientVisitResponse.md)

@@ -23,6 +23,10 @@ Method | HTTP request | Description
 [**getSalonUserVisits**](ProviderClientControllerApi.md#getsalonuservisits) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/visits | 
 [**listMyClients**](ProviderClientControllerApi.md#listmyclients) | **GET** /api/v1/masters/me/clients | 
 [**listSalonClients**](ProviderClientControllerApi.md#listsalonclients) | **GET** /api/v1/salons/{salonId}/clients | 
+[**removeMyClient**](ProviderClientControllerApi.md#removemyclient) | **POST** /api/v1/masters/me/clients/removals | 
+[**removeSalonClient**](ProviderClientControllerApi.md#removesalonclient) | **POST** /api/v1/salons/{salonId}/clients/removals | 
+[**restoreMyClient**](ProviderClientControllerApi.md#restoremyclient) | **POST** /api/v1/masters/me/clients/removals/restore | 
+[**restoreSalonClient**](ProviderClientControllerApi.md#restoresalonclient) | **POST** /api/v1/salons/{salonId}/clients/removals/restore | 
 
 
 # **getMyGuestCard**
@@ -644,6 +648,170 @@ No authorization required
 
  - **Content-Type**: Not defined
  - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **removeMyClient**
+> removeMyClient(clientListRemovalRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final ClientListRemovalRequest clientListRemovalRequest = ; // ClientListRemovalRequest | 
+
+try {
+    api.removeMyClient(clientListRemovalRequest);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->removeMyClient: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **clientListRemovalRequest** | [**ClientListRemovalRequest**](ClientListRemovalRequest.md)|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **removeSalonClient**
+> removeSalonClient(salonId, clientListRemovalRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final ClientListRemovalRequest clientListRemovalRequest = ; // ClientListRemovalRequest | 
+
+try {
+    api.removeSalonClient(salonId, clientListRemovalRequest);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->removeSalonClient: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **clientListRemovalRequest** | [**ClientListRemovalRequest**](ClientListRemovalRequest.md)|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **restoreMyClient**
+> restoreMyClient(clientListRemovalRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final ClientListRemovalRequest clientListRemovalRequest = ; // ClientListRemovalRequest | 
+
+try {
+    api.restoreMyClient(clientListRemovalRequest);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->restoreMyClient: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **clientListRemovalRequest** | [**ClientListRemovalRequest**](ClientListRemovalRequest.md)|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **restoreSalonClient**
+> restoreSalonClient(salonId, clientListRemovalRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final ClientListRemovalRequest clientListRemovalRequest = ; // ClientListRemovalRequest | 
+
+try {
+    api.restoreSalonClient(salonId, clientListRemovalRequest);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->restoreSalonClient: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **clientListRemovalRequest** | [**ClientListRemovalRequest**](ClientListRemovalRequest.md)|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: Not defined
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

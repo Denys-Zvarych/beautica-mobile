@@ -108,6 +108,20 @@ void main() {
             ),
           ),
         ),
+        // M544 — the undo snack with its time-left bar (`showCountdown`),
+        // frozen at 60 % remaining.
+        (
+          name: 'velvet_snack_info_with_countdown',
+          builder: () => _harness(
+            VelvetSnack(
+              variant: VelvetSnackVariant.info,
+              message: 'Клієнта прибрано зі списку',
+              actionLabel: 'Повернути',
+              onAction: () {},
+              countdown: const AlwaysStoppedAnimation<double>(0.6),
+            ),
+          ),
+        ),
       ];
 
   for (final ({String name, Widget Function() builder}) c in cases) {

@@ -135,6 +135,7 @@ import 'package:beautica_api/src/model/city_response.dart';
 import 'package:beautica_api/src/model/client_authored_review_response.dart';
 import 'package:beautica_api/src/model/client_card_response.dart';
 import 'package:beautica_api/src/model/client_list_item_response.dart';
+import 'package:beautica_api/src/model/client_list_removal_request.dart';
 import 'package:beautica_api/src/model/client_own_rating_response.dart';
 import 'package:beautica_api/src/model/client_review_response.dart';
 import 'package:beautica_api/src/model/client_visit_response.dart';
@@ -426,6 +427,7 @@ part 'serializers.g.dart';
   ClientAuthoredReviewResponse,
   ClientCardResponse,
   ClientListItemResponse,
+  ClientListRemovalRequest,
   ClientOwnRatingResponse,
   ClientReviewResponse,
   ClientVisitResponse,

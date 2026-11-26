@@ -295,4 +295,68 @@ void main() {
       },
     );
   });
+
+  // M544 — the additive time-left bar.
+  group('countdown bar (M544)', () {
+    testWidgets('no countdown → no bar (every pre-M544 caller)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        _harness(
+          const VelvetSnack(
+            variant: VelvetSnackVariant.info,
+            message: 'Повідомлення',
+          ),
+        ),
+      );
+      expect(find.byKey(VelvetSnack.countdownKey), findsNothing);
+    });
+
+    testWidgets('a countdown draws the bar at its value, at the snack\'s '
+        'bottom edge, without changing the snack\'s height', (tester) async {
+      await tester.pumpApp(
+        _harness(
+          const VelvetSnack(
+            key: Key('plain'),
+            variant: VelvetSnackVariant.info,
+            message: 'Повідомлення',
+          ),
+        ),
+      );
+      final double plainHeight = tester
+          .getSize(find.byKey(const Key('plain')))
+          .height;
+      await tester.pumpApp(
+        _harness(
+          const VelvetSnack(
+            key: Key('timed'),
+            variant: VelvetSnackVariant.info,
+            message: 'Повідомлення',
+            countdown: AlwaysStoppedAnimation<double>(0.25),
+          ),
+        ),
+      );
+      final Finder bar = find.byKey(VelvetSnack.countdownKey);
+      expect(bar, findsOneWidget);
+      expect(
+        tester
+            .widget<FractionallySizedBox>(
+              find.descendant(
+                of: bar,
+                matching: find.byType(FractionallySizedBox),
+              ),
+            )
+            .widthFactor,
+        0.25,
+      );
+      expect(
+        tester.getSize(find.byKey(const Key('timed'))).height,
+        plainHeight,
+      );
+      expect(
+        tester.getBottomLeft(bar).dy,
+        closeTo(tester.getBottomLeft(find.byKey(const Key('timed'))).dy, 1.5),
+      );
+    });
+  });
 }

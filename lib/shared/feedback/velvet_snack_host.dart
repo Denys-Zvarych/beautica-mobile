@@ -54,6 +54,7 @@
 // future returned by [VelvetSnackHandle.dismiss] therefore always completes.
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -95,6 +96,7 @@ VelvetSnackHandle showOnVelvetSnackHost({
   int maxLines = 2,
   Duration? dwell,
   double bottomInset = 0,
+  bool showCountdown = false,
 }) {
   return _VelvetSnackOverlay.instance.show(
     context: context,
@@ -106,6 +108,7 @@ VelvetSnackHandle showOnVelvetSnackHost({
     maxLines: maxLines,
     dwell: dwell,
     bottomInset: bottomInset,
+    showCountdown: showCountdown,
   );
 }
 
@@ -199,6 +202,7 @@ class _VelvetSnackOverlay {
     required int maxLines,
     Duration? dwell,
     required double bottomInset,
+    bool showCountdown = false,
   }) {
     final OverlayState overlay = Overlay.of(context, rootOverlay: true);
 
@@ -252,6 +256,7 @@ class _VelvetSnackOverlay {
         maxLines: maxLines,
         dwell: resolvedDwell,
         bottomInset: bottomInset,
+        showCountdown: showCountdown,
         onRetired: remove,
         onSlotFreed: () => _clearIfCurrent(occupant),
       ),
@@ -301,6 +306,7 @@ class _VelvetSnackScope extends StatefulWidget {
     required this.maxLines,
     required this.dwell,
     required this.bottomInset,
+    this.showCountdown = false,
     required this.onRetired,
     required this.onSlotFreed,
   });
@@ -313,6 +319,9 @@ class _VelvetSnackScope extends StatefulWidget {
   final int maxLines;
   final Duration dwell;
   final double bottomInset;
+
+  /// M544 — draw the time-left bar ([VelvetSnack.countdown]).
+  final bool showCountdown;
   final VoidCallback onRetired;
 
   /// Tells the manager this occupant is retiring — clears `_current` if this
@@ -326,7 +335,7 @@ class _VelvetSnackScope extends StatefulWidget {
 }
 
 class _VelvetSnackScopeState extends State<_VelvetSnackScope>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: VelvetSnackMotion.enter,
@@ -352,14 +361,49 @@ class _VelvetSnackScopeState extends State<_VelvetSnackScope>
   Timer? _dwellTimer;
   Future<void>? _retirement;
 
+  /// M544 — the time left before the dwell [Timer] retires the snack: `1` →
+  /// `0` over exactly the timer's span (entrance + dwell), started with it
+  /// and disposed with it (it keeps draining through the exit, so the bar
+  /// is empty as the dwell retires the snack). Only when
+  /// [_VelvetSnackScope.showCountdown]; `null` otherwise (no extra ticker).
+  /// [AnimationBehavior.preserve]: the platform's reduce-motion switch must
+  /// not shrink a TIME readout to 5 % of its length (the bar would lie about
+  /// the undo window) — reduced motion steps it instead (see [build]).
+  AnimationController? _countdown;
+
+  /// The bar's view for the current reduced-motion setting, built once per
+  /// setting (not per frame).
+  ValueListenable<double>? _countdownView;
+  bool? _countdownStepped;
+
+  /// Reduced motion: holds the STEPPED value and — being a [ValueNotifier] —
+  /// notifies only when it changes, so the bar rebuilds once per second, not
+  /// on every controller tick.
+  ValueNotifier<double>? _steppedValue;
+  VoidCallback? _steppedListener;
+
+  void _dropStepped() {
+    final VoidCallback? listener = _steppedListener;
+    if (listener != null) _countdown?.removeListener(listener);
+    _steppedListener = null;
+    _steppedValue?.dispose();
+    _steppedValue = null;
+  }
+
   @override
   void initState() {
     super.initState();
     _controller.forward();
-    _dwellTimer = Timer(
-      VelvetSnackMotion.enter + widget.dwell,
-      () => retire(VelvetSnackMotion.exit),
-    );
+    final Duration span = VelvetSnackMotion.enter + widget.dwell;
+    _dwellTimer = Timer(span, () => retire(VelvetSnackMotion.exit));
+    if (widget.showCountdown) {
+      _countdown = AnimationController(
+        vsync: this,
+        duration: span,
+        value: 1,
+        animationBehavior: AnimationBehavior.preserve,
+      )..reverse();
+    }
     // Production-only delta from the preview (web has no haptics) — README
     // "Deviations / notes for the port": a light buzz on `error` only, since
     // success/info/warning are not worth one.
@@ -409,15 +453,53 @@ class _VelvetSnackScopeState extends State<_VelvetSnackScope>
   void dispose() {
     _dwellTimer?.cancel();
     widget.onSlotFreed();
+    _dropStepped();
+    _countdown?.dispose();
     _travel.dispose();
     _fade.dispose();
     _controller.dispose();
     super.dispose();
   }
 
+  /// The bar's view of [_countdown]: full through the entrance, then
+  /// linear to `0` over the dwell — or, under reduced motion
+  /// ([MediaQueryData.disableAnimations]), the remaining WHOLE seconds,
+  /// stepped once per second.
+  ValueListenable<double>? _countdownFor(bool stepped) {
+    final AnimationController? countdown = _countdown;
+    if (countdown == null) return null;
+    if (_countdownStepped != stepped || _countdownView == null) {
+      _countdownStepped = stepped;
+      _dropStepped();
+      final Animation<double> view = countdown.drive(
+        CurveTween(
+          curve: VelvetCountdownCurve(
+            enter: VelvetSnackMotion.enter,
+            dwell: widget.dwell,
+            stepped: stepped,
+          ),
+        ),
+      );
+      if (stepped) {
+        final ValueNotifier<double> held = ValueNotifier<double>(view.value);
+        void listener() => held.value = view.value;
+        countdown.addListener(listener);
+        _steppedValue = held;
+        _steppedListener = listener;
+        _countdownView = held;
+      } else {
+        _countdownView = view;
+      }
+    }
+    return _countdownView;
+  }
+
   @override
   Widget build(BuildContext context) {
     final MediaQueryData mq = MediaQuery.of(context);
+    final ValueListenable<double>? countdown = _countdownFor(
+      mq.disableAnimations,
+    );
 
     // Sit above the keyboard when one is open, above the safe area
     // otherwise, and above any caller-declared chrome (bottom nav) on top of
@@ -474,6 +556,7 @@ class _VelvetSnackScopeState extends State<_VelvetSnackScope>
                     message: widget.message,
                     actionLabel: widget.actionLabel,
                     maxLines: widget.maxLines,
+                    countdown: countdown,
                     onAction: widget.onAction == null
                         ? null
                         : () {
@@ -491,5 +574,36 @@ class _VelvetSnackScopeState extends State<_VelvetSnackScope>
         ),
       ),
     );
+  }
+}
+
+/// M544 — maps the countdown controller (`1` → `0` over entrance + dwell) to
+/// the bar's fill: held full through the [enter] span, then the remaining
+/// fraction of [dwell]. [stepped] (reduced motion) rounds that UP to whole
+/// seconds, so the bar moves once per second and never reads emptier than
+/// the time actually left.
+@visibleForTesting
+class VelvetCountdownCurve extends Curve {
+  const VelvetCountdownCurve({
+    required this.enter,
+    required this.dwell,
+    this.stepped = false,
+  });
+
+  final Duration enter;
+  final Duration dwell;
+  final bool stepped;
+
+  @override
+  double transformInternal(double t) {
+    final int total = enter.inMicroseconds + dwell.inMicroseconds;
+    final int dwellUs = dwell.inMicroseconds;
+    if (dwellUs <= 0 || total <= 0) return 0;
+    final double remaining = (t * total / dwellUs).clamp(0.0, 1.0);
+    if (!stepped) return remaining;
+    final int seconds = (dwellUs / Duration.microsecondsPerSecond).ceil();
+    if (seconds <= 0) return remaining;
+    // The epsilon keeps float noise (4.0000001) from rounding a whole step up.
+    return ((remaining * seconds) - 1e-9).ceil().clamp(0, seconds) / seconds;
   }
 }

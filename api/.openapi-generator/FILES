@@ -130,6 +130,7 @@ doc/ClientAuthoredReviewResponse.md
 doc/ClientCardResponse.md
 doc/ClientControllerApi.md
 doc/ClientListItemResponse.md
+doc/ClientListRemovalRequest.md
 doc/ClientOwnRatingResponse.md
 doc/ClientReviewControllerApi.md
 doc/ClientReviewResponse.md
@@ -494,6 +495,7 @@ lib/src/model/city_response.dart
 lib/src/model/client_authored_review_response.dart
 lib/src/model/client_card_response.dart
 lib/src/model/client_list_item_response.dart
+lib/src/model/client_list_removal_request.dart
 lib/src/model/client_own_rating_response.dart
 lib/src/model/client_review_response.dart
 lib/src/model/client_visit_response.dart

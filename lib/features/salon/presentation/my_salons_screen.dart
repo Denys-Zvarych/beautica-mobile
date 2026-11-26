@@ -77,6 +77,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/shared/widgets/swipe_action_background.dart';
 
 import '../../auth/presentation/auth_selectors.dart';
 import '../application/my_salons_notifier.dart';
@@ -431,7 +432,7 @@ class _HubContent extends StatelessWidget {
         final Widget dismissibleCard = Dismissible(
           key: ValueKey<String>('my_salons_dismissible_${salon.id}'),
           direction: DismissDirection.endToStart,
-          background: const _DeleteSalonSwipeBackground(),
+          background: const SwipeActionBackground(),
           // Always `false`: the row is removed by
           // `mySalonsProvider` invalidating + rebuilding (fired
           // inside `deleteSalon()` on success) once
@@ -474,69 +475,11 @@ class _HubContent extends StatelessWidget {
   }
 }
 
-/// The `Dismissible` background revealed by the owner's swipe-to-delete
-/// gesture on a salon card ([DismissDirection.endToStart] only).
-///
-/// Flat `BrandColors.error` fill (the same warm terracotta-red
-/// `SettingsRow(destructive: true)` already uses for `row-delete-salon` —
-/// reused, not a new colour), rounded to the SAME `VelvetRadii.card` radius
-/// as [SalonHubCard] so the reveal reads as "what's under the card" rather
-/// than a separate decorated banner. Trailing-aligned icon + label (the card
-/// slides away to the left, so the reveal grows in from the right) using the
-/// `deleteSalonAction` ARB key already shared by the settings-hub delete
-/// row and [DeleteSalonDialog]. No gradient, no blur, no second shadow — the
-/// sliding card above still carries its own `VelvetShadows.extrudedCard`.
-///
-/// mobile-perf LOW/INFO adjudication (swipe-to-delete audit 2026-09) — this
-/// widget is unconditionally CONSTRUCTED for every owner row `Dismissible`
-/// wraps (clipped to zero width at rest, per `Dismissible`'s own
-/// implementation — it always builds `widget.background` and animates a
-/// clip around it, rather than lazily building it only once dragging
-/// starts). NO CHANGE: this is `Dismissible`'s own documented API shape, not
-/// a mistake in this file — there is no supported way to defer building a
-/// `Dismissible.background` until the drag begins, short of not using
-/// `Dismissible` at all (a far larger rewrite unjustified for a `const`,
-/// single-`Container`+`Row` widget with no state, no listeners, and no
-/// per-frame work of its own). It is also already bounded to the *visible*
-/// viewport by `ListView.builder` — an owner with 50 salons does not
-/// construct 50 of these, only however many rows are on/near screen. Nothing
-/// to fix here.
-class _DeleteSalonSwipeBackground extends StatelessWidget {
-  const _DeleteSalonSwipeBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.centerRight,
-      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-      decoration: BoxDecoration(
-        color: BrandColors.error,
-        borderRadius: BorderRadius.circular(VelvetRadii.card),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const Icon(
-            Icons.delete_outline_rounded,
-            color: BrandColors.white,
-            size: 24,
-          ),
-          const SizedBox(width: VelvetSpacing.xs),
-          Text(
-            AppLocalizations.of(context).deleteSalonAction,
-            style: VelvetText.bodyStrong().copyWith(color: BrandColors.white),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Card-sized "in progress" overlay shown ON TOP of a swiped [SalonHubCard]
 /// while its delete call is in flight (mobile-perf MEDIUM follow-up,
 /// swipe-to-delete audit 2026-09).
 ///
-/// Why not just reuse `Dismissible`'s own [_DeleteSalonSwipeBackground]:
+/// Why not just reuse `Dismissible`'s own [SwipeActionBackground]:
 /// Flutter hides `Dismissible`'s `background` once its move animation
 /// reaches `dismissed` (`!_moveAnimation.isDismissed` gates it internally) —
 /// exactly the state a completed end-to-end swipe is in for the whole async
@@ -548,7 +491,7 @@ class _DeleteSalonSwipeBackground extends StatelessWidget {
 /// renders regardless of what `Dismissible` itself is doing internally.
 ///
 /// Composition — `frontend-design`-reviewed, held to the locked VelvetTouch
-/// palette: reuses [_DeleteSalonSwipeBackground]'s EXACT fill
+/// palette: reuses [SwipeActionBackground]'s EXACT fill
 /// (`BrandColors.error`, the same warm terracotta-red `SettingsRow
 /// (destructive: true)` already uses) and radius (`VelvetRadii.card`) — no
 /// new colour, no gradient beyond the locked CTA one (unused here), no blur,

@@ -88,6 +88,9 @@ import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
 import 'clients_tab_flow_test.dart' as clients_tab;
+import 'clients_remove_from_list_flow_test.dart' as clients_remove_from_list;
+import 'clients_remove_scope_rebook_flow_test.dart'
+    as clients_remove_scope_rebook;
 import 'client_search_query_with_filters_flow_test.dart'
     as client_search_query_with_filters;
 import 'client_search_query_shrink_flow_test.dart'
@@ -291,6 +294,10 @@ void main() {
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
   group('clients_tab_flow', clients_tab.main);
+  // M544 — remove a client from «Клієнти» (swipe / card «⋯») + undo snack
+  // countdown; owner/admin shared vs salon-master scope; re-book comeback.
+  group('clients_remove_from_list_flow', clients_remove_from_list.main);
+  group('clients_remove_scope_rebook_flow', clients_remove_scope_rebook.main);
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
   // reaching /search/masters + /search/salons TOGETHER with location.cityId,
   // category and a price bound on the SAME request, plus the results

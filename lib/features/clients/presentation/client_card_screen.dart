@@ -33,6 +33,13 @@
 // app-switcher guard ([ScreenProtectionManager]) for its lifetime, like
 // «Деталі запису».
 //
+// REMOVE (M544, CLI-86): the «⋯» also offers «Прибрати зі списку» to every
+// provider role. The write runs through the shared `removeClientFromList`;
+// on success the card pops (back to the list — or to booking detail when it
+// was opened from there, CLI-84) and the SAME undo snack as the list swipe
+// shows, its «Повернути» running on the root container (the card is gone by
+// then). A failed remove stays on the card with an error snack.
+//
 // FRESHNESS: a pull-to-refresh that fails keeps the loaded card / timeline and
 // shows an error snack (a first-load failure is still the full error state).
 // On app resume the timeline's "now" is re-read, so a «Наступний візит» whose
@@ -41,6 +48,7 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
@@ -58,7 +66,9 @@ import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_removal.dart';
 import 'package:beautica_mobile/features/clients/application/client_visits_controller.dart';
+import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
@@ -67,13 +77,13 @@ import 'package:beautica_mobile/features/clients/presentation/client_card_route.
 import 'package:beautica_mobile/features/clients/presentation/client_photo_report.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/blocked_tag.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/client_removed_snack.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_readout.dart';
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorites_filter.dart'
     show FavoriteCategoryChip;
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_scaffold.dart';
 import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
-import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/client_actions_flow.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -323,21 +333,62 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
     },
   };
 
-  /// Whether the «⋯» has anything to offer [role] before the anchor read:
-  /// report a registered client not yet reported, or a role that may block.
-  /// The exact gate (server `clientBlockable` / `clientBlocked`) is
-  /// [clientActionsGateFor] on tap. Called from build.
-  bool _showMore(UserRole? role) {
-    if (role == null || role == UserRole.client) return false;
-    final bool canReport = switch (widget.client) {
-      RegisteredClientRef(:final String userId) => !watchIsReported(
-        ref,
-        ReportTargetType.clientProfile,
-        userId,
-      ),
-      GuestClientRef() => false,
-    };
-    return canReport || clientBlocksAllowedFor(role);
+  /// Whether the «⋯» has anything to offer [role] before the anchor read.
+  /// Since M544 every provider role may remove the client from the list
+  /// (CLI-69), so this is "any provider role"; the exact gate (report once,
+  /// server `clientBlockable` / `clientBlocked`) is [clientActionsGateFor] on
+  /// tap. Called from build.
+  bool _showMore(UserRole? role) => role != null && role != UserRole.client;
+
+  /// M544 — «Прибрати зі списку». See the file header.
+  Future<void> _removeFromList() async {
+    final ProviderContainer container = ProviderScope.containerOf(
+      context,
+      listen: false,
+    );
+    // Outlives this card: the undo's error snack needs a live context.
+    final BuildContext rootContext = Navigator.of(
+      context,
+      rootNavigator: true,
+    ).context;
+    final ClientListScope scope = widget.scope;
+    final ClientRef client = widget.client;
+    try {
+      await removeClientFromList(
+        container.read(clientRepositoryProvider),
+        container.invalidate,
+        scope,
+        client,
+      );
+    } catch (_) {
+      if (mounted) {
+        showErrorSnack(
+          context,
+          AppLocalizations.of(context).clientsRemoveFailed,
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    showClientRemovedSnack(
+      context,
+      onUndo: () async {
+        final Object? error = await restoreClientToList(
+          container.read(clientRepositoryProvider),
+          container.invalidate,
+          scope,
+          client,
+        );
+        if (error == null || !rootContext.mounted) return;
+        showErrorSnack(
+          rootContext,
+          (error is Failure ? error : UnknownFailure(cause: error)).userMessage(
+            rootContext,
+          ),
+        );
+      },
+    );
+    if (context.canPop()) context.pop();
   }
 
   Future<void> _onMore(UserRole? role) async {
@@ -398,6 +449,7 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
           ref.invalidate(_cardProvider);
           _invalidateVisits();
         },
+        onRemove: _removeFromList,
       );
     } finally {
       _moreInFlight = false;

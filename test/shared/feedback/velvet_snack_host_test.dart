@@ -26,7 +26,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack_host.dart'
-    show VelvetSnackHandle;
+    show VelvetCountdownCurve, VelvetSnackHandle;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -262,5 +263,145 @@ void main() {
         await pumpPastVelvetSnack(tester);
       },
     );
+  });
+
+  // M544 — `showCountdown`: the bar drains over the dwell and is empty when
+  // the dwell Timer retires the snack; reduced motion steps it per second.
+  group('countdown (M544)', () {
+    const Duration window = Duration(seconds: 5);
+    final Finder bar = find.byKey(VelvetSnack.countdownKey);
+
+    double value(WidgetTester tester) => tester
+        .widget<FractionallySizedBox>(
+          find.descendant(of: bar, matching: find.byType(FractionallySizedBox)),
+        )
+        .widthFactor!;
+
+    void show(WidgetTester tester, {bool countdown = true}) => showVelvetSnack(
+      tester.element(find.byKey(_anchorKey)),
+      message: 'Клієнта прибрано зі списку',
+      variant: VelvetSnackVariant.info,
+      actionLabel: 'Повернути',
+      onAction: () {},
+      duration: window,
+      showCountdown: countdown,
+    );
+
+    testWidgets('default: no bar', (tester) async {
+      await tester.pumpApp(_anchor);
+      show(tester, countdown: false);
+      await pumpVelvetSnackIn(tester);
+      expect(find.byType(VelvetSnack), findsOneWidget);
+      expect(bar, findsNothing);
+      await pumpPastVelvetSnack(tester, hasAction: true);
+    });
+
+    testWidgets('the bar is full through the entrance, drains over the '
+        'dwell and reaches 0 as the snack retires', (tester) async {
+      await tester.pumpApp(_anchor);
+      show(tester);
+      await tester.pump();
+      await tester.pump(VelvetSnackMotion.enter);
+      expect(value(tester), closeTo(1, 0.01));
+
+      // fixed-wait-ok: samples the countdown at exact elapsed times — the
+      // elapsed time IS the quantity under test.
+      await tester.pump(const Duration(seconds: 2));
+      final double mid = value(tester);
+      expect(mid, closeTo(0.6, 0.02));
+
+      // fixed-wait-ok: samples the countdown at exact elapsed times — the
+      // elapsed time IS the quantity under test.
+      await tester.pump(const Duration(seconds: 2));
+      expect(value(tester), lessThan(mid));
+      expect(value(tester), closeTo(0.2, 0.02));
+
+      // The dwell Timer fires at enter + window: the bar is empty then.
+      // fixed-wait-ok: samples the countdown at exact elapsed times — the
+      // elapsed time IS the quantity under test.
+      await tester.pump(const Duration(milliseconds: 1000));
+      expect(value(tester), closeTo(0, 0.001));
+      await tester.pump(VelvetSnackMotion.exit);
+      await tester.pump(VelvetSnackMotion.exit);
+      expect(find.byType(VelvetSnack), findsNothing);
+    });
+
+    testWidgets('reduced motion: the bar steps once per second (whole '
+        'seconds left, rounded up) and still lasts the full window', (
+      tester,
+    ) async {
+      // The snack lives in the ROOT overlay, so the switch must be the
+      // platform's (MaterialApp's MediaQuery), not a local MediaQuery.
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pumpApp(_anchor);
+      show(tester);
+      await tester.pump();
+      await tester.pump(VelvetSnackMotion.enter);
+      expect(value(tester), 1);
+      // fixed-wait-ok: samples the countdown at exact elapsed times — the
+      // elapsed time IS the quantity under test.
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(value(tester), 1, reason: '4.6 s left → 5 of 5 steps');
+      // fixed-wait-ok: samples the countdown at exact elapsed times — the
+      // elapsed time IS the quantity under test.
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(value(tester), 0.8, reason: '3.9 s left → 4 of 5 steps');
+      // fixed-wait-ok: samples the countdown at exact elapsed times — the
+      // elapsed time IS the quantity under test.
+      await tester.pump(const Duration(seconds: 3));
+      expect(value(tester), 0.2, reason: '0.9 s left → 1 of 5 steps');
+      expect(find.byType(VelvetSnack), findsOneWidget);
+      await pumpPastVelvetSnack(tester, hasAction: true);
+    });
+
+    test('curve: held full through the entrance, linear over the dwell', () {
+      const VelvetCountdownCurve curve = VelvetCountdownCurve(
+        enter: Duration(seconds: 1),
+        dwell: Duration(seconds: 4),
+      );
+      expect(curve.transform(1), 1);
+      expect(curve.transform(0.9), 1); // still inside the entrance
+      expect(curve.transform(0.4), closeTo(0.5, 1e-9));
+      expect(curve.transform(0), 0);
+    });
+  });
+
+  testWidgets('reduced motion: the bar is told to rebuild only when the '
+      'stepped value changes (once per second), not every frame', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await tester.pumpApp(_anchor);
+    showVelvetSnack(
+      tester.element(find.byKey(_anchorKey)),
+      message: 'Клієнта прибрано зі списку',
+      variant: VelvetSnackVariant.info,
+      actionLabel: 'Повернути',
+      onAction: () {},
+      duration: const Duration(seconds: 5),
+      showCountdown: true,
+    );
+    await tester.pump();
+    final ValueListenable<double> countdown = tester
+        .widget<VelvetSnack>(find.byType(VelvetSnack))
+        .countdown!;
+    int notifications = 0;
+    countdown.addListener(() => notifications++);
+    // 2 s of ~60 fps frames → at most 2 stepped changes (+1 for the
+    // entrance boundary), never ~120.
+    for (int i = 0; i < 125; i++) {
+      // fixed-wait-ok: one frame step — counting per-frame notifications IS
+      // the quantity under test.
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(notifications, lessThanOrEqualTo(3));
+    expect(notifications, greaterThanOrEqualTo(1));
+    await pumpPastVelvetSnack(tester, hasAction: true);
   });
 }
