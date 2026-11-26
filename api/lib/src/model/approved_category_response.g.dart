@@ -11,12 +11,15 @@ class _$ApprovedCategoryResponse extends ApprovedCategoryResponse {
   final String? name;
   @override
   final String? displayName;
+  @override
+  final String? iconUrl;
 
   factory _$ApprovedCategoryResponse(
           [void Function(ApprovedCategoryResponseBuilder)? updates]) =>
       (ApprovedCategoryResponseBuilder()..update(updates))._build();
 
-  _$ApprovedCategoryResponse._({this.name, this.displayName}) : super._();
+  _$ApprovedCategoryResponse._({this.name, this.displayName, this.iconUrl})
+      : super._();
   @override
   ApprovedCategoryResponse rebuild(
           void Function(ApprovedCategoryResponseBuilder) updates) =>
@@ -31,7 +34,8 @@ class _$ApprovedCategoryResponse extends ApprovedCategoryResponse {
     if (identical(other, this)) return true;
     return other is ApprovedCategoryResponse &&
         name == other.name &&
-        displayName == other.displayName;
+        displayName == other.displayName &&
+        iconUrl == other.iconUrl;
   }
 
   @override
@@ -39,6 +43,7 @@ class _$ApprovedCategoryResponse extends ApprovedCategoryResponse {
     var _$hash = 0;
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, displayName.hashCode);
+    _$hash = $jc(_$hash, iconUrl.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -47,7 +52,8 @@ class _$ApprovedCategoryResponse extends ApprovedCategoryResponse {
   String toString() {
     return (newBuiltValueToStringHelper(r'ApprovedCategoryResponse')
           ..add('name', name)
-          ..add('displayName', displayName))
+          ..add('displayName', displayName)
+          ..add('iconUrl', iconUrl))
         .toString();
   }
 }
@@ -65,6 +71,10 @@ class ApprovedCategoryResponseBuilder
   String? get displayName => _$this._displayName;
   set displayName(String? displayName) => _$this._displayName = displayName;
 
+  String? _iconUrl;
+  String? get iconUrl => _$this._iconUrl;
+  set iconUrl(String? iconUrl) => _$this._iconUrl = iconUrl;
+
   ApprovedCategoryResponseBuilder() {
     ApprovedCategoryResponse._defaults(this);
   }
@@ -74,6 +84,7 @@ class ApprovedCategoryResponseBuilder
     if ($v != null) {
       _name = $v.name;
       _displayName = $v.displayName;
+      _iconUrl = $v.iconUrl;
       _$v = null;
     }
     return this;
@@ -97,6 +108,7 @@ class ApprovedCategoryResponseBuilder
         _$ApprovedCategoryResponse._(
           name: name,
           displayName: displayName,
+          iconUrl: iconUrl,
         );
     replace(_$result);
     return _$result;

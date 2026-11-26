@@ -106,6 +106,10 @@ final DateTime kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0);
 /// same dataset row rather than appending a second one.
 const String kWalkInBookingId = 'walkin-booking-1';
 
+/// Host of the fake category `iconUrl`s (M542). Deliberately distinct from the
+/// `media.test` host some flows allow-list, so an icon is never fetched.
+const String kFakeCategoryIconHost = 'icons.media.test';
+
 /// The REAL device clock, captured once per process, as the anchor for every
 /// "upcoming booking" fixture instant.
 ///
@@ -3710,9 +3714,19 @@ final class FakeBackend {
   /// The rows `GET /service-categories/approved` serves, read PER REQUEST so a
   /// flow can simulate an admin approving a category mid-session (append a
   /// row) and prove the app re-fetches. Defaults to the long-standing NAILS +
-  /// BROWS seed. Shape: ApprovedCategoryResponse { name, displayName }.
+  /// BROWS seed. Shape: ApprovedCategoryResponse { name, displayName,
+  /// iconUrl } — `iconUrl` (SVC-58, M542) mirrors B539's content-addressed
+  /// R2 key on [kFakeCategoryIconHost]. Flows that do not opt into
+  /// `mountCategoryIconPrefetch` never prefetch icons at all; one that does is
+  /// still refused before any request, because no flow allow-lists that host
+  /// (the M542 group seeds its own `media.test` rows instead).
   final List<Map<String, dynamic>> approvedCategories = <Map<String, dynamic>>[
-    <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
+    <String, dynamic>{
+      'name': 'NAILS',
+      'displayName': 'Нігті',
+      'iconUrl':
+          'https://$kFakeCategoryIconHost/catalog/category-icons/NAILS/0123456789abcdef.svg',
+    },
     <String, dynamic>{'name': 'BROWS', 'displayName': 'Брови'},
   ];
 

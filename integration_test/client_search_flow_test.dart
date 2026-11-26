@@ -36,7 +36,20 @@
 // Raw find.text(...) is used only for content assertions (city/category names
 // are backend data). See integration_test/support/app_harness.dart.
 
+import 'dart:convert';
+
+import 'package:beautica_mobile/core/icons/category_icon_store.dart';
+import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart'
+    show MediaHttpClient;
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/presentation/category_icon_urls_provider.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
@@ -54,6 +67,7 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/slider_geometry.dart';
 import 'support/app_harness.dart';
+import 'support/e2e_boot_policy.dart' show E2eHarnessApp;
 
 /// Phase 348 — `/users/me` carries `citySettlementType` (backend Phase 330),
 /// so the saved Kyiv prefill is composed like a picked row: «м. Київ» (Kyiv's
@@ -1826,4 +1840,309 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ── M542 — remote category icons (SVC-04 / SVC-58) on the REAL rail ───────
+  //
+  // The approved-categories rows carry `iconUrl`; `categoryIconUrlsProvider`
+  // (listened to from the app root in production — `BeauticaApp`; mirrored
+  // here by `E2eHarnessApp.mountCategoryIconPrefetch`) prefetches
+  // each URL through a REAL `CacheManager` + `HttpFileService` +
+  // `MediaHttpClient` (no-redirect, 16 KiB streaming cap) over an in-memory
+  // origin, and the rail tile's `CategoryIconGlyph` swaps to the remote bytes.
+  // Assertions read the SvgPicture actually mounted under the tile (its
+  // loader = the picture's source): exactly one picture, so a parse-failure
+  // fallback (memory picture + bundled child) cannot pass as "remote".
+  group('M542 remote category icons on the search rail', () {
+    const String okSvg =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        '<path d="M2 2h20v20H2z" fill="currentColor"/></svg>';
+    const String iconBase = 'https://media.test/catalog/category-icons';
+    const String browsOk = '$iconBase/BROWS/aaaaaaaaaaaaaaaa.svg';
+
+    late List<http.BaseRequest> originRequests;
+
+    // A well-formed SVG padded past the cap, sent WITHOUT Content-Length so
+    // only the streaming cap (not the declared-length check) can stop it.
+    final String oversizeSvg =
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        // 16 KiB (SVC-59) pinned as a literal, not kMaxCategoryIconBytes, so
+        // a raised cap cannot move the fixture with it.
+        '<!--${'x' * (16 * 1024 + 512)}-->'
+        '<path d="M2 2h20v20H2z" fill="currentColor"/></svg>';
+
+    /// The in-memory icon origin. `/redirect/` answers 302 when redirects are
+    /// disabled; a client that FOLLOWS redirects gets the landed-on body (a
+    /// valid SVG) — so only the no-redirect guard keeps it off screen.
+    MockClient origin() =>
+        MockClient.streaming((http.BaseRequest req, _) async {
+          originRequests.add(req);
+          final String path = req.url.path;
+          http.StreamedResponse ok(String body, {bool declareLength = true}) {
+            final List<int> bytes = utf8.encode(body);
+            return http.StreamedResponse(
+              Stream<List<int>>.fromIterable(<List<int>>[
+                for (int i = 0; i < bytes.length; i += 1024)
+                  bytes.sublist(i, (i + 1024).clamp(0, bytes.length)),
+              ]),
+              200,
+              contentLength: declareLength ? bytes.length : null,
+              headers: <String, String>{'content-type': 'image/svg+xml'},
+              request: req,
+            );
+          }
+
+          if (path.contains('/redirect/')) {
+            if (!req.followRedirects) {
+              return http.StreamedResponse(
+                const Stream<List<int>>.empty(),
+                302,
+                headers: <String, String>{
+                  'location': 'https://evil.example/landed.svg',
+                },
+                request: req,
+              );
+            }
+            return ok(okSvg);
+          }
+          if (path.contains('/oversize/')) {
+            return ok(oversizeSvg, declareLength: false);
+          }
+          return ok(okSvg);
+        });
+
+    int cacheSeq = 0;
+    Object iconCacheOverride() =>
+        categoryIconCacheManagerProvider.overrideWithValue(
+          CacheManager(
+            Config(
+              'categoryIconsE2e${cacheSeq++}',
+              stalePeriod: const Duration(days: 365),
+              repo: NonStoringObjectProvider(),
+              fileSystem: MemoryCacheSystem(),
+              // Production composition (`categoryIconDiskCache`): the capped
+              // media client, here over the in-memory origin.
+              fileService: HttpFileService(
+                httpClient: MediaHttpClient(
+                  origin(),
+                  maxResponseBytes: kMaxCategoryIconBytes,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    setUp(() {
+      originRequests = <http.BaseRequest>[];
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    });
+    tearDown(() => MediaConfig.debugAllowedHosts = null);
+
+    /// The harness's container (the prefetch itself is mounted by
+    /// `E2eHarnessApp.mountCategoryIconPrefetch`, as `BeauticaApp` does).
+    ProviderContainer harnessContainer(WidgetTester tester) =>
+        ProviderScope.containerOf(tester.element(find.byType(E2eHarnessApp)));
+
+    void seedIcons(FakeBackend fb, String nailsUrl) {
+      fb.approvedCategories
+        ..clear()
+        ..addAll(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'name': 'NAILS',
+            'displayName': 'Нігті',
+            'iconUrl': nailsUrl,
+          },
+          <String, dynamic>{
+            'name': 'BROWS',
+            'displayName': 'Брови',
+            'iconUrl': browsOk,
+          },
+        ]);
+    }
+
+    /// The source of the ONE SvgPicture painted inside [slug]'s rail tile.
+    BytesLoader glyphSource(WidgetTester tester, String slug) {
+      final Finder pics = find.descendant(
+        of: find.byKey(Key('search_service_type_$slug')),
+        matching: find.byType(SvgPicture),
+      );
+      expect(pics, findsOneWidget, reason: '$slug: exactly one painted glyph');
+      return tester.widget<SvgPicture>(pics).bytesLoader;
+    }
+
+    Future<void> openRail(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_category_rail'),
+      );
+    }
+
+    /// Pumps until BROWS (the allow-listed positive control) renders its
+    /// remote bytes — proves the prefetch pipeline ran in this boot, so a
+    /// bundled NAILS afterwards is the guard's doing, not a dead pipeline.
+    Future<void> pumpUntilBrowsRemote(WidgetTester tester) async {
+      // instant-ok: elapsed-wall-time poll deadline
+      final DateTime deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (true) {
+        await tester.pump(const Duration(milliseconds: 100));
+        final Iterable<SvgPicture> pics = tester.widgetList<SvgPicture>(
+          find.descendant(
+            of: find.byKey(const Key('search_service_type_BROWS')),
+            matching: find.byType(SvgPicture),
+          ),
+        );
+        if (pics.length == 1 && pics.single.bytesLoader is SvgBytesLoader) {
+          break;
+        }
+        // instant-ok: elapsed-wall-time poll deadline
+        if (DateTime.now().isAfter(deadline)) {
+          fail('BROWS never rendered its remote icon');
+        }
+      }
+      // Let the NAILS attempt (queued in the same ≤2 batch) finish too.
+      for (int i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    void expectRemote(WidgetTester tester, String slug) {
+      final BytesLoader src = glyphSource(tester, slug);
+      expect(src, isA<SvgBytesLoader>(), reason: '$slug must paint remote');
+      expect(
+        utf8.decode((src as SvgBytesLoader).bytes),
+        okSvg,
+        reason: '$slug paints the served bytes',
+      );
+    }
+
+    void expectBundled(WidgetTester tester, String slug, String name) {
+      final BytesLoader src = glyphSource(tester, slug);
+      expect(src, isA<SvgAssetLoader>(), reason: '$slug must paint bundled');
+      expect(
+        (src as SvgAssetLoader).assetName,
+        categoryIconOrNullFor(categoryKey: slug, categoryName: name),
+      );
+    }
+
+    Future<void> runHostileCase(
+      WidgetTester tester, {
+      required String nailsUrl,
+      required bool expectNailsRequested,
+    }) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      seedIcons(fb, nailsUrl);
+      await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: <Object>[iconCacheOverride()],
+        mountCategoryIconPrefetch: true,
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await openRail(tester);
+      await pumpUntilBrowsRemote(tester);
+
+      expectRemote(tester, 'BROWS');
+      expectBundled(tester, 'NAILS', 'Нігті');
+      expect(
+        originRequests.map((r) => r.url.toString()),
+        expectNailsRequested ? contains(nailsUrl) : isNot(contains(nailsUrl)),
+      );
+      expect(
+        originRequests.every((r) => !r.followRedirects),
+        isTrue,
+        reason: 'no icon request may follow redirects',
+      );
+    }
+
+    testWidgets(
+      'M542 an allow-listed iconUrl renders the REMOTE bytes on the rail',
+      (tester) async {
+        final fb = FakeBackend()..currentRole = UserRole.client;
+        seedIcons(fb, '$iconBase/NAILS/0123456789abcdef.svg');
+        await AppHarness.boot(
+          tester,
+          fb,
+          extraOverrides: <Object>[iconCacheOverride()],
+          mountCategoryIconPrefetch: true,
+        );
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        await openRail(tester);
+        await pumpUntilBrowsRemote(tester);
+
+        expectRemote(tester, 'NAILS');
+        expectRemote(tester, 'BROWS');
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+
+    testWidgets(
+      'M542 a non-allow-listed iconUrl is never fetched → bundled icon',
+      (tester) async {
+        await runHostileCase(
+          tester,
+          nailsUrl: 'https://evil.example/catalog/NAILS/x.svg',
+          expectNailsRequested: false,
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+
+    testWidgets(
+      'M542 an oversized (streamed, undeclared length) icon → bundled icon',
+      (tester) async {
+        await runHostileCase(
+          tester,
+          nailsUrl: '$iconBase/oversize/NAILS/x.svg',
+          expectNailsRequested: true,
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+
+    testWidgets(
+      'M542 a redirecting icon URL is not followed → bundled icon',
+      (tester) async {
+        await runHostileCase(
+          tester,
+          nailsUrl: '$iconBase/redirect/NAILS/x.svg',
+          expectNailsRequested: true,
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+
+    testWidgets(
+      'M542 signed out → no categories fetch and no icon fetch; login then '
+      'prefetches',
+      (tester) async {
+        final fb = FakeBackend()..currentRole = UserRole.client;
+        seedIcons(fb, '$iconBase/NAILS/0123456789abcdef.svg');
+        await AppHarness.boot(
+          tester,
+          fb,
+          extraOverrides: <Object>[iconCacheOverride()],
+          mountCategoryIconPrefetch: true,
+        );
+        final ProviderContainer c = harnessContainer(tester);
+        for (int i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+
+        expect(c.read(categoryIconUrlsProvider), isEmpty);
+        expect(fb.getApprovedCategoriesCalls, 0);
+        expect(originRequests, isEmpty);
+
+        // Positive control: the same listener prefetches once signed in.
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+        await openRail(tester);
+        await pumpUntilBrowsRemote(tester);
+        expectRemote(tester, 'NAILS');
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+  });
 }

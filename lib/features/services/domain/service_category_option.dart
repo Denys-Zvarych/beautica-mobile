@@ -18,6 +18,9 @@ part 'service_category_option.freezed.dart';
 ///   `NAIL_ART`). This is the value sent to the backend.
 /// - [displayName]: the human-readable Ukrainian label shown in the picker
 ///   (e.g. `Манікюр`).
+/// - [iconUrl]: the category's remote icon (SVC-58, M542) — a content-addressed
+///   R2 URL, or `null` when the backend has none / predates B539. Never
+///   required: every consumer falls back to the bundled set (SVC-04).
 @freezed
 abstract class ServiceCategoryOption with _$ServiceCategoryOption {
   const factory ServiceCategoryOption({
@@ -26,5 +29,8 @@ abstract class ServiceCategoryOption with _$ServiceCategoryOption {
 
     /// Ukrainian display label rendered on the picker chip.
     required String displayName,
+
+    /// Remote icon URL (SVC-58). `null` = render the bundled icon.
+    String? iconUrl,
   }) = _ServiceCategoryOption;
 }
