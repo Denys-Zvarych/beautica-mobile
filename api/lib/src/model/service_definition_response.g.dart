@@ -109,6 +109,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   final String? priceDisplay;
   @override
   final bool? isFavorite;
+  @override
+  final String? categoryDisplayName;
 
   factory _$ServiceDefinitionResponse(
           [void Function(ServiceDefinitionResponseBuilder)? updates]) =>
@@ -130,7 +132,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
       this.priceMin,
       this.priceMax,
       this.priceDisplay,
-      this.isFavorite})
+      this.isFavorite,
+      this.categoryDisplayName})
       : super._();
   @override
   ServiceDefinitionResponse rebuild(
@@ -160,7 +163,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
         priceMin == other.priceMin &&
         priceMax == other.priceMax &&
         priceDisplay == other.priceDisplay &&
-        isFavorite == other.isFavorite;
+        isFavorite == other.isFavorite &&
+        categoryDisplayName == other.categoryDisplayName;
   }
 
   @override
@@ -182,6 +186,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
     _$hash = $jc(_$hash, priceMax.hashCode);
     _$hash = $jc(_$hash, priceDisplay.hashCode);
     _$hash = $jc(_$hash, isFavorite.hashCode);
+    _$hash = $jc(_$hash, categoryDisplayName.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -204,7 +209,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
           ..add('priceMin', priceMin)
           ..add('priceMax', priceMax)
           ..add('priceDisplay', priceDisplay)
-          ..add('isFavorite', isFavorite))
+          ..add('isFavorite', isFavorite)
+          ..add('categoryDisplayName', categoryDisplayName))
         .toString();
   }
 }
@@ -284,6 +290,11 @@ class ServiceDefinitionResponseBuilder
   bool? get isFavorite => _$this._isFavorite;
   set isFavorite(bool? isFavorite) => _$this._isFavorite = isFavorite;
 
+  String? _categoryDisplayName;
+  String? get categoryDisplayName => _$this._categoryDisplayName;
+  set categoryDisplayName(String? categoryDisplayName) =>
+      _$this._categoryDisplayName = categoryDisplayName;
+
   ServiceDefinitionResponseBuilder() {
     ServiceDefinitionResponse._defaults(this);
   }
@@ -307,6 +318,7 @@ class ServiceDefinitionResponseBuilder
       _priceMax = $v.priceMax;
       _priceDisplay = $v.priceDisplay;
       _isFavorite = $v.isFavorite;
+      _categoryDisplayName = $v.categoryDisplayName;
       _$v = null;
     }
     return this;
@@ -344,6 +356,7 @@ class ServiceDefinitionResponseBuilder
           priceMax: priceMax,
           priceDisplay: priceDisplay,
           isFavorite: isFavorite,
+          categoryDisplayName: categoryDisplayName,
         );
     replace(_$result);
     return _$result;

@@ -284,6 +284,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final bool? clientBlockable;
   @override
   final String? clientPhone;
+  @override
+  final String? categoryDisplayName;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -335,7 +337,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.clientBlocked,
       this.clientBlockId,
       this.clientBlockable,
-      this.clientPhone})
+      this.clientPhone,
+      this.categoryDisplayName})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -395,7 +398,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         clientBlocked == other.clientBlocked &&
         clientBlockId == other.clientBlockId &&
         clientBlockable == other.clientBlockable &&
-        clientPhone == other.clientPhone;
+        clientPhone == other.clientPhone &&
+        categoryDisplayName == other.categoryDisplayName;
   }
 
   @override
@@ -447,6 +451,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, clientBlockId.hashCode);
     _$hash = $jc(_$hash, clientBlockable.hashCode);
     _$hash = $jc(_$hash, clientPhone.hashCode);
+    _$hash = $jc(_$hash, categoryDisplayName.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -499,7 +504,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('clientBlocked', clientBlocked)
           ..add('clientBlockId', clientBlockId)
           ..add('clientBlockable', clientBlockable)
-          ..add('clientPhone', clientPhone))
+          ..add('clientPhone', clientPhone)
+          ..add('categoryDisplayName', categoryDisplayName))
         .toString();
   }
 }
@@ -721,6 +727,11 @@ class BookingDetailResponseBuilder
   String? get clientPhone => _$this._clientPhone;
   set clientPhone(String? clientPhone) => _$this._clientPhone = clientPhone;
 
+  String? _categoryDisplayName;
+  String? get categoryDisplayName => _$this._categoryDisplayName;
+  set categoryDisplayName(String? categoryDisplayName) =>
+      _$this._categoryDisplayName = categoryDisplayName;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -774,6 +785,7 @@ class BookingDetailResponseBuilder
       _clientBlockId = $v.clientBlockId;
       _clientBlockable = $v.clientBlockable;
       _clientPhone = $v.clientPhone;
+      _categoryDisplayName = $v.categoryDisplayName;
       _$v = null;
     }
     return this;
@@ -843,6 +855,7 @@ class BookingDetailResponseBuilder
             clientBlockId: clientBlockId,
             clientBlockable: clientBlockable,
             clientPhone: clientPhone,
+            categoryDisplayName: categoryDisplayName,
           );
     } catch (_) {
       late String _$failedField;

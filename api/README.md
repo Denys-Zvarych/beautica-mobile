@@ -161,15 +161,19 @@ Class | Method | HTTP request | Description
 [*PhoneOtpControllerApi*](doc/PhoneOtpControllerApi.md) | [**send**](doc/PhoneOtpControllerApi.md#send) | **POST** /api/v1/book/otp/send | 
 [*PhoneOtpControllerApi*](doc/PhoneOtpControllerApi.md) | [**verify**](doc/PhoneOtpControllerApi.md#verify) | **POST** /api/v1/book/otp/verify | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestCard**](doc/ProviderClientControllerApi.md#getmyguestcard) | **GET** /api/v1/masters/me/clients/guests/{bookingId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestComments**](doc/ProviderClientControllerApi.md#getmyguestcomments) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestRatings**](doc/ProviderClientControllerApi.md#getmyguestratings) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestVisits**](doc/ProviderClientControllerApi.md#getmyguestvisits) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserCard**](doc/ProviderClientControllerApi.md#getmyusercard) | **GET** /api/v1/masters/me/clients/users/{userId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserComments**](doc/ProviderClientControllerApi.md#getmyusercomments) | **GET** /api/v1/masters/me/clients/users/{userId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserRatings**](doc/ProviderClientControllerApi.md#getmyuserratings) | **GET** /api/v1/masters/me/clients/users/{userId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserVisits**](doc/ProviderClientControllerApi.md#getmyuservisits) | **GET** /api/v1/masters/me/clients/users/{userId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestCard**](doc/ProviderClientControllerApi.md#getsalonguestcard) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestComments**](doc/ProviderClientControllerApi.md#getsalonguestcomments) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestRatings**](doc/ProviderClientControllerApi.md#getsalonguestratings) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestVisits**](doc/ProviderClientControllerApi.md#getsalonguestvisits) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserCard**](doc/ProviderClientControllerApi.md#getsalonusercard) | **GET** /api/v1/salons/{salonId}/clients/users/{userId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserComments**](doc/ProviderClientControllerApi.md#getsalonusercomments) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserRatings**](doc/ProviderClientControllerApi.md#getsalonuserratings) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserVisits**](doc/ProviderClientControllerApi.md#getsalonuservisits) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**listMyClients**](doc/ProviderClientControllerApi.md#listmyclients) | **GET** /api/v1/masters/me/clients | 
@@ -312,6 +316,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePageResponseBookingResponse](doc/ApiResponsePageResponseBookingResponse.md)
  - [ApiResponsePageResponseClientListItemResponse](doc/ApiResponsePageResponseClientListItemResponse.md)
  - [ApiResponsePageResponseClientOwnRatingResponse](doc/ApiResponsePageResponseClientOwnRatingResponse.md)
+ - [ApiResponsePageResponseClientReviewCommentResponse](doc/ApiResponsePageResponseClientReviewCommentResponse.md)
  - [ApiResponsePageResponseClientVisitResponse](doc/ApiResponsePageResponseClientVisitResponse.md)
  - [ApiResponsePageResponseFavoriteMasterResponse](doc/ApiResponsePageResponseFavoriteMasterResponse.md)
  - [ApiResponsePageResponseFavoriteSalonResponse](doc/ApiResponsePageResponseFavoriteSalonResponse.md)
@@ -381,6 +386,7 @@ Class | Method | HTTP request | Description
  - [ClientListItemResponse](doc/ClientListItemResponse.md)
  - [ClientListRemovalRequest](doc/ClientListRemovalRequest.md)
  - [ClientOwnRatingResponse](doc/ClientOwnRatingResponse.md)
+ - [ClientReviewCommentResponse](doc/ClientReviewCommentResponse.md)
  - [ClientReviewResponse](doc/ClientReviewResponse.md)
  - [ClientVisitResponse](doc/ClientVisitResponse.md)
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
@@ -450,6 +456,7 @@ Class | Method | HTTP request | Description
  - [PageResponseBookingResponse](doc/PageResponseBookingResponse.md)
  - [PageResponseClientListItemResponse](doc/PageResponseClientListItemResponse.md)
  - [PageResponseClientOwnRatingResponse](doc/PageResponseClientOwnRatingResponse.md)
+ - [PageResponseClientReviewCommentResponse](doc/PageResponseClientReviewCommentResponse.md)
  - [PageResponseClientVisitResponse](doc/PageResponseClientVisitResponse.md)
  - [PageResponseFavoriteMasterResponse](doc/PageResponseFavoriteMasterResponse.md)
  - [PageResponseFavoriteSalonResponse](doc/PageResponseFavoriteSalonResponse.md)

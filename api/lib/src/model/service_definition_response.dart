@@ -28,6 +28,7 @@ part 'service_definition_response.g.dart';
 /// * [priceMax]
 /// * [priceDisplay]
 /// * [isFavorite] - true/false only for an authenticated CLIENT caller on GET /salons/{salonId}/services; null everywhere else (anonymous/non-CLIENT callers, every provider-side service-management response, and always null inside the salon-service-catalog cache) — decorated per-request, after the cache read.
+/// * [categoryDisplayName] - Display name of the service's platform category, including a category the operator has since HIDDEN (SVC-56), so an existing service keeps its label. Filled on the app's read paths (salon catalogue, master services, own services); null on write responses or for an unknown / rejected category — fall back to category then.
 @BuiltValue()
 abstract class ServiceDefinitionResponse
     implements
@@ -84,6 +85,10 @@ abstract class ServiceDefinitionResponse
   /// true/false only for an authenticated CLIENT caller on GET /salons/{salonId}/services; null everywhere else (anonymous/non-CLIENT callers, every provider-side service-management response, and always null inside the salon-service-catalog cache) — decorated per-request, after the cache read.
   @BuiltValueField(wireName: r'isFavorite')
   bool? get isFavorite;
+
+  /// Display name of the service's platform category, including a category the operator has since HIDDEN (SVC-56), so an existing service keeps its label. Filled on the app's read paths (salon catalogue, master services, own services); null on write responses or for an unknown / rejected category — fall back to category then.
+  @BuiltValueField(wireName: r'categoryDisplayName')
+  String? get categoryDisplayName;
 
   ServiceDefinitionResponse._();
 
@@ -227,6 +232,13 @@ class _$ServiceDefinitionResponseSerializer
         specifiedType: const FullType.nullable(bool),
       );
     }
+    if (object.categoryDisplayName != null) {
+      yield r'categoryDisplayName';
+      yield serializers.serialize(
+        object.categoryDisplayName,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -368,6 +380,14 @@ class _$ServiceDefinitionResponseSerializer
           ) as bool?;
           if (valueDes == null) continue;
           result.isFavorite = valueDes;
+          break;
+        case r'categoryDisplayName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.categoryDisplayName = valueDes;
           break;
         default:
           unhandled.add(key);

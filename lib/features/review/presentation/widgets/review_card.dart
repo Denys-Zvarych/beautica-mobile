@@ -105,6 +105,8 @@ class ReviewCard extends StatelessWidget {
     required this.keyPrefix,
     this.serviceName,
     this.onMore,
+    this.showAvatar = true,
+    this.dateLabel,
   });
 
   final ReviewCardData data;
@@ -121,6 +123,16 @@ class ReviewCard extends StatelessWidget {
   /// «⋮» and the header row is exactly as before.
   final VoidCallback? onMore;
 
+  /// ADDITIVE (phase 545): `false` drops the avatar and its gap — the
+  /// anonymous client comments on «Рейтинг клієнта» have no author (REV-D10).
+  /// `true` (the default) renders the header exactly as before.
+  final bool showAvatar;
+
+  /// ADDITIVE (phase 545): a ready header date text (the comment's visit
+  /// month) shown instead of the relative [ReviewCardData.createdAt] date.
+  /// `null` (the default) keeps the relative date.
+  final String? dateLabel;
+
   /// Widget key of the «⋮» slot for the card of review [id].
   static Key moreKey(String keyPrefix, String id) => Key('$keyPrefix-more-$id');
 
@@ -129,9 +141,9 @@ class ReviewCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final VoidCallback? more = onMore;
     final DateTime? createdAt = data.createdAt;
-    final String? relativeDate = createdAt == null
-        ? null
-        : formatRelativeDate(l10n, createdAt);
+    final String? relativeDate =
+        dateLabel ??
+        (createdAt == null ? null : formatRelativeDate(l10n, createdAt));
     final String? comment = data.comment;
     final String? service = serviceName;
     return NeumorphicCard(
@@ -144,8 +156,10 @@ class ReviewCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              ReviewAvatar(seed: data.id),
-              const SizedBox(width: VelvetSpacing.sm + 2),
+              if (showAvatar) ...<Widget>[
+                ReviewAvatar(seed: data.id),
+                const SizedBox(width: VelvetSpacing.sm + 2),
+              ],
               Expanded(
                 child: Text(
                   data.clientDisplayName,
