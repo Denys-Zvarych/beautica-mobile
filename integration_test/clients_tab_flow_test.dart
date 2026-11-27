@@ -164,10 +164,8 @@ void main() {
             .data,
         'Наст.: сб, 20 чер, 15:00',
       );
-      final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byType(ClientsScreen)),
-      );
-      expect(find.text(l10n.bookingDetailGuestBookingLabel), findsNothing);
+      // i18n-finder-ok: asserts the removed UA copy never renders (CLI-100)
+      expect(find.text('Запис за посиланням'), findsNothing);
       expect(find.textContaining('+380'), findsNothing);
       expect(clientRow('b-iryna'), findsOneWidget);
 

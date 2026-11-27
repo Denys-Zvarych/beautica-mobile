@@ -470,7 +470,7 @@ List<Object> _slotTimeOverrides({
 
 // ── 2026-11-14 — PROVIDER reschedule client strip (`BookingClientStrip`):
 // a registered client (photo + ★ rating) and the walk-in fallback (initials,
-// guest qualifier, no rating), on both the confirm and the done screen.
+// no rating, no kind label — CLI-100), on both the confirm and the done screen.
 // Seeded exactly as `reschedule_navigation.dart` seeds a provider reschedule
 // (`hideMasterIdentity: true` + the client-strip fields).
 

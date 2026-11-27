@@ -48,6 +48,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/asset_star_finder.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
@@ -178,6 +179,71 @@ void main() {
 
       // Drain the dwell Timer so none is pending at teardown.
       await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  // M568 / CLI-100 — a STAFF walk-in (`clientId: null` on the wire, staff-typed
+  // name resolved server-side) is indistinguishable from a LINK guest to the
+  // app, so neither the detail strip nor the compose header may carry a
+  // client-kind label. The guest's other effects stay: no ★ readout on the
+  // strip even when the wire carries a rating.
+  testWidgets(
+    'PROVIDER opens a COMPLETED STAFF walk-in booking: the client strip shows '
+    'the name with no «Запис за посиланням» and no rating, and the compose '
+    'screen shows the generic «Клієнт» role label',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingStatus = 'COMPLETED'
+        ..bookingProviderCanReviewClient = true
+        ..bookingClientIsGuest = true
+        ..bookingClientAvgRating = 4.5;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+      await AppHarness.settle(tester);
+      final Finder cta = find.byKey(
+        const Key('booking-detail-leave-client-feedback'),
+      );
+      await AppHarness.pumpUntilFound(tester, cta);
+
+      final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+      final String walkInName = '${fb.clientFirstName} ${fb.clientLastName}';
+      expect(
+        find.descendant(of: strip, matching: find.text(walkInName)),
+        findsOneWidget,
+      );
+      expect(
+        // i18n-finder-ok: asserts the removed UA copy never renders (CLI-100)
+        find.text('Запис за посиланням'),
+        findsNothing,
+        reason: 'no client-kind label on a walk-in detail',
+      );
+      expect(
+        find.descendant(of: strip, matching: findAssetStar()),
+        findsNothing,
+        reason: 'a guest/walk-in strip never shows a rating',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text('4.5')),
+        findsNothing,
+      );
+
+      await tester.ensureVisible(cta);
+      await AppHarness.settle(tester);
+      await tester.tap(cta);
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      final AppLocalizations l10n = l10nOf(tester, LeaveClientFeedbackScreen);
+      expect(find.text(walkInName), findsOneWidget);
+      expect(find.text(l10n.clientReviewRoleLabel), findsOneWidget);
+      expect(
+        // i18n-finder-ok: asserts the removed UA copy never renders (CLI-100)
+        find.text('Запис за посиланням'),
+        findsNothing,
+        reason: 'no client-kind label on the walk-in compose header',
+      );
     },
   );
 

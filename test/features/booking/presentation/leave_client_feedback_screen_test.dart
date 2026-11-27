@@ -1106,8 +1106,8 @@ void main() {
     );
 
     testWidgets(
-      'a guest booking renders the «Гість» fallback name and the guest role '
-      'label instead of «Клієнт»',
+      'a guest booking renders the «Гість» fallback name and the same «Клієнт» '
+      'role label as any client (CLI-100)',
       (tester) async {
         await pumpFeedback(
           tester,
@@ -1120,8 +1120,39 @@ void main() {
 
         final AppLocalizations l10n = _l10n(tester);
         expect(find.text(l10n.bookingDetailGuestClient), findsOneWidget);
-        expect(find.text(l10n.bookingDetailGuestBookingLabel), findsOneWidget);
-        expect(find.text(l10n.clientReviewRoleLabel), findsNothing);
+        expect(find.text(l10n.clientReviewRoleLabel), findsOneWidget);
+        // i18n-finder-ok: asserts the removed UA copy never renders
+        expect(find.text('Запис за посиланням'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a STAFF walk-in (null clientId, named) shows its name and the generic '
+      '«Клієнт» role label — never «Запис за посиланням» (CLI-100, M568)',
+      (tester) async {
+        // A walk-in reaches the app exactly like a LINK guest: null clientId
+        // with the staff-typed name resolved server-side (BOOK-17). The app
+        // cannot tell them apart, so the header must be kind-neutral.
+        await pumpFeedback(
+          tester,
+          detail: (ref) async => _booking(
+            clientId: null,
+            clientFirstName: 'Ірина',
+            clientLastName: 'Шевчук',
+          ),
+        );
+
+        final AppLocalizations l10n = _l10n(tester);
+        // i18n-finder-ok: test fixture name, not app copy
+        expect(find.text('Ірина Шевчук'), findsOneWidget);
+        expect(find.text(l10n.clientReviewRoleLabel), findsOneWidget);
+        // i18n-finder-ok: asserts the removed UA copy never renders
+        expect(find.text('Запис за посиланням'), findsNothing);
+        expect(
+          find.byKey(const Key('leave-client-feedback-stars')),
+          findsOneWidget,
+          reason: 'a reviewable walk-in still gets the rating form',
+        );
       },
     );
 
