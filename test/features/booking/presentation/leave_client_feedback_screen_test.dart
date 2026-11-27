@@ -31,6 +31,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -46,9 +47,16 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
+import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
+import 'package:beautica_mobile/features/clients/data/client_repository.dart';
+import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
+import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -122,6 +130,66 @@ Booking _booking({
     canReview: false,
     providerCanReviewClient: providerCanReviewClient,
   );
+}
+
+const AuthSession _providerSession = AuthSession.authenticated(
+  user: User(id: 'u1', email: 'm@e.com', role: UserRole.independentMaster),
+  accessToken: 't',
+);
+
+/// Counts the client-views reads a review submit must re-trigger.
+class _CountingClientRepository implements ClientRepository {
+  int cardCalls = 0;
+  int firstPageCalls = 0;
+
+  @override
+  Future<ClientCard> getCard(
+    ClientListScope scope,
+    ClientRef client, {
+    CancelToken? cancelToken,
+  }) async {
+    cardCalls++;
+    return ClientCard(ref: client, displayName: 'Олена');
+  }
+
+  @override
+  Future<PageResponse<ClientSummary>> list(
+    ClientListScope scope, {
+    String? q,
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async {
+    if (page == 0) firstPageCalls++;
+    return PageResponse<ClientSummary>(
+      items: const <ClientSummary>[],
+      page: page,
+      totalPages: 1,
+      totalElements: 0,
+    );
+  }
+
+  @override
+  Future<PageResponse<ClientVisit>> getVisits(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async => PageResponse<ClientVisit>(
+    items: const <ClientVisit>[],
+    page: page,
+    totalPages: 1,
+    totalElements: 0,
+  );
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
 }
 
 AppLocalizations _l10n(WidgetTester tester) =>
@@ -606,6 +674,73 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(countFetches, 2);
+        await pumpPastVelvetSnack(tester);
+      });
+    }
+
+    // REV-38..44 / CLI-93 (device-test bug, fix 2a8868c3) — a client review
+    // changes the client's rating / «Відгук» state on the client card and the
+    // «Клієнти» row. Before the fix the submit invalidated neither, so both
+    // kept showing the pre-review rating until a manual refresh. Falsifiable:
+    // drop `invalidateClientViews(ref.invalidate)` and both counts stay at 1.
+    for (final ClientReviewEntry entry in ClientReviewEntry.values) {
+      testWidgets('a successful submit from the $entry entry refetches the '
+          'client card and the «Клієнти» list', (tester) async {
+        const ClientListScope scope = ClientListScope.me();
+        const ClientRef client = ClientRef.registered('c1');
+        final repo = _MockClientReviewRepository();
+        when(
+          () => repo.createClientReview(
+            bookingId: any(named: 'bookingId'),
+            rating: any(named: 'rating'),
+            comment: any(named: 'comment'),
+          ),
+        ).thenAnswer((_) async {});
+        final _CountingClientRepository clients = _CountingClientRepository();
+        await pumpFeedback(
+          tester,
+          repo: repo,
+          entry: entry,
+          detail: (ref) async => _booking(),
+          extraOverrides: <Object>[
+            authProvider.overrideWith(() => _StubAuth(_providerSession)),
+            clientRepositoryProvider.overrideWithValue(clients),
+          ],
+        );
+        // Live listeners, as the card / «Клієнти» tab are under the route.
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(LeaveClientFeedbackScreen)),
+          listen: false,
+        );
+        final cardSub = container.listen(
+          clientCardProvider(scope, client),
+          (_, _) {},
+        );
+        addTearDown(cardSub.close);
+        final listSub = container.listen(
+          clientListControllerProvider(scope),
+          (_, _) {},
+        );
+        addTearDown(listSub.close);
+        await tester.pumpAndSettle();
+        expect(clients.cardCalls, 1);
+        expect(clients.firstPageCalls, 1);
+
+        await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+        await tester.pumpAndSettle();
+
+        expect(
+          clients.cardCalls,
+          2,
+          reason: 'a client review must invalidate clientCardProvider',
+        );
+        expect(
+          clients.firstPageCalls,
+          2,
+          reason: 'a client review must invalidate ClientListController',
+        );
         await pumpPastVelvetSnack(tester);
       });
     }
