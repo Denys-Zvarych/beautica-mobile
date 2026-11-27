@@ -29,7 +29,7 @@ Three jobs (2026-11-06, see [integration-shards](#integration-shards)):
 
 | Job | Name | Does |
 |---|---|---|
-| `integration` | Integration entry + selected flows (emulator) | chooses the entry; on `selected` runs the selected flows; publishes `entry` (FULL mode: always `parts`, nothing built) |
+| `integration` | Integration entry + selected flows (emulator) | chooses the entry; on `selected` runs the selected flows; publishes `entry` (FULL mode: `parts`, nothing built; `parts` + `it_fanout=false` = `deferred`, phase 566 L3, [README](README.md#it-fanout)) |
 | `integration-shard` | Integration shard K/8 (emulator) | `entry=parts` only: 8 matrix legs, each one generated shard of the FULL suite |
 | `integration-verify` | Integration tests (emulator) | fan-in verdict: `selected` needs `integration`; `parts` needs EVERY shard |
 
@@ -465,9 +465,11 @@ Named `Integration tests (emulator)` (the old single job's check name). It
 runs unless the run is cancelled or `integration` was skipped (no flow), and
 fails closed: `integration` must be `success`; `entry=selected` needs nothing
 more; `entry=parts` needs `integration-shard` = `success` (a matrix result is
-`success` only if EVERY leg passed; skipped is RED); any other entry is RED.
-`ci-gate` (the only required check) needs `integration`, `integration-shard`
-and `integration-verify`.
+`success` only if EVERY leg passed; skipped is RED); `entry=deferred` (phase
+566 L3, draft PR / push) is green only when `plan.it_fanout` is `false`, and
+prints the deferral to the job summary; any other entry is RED.
+`ci-gate` (required, with `Scan for secrets` and `Promotion source (dev|main)`)
+needs `integration`, `integration-shard` and `integration-verify`.
 
 <a id="job-integration-profile"></a>
 
@@ -537,3 +539,34 @@ found.` and the job dies before the driver starts. The `integration`
 job above follows the same rule (long single lines joined with `;`).
 This bit us for real: the job is label-gated, so the break sat
 undetected from 2026-07-07 until a `run-patrol` label first ran it.
+
+<a id="adb-missing"></a>
+
+### Integration shards: platform-tools left without adb (2026-11-27)
+
+Run 45997515517 (PR #203), shard 4/8: the emulator booted in 20 s, but the
+android-emulator-runner action logged `Unable to locate executable file: adb`
+every 2 s until `emulator-boot-timeout` (300 s), could not run `adb emu kill`,
+and the step idled to its 35-min cap. All 3 attempts repeated it on the same
+runner (the broken `platform-tools` persists; the action's `sdkmanager --install
+platform-tools` treats it as installed), so the shard lost ≈ 1 h 45 min with no
+test run. The other 7 shards on the same image were fine — a runner/SDK-download
+flake, not a test hang.
+`tool/ci/ensure_adb.sh` runs as EVERY shard attempt's `pre-emulator-launch-script`
+(after the action's SDK install, before launch): a no-op when
+`$ANDROID_HOME/platform-tools/adb` is executable; otherwise it removes
+`platform-tools`, reinstalls it (3 tries, 10 s / 20 s backoff, `sdkmanager` log
+tail on each failure) and fails the attempt fast with `::error::adb missing`
+(≈ 30 s + install time) instead of idling to the cap, so the existing retry
+loop gets a fresh attempt. The repair runs only when
+`RUNNER_ENVIRONMENT=github-hosted`: a self-hosted runner's SDK may be shared by
+concurrent jobs, so there (or when unset) the script deletes nothing and fails
+fast with `::error::adb missing` — fix the runner's platform-tools by hand.
+The `integration` entry job's 3 selected-flow attempts run the BASE-owned copy
+(`trusted/tool/ci/ensure_adb.sh`, like their attempt script), so a PR cannot
+replace the guard; on a base that predates the script the hook is skipped
+(`test ! -f || bash`), and a failing guard still fails the attempt (no `|| true`).
+Tests: `scripts/test/ensure_adb_test.sh` (fake SDK: present → no-op, missing +
+repaired → 0, repair fails → 1 within the 2-min budget, self-hosted/unset →
+1 with platform-tools untouched) and the 566 group in `workflow_wiring_test.dart`
+(hook on every shard and entry attempt, every `# why:` link resolves).

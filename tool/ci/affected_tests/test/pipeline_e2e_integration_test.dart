@@ -194,6 +194,59 @@ void main() {
       test('FULL (Choose step skipped) -> entry=parts -> shards', () {
         expect(shardsRun(publish('full', null)), isTrue);
       });
+
+      // Phase 566 L3: it_fanout=false (draft PR / push) defers the fan-out.
+      String publishFanout(String mode, String? entry, String fanout) {
+        final o = File(p.join(pl.ws, 'publish_out'))..writeAsStringSync('');
+        final r = pl.runStep(
+          'integration',
+          'Publish integration entry',
+          env: {
+            'MODE': mode,
+            'ENTRY': entry ?? '',
+            'IT_FANOUT': fanout,
+            'GITHUB_OUTPUT': o.path,
+          },
+          cwd: pl.ws,
+        );
+        expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+        return o.readAsStringSync().trim().replaceFirst('entry=', '');
+      }
+
+      test('566 deferred: D3 fallback (REAL Choose step + REAL generator '
+          'with --fanout=false) -> entry=deferred -> no shards', () {
+        final out = pl.select({'integration_test/x_test.dart': '// pub3\n'});
+        final r = pl.chooseEntry(
+          out,
+          partFlows: [
+            ['x'],
+            ['y', 'z'],
+          ],
+          stepEnv: {'IT_FANOUT': 'false'},
+        );
+        expect(r.outputs['entry'], 'parts', reason: r.log);
+        final e = publishFanout('selective', r.outputs['entry'], 'false');
+        expect(e, 'deferred');
+        expect(shardsRun(e), isFalse);
+      });
+
+      test('566 deferred: selected flows still run with it_fanout=false', () {
+        final out = pl.select({'integration_test/x_test.dart': _flow('pub4')});
+        final r = pl.chooseEntry(
+          out,
+          partFlows: twoParts,
+          stepEnv: {'IT_FANOUT': 'false'},
+        );
+        expect(r.outputs['entry'], 'selected', reason: r.log);
+        expect(publishFanout('selective', 'selected', 'false'), 'selected');
+      });
+
+      test('566 deferred: FULL + it_fanout=false -> deferred; empty '
+          'it_fanout (old planner) -> parts', () {
+        expect(shardsRun(publishFanout('full', null, 'false')), isFalse);
+        expect(publishFanout('full', null, 'false'), 'deferred');
+        expect(shardsRun(publishFanout('full', null, '')), isTrue);
+      });
     });
 
     group('audit cycle 1: Choose step against hostile / broken generators', () {
@@ -242,6 +295,8 @@ void main() {
 
       test('Q1: entry=selected but a file left behind with no/odd count -> '
           'parts and the file is removed', () {
+        // 566 perf P2: one selector run; only the Choose step varies per case.
+        final sel = one();
         for (final lines in [
           "  print('entry=selected');",
           "  print('entry=selected'); print('count=abc');",
@@ -256,7 +311,7 @@ void main() {
           "  print('entry=parts'); print('count=2'); print('tests=2');",
         ]) {
           final r = pl.chooseEntry(
-            one(),
+            sel,
             partFlows: parts,
             fakeGenerator: writes(lines),
           );
@@ -279,9 +334,11 @@ void main() {
           74: '1500',
           85: '1500',
         };
+        // 566 perf P2: one selector run; only the Choose step varies per case.
+        final sel = one();
         want.forEach((tests, bound) {
           final r = pl.chooseEntry(
-            one(),
+            sel,
             partFlows: parts,
             fakeGenerator: writes(
               "  print('entry=selected'); print('count=3'); "
