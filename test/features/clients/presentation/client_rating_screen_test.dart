@@ -195,6 +195,33 @@ void main() {
     expect(find.text('Оксана Мельник'), findsOneWidget);
   });
 
+  // M548 / REV-D04 — a guest is rated by phone and shows the server's own
+  // values; there is no client-side "guest ⇒ unrated" shortcut.
+  testWidgets('a rated guest shows the backend average, count and bars', (
+    tester,
+  ) async {
+    const ClientRef guest = ClientRef.guest('b-1');
+    await _pump(
+      tester,
+      _Repo(
+        card: const ClientCard(
+          ref: guest,
+          ratingAvg: 4.3,
+          ratingCount: 3,
+          ratingDistribution: <int>[2, 0, 1, 0, 0],
+        ),
+      ),
+      client: guest,
+    );
+    expect(tester.widget<Text>(find.byKey(RatingBody.averageKey)).data, '4,3');
+    expect(
+      tester.widget<Text>(find.byKey(RatingBody.countKey)).data,
+      _l10n(tester).clientRatingCount(3),
+    );
+    expect(_fill(tester, 5), closeTo(2 / 3, 1e-9));
+    expect(_fill(tester, 3), closeTo(1 / 3, 1e-9));
+  });
+
   testWidgets('no «Ваші оцінки» section (CLI-60, CLI-D07)', (tester) async {
     await _pump(tester, _Repo(card: _rated));
     // i18n-finder-ok: the removed section's heading must not render

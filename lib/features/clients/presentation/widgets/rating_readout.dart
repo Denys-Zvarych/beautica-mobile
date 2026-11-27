@@ -1,6 +1,7 @@
 // M510 — «★ 4,9 · 12 оцінок» / «Ще немає оцінок» (ClientCardVariants
-// `RatingReadout`). Shown for EVERY client: count 0 (every guest, an unrated
-// registered client) reads «Ще немає оцінок». The ★ is the shipped
+// `RatingReadout`). Shown for EVERY client: count 0 (an unrated guest or
+// registered client) reads «Ще немає оцінок». A guest shows the server's own
+// values (rated by phone, REV-D04); nothing here special-cases guests. The ★ is the shipped
 // [RatingStar].
 
 import 'package:flutter/material.dart';

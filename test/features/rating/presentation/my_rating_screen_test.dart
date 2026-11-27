@@ -39,6 +39,10 @@
 //      the provider.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:beautica_api/beautica_api.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -48,12 +52,14 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
+import 'package:beautica_mobile/features/rating/data/rating_repository.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -816,4 +822,62 @@ void main() {
       );
     });
   });
+
+  // ── M548 / REV-D11 pin — the wire, not just the domain object ────────────
+
+  group('MyRatingScreen — REV-D11: number and count only from the wire', () {
+    testWidgets('a `GET /users/me/rating` body with an extra `comment` key '
+        'renders the number and count and never the comment text', (
+      tester,
+    ) async {
+      const String comment = 'REV-D11-comment-must-not-render';
+      final Dio dio = Dio(BaseOptions(baseUrl: 'http://localhost'))
+        ..httpClientAdapter = _JsonAdapter(<String, Object?>{
+          'success': true,
+          'data': <String, Object?>{
+            'avgRating': 4.3,
+            'reviewCount': 3,
+            'comment': comment,
+            'ratingDistribution': <Object?>[
+              <String, Object?>{'rating': 5, 'count': 2, 'comment': comment},
+              <String, Object?>{'rating': 3, 'count': 1},
+            ],
+          },
+        });
+      final HttpRatingRepository repo = HttpRatingRepository(
+        UserControllerApi(dio, standardSerializers),
+      );
+
+      await _pump(tester, rating: repo.getMyRating);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_rating_display')), findsOneWidget);
+      expect(find.text('4.3'), findsOneWidget);
+      expect(find.text(_l10n(tester).myRatingReviewCount(3)), findsOneWidget);
+      expect(find.textContaining(comment), findsNothing);
+      expect(find.byType(ReviewCard), findsNothing);
+    });
+  });
+}
+
+final class _JsonAdapter implements HttpClientAdapter {
+  _JsonAdapter(this.body);
+
+  final Object body;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    jsonEncode(body),
+    200,
+    headers: <String, List<String>>{
+      Headers.contentTypeHeader: <String>['application/json'],
+    },
+  );
+
+  @override
+  void close({bool force = false}) {}
 }

@@ -368,8 +368,9 @@ PageResponse<ClientSummary> clientPageFromBody(
 
 /// Maps a generated [ClientListItemResponse] to a [ClientSummary], or `null`
 /// when `kind` is unknown or the kind's id (`userId` / `guestBookingId`) is
-/// missing. A field the API sends for the other kind is not trusted: a guest
-/// has no account photo and no rating.
+/// missing. A guest has no account photo, so a guest `avatarUrl` is not
+/// trusted. Ratings are mapped for BOTH kinds (M548 / REV-D10): a guest's
+/// `ratingAvg` / `ratingCount` are the backend's values, never forced unrated.
 @visibleForTesting
 ClientSummary? clientSummaryFromDto(ClientListItemResponse? dto) {
   if (dto == null) return null;
@@ -394,13 +395,11 @@ ClientSummary? clientSummaryFromDto(ClientListItemResponse? dto) {
       final int n when n > 0 => n,
       _ => 0,
     },
-    ratingAvg: registered ? dto.ratingAvg?.toDouble() : null,
-    ratingCount: registered
-        ? switch (dto.ratingCount) {
-            final int n when n > 0 => n,
-            _ => 0,
-          }
-        : 0,
+    ratingAvg: dto.ratingAvg?.toDouble(),
+    ratingCount: switch (dto.ratingCount) {
+      final int n when n > 0 => n,
+      _ => 0,
+    },
     blocked: dto.blocked ?? false,
   );
 }

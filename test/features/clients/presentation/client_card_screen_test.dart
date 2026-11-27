@@ -572,6 +572,23 @@ void main() {
       expect(h.opened, <String>['/master/clients/guest/b-1/rating']);
     });
 
+    // M548 / REV-D04 — a guest is rated by phone: the chip renders the
+    // server's values, with no client-side "guest ⇒ unrated" shortcut.
+    testWidgets('a rated guest shows the server values «4,3 · 3 оцінки»', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _Repo(card: (r) => _card(r, avg: 4.3, count: 3)),
+        client: _gst,
+      );
+      expect(find.byKey(RatingReadout.emptyKey), findsNothing);
+      expect(
+        find.text('4,3 · ${_l10n(tester).clientRatingCount(3)}'),
+        findsOneWidget,
+      );
+    });
+
     for (final ClientRef ref in <ClientRef>[_reg, _gst]) {
       testWidgets('unrated (${ref.runtimeType}) → «Ще немає оцінок», not '
           'tappable', (tester) async {

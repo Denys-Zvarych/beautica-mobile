@@ -9,7 +9,7 @@
 //   • the row mapper: registered, guest, a registered row whose visits came
 //     from walk-ins (B527 — maps like any registered row), unknown `kind`
 //     dropped, a row without its kind's id dropped, blank name → null, a
-//     guest never carries a photo or a rating;
+//     guest never carries a photo but DOES carry the backend's rating (M548);
 //   • `completedVisits` is mapped but is not a display value;
 //   • `clientQueryFor`: the 2–50-char `q` rule;
 //   • an unreadable envelope → ResponseUnusableFailure, HTTP errors → typed
@@ -99,8 +99,9 @@ Map<String, Object?> _guest({String? displayName = 'Ірина Коваль'}) =
       'kind': 'GUEST',
       'guestBookingId': _bookingId,
       'displayName': displayName,
-      // A guest must never carry these; the mapper must not trust them.
+      // A guest never carries a photo; the mapper must not trust one.
       'avatarUrl': 'https://cdn.test/leak.jpg',
+      // M548 / REV-D10: a guest's rating IS the backend's value.
       'ratingAvg': 3.0,
       'ratingCount': 2,
       'completedVisits': 1,
@@ -224,7 +225,7 @@ void main() {
       expect(s.displayRating, isNull, reason: 'unrated → «—»');
     });
 
-    test('guest row: guest ref, no photo, no rating even if sent', () async {
+    test('guest row: guest ref, no photo, backend rating mapped', () async {
       final r = _build(body: _page(<Map<String, Object?>>[_guest()]));
       final ClientSummary s = (await r.repo.list(
         const ClientListScope.me(),
@@ -233,6 +234,20 @@ void main() {
       expect(s.isGuest, isTrue);
       expect(s.id, _bookingId);
       expect(s.avatarUrl, isNull);
+      expect(s.ratingAvg, 3.0);
+      expect(s.ratingCount, 2);
+      expect(s.displayRating, 3.0);
+    });
+
+    test('guest row: unrated guest stays unrated', () async {
+      final r = _build(
+        body: _page(<Map<String, Object?>>[
+          <String, Object?>{..._guest(), 'ratingAvg': null, 'ratingCount': 0},
+        ]),
+      );
+      final ClientSummary s = (await r.repo.list(
+        const ClientListScope.me(),
+      )).items.single;
       expect(s.ratingAvg, isNull);
       expect(s.ratingCount, 0);
       expect(s.displayRating, isNull);
