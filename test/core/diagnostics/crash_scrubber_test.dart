@@ -197,35 +197,36 @@ void main() {
 
     // Perf audit 2026-11-05 (P2): no quadratic scan on a long run without @.
     test('a 20 KB run without @ scrubs fast; emails still redact', () {
-      final String run = 'a.b_c%d+e-f' * 1900;
+      final String run = 'a.b_c%d+e-f' * 3800;
       final String input = '$run x $_email y $run';
+      redactText('warm-up');
       final Stopwatch sw = Stopwatch()..start();
       final String out = redactText(input);
       sw.stop();
-      expect(sw.elapsedMilliseconds, lessThan(1000));
+      // Linear (bounded) ≈ 0.1 s locally; the old unbounded patterns take > 12 s at this size. 8 s absorbs ~20× CI-runner slowdown.
+      expect(sw.elapsedMilliseconds, lessThan(8000));
       expect(out, isNot(contains(_email)));
       expect(out, contains('[email]'));
     });
 
     // Perf audit 2026-11-05 (P2 + INFO): bounded key suffix / JWT segments.
-    // Sized so the old unbounded patterns take > 3 s here (measured
-    // 2026-11-05; at 1/8 of these sizes they ran in 74-126 ms and the test
-    // could not fail) while the bounded ones stay well under 1 s.
+    // Sized so the old unbounded patterns take > 12 s at these sizes (the
+    // eyJ run measured 117 s) while the bounded ones stay well under 1 s
+    // locally; the 8 s budget absorbs CI-runner slowdown.
     for (final String run in <String>[
-      '_pin' * 40000,
-      '0token' * 24000,
-      'eyJ' * 56000,
+      '_pin' * 80000,
+      '0token' * 48000,
+      'eyJ' * 112000,
     ]) {
-      test(
-        'a ${run.length}-char "${run.substring(0, 6)}…" run scrubs fast',
-        () {
-          final Stopwatch sw = Stopwatch()..start();
-          final String out = redactText('$run x $_jwt y');
-          sw.stop();
-          expect(sw.elapsedMilliseconds, lessThan(1000));
-          expect(out, isNot(contains(_jwt)));
-        },
-      );
+      test('a ${run.length}-char "${run.substring(0, 6)}…" run scrubs fast', () {
+        redactText('warm-up');
+        final Stopwatch sw = Stopwatch()..start();
+        final String out = redactText('$run x $_jwt y');
+        sw.stop();
+        // Linear (bounded) ≈ 0.6 s locally; the old unbounded patterns take > 12 s at this size. 8 s absorbs ~20× CI-runner slowdown.
+        expect(sw.elapsedMilliseconds, lessThan(8000));
+        expect(out, isNot(contains(_jwt)));
+      });
     }
 
     test('two emails glued by "+" are both redacted', () {
