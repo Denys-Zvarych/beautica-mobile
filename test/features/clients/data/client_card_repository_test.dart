@@ -12,6 +12,9 @@
 //     no usable item dropped, the master name is not on the domain type;
 //   • the uniform 404 → NotFoundFailure, an unreadable envelope →
 //     ResponseUnusableFailure.
+//   • M545 `getComments` (B565, REV-44): the 4 `/comments` paths per scope ×
+//     ClientRef kind with flat paging, the 5-key row mapper, unusable rows
+//     dropped, comment text kept out of `toString()`.
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -22,6 +25,7 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:dio/dio.dart';
@@ -441,6 +445,144 @@ void main() {
       await expectLater(
         b.repo.getCard(const ClientListScope.me(), _registered),
         throwsA(isA<ResponseUnusableFailure>()),
+      );
+    });
+  });
+
+  group('M545 comments', () {
+    for (final (
+          String name,
+          ClientListScope scope,
+          ClientRef client,
+          String path,
+        )
+        in <(String, ClientListScope, ClientRef, String)>[
+          (
+            'salon × user',
+            const ClientListScope.salon(salonId: _salonId),
+            _registered,
+            '/api/v1/salons/$_salonId/clients/users/$_userId/comments',
+          ),
+          (
+            'salon × guest',
+            const ClientListScope.salon(salonId: _salonId),
+            _guest,
+            '/api/v1/salons/$_salonId/clients/guests/$_bookingId/comments',
+          ),
+          (
+            'me × user',
+            const ClientListScope.me(),
+            _registered,
+            '/api/v1/masters/me/clients/users/$_userId/comments',
+          ),
+          (
+            'me × guest',
+            const ClientListScope.me(),
+            _guest,
+            '/api/v1/masters/me/clients/guests/$_bookingId/comments',
+          ),
+        ]) {
+      test('$name → $path with FLAT paging', () async {
+        final b = _build(body: _page(<Object?>[]));
+        await b.repo.getComments(scope, client, page: 1);
+        expect(b.adapter.requests.single.path, path);
+        expect(b.adapter.requests.single.queryParameters, <String, dynamic>{
+          'page': 1,
+          'size': 20,
+        });
+      });
+    }
+
+    test('salon scope with masterId sends it (card authz)', () async {
+      final b = _build(body: _page(<Object?>[]));
+      await b.repo.getComments(
+        const ClientListScope.salon(salonId: _salonId, masterId: _masterRow),
+        _registered,
+      );
+      expect(b.adapter.requests.single.queryParameters['masterId'], _masterRow);
+    });
+
+    Map<String, Object?> row({
+      String? id = 'e5555555-0000-4000-8000-000000000005',
+      String? month = '2026-11',
+      int? stars = 4,
+      String? comment = ' Запізнилась на 20 хв ',
+      bool? own = true,
+    }) => <String, Object?>{
+      'reviewId': id,
+      'visitMonth': month,
+      'stars': stars,
+      'comment': comment,
+      'own': own,
+    };
+
+    test('maps the 5 keys; text trimmed; paging carried', () async {
+      final b = _build(body: _page(<Object?>[row()], pages: 2));
+      final PageResponse<ClientReviewComment> p = await b.repo.getComments(
+        const ClientListScope.me(),
+        _registered,
+      );
+      expect(
+        p.items.single,
+        const ClientReviewComment(
+          reviewId: 'e5555555-0000-4000-8000-000000000005',
+          visitYear: 2026,
+          visitMonth: 11,
+          stars: 4,
+          comment: 'Запізнилась на 20 хв',
+          own: true,
+        ),
+      );
+      expect(p.hasMore, isTrue);
+    });
+
+    test('own absent → false', () {
+      final PageResponse<ClientReviewComment> p = clientCommentsFromBody(
+        _page(<Object?>[row(own: null)]),
+        requestedPage: 0,
+      );
+      expect(p.items.single.own, isFalse);
+    });
+
+    test('unusable rows are dropped, never the page', () {
+      final PageResponse<ClientReviewComment> p = clientCommentsFromBody(
+        _page(<Object?>[
+          row(id: null),
+          row(month: '2026-13'),
+          row(month: 'листопад'),
+          row(stars: 0),
+          row(stars: 6),
+          row(stars: null),
+          row(comment: '   '),
+          row(comment: null),
+          row(id: 'f6666666-0000-4000-8000-000000000006'),
+        ]),
+        requestedPage: 0,
+      );
+      expect(p.items.map((ClientReviewComment c) => c.reviewId), <String>[
+        'f6666666-0000-4000-8000-000000000006',
+      ]);
+    });
+
+    test('toString never carries the comment text', () {
+      final PageResponse<ClientReviewComment> p = clientCommentsFromBody(
+        _page(<Object?>[row()]),
+        requestedPage: 0,
+      );
+      expect(p.items.single.toString(), isNot(contains('Запізнилась')));
+    });
+
+    test('404 → NotFoundFailure', () async {
+      final b = _build(
+        status: 404,
+        body: <String, Object?>{
+          'success': false,
+          'message': 'CLIENT_NOT_FOUND',
+        },
+      );
+      await expectLater(
+        b.repo.getComments(const ClientListScope.me(), _guest),
+        throwsA(isA<NotFoundFailure>()),
       );
     });
   });

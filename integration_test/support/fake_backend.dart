@@ -996,6 +996,11 @@ final class FakeBackend {
   final Map<String, List<Map<String, dynamic>>> clientVisits =
       <String, List<Map<String, dynamic>>>{};
 
+  /// M545 — `…/comments` rows (B565 `ClientReviewCommentResponse` JSON) per
+  /// client id; an id with no entry answers an empty page.
+  final Map<String, List<Map<String, dynamic>>> clientComments =
+      <String, List<Map<String, dynamic>>>{};
+
   /// M543 — client id (a [clientCards] key) by the E.164 phone a staff
   /// walk-in names: a walk-in POST whose `guest.phone` is listed here gains
   /// one visit row PER BOOKING at the head of that client's [clientVisits]
@@ -13652,6 +13657,17 @@ final class FakeBackend {
               req,
             );
           }),
+          request: const Request(method: RequestMethods.get),
+        );
+        _adapter.onRoute(
+          '$root/comments',
+          // Not recorded in [clientCardCalls]: flows count card / visits
+          // reads there.
+          (server) => server.replyCallback(
+            200,
+            (req) =>
+                pageOf(clientComments[id] ?? <Map<String, dynamic>>[], req),
+          ),
           request: const Request(method: RequestMethods.get),
         );
       }

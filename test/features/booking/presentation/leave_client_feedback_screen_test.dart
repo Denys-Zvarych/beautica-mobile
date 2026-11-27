@@ -304,6 +304,31 @@ void main() {
       expect(find.text(l10n.clientReviewCommentPrivacyNote), findsOneWidget);
     });
 
+    testWidgets('M545 (CLI-93): the anonymous-visibility notice renders '
+        'under the comment field', (tester) async {
+      await pumpFeedback(tester, detail: (ref) async => _booking());
+
+      final Finder notice = find.byKey(
+        const Key('leave-client-feedback-anon-notice'),
+      );
+      expect(notice, findsOneWidget);
+      expect(
+        tester.widget<Text>(notice).data,
+        // i18n-finder-ok: the locked CLI-93 wording
+        'Коментар анонімно побачать інші майстри й салони. Клієнт його не бачить.',
+      );
+      expect(
+        tester.getTopLeft(notice).dy,
+        greaterThan(
+          tester
+              .getBottomLeft(
+                find.byKey(const Key('leave-client-feedback-comment')),
+              )
+              .dy,
+        ),
+      );
+    });
+
     testWidgets('submitting with a comment calls createClientReview with the '
         'exact bookingId, rating and comment', (tester) async {
       final repo = _MockClientReviewRepository();

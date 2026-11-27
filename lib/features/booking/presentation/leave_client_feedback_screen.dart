@@ -829,6 +829,13 @@ class _CommentCard extends StatelessWidget {
             maxChars: maxChars,
             privacyNote: l10n.clientReviewCommentPrivacyNote,
           ),
+          // M545 (CLI-93) — other providers read the comment anonymously.
+          const SizedBox(height: VelvetSpacing.xs),
+          Text(
+            l10n.clientReviewCommentAnonNotice,
+            key: const Key('leave-client-feedback-anon-notice'),
+            style: VelvetText.feedbackMutedSm,
+          ),
         ],
       ),
     );

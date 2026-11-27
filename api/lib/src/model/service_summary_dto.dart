@@ -16,6 +16,7 @@ part 'service_summary_dto.g.dart';
 /// * [durationMinutes]
 /// * [priceFrom]
 /// * [category] - The service's category key — the same value as ServiceDefinitionResponse.category and CategoryRef.key; the website groups services by it (phase 383).
+/// * [categoryDisplayName] - Display name of that category, including a category the operator has since HIDDEN (SVC-56). Null for an unknown / rejected category; fall back to category then.
 @BuiltValue()
 abstract class ServiceSummaryDto
     implements Built<ServiceSummaryDto, ServiceSummaryDtoBuilder> {
@@ -34,6 +35,10 @@ abstract class ServiceSummaryDto
   /// The service's category key — the same value as ServiceDefinitionResponse.category and CategoryRef.key; the website groups services by it (phase 383).
   @BuiltValueField(wireName: r'category')
   String? get category;
+
+  /// Display name of that category, including a category the operator has since HIDDEN (SVC-56). Null for an unknown / rejected category; fall back to category then.
+  @BuiltValueField(wireName: r'categoryDisplayName')
+  String? get categoryDisplayName;
 
   ServiceSummaryDto._();
 
@@ -93,6 +98,13 @@ class _$ServiceSummaryDtoSerializer
       yield r'category';
       yield serializers.serialize(
         object.category,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.categoryDisplayName != null) {
+      yield r'categoryDisplayName';
+      yield serializers.serialize(
+        object.categoryDisplayName,
         specifiedType: const FullType.nullable(String),
       );
     }
@@ -156,6 +168,14 @@ class _$ServiceSummaryDtoSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.category = valueDes;
+          break;
+        case r'categoryDisplayName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.categoryDisplayName = valueDes;
           break;
         default:
           unhandled.add(key);

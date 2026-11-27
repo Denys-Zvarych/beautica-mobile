@@ -3,6 +3,9 @@
 // own-ratings read (CLI-D07, 2026-11-21), and NO comment text, ever (REV-D10).
 // MOD-39 — the header avatar carries the CLIENT_PROFILE viewer report for a
 // registered client.
+// M545 (CLI-60, REV-44, MOD-41) — the anonymous «Коментарі» section: hidden
+// when empty, the shared ReviewCard row with no author, «Ваш коментар» on
+// own, the visit month, load more on scroll, inline retry, «⋮» report.
 
 import 'dart:async';
 
@@ -12,11 +15,16 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_rating_screen.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/public_profile_skeleton.dart';
 import 'package:dio/dio.dart' show CancelToken;
@@ -25,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_notification_repository.dart';
+import '../../moderation/support/fake_content_report_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/route_pump.dart';
 
@@ -89,6 +98,52 @@ class _Repo implements ClientRepository {
       throw UnimplementedError();
 }
 
+/// M545 — the comments seam: [all] served in pages of [kClientPageSize];
+/// a page listed in [failPages] throws a [NetworkFailure] once.
+class _Comments implements ClientCommentsRepository {
+  _Comments([this.all = const <ClientReviewComment>[], this.serveSize]);
+
+  final List<ClientReviewComment> all;
+
+  /// Overrides the requested page size (a short page that fits the viewport).
+  final int? serveSize;
+  final Set<int> failPages = <int>{};
+  final List<int> pages = <int>[];
+
+  @override
+  Future<PageResponse<ClientReviewComment>> getComments(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async {
+    pages.add(page);
+    if (failPages.remove(page)) throw const NetworkFailure();
+    size = serveSize ?? size;
+    final int from = page * size;
+    final int to = (from + size).clamp(0, all.length);
+    return PageResponse<ClientReviewComment>(
+      items: from >= all.length
+          ? const <ClientReviewComment>[]
+          : all.sublist(from, to),
+      page: page,
+      totalPages: (all.length / size).ceil(),
+      totalElements: all.length,
+    );
+  }
+}
+
+ClientReviewComment _comment(int i, {bool own = false, int stars = 4}) =>
+    ClientReviewComment(
+      reviewId: 'r-$i',
+      visitYear: 2026,
+      visitMonth: 11,
+      stars: stars,
+      comment: 'Коментар $i',
+      own: own,
+    );
+
 const ClientCard _rated = ClientCard(
   ref: _client,
   displayName: 'Оксана Мельник',
@@ -105,6 +160,8 @@ Future<_Repo> _pump(
   bool settle = true,
   ClientRef client = _client,
   UserRole role = UserRole.independentMaster,
+  _Comments? comments,
+  FakeContentReportRepository? reports,
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1.0;
@@ -128,6 +185,12 @@ Future<_Repo> _pump(
     router,
     overrides: <Object>[
       clientRepositoryProvider.overrideWithValue(repo),
+      clientCommentsRepositoryProvider.overrideWithValue(
+        comments ?? _Comments(),
+      ),
+      contentReportRepositoryProvider.overrideWithValue(
+        reports ?? FakeContentReportRepository(),
+      ),
       authProvider.overrideWith(() => FixedRoleAuth(role)),
     ],
     retry: (_, _) => null,
@@ -342,4 +405,192 @@ void main() {
       });
     }
   }
+
+  group('M545 comments', () {
+    Finder row(int i) => find.byKey(Key('client-comment-r-$i'));
+    Finder more(int i) =>
+        find.byKey(ReviewCard.moreKey(ClientCommentsSliver.keyPrefix, 'r-$i'));
+
+    testWidgets('E1: no comments → the section is hidden', (tester) async {
+      final _Comments comments = _Comments();
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      expect(comments.pages, <int>[0]);
+      expect(find.byKey(ClientCommentsSliver.titleKey), findsNothing);
+      expect(find.byType(ReviewCard), findsNothing);
+      expect(find.byKey(RatingBody.privacyNoteKey), findsOneWidget);
+    });
+
+    testWidgets('the note reads the M545 text (CLI-60)', (tester) async {
+      await _pump(tester, _Repo(card: _rated));
+      expect(
+        tester.widget<Text>(find.byKey(RatingBody.privacyNoteKey)).data,
+        // i18n-finder-ok: the locked CLI-60 wording
+        'Клієнт не бачить ці коментарі. Автор не показується.',
+      );
+    });
+
+    testWidgets('one comment: stars, month, text — no author, avatar or date', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _Repo(card: _rated),
+        comments: _Comments(<ClientReviewComment>[_comment(1, stars: 3)]),
+      );
+      expect(find.byKey(ClientCommentsSliver.titleKey), findsOneWidget);
+      expect(row(1), findsOneWidget);
+      // i18n-finder-ok: the comment's own text
+      expect(find.text('Коментар 1'), findsOneWidget);
+      // i18n-finder-ok: the visit month, intl `LLLL y` in uk
+      expect(find.text('листопад 2026'), findsOneWidget);
+      expect(
+        tester
+            .widget<ReviewStarRow>(
+              find.descendant(of: row(1), matching: find.byType(ReviewStarRow)),
+            )
+            .rating,
+        3,
+      );
+      expect(find.byType(ReviewAvatar), findsNothing);
+      expect(find.text(_l10n(tester).clientRatingOwnComment), findsNothing);
+      // The name slot is empty: no author text anywhere in the row.
+      final Iterable<String?> texts = tester
+          .widgetList<Text>(
+            find.descendant(of: row(1), matching: find.byType(Text)),
+          )
+          .map((Text t) => t.data);
+      expect(texts.where((String? t) => t != null && t.isNotEmpty), <String>[
+        'листопад 2026', // i18n-finder-ok: month
+        'Коментар 1', // i18n-finder-ok: text
+      ]);
+      expect(more(1), findsOneWidget);
+    });
+
+    testWidgets('E3: own comment → «Ваш коментар», no «⋮»', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: _rated),
+        comments: _Comments(<ClientReviewComment>[
+          _comment(1, own: true),
+          _comment(2),
+        ]),
+      );
+      expect(
+        find.descendant(
+          of: row(1),
+          matching: find.text(_l10n(tester).clientRatingOwnComment),
+        ),
+        findsOneWidget,
+      );
+      expect(more(1), findsNothing);
+      expect(more(2), findsOneWidget);
+    });
+
+    testWidgets('«⋮» opens the report sheet for CLIENT_REVIEW + the review id '
+        '(MOD-41)', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: _rated),
+        comments: _Comments(<ClientReviewComment>[_comment(7)]),
+      );
+      await tester.tap(more(7));
+      await tester.pumpAndSettle();
+      final ReportSheet sheet = tester.widget<ReportSheet>(
+        find.byType(ReportSheet),
+      );
+      expect(sheet.targetType, ReportTargetType.clientReview);
+      expect(sheet.targetId, 'r-7');
+    });
+
+    testWidgets('an already-reported comment shows no «⋮»', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: _rated),
+        comments: _Comments(<ClientReviewComment>[_comment(1), _comment(2)]),
+        reports: FakeContentReportRepository(
+          preReported: <ReportedTarget>{
+            (type: ReportTargetType.clientReview, id: 'r-1'),
+          },
+        ),
+      );
+      expect(more(1), findsNothing);
+      expect(more(2), findsOneWidget);
+    });
+
+    testWidgets('25 comments: page 2 loads on scroll', (tester) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        for (int i = 1; i <= 25; i++) _comment(i),
+      ]);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      expect(comments.pages, <int>[0]);
+      await tester.dragUntilVisible(
+        row(25),
+        find.byType(Scrollable).first,
+        const Offset(0, -400),
+      );
+      await tester.pumpAndSettle();
+      expect(comments.pages, <int>[0, 1]);
+      expect(row(25), findsOneWidget);
+    });
+
+    testWidgets('page_0_that_fits_the_viewport_still_loads_page_1', (
+      tester,
+    ) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1),
+        _comment(2),
+      ], 1);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      // No scroll gesture: page 0 (one row) fits, so page 1 is requested
+      // post-frame; page 1 is the last, so nothing more follows.
+      expect(
+        tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position
+            .maxScrollExtent,
+        0,
+      );
+      expect(comments.pages, <int>[0, 1]);
+      expect(row(1), findsOneWidget);
+      expect(row(2), findsOneWidget);
+    });
+
+    testWidgets('page 0 error → inline retry that reloads', (tester) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[_comment(1)])
+        ..failPages.add(0);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      expect(find.byKey(ClientCommentsSliver.retryKey), findsOneWidget);
+      expect(row(1), findsNothing);
+      await tester.tap(find.byKey(ClientCommentsSliver.retryKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(ClientCommentsSliver.retryKey), findsNothing);
+      expect(row(1), findsOneWidget);
+    });
+
+    testWidgets('E5: page 2 error keeps the rows, retry appends', (
+      tester,
+    ) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        for (int i = 1; i <= 25; i++) _comment(i),
+      ])..failPages.add(1);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      final Finder retryMore = find.byKey(ClientCommentsSliver.retryMoreKey);
+      await tester.dragUntilVisible(
+        retryMore,
+        find.byType(Scrollable).first,
+        const Offset(0, -400),
+      );
+      await tester.pumpAndSettle();
+      expect(row(20), findsOneWidget);
+      await tester.tap(retryMore);
+      await tester.pumpAndSettle();
+      await tester.dragUntilVisible(
+        row(25),
+        find.byType(Scrollable).first,
+        const Offset(0, -400),
+      );
+      expect(comments.pages, <int>[0, 1, 1]);
+      expect(row(25), findsOneWidget);
+    });
+  });
 }
