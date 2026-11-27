@@ -16,9 +16,10 @@
 // NOTE (locked product decision, 2026-07-25): the approved preview's
 // `ConfidentialityNote` widget («Видно лише спеціалістам») was REMOVED from
 // the design by the user — it is deliberately NOT ported here. The inline
-// «Клієнт цього коментаря не побачить» reminder near the comment field is a
-// SEPARATE, still-live piece of the design and lives on the screen's comment
-// card, not on this file.
+// privacy reminder near the comment field was removed as well; the screen's
+// only remaining privacy copy is the anonymity notice
+// (`clientReviewCommentAnonNotice`, CLI-93 in docs/specs/client.md), which
+// lives on the screen's comment card, not in this file.
 
 import 'package:flutter/material.dart';
 

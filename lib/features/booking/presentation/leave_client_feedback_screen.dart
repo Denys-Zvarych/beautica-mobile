@@ -15,8 +15,10 @@
 //
 // NOTE — the preview's `ConfidentialityNote` widget was REMOVED from the
 // approved design by the user (locked decision, 2026-07-25) and is
-// deliberately NOT ported. The inline «Клієнт цього коментаря не побачить»
-// reminder beside the comment counter IS still part of the design and is kept.
+// deliberately NOT ported. The inline privacy reminder that once sat beside
+// the comment counter was later removed too; the only privacy copy left on
+// this screen is the anonymity notice (`clientReviewCommentAnonNotice`,
+// CLI-93 in docs/specs/client.md).
 //
 // ## The gating (read before touching this file)
 //

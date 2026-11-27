@@ -19,9 +19,9 @@
 //     state, no VelvetSnack;
 //   • a [ClientReviewNotAllowedFailure] — the localized message surfaces in a
 //     VelvetSnack and the provider STAYS on the form (no pop);
-//   • the inline «Клієнт цього коментаря не побачить» reminder renders (the
-//     thing that makes this screen more than a mirror of the client's own
-//     leave-review form);
+//   • the anonymity notice (`clientReviewCommentAnonNotice`, CLI-93 in
+//     docs/specs/client.md) renders — the only privacy copy left on the
+//     form now that the inline privacy reminder was removed;
 //   • the fetch error + loading states behind the shared top bar.
 //
 // Finders are key-first; every asserted string goes through l10n (CI no-raw-
