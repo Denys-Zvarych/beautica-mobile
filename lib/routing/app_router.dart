@@ -2666,25 +2666,19 @@ GoRouter appRouter(Ref ref) {
       // an owner to their role home — see that RouteName's doc.
       //
       // `clientReviewRouteBuilder` re-aims the ONE push that would otherwise
-      // leave the `/salon/*` subtree. It is NOT optional here — but Phase 320
-      // narrowed WHO it serves, and this comment asserted the opposite until
-      // then. `Booking.providerCanReviewClient` is computed by
-      // `BookingService#computeProviderCanReviewClient` (read at backend
-      // `a0df4cf`), whose provider-authority leg is now the SINGLE term
-      // `isPerformingMasterOfBooking(...)`; the former
-      // `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted
-      // the salon's OWNER and the assigned SALON_ADMIN whoever performed the
-      // service, is GONE. An owner or admin may still COMPLETE a booking;
-      // only the master who performed it may rate its client.
-      //
-      // So the audience is OWNER-AS-MASTER: an owner who personally performed
-      // the booking still gets the flag, and views that booking through THIS
-      // mount. Left null, their push falls through to
-      // `/master/bookings/:id/review`, whose INDEPENDENT_MASTER-only gate
-      // bounces them to `/salons/mine`. `_providerActions` in
-      // `booking_detail_screen.dart` renders the CTA ABOVE the
-      // `bookingTransitionsEnabledProvider` gate, so read-only-ness does not
-      // suppress it either — the server flag is the only gate.
+      // leave the `/salon/*` subtree. It is NOT optional here. B547 /
+      // REV-D06 (superseding Phase 320's "performing master only"): in a
+      // salon the OWNER, the ADMIN or the SALON_MASTER who performed the
+      // booking may rate its client, ONE salon-side rating per booking (first
+      // writer wins, the second gets 409); the server's
+      // `Booking.providerCanReviewClient` says which, and it is the only gate
+      // (M548 D2 — no Dart-side role check). So an owner or admin viewing a
+      // COMPLETED booking through THIS mount gets the CTA. Left null, their push
+      // falls through to `/master/bookings/:id/review`, whose
+      // INDEPENDENT_MASTER-only gate bounces them to `/salons/mine`.
+      // `_providerActions` in `booking_detail_screen.dart` renders the CTA
+      // ABOVE the `bookingTransitionsEnabledProvider` gate, so read-only-ness
+      // does not suppress it either.
       GoRoute(
         path: '${RouteNames.salonStaffBookings}/:bookingId',
         builder: (context, state) => bookingIdGuarded(
@@ -2717,9 +2711,8 @@ GoRouter appRouter(Ref ref) {
         ),
       ),
       // Phase 21.12 — /salon/bookings/:bookingId/review, «ВІДГУК ПРО КЛІЄНТА»
-      // for the OWNER-AS-MASTER viewer of the salon board (Phase 320 narrowed
-      // this from "every SALON_OWNER/SALON_ADMIN"; see the `:bookingId`
-      // route's comment above for the backend method that decides it).
+      // for the salon OWNER / ADMIN viewer of the salon board (B547 /
+      // REV-D06; see the `:bookingId` route's comment above).
       // Mirrors the `/staff/*` twin
       // registered further down (`salonMasterClientReview`) exactly, including
       // its `extra`-carries-the-entry-point contract — see
@@ -3493,9 +3486,12 @@ GoRouter appRouter(Ref ref) {
         ),
       ),
       // Phase 330 — /staff/bookings/:bookingId/review, the SALON_MASTER's
-      // «ВІДГУК ПРО КЛІЄНТА». Backend phase 316 (✅ COMPLETE) grants this role
-      // exactly one write on their own booking; without a `/staff/*`
-      // counterpart the CTA would render and then bounce off the `/master/*`
+      // «ВІДГУК ПРО КЛІЄНТА». B547 / REV-D06: the master who performed the
+      // booking rates its client when the salon has not yet (one salon-side
+      // rating per booking); there is no notification (NTF-D07), so this
+      // route is reached from the booking-detail CTA and the archive «Відгук»
+      // slot. The `/staff/*` role gate (`auth_redirect.dart`) still applies;
+      // without this counterpart the CTA would bounce off the `/master/*`
       // gate. Same `extra`-carries-the-entry-point contract as
       // [RouteNames.clientReview]'s registration — see that route's comment
       // for why an absent/unexpected `extra` falls back to `bookingDetail`.

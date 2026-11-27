@@ -1131,19 +1131,18 @@ class _DetailBody extends StatelessWidget {
   ///     client; the client only ever sees their aggregate rating number
   ///     move, never this screen's words.
   ///
-  ///     AUDIENCE (Phase 320): the PERFORMING MASTER of this booking, and
-  ///     nobody else. The flag is server-computed by
-  ///     `BookingService#computeProviderCanReviewClient` (backend `a0df4cf`),
-  ///     whose provider-authority leg is the single term
-  ///     `isPerformingMasterOfBooking(...)` — the former
-  ///     `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted a
-  ///     salon's owner and its assigned admin regardless of who performed the
-  ///     service, is gone. A `SALON_OWNER`/`SALON_ADMIN` who did not perform
-  ///     the booking may still COMPLETE it but gets `false` here, so this arm
-  ///     returns an empty footer for them with no Dart-side role check. An
-  ///     owner who DID perform it (owner-as-master) is a performing master
-  ///     and keeps the CTA — that is the case
-  ///     [BookingDetailScreen.clientReviewRouteBuilder] exists to aim.
+  ///     AUDIENCE (B547 / REV-D06, superseding Phase 320's "performing master
+  ///     only"): the flag is server-computed and is `true` for every provider
+  ///     who may rate this booking's client — an INDEPENDENT_MASTER on their
+  ///     own booking; in a salon the owner, the admin, or the SALON_MASTER who
+  ///     performed it, with ONE salon-side rating per booking (first writer
+  ///     wins, the second gets 409). Rateable clients (B546 / REV-D04): an
+  ///     account, or a guest / walk-in with a phone. Mobile adds no role check
+  ///     (M548 D2); this arm returns an empty footer whenever the flag is
+  ///     `false`. A SALON_MASTER gets no notification (NTF-D07) and rates from
+  ///     this CTA, aimed by [BookingDetailScreen.clientReviewRouteBuilder] at
+  ///     `/staff/bookings/:id/review`. There is no after-complete prompt
+  ///     (owner 2026-11-27): this CTA is the flow.
   ///   * COMPLETED, but `!booking.providerCanReviewClient` (client already
   ///     reviewed, or not eligible) — no CTA, footer is empty.
   ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /

@@ -36,6 +36,9 @@ import 'package:beautica_mobile/features/booking/application/pending_booking_act
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
@@ -351,6 +354,130 @@ void main() {
       expect(fb.lastClientReviewRating, 5);
       expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
       await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  // REV-38..44 / CLI-93 (device-test bug, fix 2a8868c3) — the master opens
+  // the client's card from «Клієнти», then rates that client from the
+  // booking detail. Back on the card (and the list under it) the NEW rating
+  // must show without a manual refresh. Before the fix the submit dropped
+  // neither the card nor the list, so both kept the cached pre-review
+  // rating. The server-side rating changes only AFTER the card/list were
+  // first read, so a stale cache cannot satisfy the post-submit assertions.
+  testWidgets(
+    'a client review refreshes the open client card and the «Клієнти» row '
+    'to the new rating, no manual refresh',
+    (tester) async {
+      const String clientId = 'u-rated';
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingStatus = 'COMPLETED'
+        ..bookingProviderCanReviewClient = true
+        ..bookingRegisteredClientId = clientId
+        ..wireClientList();
+      Map<String, dynamic> row(double avg, int count) => <String, dynamic>{
+        'kind': 'REGISTERED',
+        'userId': clientId,
+        'displayName': 'Олена Ткаченко',
+        'lastVisitAt': '2026-06-01T10:00:00Z',
+        'completedVisits': 2,
+        'ratingAvg': avg,
+        'ratingCount': count,
+        'blocked': false,
+      };
+      Map<String, dynamic> card(double avg, int count) => <String, dynamic>{
+        'kind': 'REGISTERED',
+        'userId': clientId,
+        'displayName': 'Олена Ткаченко',
+        'blocked': false,
+        'ratingAvg': avg,
+        'ratingCount': count,
+      };
+      fb.clientRows.add(row(4.0, 1));
+      fb.clientCards[clientId] = card(4.0, 1);
+      fb.clientVisits[clientId] = <Map<String, dynamic>>[];
+      fb.wireClientCard();
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+
+      // ── 1. «Клієнти» → the client's card (both now cached). ───────────────
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('master-nav-tile-3')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientsScreen.listKey),
+      );
+      await AppHarness.settle(tester);
+      final Finder clientRow = find.byKey(const Key('client-row-$clientId'));
+      await AppHarness.tapVisible(tester, clientRow);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nameKey),
+      );
+      await AppHarness.settle(tester);
+      final AppLocalizations l10n = l10nOf(tester, ClientCardScreen);
+      String chipText(double avg, int count) =>
+          '${formatClientRatingAvg(avg)} · ${l10n.clientRatingCount(count)}';
+      final Finder chip = find.byKey(ClientCardScreen.ratingChipKey);
+      expect(
+        find.descendant(of: chip, matching: find.text(chipText(4.0, 1))),
+        findsOneWidget,
+      );
+
+      // ── 2. The booking detail → rate the client. ──────────────────────────
+      unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+      await AppHarness.settle(tester);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await tester.tap(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+
+      // The server's aggregate after this review: (4 + 5) / 2.
+      fb.clientRows
+        ..clear()
+        ..add(row(4.5, 2));
+      fb.clientCards[clientId] = card(4.5, 2);
+
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await AppHarness.settle(tester);
+      expect(fb.createClientReviewCalls, 1);
+      expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
+      await pumpPastVelvetSnack(tester);
+
+      // ── 3. Back to the card: the NEW rating, no pull-to-refresh. ──────────
+      router.pop();
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.descendant(of: chip, matching: find.text(chipText(4.5, 2))),
+      );
+      expect(
+        find.descendant(of: chip, matching: find.text(chipText(4.5, 2))),
+        findsOneWidget,
+        reason: 'a client review must refetch the client card',
+      );
+
+      // ── 4. Back to «Клієнти»: the row shows the new ★ number. ─────────────
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.descendant(of: clientRow, matching: find.text('4.5')),
+      );
+      expect(
+        find.descendant(of: clientRow, matching: find.text('4.5')),
+        findsOneWidget,
+        reason: 'a client review must refetch the «Клієнти» list',
+      );
     },
   );
 }

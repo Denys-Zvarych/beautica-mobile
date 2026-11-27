@@ -68,6 +68,7 @@ import 'package:beautica_api/src/model/api_response_page_response_booking_detail
 import 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_client_list_item_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_client_own_rating_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_client_review_comment_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_client_visit_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_favorite_salon_response.dart';
@@ -137,6 +138,7 @@ import 'package:beautica_api/src/model/client_card_response.dart';
 import 'package:beautica_api/src/model/client_list_item_response.dart';
 import 'package:beautica_api/src/model/client_list_removal_request.dart';
 import 'package:beautica_api/src/model/client_own_rating_response.dart';
+import 'package:beautica_api/src/model/client_review_comment_response.dart';
 import 'package:beautica_api/src/model/client_review_response.dart';
 import 'package:beautica_api/src/model/client_visit_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
@@ -206,6 +208,7 @@ import 'package:beautica_api/src/model/page_response_booking_detail_response.dar
 import 'package:beautica_api/src/model/page_response_booking_response.dart';
 import 'package:beautica_api/src/model/page_response_client_list_item_response.dart';
 import 'package:beautica_api/src/model/page_response_client_own_rating_response.dart';
+import 'package:beautica_api/src/model/page_response_client_review_comment_response.dart';
 import 'package:beautica_api/src/model/page_response_client_visit_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_master_response.dart';
 import 'package:beautica_api/src/model/page_response_favorite_salon_response.dart';
@@ -360,6 +363,7 @@ part 'serializers.g.dart';
   ApiResponsePageResponseBookingResponse,
   ApiResponsePageResponseClientListItemResponse,
   ApiResponsePageResponseClientOwnRatingResponse,
+  ApiResponsePageResponseClientReviewCommentResponse,
   ApiResponsePageResponseClientVisitResponse,
   ApiResponsePageResponseFavoriteMasterResponse,
   ApiResponsePageResponseFavoriteSalonResponse,
@@ -429,6 +433,7 @@ part 'serializers.g.dart';
   ClientListItemResponse,
   ClientListRemovalRequest,
   ClientOwnRatingResponse,
+  ClientReviewCommentResponse,
   ClientReviewResponse,
   ClientVisitResponse,
   ContactSupportRequest,
@@ -498,6 +503,7 @@ part 'serializers.g.dart';
   PageResponseBookingResponse,
   PageResponseClientListItemResponse,
   PageResponseClientOwnRatingResponse,
+  PageResponseClientReviewCommentResponse,
   PageResponseClientVisitResponse,
   PageResponseFavoriteMasterResponse,
   PageResponseFavoriteSalonResponse,

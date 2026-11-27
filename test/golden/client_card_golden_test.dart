@@ -17,6 +17,11 @@
 //   • client_card_owner_master_mode_no_chips_360_1x — client-profile audit
 //     (2026-11-22): owner master mode (route masterId = the owner's own row,
 //     servedByMasters salon-wide INCLUDING that row) → NO chip row
+//   • client_rating_comments_360_1x        — M545: the «Коментарі» section
+//     (own «Ваш коментар» row without «⋮», an anonymous row with «⋮», visit
+//     month in the date slot, no avatar / author)
+// M545 moves client_rating_rated_360_1x / client_rating_unrated_360_1x: the
+// note text changed (CLI-60) — confined to the note line.
 //
 // Preview parity: `docs/signup-designs/ClientCardVariants/` at 360 px. The
 // registered photo renders its monogram fallback here (the media loader is not
@@ -32,13 +37,16 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
+import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_rating_screen.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 
+import '../features/moderation/support/fake_content_report_repository.dart';
 import '../helpers/fakes/fake_notification_repository.dart' show FixedRoleAuth;
 import 'helpers/golden_pump.dart';
 
@@ -174,12 +182,38 @@ class _Repo implements ClientRepository {
       throw UnimplementedError();
 }
 
+/// M545 — one fixed page of comments.
+class _Comments implements ClientCommentsRepository {
+  const _Comments(this.items);
+
+  final List<ClientReviewComment> items;
+
+  @override
+  Future<PageResponse<ClientReviewComment>> getComments(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async => PageResponse<ClientReviewComment>(
+    items: items,
+    page: 0,
+    totalPages: 1,
+    totalElements: items.length,
+  );
+}
+
 List<Object> _overrides(
   ClientRepository repo, {
   UserRole role = UserRole.independentMaster,
+  List<ClientReviewComment> comments = const <ClientReviewComment>[],
 }) => <Object>[
   authProvider.overrideWith(() => FixedRoleAuth(role)),
   clientRepositoryProvider.overrideWithValue(repo),
+  clientCommentsRepositoryProvider.overrideWithValue(_Comments(comments)),
+  contentReportRepositoryProvider.overrideWithValue(
+    FakeContentReportRepository(),
+  ),
   clockProvider.overrideWithValue(_now),
 ];
 
@@ -369,6 +403,40 @@ void main() {
     pumpWidget: goldenPumpWidget(
       width: width,
       overrides: _overrides(_Repo(_card(_reg, avg: null, count: 0))),
+    ),
+    builder: _ratingScreen,
+  );
+
+  goldenTest(
+    'client rating — comments',
+    fileName: 'client_rating_comments_360_1x',
+    constraints: BoxConstraints.tight(screen),
+    textScaleFactor: 1.0,
+    pumpBeforeTest: onlyPumpAndSettle,
+    pumpWidget: goldenPumpWidget(
+      width: width,
+      overrides: _overrides(
+        _Repo(_card(_reg)),
+        comments: const <ClientReviewComment>[
+          ClientReviewComment(
+            reviewId: 'r1',
+            visitYear: 2026,
+            visitMonth: 11,
+            stars: 5,
+            comment: 'Приходить вчасно, приємна в спілкуванні.',
+            own: true,
+          ),
+          ClientReviewComment(
+            reviewId: 'r2',
+            visitYear: 2026,
+            visitMonth: 9,
+            stars: 2,
+            comment:
+                'Двічі скасувала запис за годину до візиту, '
+                'попереджайте про передоплату.',
+          ),
+        ],
+      ),
     ),
     builder: _ratingScreen,
   );

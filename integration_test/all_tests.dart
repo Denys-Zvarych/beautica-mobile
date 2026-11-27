@@ -110,6 +110,9 @@ import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
 import 'clients_tab_flow_test.dart' as clients_tab;
 import 'clients_card_flow_test.dart' as clients_card;
+import 'guest_client_rating_readout_flow_test.dart'
+    as guest_client_rating_readout;
+import 'client_rating_comments_flow_test.dart' as client_rating_comments;
 import 'clients_remove_from_list_flow_test.dart' as clients_remove_from_list;
 import 'clients_remove_scope_rebook_flow_test.dart'
     as clients_remove_scope_rebook;
@@ -455,6 +458,9 @@ void main() {
   // → row tap; salon shell, master bar, salon master, owner master mode).
   group('clients_tab_flow', clients_tab.main);
   group('clients_card_flow', clients_card.main);
+  // M548 — a rated guest shows the server rating on card / rating page / row.
+  group('guest_client_rating_readout_flow', guest_client_rating_readout.main);
+  group('client_rating_comments_flow', client_rating_comments.main);
   // M544 — remove a client from «Клієнти» (swipe / card «⋯») + undo snack
   // countdown; owner/admin shared vs salon-master scope; re-book comeback.
   group('clients_remove_from_list_flow', clients_remove_from_list.main);

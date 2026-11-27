@@ -14,7 +14,8 @@ on:
     # `labeled` lets the opt-in `run-patrol` / `full-ci` labels act on a PR.
     # Any OTHER label is a no-op: its own concurrency group + every job gated
     # on `github.event.action != 'labeled' || label in (full-ci, run-patrol)`.
-    types: [opened, synchronize, reopened, labeled]
+    # 566 L3: ready_for_review fans out a draft's head. why: docs/ci/README.md#it-fanout
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
   push:
     branches: [main, dev]
   # Phase 396: NO `schedule:` here; nightly.yml dispatches this workflow on main.
@@ -50,7 +51,7 @@ jobs:
   # why: docs/ci/README.md#job-plan
   plan:
     name: Plan (mode + diff)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
     timeout-minutes: 10
     # Least privilege: read-only token, and no job in this workflow holds a
@@ -82,6 +83,11 @@ jobs:
       tz_zones: ${{ (steps.sel.outputs.mode == 'selective' && steps.sel.outputs.kyiv_count != '1') && '["tokyo","honolulu"]' || '["kyiv-dst","tokyo","honolulu"]' }}
       base: ${{ steps.plan.outputs.base }}
       head: ${{ steps.plan.outputs.head }}
+      # Phase 566 L3/L7: empty (old base planner) = today's behaviour downstream.
+      # why: docs/ci/README.md#it-fanout
+      it_fanout: ${{ steps.plan.outputs.it_fanout }}
+      # A FULL selector verdict (incl. a selector failure, D7) always needs the selector tests.
+      selector_needed: ${{ steps.sel.outputs.mode == 'full' && 'true' || steps.guard.outputs.selector_needed || steps.plan.outputs.selector_needed }}
     steps:
       # TRUST MODEL: planner + selector run from `trusted/` (BASE commit) against `pr/`.
       # why: docs/ci/README.md#plan-trust-model
@@ -100,10 +106,10 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           path: pr
-          # Full history is only needed for the PR merge-base diff.
+          # Full history for the PR merge-base diff and (566 L1) the push `before` diff.
           # 0 is FALSY in Actions expressions: `== 'pull_request' && 0 || 1` always gave 1
           # (shallow, base commit missing, "diff unavailable", every PR ran FULL). Truthy value first.
-          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && 1 || 0 }}
           persist-credentials: false
 
       - name: Resolve the checked-out commit
@@ -121,7 +127,15 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           # The commit actually checked out (merge ref on PRs), not
           # pull_request.head.sha: the diff must describe the tested tree.
-          HEAD_SHA: ${{ github.event.pull_request.number && steps.tree.outputs.sha || '' }}
+          HEAD_SHA: ${{ (github.event.pull_request.number || github.event_name == 'push') && steps.tree.outputs.sha || '' }}
+          # Phase 566: push diff base (L1) and the draft flag (L3 it_fanout).
+          # why: docs/ci/README.md#push-selective
+          EVENT_BEFORE: ${{ github.event.before }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          # 566 L11: promotion PR (base main, head dev) is always full.
+          # why: docs/ci/README.md#promotion-full
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           # Phase 400: selection is live (a selective PR gets run_all=false).
           SELECTIVE_ENABLED: 'true'
           # Outside the PR tree: the PR controls every path (and symlink) under pr/.
@@ -141,14 +155,14 @@ jobs:
 
       # Base-owned tool/ci/ci_paths_guard.sh (D14): a CI-machinery change forces FULL, a forbidden
       # path fails the plan. Base lacks it (bootstrap): never run the PR copy, force FULL (warned).
-      # why: docs/ci/README.md#plan-guard
+      # 566 L1: also on push (base = plan base). why: docs/ci/README.md#plan-guard
       - name: Guard - CI machinery changes force full
         id: guard
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         shell: bash
         working-directory: pr
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || steps.plan.outputs.base }}
           HEAD_SHA: ${{ steps.tree.outputs.sha }}
         run: |
           g="$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh"
@@ -158,7 +172,7 @@ jobs:
             # Bootstrap only (the PR that introduces the guard): the base has
             # none, so refuse to run the PR's copy and run everything.
             echo "::warning::ci_paths_guard bootstrap: base lacks the script, forcing full"
-            { echo "mode=full"; echo "run_all=true"; } | tee -a "$GITHUB_OUTPUT"
+            { echo "mode=full"; echo "run_all=true"; echo "selector_needed=true"; } | tee -a "$GITHUB_OUTPUT"
           fi
 
       - name: Upload changed-file list
@@ -277,7 +291,7 @@ jobs:
   # why: docs/ci/README.md#job-gates-fast
   gates-fast:
     name: Static guards (no Flutter)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
     timeout-minutes: 10
     permissions:
@@ -586,7 +600,7 @@ jobs:
   # why: docs/ci/README.md#job-gates
   gates:
     name: Analyze & Gates
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
     timeout-minutes: 30
 
@@ -659,15 +673,19 @@ jobs:
 
   # Selector tests (phase 400 L1, audit F6): required, uncached (D8); 3 tag legs.
   # why: docs/ci/README.md#job-selector-tests
+  # Phase 566 L7: fast leg ALWAYS runs; e2e legs drop only on selector_needed=false.
+  # why: docs/ci/README.md#selector-needed
   selector-tests:
     name: Selector tests (${{ matrix.leg }})
-    runs-on: ubuntu-latest
-    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
+    needs: plan
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
     timeout-minutes: 30  # phase 402: a ceiling (D9), not a budget
     strategy:
       fail-fast: false
       matrix:
-        leg: [fast, e2e-a, e2e-b]
+        leg: ${{ fromJSON(needs.plan.outputs.selector_needed == 'false' && '["fast"]' || '["fast","e2e-a","e2e-b"]') }}
     permissions:
       contents: read
     steps:
@@ -706,7 +724,7 @@ jobs:
   # why: docs/ci/README.md#job-unit
   unit:
     name: Unit tests (shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     needs: plan
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
@@ -779,7 +797,7 @@ jobs:
   # why: docs/ci/tz-sweeps.md#job-tz-sweeps
   tz-sweeps:
     name: TZ sweep (${{ matrix.zone }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     needs: plan
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
@@ -892,7 +910,7 @@ jobs:
 
   goldens:
     name: Golden regression tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     needs: plan
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
@@ -957,7 +975,7 @@ jobs:
   # why: docs/ci/README.md#job-apk
   apk:
     name: Build APKs (${{ matrix.variant }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     # Audit cycle 2 N2: `gates-fast` is an ordering-only dependency (runner cap).
     # why: docs/ci/README.md#apk-needs-gates-fast
     needs: [plan, gates-fast]
@@ -971,8 +989,10 @@ jobs:
     timeout-minutes: 40
     strategy:
       fail-fast: false
+      # Phase 566 L5: only a DRAFT non-promotion PR without full-ci skips the debug leg (Q2).
+      # why: docs/ci/README.md#apk-pr-release-only
       matrix:
-        variant: [debug, release]
+        variant: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && github.event.pull_request.base.ref != 'main' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '["release"]' || '["debug","release"]') }}
 
     steps:
       - name: Checkout
@@ -990,6 +1010,19 @@ jobs:
       - name: Set up Flutter, pub get, codegen
         uses: ./.github/actions/flutter-setup
 
+      # Phase 566 L6a: RESTORE only (the integration key); the shard save stays non-PR.
+      # why: docs/ci/README.md#apk-gradle-cache
+      - name: Restore Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-it-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-it-${{ runner.os }}-
+
       # Decode the release keystore: NEVER on pull_request (security audit 2026-10-10).
       # why: docs/ci/README.md#apk-keystore
       - name: Decode keystore
@@ -998,8 +1031,9 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.BEAUTICA_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 --decode \
-              > "$GITHUB_WORKSPACE/beautica-release.jks"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode \
+              > "$RUNNER_TEMP/beautica-release.jks"
+            chmod 600 "$RUNNER_TEMP/beautica-release.jks"
             echo "Keystore decoded ✅"
           else
             echo "BEAUTICA_KEYSTORE_BASE64 not set — skipping release signing"
@@ -1030,13 +1064,19 @@ jobs:
         if: github.event_name != 'pull_request' && matrix.variant == 'release'
         env:
           # URLs come from config/env/prod.json (no /api/v1 suffix — see the debug note).
-          BEAUTICA_KEYSTORE_PATH: ${{ github.workspace }}/beautica-release.jks
+          BEAUTICA_KEYSTORE_PATH: ${{ runner.temp }}/beautica-release.jks
           BEAUTICA_KEYSTORE_PASSWORD: ${{ secrets.BEAUTICA_KEYSTORE_PASSWORD }}
           BEAUTICA_KEY_ALIAS: ${{ secrets.BEAUTICA_KEY_ALIAS }}
           BEAUTICA_KEY_PASSWORD: ${{ secrets.BEAUTICA_KEY_PASSWORD }}
         run: |
           flutter build apk --release --flavor prod \
             --dart-define-from-file=config/env/prod.json
+
+      # A self-hosted runner persists $RUNNER_TEMP contents between jobs: delete the keystore.
+      # why: docs/ci/README.md#apk-keystore
+      - name: Remove release keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/beautica-release.jks"
 
       # APK artifact uploads intentionally disabled (2026-07-06, storage quota).
       # why: docs/ci/README.md#apk-uploads-disabled
@@ -1047,7 +1087,7 @@ jobs:
     name: Coverage (merge shards)
     # Pinned image (not ubuntu-latest): LCOV_VERSION below is noble's lcov and
     # ubuntu-latest moved to ubuntu26, whose archive does not carry it.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-24.04' }}
     needs: [plan, unit]
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
@@ -1109,7 +1149,7 @@ jobs:
   # why: docs/ci/README.md#job-test-aggregate
   test:
     name: Test & Build (aggregate)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     needs: [unit, tz-sweeps, goldens, apk]
     if: always() && (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
     timeout-minutes: 5
@@ -1126,7 +1166,7 @@ jobs:
   # why: docs/ci/README.md#job-tests-ran
   tests-ran:
     name: Tests actually ran
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     needs: [plan, unit, tz-sweeps, goldens]
     # Runs once the plan is sound and no test job failed; ci-gate separately
     # fails a failed job, and a skipped job owes its stream below.
@@ -1294,7 +1334,7 @@ jobs:
   # why: docs/ci/emulator-integration.md#job-integration
   integration:
     name: Integration entry + selected flows (emulator)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_KVM || 'ubuntu-latest' }}
     needs: plan
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
@@ -1311,13 +1351,6 @@ jobs:
           persist-credentials: false
 
       # FULL mode builds nothing here (the shards do): setup is selective-only.
-      - name: Set up Java 17
-        if: needs.plan.outputs.mode == 'selective'
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
       # Audit S-L4: the ONE shared Flutter + pub get + build_runner setup.
       - name: Set up Flutter, pub get, codegen
         if: needs.plan.outputs.mode == 'selective'
@@ -1369,20 +1402,6 @@ jobs:
           fi
           echo "trusted/ = $got"
 
-      # P2: Gradle cache RESTORE ONLY on pull_request; save runs on push / dispatch only.
-      # why: docs/ci/emulator-integration.md#gradle-cache
-      - name: Restore Gradle cache
-        id: gradle-cache
-        if: needs.plan.outputs.mode == 'selective'
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-it-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
-          restore-keys: |
-            gradle-it-${{ runner.os }}-
-
       # entry=selected only after a clean trusted generator run; else `parts` = the shards (400 D7).
       # S1/S3 hardening; cap = one shard (19 flows / 85 tests), else the shards;
       # bound = clamp(480 + 20 * tests, 600, 1500) s (the APK is pre-built; 1500 = the shard bound).
@@ -1391,6 +1410,8 @@ jobs:
         id: entry
         if: needs.plan.outputs.mode == 'selective'
         shell: bash
+        env:
+          IT_FANOUT: ${{ needs.plan.outputs.it_fanout }}
         run: |
           set -uo pipefail
           t="$GITHUB_WORKSPACE/trusted/tool/ci"
@@ -1400,7 +1421,8 @@ jobs:
           if [ -f "$gen" ] && [ -f "$t/run_it_attempt.sh" ] && [ -f "$t/prebuild_it_apk.sh" ]; then
             pk="$RUNNER_TEMP/empty_package_config.json"
             echo '{"configVersion":2,"packages":[]}' >"$pk"
-            out="$(dart --packages="$pk" "$gen" --selection "$RUNNER_TEMP/sel/selection.json" --repo "$GITHUB_WORKSPACE")" || out=""
+            fo=(); [ "${IT_FANOUT:-}" = false ] && fo=(--fanout=false)
+            out="$(dart --packages="$pk" "$gen" --selection "$RUNNER_TEMP/sel/selection.json" --repo "$GITHUB_WORKSPACE" "${fo[@]}")" || out=""
             if [ "$(printf '%s\n' "$out" | grep -c '^entry=')" = 1 ] &&
                [ "$(printf '%s\n' "$out" | sed -n 's/^entry=//p')" = selected ]; then
               c="$(printf '%s\n' "$out" | sed -n 's/^count=//p')"
@@ -1442,12 +1464,15 @@ jobs:
           } >>"$GITHUB_STEP_SUMMARY"
 
       # The job output the shards and the verdict read: FULL mode is always `parts`.
+      # Phase 566 L3: `parts` + it_fanout=false (draft / push) => `deferred`, no shards.
+      # why: docs/ci/README.md#it-fanout
       - name: Publish integration entry
         id: out
         shell: bash
         env:
           MODE: ${{ needs.plan.outputs.mode }}
           ENTRY: ${{ steps.entry.outputs.entry }}
+          IT_FANOUT: ${{ needs.plan.outputs.it_fanout }}
         run: |
           if [ "$MODE" != "selective" ]; then
             e=parts
@@ -1456,7 +1481,35 @@ jobs:
           else
             echo "::error::selective run without a valid integration entry ('$ENTRY')"; exit 1
           fi
+          if [ "$e" = parts ] && [ "${IT_FANOUT:-}" = false ]; then
+            e=deferred
+            msg="integration fan-out deferred (draft/push) — runs on ready-for-review / promotion PR / nightly"
+            echo "::notice::$msg"
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$msg" >>"$GITHUB_STEP_SUMMARY"; fi
+          fi
           echo "entry=$e" | tee -a "$GITHUB_OUTPUT"
+
+      # Java + Gradle cache only when this job builds (566 P2: never for parts/deferred).
+      - name: Set up Java 17
+        if: steps.entry.outputs.entry == 'selected'
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # P2: Gradle cache RESTORE ONLY on pull_request; save runs on push / dispatch only.
+      # why: docs/ci/emulator-integration.md#gradle-cache
+      - name: Restore Gradle cache
+        id: gradle-cache
+        if: steps.entry.outputs.entry == 'selected'
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-it-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-it-${{ runner.os }}-
 
       # KVM is required for hardware-accelerated emulator boot on the runner.
       - name: Enable KVM
@@ -1501,6 +1554,9 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # Base-owned adb guard (trusted/, like the attempt script); skipped if the base predates it.
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: t="$GITHUB_WORKSPACE/trusted/tool/ci/ensure_adb.sh"; test ! -f "$t" || bash "$t"
           script: |
             bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
 
@@ -1522,6 +1578,9 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # Base-owned adb guard (trusted/, like the attempt script); skipped if the base predates it.
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: t="$GITHUB_WORKSPACE/trusted/tool/ci/ensure_adb.sh"; test ! -f "$t" || bash "$t"
           script: |
             bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
 
@@ -1543,6 +1602,9 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # Base-owned adb guard (trusted/, like the attempt script); skipped if the base predates it.
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: t="$GITHUB_WORKSPACE/trusted/tool/ci/ensure_adb.sh"; test ! -f "$t" || bash "$t"
           script: |
             bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
 
@@ -1571,7 +1633,7 @@ jobs:
   # why: docs/ci/emulator-integration.md#integration-shards
   integration-shard:
     name: Integration shard ${{ matrix.shard }}/8 (emulator)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_KVM || 'ubuntu-latest' }}
     needs: [plan, integration]
     if: needs.integration.outputs.entry == 'parts'
     # setup + pre-build (<= 15) + 3 x attempt (step cap 35); a ceiling, not a budget.
@@ -1693,6 +1755,9 @@ jobs:
           # why: docs/ci/patrol.md#patrol-gpu-guest
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan
+          # Repairs a platform-tools install left without adb (else boot poll + 35-min idle).
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           script: |
@@ -1723,6 +1788,9 @@ jobs:
           # why: docs/ci/patrol.md#patrol-gpu-guest
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan
+          # Repairs a platform-tools install left without adb (else boot poll + 35-min idle).
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           script: |
@@ -1753,6 +1821,9 @@ jobs:
           # why: docs/ci/patrol.md#patrol-gpu-guest
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan
+          # Repairs a platform-tools install left without adb (else boot poll + 35-min idle).
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh
           # Daemons stopped again; logcat + host memory recorded per attempt (never a verdict).
           # why: docs/ci/emulator-integration.md#emulator-device-loss
           script: |
@@ -1803,7 +1874,7 @@ jobs:
   # why: docs/ci/emulator-integration.md#integration-verdict
   integration-verify:
     name: Integration tests (emulator)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     needs: [plan, integration, integration-shard]
     if: ${{ !cancelled() && needs.integration.result != 'skipped' }}
     timeout-minutes: 5
@@ -1814,6 +1885,9 @@ jobs:
           INTEGRATION: ${{ needs.integration.result }}
           ENTRY: ${{ needs.integration.outputs.entry }}
           SHARDS: ${{ needs.integration-shard.result }}
+          # Phase 566 L3: `deferred` is green only when the plan asked for no fan-out.
+          # why: docs/ci/README.md#it-fanout
+          IT_FANOUT: ${{ needs.plan.outputs.it_fanout }}
         run: |
           if [ "$INTEGRATION" != "success" ]; then
             echo "integration (entry + selected flows) job: $INTEGRATION"; exit 1
@@ -1825,6 +1899,13 @@ jobs:
                 echo "FULL suite: integration-shard = '$SHARDS' (every one of the 8 legs must pass; skipped is RED)"; exit 1
               fi
               echo "FULL suite: all 8 shards passed." ;;
+            deferred)
+              if [ "${IT_FANOUT:-}" != false ]; then
+                echo "integration entry 'deferred' but it_fanout='${IT_FANOUT:-}' (fail closed)"; exit 1
+              fi
+              msg="integration fan-out deferred (draft/push) — runs on ready-for-review / promotion PR / nightly"
+              echo "$msg"
+              if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$msg" >>"$GITHUB_STEP_SUMMARY"; fi ;;
             *) echo "unknown integration entry '$ENTRY' (fail closed)"; exit 1 ;;
           esac
 
@@ -1833,7 +1914,7 @@ jobs:
   # why: docs/ci/emulator-integration.md#job-integration-profile
   integration-profile:
     name: Integration profile drive (emulator)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_KVM || 'ubuntu-latest' }}
     # Skip on ordinary push/PR; opt in via dispatch (manual or nightly), or label —
     # mirrors the `patrol` job's gating idiom.
     if: >-
@@ -1888,7 +1969,7 @@ jobs:
   # why: docs/ci/patrol.md#job-patrol
   patrol:
     name: Patrol native E2E (emulator) (API ${{ matrix.api-level }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_KVM || 'ubuntu-latest' }}
     # 45 min bound (2026-07-22: a hung emulator sat ~90 min).
     # why: docs/ci/patrol.md#patrol-timeout
     timeout-minutes: 45
@@ -2126,13 +2207,15 @@ jobs:
     name: ci-gate
     if: always()
     needs: [plan, gates-fast, gates, selector-tests, unit, tz-sweeps, goldens, apk, coverage, test, tests-ran, integration, integration-shard, integration-verify, integration-profile, patrol]
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}
     # 205 min: a noop mirror waits for the real run (integration entry + a 120-min shard + queue).
     # why: docs/ci/README.md#ci-gate-timeout
     timeout-minutes: 205
     permissions:
       actions: read
       contents: read
+      # 566 L3: gate.sh re-reads a deferred PR's live draft flag (fail closed).
+      pull-requests: read
     steps:
       # The scripts come from the BASE commit on PRs: a PR must not be able to
       # edit the check that judges it.
@@ -2187,6 +2270,14 @@ jobs:
           PLAN_MODE: ${{ needs.plan.outputs.mode }}
           PLAN_SELECTION_COUNT: ${{ needs.plan.outputs.selection_count }}
           EXPECT_TESTS: ${{ (needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'selective') && 'true' || 'false' }}
+          # 566 L3/L11: deferred is green only on push; a PR re-checks its live draft flag.
+          # why: docs/ci/README.md#it-fanout
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           if [ -x tool/ci/gate.sh ]; then
             ./tool/ci/gate.sh
