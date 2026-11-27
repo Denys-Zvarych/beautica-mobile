@@ -166,7 +166,20 @@ class _Repo implements ClientRepository {
     await cardGate?.future;
     final Failure? f = cardFailure;
     if (f != null) throw f;
-    return card!(client);
+    final ClientCard base = card!(client);
+    if (base.nextVisit != null) return base;
+    // CLI-89 (B530): the server's next visit for this scope, derived from the
+    // pages this fake serves for it.
+    final List<List<ClientVisit>> served =
+        pagesByMaster[_masterIdOf(scope)] ?? pages;
+    return base.copyWith(
+      nextVisit: pickNextVisit(
+        clientVisitsPerBooking(<ClientVisit>[
+          for (final List<ClientVisit> p in served) ...p,
+        ]),
+        _now,
+      ),
+    );
   }
 
   @override
@@ -180,11 +193,8 @@ class _Repo implements ClientRepository {
     visitPages.add(page);
     visitScopes.add(scope);
     if (failVisitPages.contains(page)) throw const NetworkFailure();
-    final String? masterId = switch (scope) {
-      SalonClientListScope(:final String? masterId) => masterId,
-      MyClientListScope() => null,
-    };
-    final List<List<ClientVisit>> served = pagesByMaster[masterId] ?? pages;
+    final List<List<ClientVisit>> served =
+        pagesByMaster[_masterIdOf(scope)] ?? pages;
     return PageResponse<ClientVisit>(
       items: served[page],
       page: page,
@@ -202,6 +212,11 @@ class _Repo implements ClientRepository {
     CancelToken? cancelToken,
   }) => throw UnimplementedError();
 }
+
+String? _masterIdOf(ClientListScope scope) => switch (scope) {
+  SalonClientListScope(:final String? masterId) => masterId,
+  MyClientListScope() => null,
+};
 
 class _MockUrlLauncher extends Mock
     with MockPlatformInterfaceMixin
@@ -1054,9 +1069,8 @@ void main() {
     }
 
     testWidgets('select a master → visits re-read with masterId (history AND '
-        'next visit), card not refetched; «Усі майстри» clears from cache', (
-      tester,
-    ) async {
+        'next visit — the chip-scoped card heads it, CLI-89); «Усі майстри» '
+        'clears from cache', (tester) async {
       final _Repo repo = repoWithFilter();
       await _pump(tester, repo, role: UserRole.salonOwner, scope: salon);
       expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
@@ -1075,7 +1089,14 @@ void main() {
       expect(selected(tester, chip(m1)), isTrue);
       expect(selected(tester, all()), isFalse);
       expect(chip(m2), findsOneWidget, reason: 'chips stay salon-wide');
-      expect(repo.cardScopes, hasLength(1), reason: 'card not refetched');
+      expect(
+        repo.cardScopes,
+        <ClientListScope>[
+          salon,
+          const ClientListScope.salon(salonId: 's-1', masterId: m1),
+        ],
+        reason: 'the route card is not refetched; the chip reads its own head',
+      );
 
       final int reads = repo.visitScopes.length;
       await tester.tap(all());
@@ -1086,7 +1107,7 @@ void main() {
       expect(find.byKey(ClientCardScreen.visitKey('all-past')), findsOneWidget);
       expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
       expect(selected(tester, all()), isTrue);
-      expect(repo.cardScopes, hasLength(1));
+      expect(repo.cardScopes, hasLength(2), reason: 'no re-read');
     });
 
     testWidgets('pull-to-refresh on «Усі» drops EVERY chip\'s cached visits: '

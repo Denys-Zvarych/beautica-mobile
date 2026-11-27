@@ -203,15 +203,16 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
   /// refresh / retry / block must drop ALL of them, not only the current one.
   late final Set<String?> _visitedMasterIds = <String?>{_masterId};
 
-  /// Invalidates the visits of every chip key read for this client.
+  /// Invalidates the visits of every chip key read for this client, and the
+  /// chip-scoped card each one heads from (CLI-89: the timeline's «Наступний
+  /// візит» is that card's `nextVisit`). The route-scope card is the screen's
+  /// own [_cardProvider]; invalidating it again is a no-op.
   void _invalidateVisits() {
     for (final String? masterId in _visitedMasterIds) {
-      ref.invalidate(
-        clientVisitsControllerProvider(
-          _visitsScopeFor(masterId),
-          widget.client,
-        ),
-      );
+      final ClientListScope scope = _visitsScopeFor(masterId);
+      ref
+        ..invalidate(clientCardProvider(scope, widget.client))
+        ..invalidate(clientVisitsControllerProvider(scope, widget.client));
     }
   }
 

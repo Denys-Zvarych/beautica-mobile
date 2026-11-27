@@ -1,18 +1,22 @@
 // M510 — the card's visit timeline: a paged AsyncNotifier family per
 // (scope, client), page size 20, appended on scroll ([loadMore]).
 //
-// NEXT VISIT (D4): B508 pages NEWEST first, so the earliest upcoming visit sits
-// at the END of the future block. The first load therefore keeps fetching pages
-// (at most [kClientVisitLookaheadMaxPages]) while every loaded visit is still
-// in the future and more pages exist; the head is then the true next visit.
+// NEXT VISIT (D4, CLI-89): the head comes from the card's `nextVisit` (B530 —
+// the visit holding the earliest CONFIRMED booking after now in the read's
+// scope), so the first load fetches the card + ONE visits page, never a
+// lookahead. The card read and page 0 start together (neither waits for the
+// other). [build] LISTENS to [clientCardProvider] for the same (scope, client)
+// instead of watching it: a card-only refresh (a retry elsewhere) swaps
+// [ClientVisitsState.pinnedNext] in place and keeps every loaded page; a
+// pull-to-refresh invalidates both, so it is still one card + one page-0 read.
+// A card that lands while the timeline is in error re-runs [build]. The head is picked
+// from the card's visit with the same per-booking pick as the history
+// ([pickNextVisit] over [clientVisitsPerBooking]); the loaded row of that
+// booking, whenever its page lands, is filtered out of the history, and its
+// appointment siblings stay in the history (CLI-78).
 // "Now" is the injected clock, read once per build and again by [refreshNow]
 // (the card calls it on app resume, so a head whose start passed while the app
-// was backgrounded moves into the history — no polling).
-//
-// A failed LOOKAHEAD page (1..max-1) never fails the timeline: the pages
-// already loaded are kept, the lookahead stops, and the state carries
-// [ClientVisitsState.loadMoreFailed] so the retry footer offers the next page
-// (page 0 failing is still the timeline's error state).
+// was backgrounded drops off — no polling).
 //
 // A failed append keeps the list and raises [ClientVisitsState.loadMoreFailed],
 // which pauses auto-append until [retryLoadMore] (the scroll listener would
@@ -30,7 +34,7 @@
 // CACHE-FOR: once nothing listens (the card switched to another master chip),
 // the instance stays cached for [kClientVisitsCacheFor] before it disposes, so
 // a quick chip back-and-forth reuses the loaded pages instead of re-reading
-// page 0 + the lookahead. A new listener inside the window cancels the timer.
+// page 0. A new listener inside the window cancels the timer.
 // Every booking mutation (complete / decline / cancel / block / create) drops
 // the WHOLE family through `booking_calendar_invalidation.dart`, so a card
 // reopened inside the window after a mutation is always re-read.
@@ -49,7 +53,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
+import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 
@@ -65,6 +71,9 @@ abstract class ClientVisitsState with _$ClientVisitsState {
 
     /// The "now" the head was picked against.
     required DateTime asOf,
+
+    /// The card's next visit (B530 `ClientCard.nextVisit`), the head's source.
+    ClientVisit? pinnedNext,
     required int page,
     required bool hasMore,
     @Default(false) bool isLoadingMore,
@@ -83,7 +92,7 @@ abstract class ClientVisitsState with _$ClientVisitsState {
   List<ClientVisit> get history => _split.history;
 
   _VisitsSplit get _split =>
-      _splitCache[this] ??= _VisitsSplit.of(visits, asOf);
+      _splitCache[this] ??= _VisitsSplit.of(visits, pinnedNext, asOf);
 }
 
 /// Per-state memo of the head / history split. Keyed by the state INSTANCE,
@@ -96,13 +105,23 @@ final Expando<_VisitsSplit> _splitCache = Expando<_VisitsSplit>(
 final class _VisitsSplit {
   const _VisitsSplit._(this.next, this.history);
 
-  factory _VisitsSplit.of(List<ClientVisit> visits, DateTime asOf) {
-    final ClientVisit? next = pickNextVisit(visits, asOf);
+  factory _VisitsSplit.of(
+    List<ClientVisit> visits,
+    ClientVisit? pinnedNext,
+    DateTime asOf,
+  ) {
+    final ClientVisit? next = pinnedNext == null
+        ? null
+        : pickNextVisit(
+            clientVisitsPerBooking(<ClientVisit>[pinnedNext]),
+            asOf,
+          );
     if (next == null) return _VisitsSplit._(null, visits);
+    final String nextBookingId = next.firstBookingId;
     return _VisitsSplit._(
       next,
       List<ClientVisit>.unmodifiable(
-        visits.where((ClientVisit v) => v.visitKey != next.visitKey),
+        visits.where((ClientVisit v) => v.firstBookingId != nextBookingId),
       ),
     );
   }
@@ -143,42 +162,47 @@ class ClientVisitsController extends _$ClientVisitsController {
         hasMore: false,
       );
     }
-    final ClientRepository repo = ref.read(clientRepositoryProvider);
-    PageResponse<ClientVisit> page = await repo.getVisits(
-      scope,
-      client,
-      page: 0,
-      cancelToken: token,
-    );
-    final List<ClientVisit> visits = clientVisitsPerBooking(page.items);
-    int pages = 1;
-    bool lookaheadFailed = false;
-    while (page.hasMore &&
-        pages < kClientVisitLookaheadMaxPages &&
-        nextVisitLookaheadPending(visits, now)) {
-      try {
-        page = await repo.getVisits(
-          scope,
-          client,
-          page: page.page + 1,
-          cancelToken: token,
-        );
-      } catch (_) {
-        // Disposed / superseded: the result is never read anyway.
-        if (token.isCancelled) rethrow;
-        log('visits lookahead failed', name: _tag, level: 900);
-        lookaheadFailed = true;
-        break;
-      }
-      visits.addAll(clientVisitsPerBooking(page.items));
-      pages++;
-    }
+    final ClientCardProvider cardProvider = clientCardProvider(scope, client);
+    ref.listen<AsyncValue<ClientCard>>(cardProvider, _onCard);
+    // Both requests start now; the page future is marked handled so a card
+    // failure (awaited first) never leaves its error unhandled.
+    final Future<ClientCard> cardFuture = ref.read(cardProvider.future);
+    final Future<PageResponse<ClientVisit>> pageFuture =
+        ref
+            .read(clientRepositoryProvider)
+            .getVisits(scope, client, page: 0, cancelToken: token)
+          ..ignore();
+    final ClientCard card = await cardFuture;
+    final PageResponse<ClientVisit> page = await pageFuture;
     return ClientVisitsState(
-      visits: List<ClientVisit>.unmodifiable(visits),
+      visits: EqualUnmodifiableListView<ClientVisit>(
+        clientVisitsPerBooking(page.items),
+      ),
       asOf: now,
+      pinnedNext: card.nextVisit,
       page: page.page,
       hasMore: page.hasMore,
-      loadMoreFailed: lookaheadFailed,
+    );
+  }
+
+  /// A card change outside [build] (card-only refresh): swap the head source
+  /// in place, keeping the loaded pages. While [build] runs it reads the card
+  /// itself; a timeline in error is rebuilt instead — including a refresh
+  /// error, which in Riverpod 3 keeps the previous pages as its value (an
+  /// in-place swap would turn those stale pages back into AsyncData). A card
+  /// error leaves the timeline as is (the card renders its own error).
+  void _onCard(AsyncValue<ClientCard>? previous, AsyncValue<ClientCard> next) {
+    if (next.isLoading || state.isLoading) return;
+    final ClientCard? card = next.value;
+    if (next.hasError || card == null) return;
+    final ClientVisitsState? current = state.value;
+    if (state.hasError || current == null) {
+      ref.invalidateSelf();
+      return;
+    }
+    if (current.pinnedNext == card.nextVisit) return;
+    state = AsyncData<ClientVisitsState>(
+      current.copyWith(pinnedNext: card.nextVisit),
     );
   }
 
@@ -224,10 +248,13 @@ class ClientVisitsController extends _$ClientVisitsController {
             cancelToken: _token,
           );
       if (!ref.mounted || generation != _generation) return;
+      // The latest state, not [current]: the head may have been swapped by
+      // [_onCard] while the page was in flight.
+      final ClientVisitsState latest = state.value ?? current;
       state = AsyncData<ClientVisitsState>(
-        current.copyWith(
-          visits: List<ClientVisit>.unmodifiable(<ClientVisit>[
-            ...current.visits,
+        latest.copyWith(
+          visits: EqualUnmodifiableListView<ClientVisit>(<ClientVisit>[
+            ...latest.visits,
             ...clientVisitsPerBooking(page.items),
           ]),
           page: page.page,
@@ -239,7 +266,10 @@ class ClientVisitsController extends _$ClientVisitsController {
       if (!ref.mounted || generation != _generation) return;
       log('visits loadMore failed', name: _tag, level: 900);
       state = AsyncData<ClientVisitsState>(
-        current.copyWith(isLoadingMore: false, loadMoreFailed: true),
+        (state.value ?? current).copyWith(
+          isLoadingMore: false,
+          loadMoreFailed: true,
+        ),
       );
     }
   }

@@ -103,6 +103,8 @@ class _$ClientCardResponse extends ClientCardResponse {
   final String? firstName;
   @override
   final String? lastName;
+  @override
+  final ClientVisitResponse? nextVisit;
 
   factory _$ClientCardResponse(
           [void Function(ClientCardResponseBuilder)? updates]) =>
@@ -125,7 +127,8 @@ class _$ClientCardResponse extends ClientCardResponse {
       this.stats,
       this.servedByMasters,
       this.firstName,
-      this.lastName})
+      this.lastName,
+      this.nextVisit})
       : super._();
   @override
   ClientCardResponse rebuild(
@@ -156,7 +159,8 @@ class _$ClientCardResponse extends ClientCardResponse {
         stats == other.stats &&
         servedByMasters == other.servedByMasters &&
         firstName == other.firstName &&
-        lastName == other.lastName;
+        lastName == other.lastName &&
+        nextVisit == other.nextVisit;
   }
 
   @override
@@ -179,6 +183,7 @@ class _$ClientCardResponse extends ClientCardResponse {
     _$hash = $jc(_$hash, servedByMasters.hashCode);
     _$hash = $jc(_$hash, firstName.hashCode);
     _$hash = $jc(_$hash, lastName.hashCode);
+    _$hash = $jc(_$hash, nextVisit.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -202,7 +207,8 @@ class _$ClientCardResponse extends ClientCardResponse {
           ..add('stats', stats)
           ..add('servedByMasters', servedByMasters)
           ..add('firstName', firstName)
-          ..add('lastName', lastName))
+          ..add('lastName', lastName)
+          ..add('nextVisit', nextVisit))
         .toString();
   }
 }
@@ -285,6 +291,12 @@ class ClientCardResponseBuilder
   String? get lastName => _$this._lastName;
   set lastName(String? lastName) => _$this._lastName = lastName;
 
+  ClientVisitResponseBuilder? _nextVisit;
+  ClientVisitResponseBuilder get nextVisit =>
+      _$this._nextVisit ??= ClientVisitResponseBuilder();
+  set nextVisit(ClientVisitResponseBuilder? nextVisit) =>
+      _$this._nextVisit = nextVisit;
+
   ClientCardResponseBuilder() {
     ClientCardResponse._defaults(this);
   }
@@ -309,6 +321,7 @@ class ClientCardResponseBuilder
       _servedByMasters = $v.servedByMasters?.toBuilder();
       _firstName = $v.firstName;
       _lastName = $v.lastName;
+      _nextVisit = $v.nextVisit?.toBuilder();
       _$v = null;
     }
     return this;
@@ -349,6 +362,7 @@ class ClientCardResponseBuilder
             servedByMasters: _servedByMasters?.build(),
             firstName: firstName,
             lastName: lastName,
+            nextVisit: _nextVisit?.build(),
           );
     } catch (_) {
       late String _$failedField;
@@ -360,6 +374,9 @@ class ClientCardResponseBuilder
         _stats?.build();
         _$failedField = 'servedByMasters';
         _servedByMasters?.build();
+
+        _$failedField = 'nextVisit';
+        _nextVisit?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ClientCardResponse', _$failedField, e.toString());

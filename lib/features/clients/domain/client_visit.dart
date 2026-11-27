@@ -11,9 +11,6 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 
 part 'client_visit.freezed.dart';
 
-/// How many visit pages the next-visit lookahead may load (D4).
-const int kClientVisitLookaheadMaxPages = 5;
-
 @freezed
 abstract class ClientVisitItem with _$ClientVisitItem {
   const factory ClientVisitItem({
@@ -72,12 +69,6 @@ ClientVisit? pickNextVisit(List<ClientVisit> visits, DateTime now) {
   }
   return best;
 }
-
-/// D4 lookahead — pages come newest first, so while EVERY loaded visit is
-/// still in the future, an older page may hold an earlier upcoming visit.
-bool nextVisitLookaheadPending(List<ClientVisit> visits, DateTime now) =>
-    visits.isNotEmpty &&
-    visits.every((ClientVisit v) => v.startsAt.isAfter(now));
 
 /// BOOK-05 — one booking = one service. The API may group bookings that share
 /// an appointment (a slot-reservation id that never surfaces in UI) into one

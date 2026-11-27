@@ -103,8 +103,10 @@ Map<String, Object?> _cardJson({
   Object? servedByMasters,
   String? firstName,
   String? lastName,
+  Object? nextVisit,
 }) => <String, Object?>{
   'servedByMasters': ?servedByMasters,
+  'nextVisit': ?nextVisit,
   'firstName': ?firstName,
   'lastName': ?lastName,
   'kind': kind,
@@ -219,6 +221,36 @@ void main() {
       expect(a.blocked, isTrue);
       expect(a.displayRating, 4.9);
       expect(a.nextVisitAt, DateTime.utc(2026, 11, 20, 12));
+    });
+
+    test('nextVisit (B530, CLI-89) maps through the visits-page mapper; '
+        'absent → null', () async {
+      final withNext = _build(
+        body: _envelope(
+          _cardJson(
+            nextVisit: <String, Object?>{
+              'visitKey': 'v-next',
+              'startsAt': '2026-11-20T12:00:00Z',
+              'items': <Object?>[_item(bookingId: 'bk-next')],
+            },
+          ),
+        ),
+      );
+      final ClientCard a = await withNext.repo.getCard(
+        const ClientListScope.me(),
+        _registered,
+      );
+      expect(a.nextVisit?.visitKey, 'v-next');
+      expect(a.nextVisit?.startsAt, DateTime.utc(2026, 11, 20, 12));
+      expect(a.nextVisit?.firstBookingId, 'bk-next');
+      expect(a.nextVisit?.items.single.status, BookingStatus.confirmed);
+
+      final without = _build(body: _envelope(_cardJson()));
+      final ClientCard b = await without.repo.getCard(
+        const ClientListScope.me(),
+        _registered,
+      );
+      expect(b.nextVisit, isNull);
     });
 
     test('absent / empty distribution → five zeros', () async {

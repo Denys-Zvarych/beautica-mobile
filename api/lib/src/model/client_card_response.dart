@@ -5,6 +5,7 @@
 // ignore_for_file: unused_element
 import 'package:beautica_api/src/model/rating_bucket.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:beautica_api/src/model/client_visit_response.dart';
 import 'package:beautica_api/src/model/served_master.dart';
 import 'package:beautica_api/src/model/stats.dart';
 import 'package:built_value/built_value.dart';
@@ -32,6 +33,7 @@ part 'client_card_response.g.dart';
 /// * [servedByMasters]
 /// * [firstName]
 /// * [lastName]
+/// * [nextVisit] - Visit holding the earliest CONFIRMED booking starting after now in the caller's scope (masterId honoured); null when none
 @BuiltValue()
 abstract class ClientCardResponse
     implements Built<ClientCardResponse, ClientCardResponseBuilder> {
@@ -86,6 +88,10 @@ abstract class ClientCardResponse
 
   @BuiltValueField(wireName: r'lastName')
   String? get lastName;
+
+  /// Visit holding the earliest CONFIRMED booking starting after now in the caller's scope (masterId honoured); null when none
+  @BuiltValueField(wireName: r'nextVisit')
+  ClientVisitResponse? get nextVisit;
 
   ClientCardResponse._();
 
@@ -232,6 +238,13 @@ class _$ClientCardResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.nextVisit != null) {
+      yield r'nextVisit';
+      yield serializers.serialize(
+        object.nextVisit,
+        specifiedType: const FullType(ClientVisitResponse),
+      );
+    }
   }
 
   @override
@@ -375,6 +388,13 @@ class _$ClientCardResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.lastName = valueDes;
+          break;
+        case r'nextVisit':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(ClientVisitResponse),
+          ) as ClientVisitResponse;
+          result.nextVisit.replace(valueDes);
           break;
         default:
           unhandled.add(key);
