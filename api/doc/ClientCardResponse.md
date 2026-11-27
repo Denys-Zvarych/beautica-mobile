@@ -25,6 +25,7 @@ Name | Type | Description | Notes
 **servedByMasters** | [**BuiltList&lt;ServedMaster&gt;**](ServedMaster.md) |  | [optional] 
 **firstName** | **String** |  | [optional] 
 **lastName** | **String** |  | [optional] 
+**nextVisit** | [**ClientVisitResponse**](ClientVisitResponse.md) | Visit holding the earliest CONFIRMED booking starting after now in the caller's scope (masterId honoured); null when none | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 
