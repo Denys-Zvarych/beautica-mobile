@@ -91,6 +91,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/clients/application/client_views_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
@@ -266,6 +267,9 @@ class _LeaveClientFeedbackScreenState
     // Phase 394 — a review removes the booking from the pending-actions count
     // on EVERY entry (detail or archive); no status changes, so only the count.
     invalidatePendingBookingActionsCount(ref);
+    // REV-38..44 — the review changes the client's rating / «Відгук» state on
+    // the client card and the «Клієнти» row; drop them via the shared fan-out.
+    invalidateClientViews(ref.invalidate);
     // BOTH mechanisms fire, and that is deliberate — they cover DIFFERENT
     // journeys and cannot conflict (mobile-perf MEDIUM, 2026-08-17 cycle 2):
     //
