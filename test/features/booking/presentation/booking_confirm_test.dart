@@ -2827,9 +2827,6 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(BookingConfirmScreen)),
-        );
         final Finder card = find.byKey(
           const Key('booking-confirm-client-card'),
         );
@@ -2837,9 +2834,10 @@ void main() {
         expect(
           find.descendant(
             of: card,
-            matching: find.text(l10n.bookingDetailGuestBookingLabel),
+            // i18n-finder-ok: asserts the removed UA copy never renders
+            matching: find.text('Запис за посиланням'),
           ),
-          findsOneWidget,
+          findsNothing,
         );
         expect(
           find.descendant(of: card, matching: find.byType(MasterRatingReadout)),

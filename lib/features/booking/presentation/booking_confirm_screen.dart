@@ -886,7 +886,7 @@ class _ConfirmBody extends StatelessWidget {
   final int? rescheduleClientReviewCount;
 
   /// `BookingConfirmArgs.rescheduleTargetIsWalkIn` — a guest/walk-in client
-  /// gets the guest qualifier and no rating, as on «Деталі запису».
+  /// gets no rating (and no kind label, CLI-100), as on «Деталі запису».
   final bool rescheduleTargetIsWalkIn;
 
   @override
@@ -950,7 +950,7 @@ class _ConfirmBody extends StatelessWidget {
             //
             // CLIENT STRIP PARITY (2026-11-14) — now the SAME
             // [BookingClientStrip] «Деталі запису» shows the client in
-            // (photo / monogram, ★ rating, guest qualifier), with the shipped
+            // (photo / monogram, ★ rating, none for a guest), with the shipped
             // «Клієнт» caption on top, instead of a bare label card.
             BookingClientStrip(
               key: const Key('booking-confirm-client-card'),

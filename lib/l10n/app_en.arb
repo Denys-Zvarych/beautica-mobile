@@ -6001,10 +6001,6 @@
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
   },
-  "bookingDetailGuestBookingLabel": "Booked via link",
-  "@bookingDetailGuestBookingLabel": {
-    "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
-  },
   "bookingDetailClientSemantics": "Client: {name}",
   "@bookingDetailClientSemantics": {
     "description": "Accessibility label for the client identity card on the provider view of «Деталі запису» when no rating is shown (guest booking).",

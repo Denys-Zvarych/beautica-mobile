@@ -318,7 +318,7 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         //
         // CLIENT STRIP PARITY (2026-11-14) — now the SAME [BookingClientStrip]
         // «Деталі запису» and the confirm screen show the client in (photo /
-        // monogram, ★ rating; guest qualifier and no rating for a walk-in —
+        // monogram, ★ rating; no rating and no kind label for a walk-in —
         // `isWalkIn` is `rescheduleTargetIsWalkIn` on this path), with the
         // shipped «Клієнт» caption.
         if (widget.args.rescheduleClientName != null)

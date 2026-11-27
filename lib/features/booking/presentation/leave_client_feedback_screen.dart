@@ -655,9 +655,8 @@ class _Form extends StatelessWidget {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String? clientName = booking.clientName;
     final String name = clientName ?? l10n.bookingDetailGuestClient;
-    final String roleLabel = booking.isGuestBooking
-        ? l10n.bookingDetailGuestBookingLabel
-        : l10n.clientReviewRoleLabel;
+    // No client-kind label for any client (CLI-100, M568).
+    final String roleLabel = l10n.clientReviewRoleLabel;
     final String visitContext =
         '${booking.serviceName} · ${formatFullDate(booking.startAt)}';
 

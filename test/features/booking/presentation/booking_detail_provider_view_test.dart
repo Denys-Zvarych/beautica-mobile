@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip_shell.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -314,9 +315,11 @@ void main() {
           find.text('$_guestFirst $_guestLast'),
           findsOne,
         ); // i18n-finder-ok: test fixture name, not app copy
+        // CLI-100 (M568): no client-kind label, not even for a LINK guest.
         expect(
-          find.text(_l10n(tester).bookingDetailGuestBookingLabel),
-          findsOne,
+          // i18n-finder-ok: asserts the removed UA copy never renders
+          find.text('Запис за посиланням'),
+          findsNothing,
         );
       },
     );
@@ -369,7 +372,8 @@ void main() {
         );
 
         expect(
-          find.text(_l10n(tester).bookingDetailGuestBookingLabel),
+          // i18n-finder-ok: asserts the removed UA copy never renders
+          find.text('Запис за посиланням'),
           findsNothing,
         );
       },
@@ -1279,6 +1283,55 @@ void main() {
       final String label = tester.getSemantics(strip).label;
       expect(label, contains(_l10n(tester).masterReviewsEmpty));
       expect(label, isNot(contains('Рейтинг')));
+      handle.dispose();
+    });
+
+    testWidgets('a STAFF walk-in (null clientId, named) shows its name with no '
+        'client-kind label, NO rating even when the wire carries one, and '
+        'name-only semantics (CLI-100, M568)', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      // A walk-in arrives exactly like a LINK guest (null clientId, staff-
+      // typed name); a stale rating on the wire must still stay hidden —
+      // `isGuest` keeps every non-label effect.
+      await _pump(
+        tester,
+        _booking(
+          clientId: null,
+          clientFirstName: _guestFirst,
+          clientLastName: 'Шевчук',
+          clientAvgRating: 4.6,
+          clientReviewCount: 3,
+        ),
+        role: UserRole.independentMaster,
+      );
+
+      const String walkIn = '$_guestFirst Шевчук';
+      expect(
+        find.descendant(of: strip, matching: find.text(walkIn)),
+        findsOne,
+      ); // i18n-finder-ok: test fixture name, not app copy
+      expect(
+        // i18n-finder-ok: asserts the removed UA copy never renders
+        find.text('Запис за посиланням'),
+        findsNothing,
+      );
+      expect(
+        tester.widget<MasterStripShell>(strip).middleLine,
+        isNull,
+        reason: 'no qualifier line under the walk-in name',
+      );
+      expect(
+        find.descendant(of: strip, matching: findAssetStar()),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text('4.6')),
+        findsNothing,
+      );
+      expect(
+        tester.getSemantics(strip).label,
+        _l10n(tester).bookingDetailClientSemantics(walkIn),
+      );
       handle.dispose();
     });
 

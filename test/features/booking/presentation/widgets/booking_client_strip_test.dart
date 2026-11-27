@@ -67,15 +67,20 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('a guest still shows the qualifier and NO ★ readout', (
+    testWidgets('a guest shows NO client-kind label and NO ★ readout', (
       tester,
     ) async {
       await tester.pumpApp(
         const BookingClientStrip(name: 'Ірина', isGuest: true),
       );
-      // i18n-finder-ok: asserts the exact approved UA copy / data value
-      expect(find.text('Запис за посиланням'), findsOneWidget);
+      // CLI-100 (M568): the former «Запис за посиланням» qualifier is gone.
+      // i18n-finder-ok: asserts the removed UA copy never renders
+      expect(find.text('Запис за посиланням'), findsNothing);
       expect(find.text('—'), findsNothing);
+      final MasterStripShell shell = tester.widget<MasterStripShell>(
+        find.byType(MasterStripShell),
+      );
+      expect(shell.middleLine, isNull, reason: 'no qualifier line');
     });
 
     testWidgets('the computed semantics label is used when none is given', (
@@ -95,7 +100,7 @@ void main() {
   });
 
   group('additive params', () {
-    testWidgets('details render in the sub-line, under the guest qualifier', (
+    testWidgets('details render in the sub-line of a guest, no qualifier', (
       tester,
     ) async {
       await tester.pumpApp(
@@ -106,13 +111,9 @@ void main() {
         ),
       );
       expect(find.byKey(_detailsKey), findsOneWidget);
-      // i18n-finder-ok: asserts the exact approved UA copy / data value
-      expect(find.text('Запис за посиланням'), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.byKey(_detailsKey)).dy,
-        // i18n-finder-ok: asserts the exact approved UA copy / data value
-        greaterThan(tester.getTopLeft(find.text('Запис за посиланням')).dy),
-      );
+      // CLI-100 (M568): no «Запис за посиланням» above the details.
+      // i18n-finder-ok: asserts the removed UA copy never renders
+      expect(find.text('Запис за посиланням'), findsNothing);
     });
 
     testWidgets('details alone (no qualifier) still render', (tester) async {
@@ -219,8 +220,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      // Not a link booking: no «Запис за посиланням» qualifier.
-      expect(find.text(l10n.bookingDetailGuestBookingLabel), findsNothing);
+      // No client-kind label (CLI-100).
+      // i18n-finder-ok: asserts the removed UA copy never renders
+      expect(find.text('Запис за посиланням'), findsNothing);
     });
 
     testWidgets('a blank phone draws no sub-line', (tester) async {

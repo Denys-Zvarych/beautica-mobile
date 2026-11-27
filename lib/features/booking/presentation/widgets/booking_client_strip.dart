@@ -1,7 +1,7 @@
 // The CLIENT as a provider sees them — photo (monogram fallback), name, a
-// muted «Запис за посиланням» qualifier on a guest booking, and the client's
-// ★ rating (em-dash when unreviewed; none at all for a guest, who has no
-// account to be rated).
+// and the client's ★ rating (em-dash when unreviewed; none at all for a guest,
+// who has no account to be rated). No client-kind label for any client
+// (CLI-100 / CLI-D19, M568).
 //
 // PROMOTED (2026-11-14) from `booking_counterparty_header.dart`'s private
 // `_ClientStrip`, so the provider RESCHEDULE confirm screen («Підтвердження»)
@@ -35,7 +35,6 @@
 
 import 'package:flutter/material.dart';
 
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
@@ -75,7 +74,7 @@ class BookingClientStrip extends StatelessWidget {
   /// hand-typed walk-in has none of those: the strip falls back to the
   /// name's monogram and the «—» readout, exactly like a guest row of the
   /// «Клієнти» list (CLI-47). [isGuest] stays `false` on purpose: that flag
-  /// draws the «Запис за посиланням» qualifier, which is not this booking.
+  /// hides the rating readout, which a picked client keeps.
   factory BookingClientStrip.walkIn({
     Key? key,
     required String firstName,
@@ -138,8 +137,8 @@ class BookingClientStrip extends StatelessWidget {
     initials: booking.clientInitials,
     rating: booking.clientDisplayRating,
     reviewCount: booking.clientReviewCount ?? 0,
-    // The guest marker is shown ONLY for an actual guest booking
-    // (`client_id IS NULL`) — never merely because a name is missing.
+    // Guest = an actual guest booking (`client_id IS NULL`) — never merely
+    // because a name is missing. Hides the rating; no label (CLI-100).
     isGuest: booking.isGuestBooking,
     // A cancelled/declined booking's counterparty is dimmed — the same
     // `Opacity(0.7)` treatment the master strip gets.
@@ -180,7 +179,8 @@ class BookingClientStrip extends StatelessWidget {
   final double? rating;
   final int reviewCount;
 
-  /// Guest/LINK booking: «Запис за посиланням» qualifier, no rating.
+  /// Guest booking (no client account): no rating, name-only semantics. No
+  /// client-kind label (CLI-100, M568).
   final bool isGuest;
 
   /// Dead (cancelled/declined) booking: `Opacity(0.7)`.
@@ -193,7 +193,7 @@ class BookingClientStrip extends StatelessWidget {
   final Key shellKey;
   final Key avatarImageKey;
 
-  /// ADDITIVE (M509): extra sub-lines under the guest qualifier (the list row's
+  /// ADDITIVE (M509): extra sub-lines under the name (the list row's
   /// «Ост.: …» / «Наст.: …» dates and «Заблоковано» chip). `null` (every other
   /// call site) renders the sub-line exactly as before.
   final Widget? details;
@@ -217,18 +217,11 @@ class BookingClientStrip extends StatelessWidget {
     final double? rating = this.rating;
 
     final String displayName = name ?? l10n.bookingDetailGuestClient;
-    final String? qualifier = isGuest
-        ? l10n.bookingDetailGuestBookingLabel
-        : null;
-
     final String computed;
     if (semanticsLabel != null) {
       computed = semanticsLabel!;
     } else if (isGuest) {
-      computed = <String>[
-        l10n.bookingDetailClientSemantics(displayName),
-        ?qualifier,
-      ].join(', ');
+      computed = l10n.bookingDetailClientSemantics(displayName);
     } else if (rating == null) {
       // Unreviewed: spoken as plain "no reviews yet", never «Рейтинг —». The
       // visible readout keeps its em-dash.
@@ -248,26 +241,13 @@ class BookingClientStrip extends StatelessWidget {
         ? computed
         : '$computed, $extraSemantics';
 
-    final Widget? qualifierLine = qualifier == null
-        ? null
-        : Text(
-            qualifier,
-            style: VelvetText.feedbackMutedSm,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          );
     final Widget? extra = details;
     final Widget? middle = extra == null
-        ? qualifierLine
+        ? null
         : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              ?qualifierLine,
-              if (qualifierLine != null)
-                const SizedBox(height: VelvetSpacing.xs / 2),
-              extra,
-            ],
+            children: <Widget>[extra],
           );
 
     // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
