@@ -10,15 +10,19 @@ All URIs are relative to *http://localhost:8080*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**getMyGuestCard**](ProviderClientControllerApi.md#getmyguestcard) | **GET** /api/v1/masters/me/clients/guests/{bookingId} | 
+[**getMyGuestComments**](ProviderClientControllerApi.md#getmyguestcomments) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/comments | 
 [**getMyGuestRatings**](ProviderClientControllerApi.md#getmyguestratings) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/ratings | 
 [**getMyGuestVisits**](ProviderClientControllerApi.md#getmyguestvisits) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/visits | 
 [**getMyUserCard**](ProviderClientControllerApi.md#getmyusercard) | **GET** /api/v1/masters/me/clients/users/{userId} | 
+[**getMyUserComments**](ProviderClientControllerApi.md#getmyusercomments) | **GET** /api/v1/masters/me/clients/users/{userId}/comments | 
 [**getMyUserRatings**](ProviderClientControllerApi.md#getmyuserratings) | **GET** /api/v1/masters/me/clients/users/{userId}/ratings | 
 [**getMyUserVisits**](ProviderClientControllerApi.md#getmyuservisits) | **GET** /api/v1/masters/me/clients/users/{userId}/visits | 
 [**getSalonGuestCard**](ProviderClientControllerApi.md#getsalonguestcard) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId} | 
+[**getSalonGuestComments**](ProviderClientControllerApi.md#getsalonguestcomments) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/comments | 
 [**getSalonGuestRatings**](ProviderClientControllerApi.md#getsalonguestratings) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/ratings | 
 [**getSalonGuestVisits**](ProviderClientControllerApi.md#getsalonguestvisits) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/visits | 
 [**getSalonUserCard**](ProviderClientControllerApi.md#getsalonusercard) | **GET** /api/v1/salons/{salonId}/clients/users/{userId} | 
+[**getSalonUserComments**](ProviderClientControllerApi.md#getsalonusercomments) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/comments | 
 [**getSalonUserRatings**](ProviderClientControllerApi.md#getsalonuserratings) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/ratings | 
 [**getSalonUserVisits**](ProviderClientControllerApi.md#getsalonuservisits) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/visits | 
 [**listMyClients**](ProviderClientControllerApi.md#listmyclients) | **GET** /api/v1/masters/me/clients | 
@@ -58,6 +62,49 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseClientCardResponse**](ApiResponseClientCardResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getMyGuestComments**
+> ApiResponsePageResponseClientReviewCommentResponse getMyGuestComments(bookingId, pageable)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final Pageable pageable = ; // Pageable | 
+
+try {
+    final response = api.getMyGuestComments(bookingId, pageable);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->getMyGuestComments: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **bookingId** | **String**|  | 
+ **pageable** | [**Pageable**](.md)|  | 
+
+### Return type
+
+[**ApiResponsePageResponseClientReviewCommentResponse**](ApiResponsePageResponseClientReviewCommentResponse.md)
 
 ### Authorization
 
@@ -185,6 +232,49 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseClientCardResponse**](ApiResponseClientCardResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getMyUserComments**
+> ApiResponsePageResponseClientReviewCommentResponse getMyUserComments(userId, pageable)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final String userId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final Pageable pageable = ; // Pageable | 
+
+try {
+    final response = api.getMyUserComments(userId, pageable);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->getMyUserComments: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **userId** | **String**|  | 
+ **pageable** | [**Pageable**](.md)|  | 
+
+### Return type
+
+[**ApiResponsePageResponseClientReviewCommentResponse**](ApiResponsePageResponseClientReviewCommentResponse.md)
 
 ### Authorization
 
@@ -328,6 +418,53 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
+# **getSalonGuestComments**
+> ApiResponsePageResponseClientReviewCommentResponse getSalonGuestComments(salonId, bookingId, pageable, masterId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final Pageable pageable = ; // Pageable | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    final response = api.getSalonGuestComments(salonId, bookingId, pageable, masterId);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->getSalonGuestComments: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **bookingId** | **String**|  | 
+ **pageable** | [**Pageable**](.md)|  | 
+ **masterId** | **String**|  | [optional] 
+
+### Return type
+
+[**ApiResponsePageResponseClientReviewCommentResponse**](ApiResponsePageResponseClientReviewCommentResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
 # **getSalonGuestRatings**
 > ApiResponsePageResponseClientOwnRatingResponse getSalonGuestRatings(salonId, bookingId, pageable, masterId)
 
@@ -455,6 +592,53 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseClientCardResponse**](ApiResponseClientCardResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getSalonUserComments**
+> ApiResponsePageResponseClientReviewCommentResponse getSalonUserComments(salonId, userId, pageable, masterId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getProviderClientControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String userId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final Pageable pageable = ; // Pageable | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    final response = api.getSalonUserComments(salonId, userId, pageable, masterId);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ProviderClientControllerApi->getSalonUserComments: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **userId** | **String**|  | 
+ **pageable** | [**Pageable**](.md)|  | 
+ **masterId** | **String**|  | [optional] 
+
+### Return type
+
+[**ApiResponsePageResponseClientReviewCommentResponse**](ApiResponsePageResponseClientReviewCommentResponse.md)
 
 ### Authorization
 

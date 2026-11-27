@@ -9,9 +9,11 @@
 # the base lacks this file (bootstrap, with a ::warning::). cwd = the PR checkout.
 #
 # Inputs (env): BASE_SHA, HEAD_SHA (the checked-out commit), RUNNER_TEMP,
-#   GITHUB_OUTPUT. The working directory is the PR checkout.
-# Outputs: `mode=full` + `run_all=true` to $GITHUB_OUTPUT when forced; nothing
-#   otherwise. Exit 1 (fail closed) on a forbidden path in the diff.
+#   GITHUB_OUTPUT. The working directory is the PR checkout. Phase 566: also
+#   runs on push, BASE_SHA = the plan's push base (an unusable one forces full).
+# Outputs: `mode=full` + `run_all=true` + `selector_needed=true` (566 L7) to
+#   $GITHUB_OUTPUT when forced; nothing otherwise. Exit 1 (fail closed) on a
+#   forbidden path in the diff.
 #
 # Sourcing this file only defines is_forced / is_forbidden (table-tested by
 # scripts/test/plan_sh_test.sh; parity with rules.yaml in guard_parity_test.dart)
@@ -28,7 +30,7 @@ if ! . "$(dirname "${BASH_SOURCE[0]}")/pubspec_version_only.sh" 2>/dev/null ||
   pubspec_version_only() { return 1; }
 fi
 
-force() { { echo "mode=full"; echo "run_all=true"; } >> "$GITHUB_OUTPUT"; echo "::notice::mode forced to full: $1"; }
+force() { { echo "mode=full"; echo "run_all=true"; echo "selector_needed=true"; } >> "$GITHUB_OUTPUT"; echo "::notice::mode forced to full: $1"; }
 
 # CI machinery AND test-execution config. Keep one `<globs>) return N ;;` arm
 # per line: guard_parity_test.dart parses them.

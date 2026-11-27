@@ -541,6 +541,8 @@ final class Pipeline {
     bool withAttemptScript = true,
     bool withPrebuildScript = true,
     void Function(String pr)? beforeStep,
+    // Phase 566: extra step env (e.g. IT_FANOUT); empty = the pre-566 call.
+    Map<String, String> stepEnv = const {},
   }) {
     final trustedLink = Link(p.join(pr, 'trusted'));
     final partFiles = <File>[];
@@ -595,6 +597,7 @@ final class Pipeline {
           'RUNNER_TEMP': testRt,
           'GITHUB_OUTPUT': ghOut.path,
           'GITHUB_STEP_SUMMARY': ghSum.path,
+          ...stepEnv,
         },
         cwd: pr,
         pipefail: false,

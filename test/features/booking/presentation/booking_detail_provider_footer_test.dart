@@ -150,17 +150,23 @@ Booking _booking({
   );
 }
 
-List<Object> _overrides(Booking booking, _MockBookingRepository repo) =>
-    <Object>[
-      screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
-      bookingRepositoryProvider.overrideWithValue(repo),
-      bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
-      authProvider.overrideWith(
-        () => _StubAuth(
-          AuthSession.authenticated(user: _providerUser(), accessToken: 't'),
-        ),
+List<Object> _overrides(
+  Booking booking,
+  _MockBookingRepository repo, {
+  User? user,
+}) => <Object>[
+  screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+  bookingRepositoryProvider.overrideWithValue(repo),
+  bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
+  authProvider.overrideWith(
+    () => _StubAuth(
+      AuthSession.authenticated(
+        user: user ?? _providerUser(),
+        accessToken: 't',
       ),
-    ];
+    ),
+  ),
+];
 
 AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byType(BookingDetailScreen)));
@@ -1329,5 +1335,79 @@ void main() {
         expect(captured!.hideMasterIdentity, isTrue);
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // M548 / REV-D06 — SALON_MASTER booking-detail CTA via the `/staff/*` review
+  // route (no notification, NTF-D07). The server flag is the only gate.
+  // -------------------------------------------------------------------------
+
+  group('SALON_MASTER client-review CTA (M548)', () {
+    const Key cta = Key('booking-detail-leave-client-feedback');
+    const Key reviewStub = Key('staff-client-review-stub');
+
+    Future<List<String>> pumpSalonMaster(
+      WidgetTester tester, {
+      required bool rateable,
+    }) async {
+      final Booking booking = _booking(
+        status: BookingStatus.completed,
+        startAt: DateTime.utc(2000, 1, 1, 10),
+      ).copyWith(masterType: 'SALON_MASTER', providerCanReviewClient: rateable);
+      final List<String> pushed = <String>[];
+      final GoRouter router = GoRouter(
+        initialLocation: '/staff/bookings/${booking.id}',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/staff/bookings/:bookingId',
+            builder: (_, _) => BookingDetailScreen(
+              bookingId: booking.id,
+              clientReviewRouteBuilder: RouteNames.salonMasterClientReview,
+            ),
+          ),
+          GoRoute(
+            path: '/staff/bookings/:bookingId/review',
+            builder: (BuildContext context, GoRouterState state) {
+              pushed.add(state.uri.path);
+              return const Scaffold(key: reviewStub);
+            },
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides(
+            booking,
+            _MockBookingRepository(),
+            user: const User(
+              id: 'u2',
+              email: 'staff@e.com',
+              role: UserRole.salonMaster,
+            ),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+      return pushed;
+    }
+
+    testWidgets('flag true → CTA → the /staff review route', (tester) async {
+      final List<String> pushed = await pumpSalonMaster(tester, rateable: true);
+
+      final Finder button = find.byKey(cta);
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(reviewStub), findsOneWidget);
+      expect(pushed, <String>[RouteNames.salonMasterClientReview('b1')]);
+    });
+
+    testWidgets('flag false → no CTA', (tester) async {
+      await pumpSalonMaster(tester, rateable: false);
+      expect(find.byKey(cta), findsNothing);
+    });
   });
 }

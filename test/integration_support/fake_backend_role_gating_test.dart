@@ -3,10 +3,12 @@
 // `FakeBackend` is what the E2E flows trust: if its role rules drift, the
 // salon_master / salon_staff client-review flows keep passing while asserting
 // nothing. This file pins the rules directly:
-//   * `providerCanReviewClientFor` - 5 roles x seeded flag;
+//   * `providerCanReviewClientFor` - 5 roles x seeded flag, plus (B547) a
+//     SALON_MASTER on another master's booking reads `false`;
 //   * `PATCH /bookings/booking-1/complete` - 403 and NO mutation for a
 //     SALON_MASTER, 200 and COMPLETED for the staff roles (positive control);
-//   * `POST /client-reviews` - 403 for a SALON_MASTER and the flag untouched;
+//   * `POST /client-reviews` - B547: 200 for the performing SALON_MASTER,
+//     403 and the flag untouched when the booking is another master's;
 //   * `GET /bookings/booking-1` - the post-356 contract: 200 for SALON_ADMIN.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -20,7 +22,8 @@ const Map<UserRole, bool> _expectedForSeededTrue = <UserRole, bool>{
   UserRole.client: false,
   UserRole.salonOwner: true,
   UserRole.salonAdmin: true,
-  UserRole.salonMaster: false,
+  // B547 / REV-D06: the performing master (default `performedBySignedInMaster`).
+  UserRole.salonMaster: true,
   UserRole.independentMaster: true,
 };
 
@@ -39,6 +42,15 @@ void main() {
         });
       }
     }
+
+    test('should_return_false_when_salonMaster_not_performing', () {
+      final FakeBackend fb = FakeBackend()..currentRole = UserRole.salonMaster;
+
+      expect(
+        fb.providerCanReviewClientFor(true, performedBySignedInMaster: false),
+        isFalse,
+      );
+    });
 
     test('should_cover_every_role_in_the_table', () {
       expect(_expectedForSeededTrue.keys.toSet(), UserRole.values.toSet());
@@ -93,10 +105,38 @@ void main() {
           options: _raw,
         );
 
-    test('should_403_and_keep_flag_when_salonMaster', () async {
+    test('should_200_and_flip_flag_when_salonMaster_performing', () async {
       final FakeBackend fb = FakeBackend()
         ..currentRole = UserRole.salonMaster
         ..bookingProviderCanReviewClient = true;
+
+      expect(fb.bookingPerformedBySignedInMaster, isTrue);
+      final Response<Map<String, dynamic>> res = await post(fb);
+
+      expect(res.statusCode, 200);
+      expect(fb.createClientReviewCalls, 1);
+      expect(fb.lastClientReviewRating, 4);
+      expect(fb.bookingProviderCanReviewClient, isFalse);
+    });
+
+    test('should_403_and_keep_flag_when_salonMaster_not_performing', () async {
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.salonMaster
+        ..bookingProviderCanReviewClient = true
+        ..bookingPerformedBySignedInMaster = false;
+
+      final Response<Map<String, dynamic>> detail = await fb.dio
+          .get<Map<String, dynamic>>(
+            '/api/v1/bookings/booking-1',
+            options: _raw,
+          );
+      final Map<String, dynamic> data =
+          detail.data!['data'] as Map<String, dynamic>;
+      expect(
+        data['providerCanReviewClient'],
+        false,
+        reason: 'B547: not the performing master -> no CTA flag',
+      );
 
       final Response<Map<String, dynamic>> res = await post(fb);
 

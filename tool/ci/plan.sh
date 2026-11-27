@@ -6,7 +6,11 @@
 #   EVENT_NAME   github.event_name (push | pull_request | workflow_dispatch | ...)
 #   LABELS       comma-joined PR label names (pull_request only)
 #   BASE_SHA     github.event.pull_request.base.sha   (pull_request only)
-#   HEAD_SHA     github.event.pull_request.head.sha   (pull_request only)
+#   HEAD_SHA     the checked-out commit (pull_request and push)
+#   EVENT_BEFORE github.event.before (push only; phase 566 L1 push diff base)
+#   PR_DRAFT     github.event.pull_request.draft (phase 566 L3 it_fanout)
+#   PR_BASE_REF / PR_HEAD_REF  pull_request base.ref / head.ref (566 L11:
+#                main <- dev = promotion PR, always full; any repo, stricter is safe)
 #   SELECTIVE_ENABLED  'true' once phase 400 wires selection; until then a
 #                selective PR still runs EVERYTHING (run_all=true). Default false.
 #   PLAN_CHANGES_FILE  test hook: use this name-status list instead of git.
@@ -18,13 +22,22 @@
 #   GITHUB_OUTPUT / GITHUB_STEP_SUMMARY  used when set, else stdout.
 #
 # Outputs: mode (full|selective), native (true|false), run_all (true|false),
-#          base, head, changed_count, changes_dir. Changed list: $PLAN_OUT_DIR/changes.txt
+#          base, head, changed_count, changes_dir, it_fanout, selector_needed.
+#          Changed list: $PLAN_OUT_DIR/changes.txt
 #          ("STATUS<TAB>path[<TAB>newpath]", `git diff -z --name-status -M`, unquoted).
 #
-# Mode: full for push, workflow_dispatch (manual + nightly), PRs labelled
-# `full-ci`, anything unrecognised, or a failed merge-base. Otherwise selective.
+# Mode: full for workflow_dispatch (manual + nightly), PRs labelled `full-ci`,
+# anything unrecognised, or a failed merge-base. Otherwise selective: a PR on
+# its merge-base diff, a push (phase 566 L1) on EVENT_BEFORE..HEAD_SHA; an
+# empty / all-zero / unreachable `before` is the same fail-safe full.
 # native mirrors the retired dorny/paths-filter `changes` job globs exactly; it
 # is only meaningful for PRs (other events never gate patrol on a diff).
+# it_fanout (L3): false on push and on a draft PR without `full-ci`; never
+# changes mode. selector_needed (L7): gates ONLY the two e2e selector-test legs
+# (the fast leg always runs); false ONLY on a selective PR whose diff touches no
+# e2e-leg input (is_e2e_leg_input: .github/** + tool/ci/**, pinned by TC-9 in
+# workflow_wiring_test.dart); true otherwise (full, push, dispatch, fail-safe).
+# Promotion PR (L11): mode=full, it_fanout=true, selector_needed=true, always.
 
 set -euo pipefail
 
@@ -32,6 +45,10 @@ EVENT_NAME="${EVENT_NAME:-}"
 LABELS="${LABELS:-}"
 BASE_SHA="${BASE_SHA:-}"
 HEAD_SHA="${HEAD_SHA:-}"
+EVENT_BEFORE="${EVENT_BEFORE:-}"
+PR_DRAFT="${PR_DRAFT:-false}"
+PR_BASE_REF="${PR_BASE_REF:-}"
+PR_HEAD_REF="${PR_HEAD_REF:-}"
 SELECTIVE_ENABLED="${SELECTIVE_ENABLED:-false}"
 OUT_DIR="${PLAN_OUT_DIR:-}"
 
@@ -58,6 +75,9 @@ rm -f "$changes_file"
 
 mode="full"
 reason=""
+fail_safe=0
+promotion=0
+e2e_input=0
 native="false"
 changed_count="n/a"
 base="$BASE_SHA"
@@ -91,6 +111,17 @@ if ! . "$(dirname "${BASH_SOURCE[0]}")/pubspec_version_only.sh" 2>/dev/null ||
   pubspec_version_only() { return 1; }
 fi
 
+# is_e2e_leg_input <path> (566 L7/Q2): every repo path the e2e selector-test legs
+# (e2e-a, e2e-b) read or import: CI machinery only (their Dart deps are pinned by
+# tool/ci/affected_tests/pubspec.lock, the SDK by .github). TC-9 parses this list
+# and fails if an e2e-leg read appears outside it.
+is_e2e_leg_input() {
+  case "$1" in
+    .github/* | tool/ci/*) return 0 ;;
+  esac
+  return 1
+}
+
 # is_native_path <path>: identical globs to the retired `changes` job.
 is_native_path() {
   case "$1" in
@@ -104,10 +135,17 @@ is_native_path() {
 }
 
 case "$EVENT_NAME" in
-  push)              reason="push to a protected branch" ;;
+  push)
+    mode="selective"
+    reason="push (selective on the push diff)"
+    base="$EVENT_BEFORE"
+    ;;
   workflow_dispatch) reason="workflow_dispatch (manual or nightly)" ;;
   pull_request)
-    if [[ ",$LABELS," == *",full-ci,"* ]]; then
+    if [ "$PR_BASE_REF" = main ] && [ "$PR_HEAD_REF" = dev ]; then
+      promotion=1
+      reason="promotion PR dev->main (566 L11: always full)"
+    elif [[ ",$LABELS," == *",full-ci,"* ]]; then
       reason="PR labelled full-ci"
     else
       mode="selective"
@@ -117,9 +155,16 @@ case "$EVENT_NAME" in
   *) reason="unrecognised event '$EVENT_NAME' (fail-safe)" ;;
 esac
 
-if [ "$EVENT_NAME" = "pull_request" ]; then
+# The push diff base must be a real commit id: empty or all-zero (new branch,
+# force-push) => no diff => fail-safe full below.
+push_before_ok() { [[ "$EVENT_BEFORE" =~ ^[0-9a-f]{7,64}$ ]] && [[ ! "$EVENT_BEFORE" =~ ^0+$ ]]; }
+
+if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "push" ]; then
   mb=""
-  if [ -n "${PLAN_CHANGES_FILE:-}" ]; then
+  if [ "$EVENT_NAME" = "push" ]; then BASE_SHA="$EVENT_BEFORE"; fi
+  if [ "$EVENT_NAME" = "push" ] && ! push_before_ok; then
+    :
+  elif [ -n "${PLAN_CHANGES_FILE:-}" ]; then
     if [ "${PLAN_FORCE_MERGE_BASE_FAIL:-0}" != "1" ]; then
       cp "$PLAN_CHANGES_FILE" "$changes_file"
       mb="fixture"
@@ -135,14 +180,17 @@ if [ "$EVENT_NAME" = "pull_request" ]; then
 
   if [ -z "$mb" ]; then
     mode="full"
-    native="true" # unknown diff -> do not risk skipping the native tier
+    # unknown PR diff -> do not risk skipping the native tier (push: as before)
+    if [ "$EVENT_NAME" = "pull_request" ]; then native="true"; fi
     reason="merge-base/diff failed (fail-safe full)"
+    fail_safe=1
     : >"$changes_file"
   else
     changed_count="$(grep -c . "$changes_file" || true)"
     while IFS=$'\t' read -r _status p1 p2; do
       for p in "$p1" "${p2:-}"; do
         [ -n "$p" ] || continue
+        if is_e2e_leg_input "$p"; then e2e_input=1; fi
         if is_native_path "$p"; then
           # Version-only bump of pubspec.yaml (real merge-base diff) is not native.
           if [ "$p" = pubspec.yaml ] && pubspec_version_only "$mb" "$HEAD_SHA"; then
@@ -156,6 +204,21 @@ if [ "$EVENT_NAME" = "pull_request" ]; then
   fi
   [ -n "$mb" ] && base="$mb"
 fi
+
+# L3 / L7: computed once mode is final; neither ever changes mode.
+it_fanout="true"
+case "$EVENT_NAME" in
+  push) it_fanout="false" ;;
+  pull_request)
+    if [ "$PR_DRAFT" = "true" ] && [[ ",$LABELS," != *",full-ci,"* ]]; then it_fanout="false"; fi ;;
+esac
+selector_needed="true"
+if [ "$EVENT_NAME" = "pull_request" ] && [ "$mode" = selective ] && [ "$fail_safe" -eq 0 ] &&
+   [ "$e2e_input" -eq 0 ]; then
+  selector_needed="false"
+fi
+# L11 last word: nothing above may defer or skip work on a promotion PR.
+if [ "$promotion" -eq 1 ]; then mode="full"; it_fanout="true"; selector_needed="true"; fi
 
 run_all="true"
 if [ "$mode" = "selective" ] && [ "$SELECTIVE_ENABLED" = "true" ]; then
@@ -181,6 +244,8 @@ emit changes_dir "$OUT_DIR"
 # Phase 400 sets the real selection size; "unknown" can never satisfy the
 # ci-gate rule that mode=none needs an empty selection.
 emit selection_count "${SELECTION_COUNT:-unknown}"
+emit it_fanout "$it_fanout"
+emit selector_needed "$selector_needed"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
@@ -191,6 +256,8 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "| mode | \`$(md_escape "$mode")\` |"
     echo "| run_all | \`$(md_escape "$run_all")\` |"
     echo "| native | \`$(md_escape "$native")\` |"
+    echo "| it_fanout | \`$(md_escape "$it_fanout")\` |"
+    echo "| selector_needed | \`$(md_escape "$selector_needed")\` |"
     echo "| reason | $(md_escape "$reason") |"
     echo "| base (merge-base) | \`$(md_escape "${base:-n/a}")\` |"
     echo "| head | \`$(md_escape "${head:-n/a}")\` |"

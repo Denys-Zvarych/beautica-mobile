@@ -55,6 +55,7 @@ doc/ApiResponsePageResponseBookingDetailResponse.md
 doc/ApiResponsePageResponseBookingResponse.md
 doc/ApiResponsePageResponseClientListItemResponse.md
 doc/ApiResponsePageResponseClientOwnRatingResponse.md
+doc/ApiResponsePageResponseClientReviewCommentResponse.md
 doc/ApiResponsePageResponseClientVisitResponse.md
 doc/ApiResponsePageResponseFavoriteMasterResponse.md
 doc/ApiResponsePageResponseFavoriteSalonResponse.md
@@ -132,6 +133,7 @@ doc/ClientControllerApi.md
 doc/ClientListItemResponse.md
 doc/ClientListRemovalRequest.md
 doc/ClientOwnRatingResponse.md
+doc/ClientReviewCommentResponse.md
 doc/ClientReviewControllerApi.md
 doc/ClientReviewResponse.md
 doc/ClientVisitResponse.md
@@ -212,6 +214,7 @@ doc/PageResponseBookingDetailResponse.md
 doc/PageResponseBookingResponse.md
 doc/PageResponseClientListItemResponse.md
 doc/PageResponseClientOwnRatingResponse.md
+doc/PageResponseClientReviewCommentResponse.md
 doc/PageResponseClientVisitResponse.md
 doc/PageResponseFavoriteMasterResponse.md
 doc/PageResponseFavoriteSalonResponse.md
@@ -428,6 +431,7 @@ lib/src/model/api_response_page_response_booking_detail_response.dart
 lib/src/model/api_response_page_response_booking_response.dart
 lib/src/model/api_response_page_response_client_list_item_response.dart
 lib/src/model/api_response_page_response_client_own_rating_response.dart
+lib/src/model/api_response_page_response_client_review_comment_response.dart
 lib/src/model/api_response_page_response_client_visit_response.dart
 lib/src/model/api_response_page_response_favorite_master_response.dart
 lib/src/model/api_response_page_response_favorite_salon_response.dart
@@ -497,6 +501,7 @@ lib/src/model/client_card_response.dart
 lib/src/model/client_list_item_response.dart
 lib/src/model/client_list_removal_request.dart
 lib/src/model/client_own_rating_response.dart
+lib/src/model/client_review_comment_response.dart
 lib/src/model/client_review_response.dart
 lib/src/model/client_visit_response.dart
 lib/src/model/contact_support_request.dart
@@ -567,6 +572,7 @@ lib/src/model/page_response_booking_detail_response.dart
 lib/src/model/page_response_booking_response.dart
 lib/src/model/page_response_client_list_item_response.dart
 lib/src/model/page_response_client_own_rating_response.dart
+lib/src/model/page_response_client_review_comment_response.dart
 lib/src/model/page_response_client_visit_response.dart
 lib/src/model/page_response_favorite_master_response.dart
 lib/src/model/page_response_favorite_salon_response.dart
@@ -665,3 +671,6 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_page_response_client_review_comment_response_test.dart
+test/client_review_comment_response_test.dart
+test/page_response_client_review_comment_response_test.dart

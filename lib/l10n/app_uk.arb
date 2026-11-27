@@ -5152,10 +5152,6 @@
   "@clientReviewCommentHint": {
     "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
   },
-  "clientReviewCommentPrivacyNote": "Клієнт цього коментаря не побачить",
-  "@clientReviewCommentPrivacyNote": {
-    "description": "Inline reminder beside the comment counter on the leave-client-feedback screen — the client never sees this text, only their aggregate rating number moves."
-  },
   "clientReviewRoleLabel": "Клієнт",
   "@clientReviewRoleLabel": {
     "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
@@ -7882,8 +7878,18 @@
   "@clientRatingEmpty": {"description": "M510 — Rating chip text for a client with no ratings (always for guests)."},
   "clientRatingOpenHint": "Відкрити рейтинг клієнта",
   "@clientRatingOpenHint": {"description": "M510 — Screen-reader hint on the tappable rating chip."},
-  "clientRatingPrivacyNote": "Коментарі до оцінок приватні й тут не показуються.",
-  "@clientRatingPrivacyNote": {"description": "M510 — Muted note on the rating page: comments never appear."},
+  "clientRatingPrivacyNote": "Клієнт не бачить ці коментарі. Автор не показується.",
+  "@clientRatingPrivacyNote": {"description": "M510/M545 — Muted note on the rating page: the client never sees the comments and no author is shown (CLI-60)."},
+  "clientRatingCommentsTitle": "Коментарі",
+  "@clientRatingCommentsTitle": {"description": "M545 — Section title of the anonymous provider comments on «Рейтинг клієнта» (REV-44)."},
+  "clientRatingOwnComment": "Ваш коментар",
+  "@clientRatingOwnComment": {"description": "M545 — Marker on the viewer's own comment on «Рейтинг клієнта»; other comments show no author."},
+  "clientRatingCommentsLoadFailed": "Не вдалося завантажити коментарі",
+  "@clientRatingCommentsLoadFailed": {"description": "M545 — Inline notice when the comments on «Рейтинг клієнта» failed to load; a retry action sits below it."},
+  "reportSubjectClientComment": "Коментар про клієнта",
+  "@reportSubjectClientComment": {"description": "M545 — Report sheet subject for an anonymous comment about a client (CLIENT_REVIEW, MOD-41); no author is named."},
+  "clientReviewCommentAnonNotice": "Коментар анонімно побачать інші майстри й салони. Клієнт його не бачить.",
+  "@clientReviewCommentAnonNotice": {"description": "M545 — Muted notice under the comment field of the client-review compose screen (CLI-93)."},
   "clientCall": "Зателефонувати",
   "@clientCall": {"description": "M510 — Phone sheet action: open the dialer."},
   "clientCopyPhone": "Скопіювати номер",

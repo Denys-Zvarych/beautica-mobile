@@ -996,6 +996,11 @@ final class FakeBackend {
   final Map<String, List<Map<String, dynamic>>> clientVisits =
       <String, List<Map<String, dynamic>>>{};
 
+  /// M545 — `…/comments` rows (B565 `ClientReviewCommentResponse` JSON) per
+  /// client id; an id with no entry answers an empty page.
+  final Map<String, List<Map<String, dynamic>>> clientComments =
+      <String, List<Map<String, dynamic>>>{};
+
   /// M543 — client id (a [clientCards] key) by the E.164 phone a staff
   /// walk-in names: a walk-in POST whose `guest.phone` is listed here gains
   /// one visit row PER BOOKING at the head of that client's [clientVisits]
@@ -6391,6 +6396,7 @@ final class FakeBackend {
     'canReview': bookingCanReview,
     'providerCanReviewClient': providerCanReviewClientFor(
       bookingProviderCanReviewClient,
+      performedBySignedInMaster: _bookingPerformedBySignedInMaster,
     ),
     // Phase 334. Emitted ONLY on a detail payload AND only when seeded, so the
     // default keeps the pre-334 shape (key absent entirely) — same idiom as
@@ -11732,8 +11738,11 @@ final class FakeBackend {
     // ⟶ Phase 345 D3: still true of every row the BOARD serves, which is why
     // the parameter defaults to `false`. The ARCHIVE fixture overrides it on
     // the owner-as-master rows — see the constructor doc above.
+    // B547: a SALON_MASTER session is never served a salon-board / salon-
+    // archive row (`/salon/*` is owner/admin-only), so fail closed for it.
     'providerCanReviewClient': providerCanReviewClientFor(
       providerCanReviewClient,
+      performedBySignedInMaster: false,
     ),
     // Phase 345 D3 — see the constructor doc. `false` (the default) is
     // semantically identical to omitting the key, which is what every pre-345
@@ -12835,20 +12844,49 @@ final class FakeBackend {
     );
   }
 
-  /// Phase 386 (backend 355) — the single place that models who may see
-  /// `providerCanReviewClient == true`: only the SALON_OWNER / SALON_ADMIN of
-  /// the salon and an INDEPENDENT_MASTER on their own booking. A SALON_MASTER
-  /// (even on a booking they performed) and a CLIENT always read `false`.
-  /// Used by BOTH the detail serializer and the salon board / archive row
-  /// builder so the two can never disagree.
-  bool providerCanReviewClientFor(bool seeded) =>
+  /// B547 / REV-D06 (superseding phase 386 / backend 355) — the single place
+  /// that models who may see `providerCanReviewClient == true`: the
+  /// SALON_OWNER / SALON_ADMIN of the salon, an INDEPENDENT_MASTER on their
+  /// own booking, and a SALON_MASTER ONLY when [performedBySignedInMaster]
+  /// (the booking's master is the signed-in master). A CLIENT always reads
+  /// `false`. Used by BOTH the detail serializer and the salon board /
+  /// archive row builder so the two can never disagree.
+  bool providerCanReviewClientFor(
+    bool seeded, {
+    bool performedBySignedInMaster = true,
+  }) =>
       seeded &&
       (currentRole == UserRole.salonOwner ||
           currentRole == UserRole.salonAdmin ||
+          (currentRole == UserRole.salonMaster && performedBySignedInMaster) ||
           currentRole == UserRole.independentMaster);
 
-  /// Phase 386 (backend 355) — a SALON_MASTER may neither complete a booking
-  /// nor rate the client; the real server answers 403 and mutates nothing.
+  /// B547 / REV-D06 — whether the signed-in SALON_MASTER is the master who
+  /// performed `booking-1`. `true` (the default) is the real `/staff/*`
+  /// shape: a salon master's own bookings. `false` models a booking of
+  /// ANOTHER salon master: `providerCanReviewClient` reads `false` for the
+  /// SALON_MASTER session and `POST /client-reviews` answers 403, mutating
+  /// nothing. Irrelevant to every other role.
+  ///
+  /// RE-WIRES ON WRITE, for the same registration-time-status reason as
+  /// [clientReviewRejectDuplicate].
+  bool get bookingPerformedBySignedInMaster =>
+      _bookingPerformedBySignedInMaster;
+  set bookingPerformedBySignedInMaster(bool value) {
+    _bookingPerformedBySignedInMaster = value;
+    if (_roleRoutesReady) _wireClientReviews();
+  }
+
+  bool _bookingPerformedBySignedInMaster = true;
+
+  /// True when the signed-in SALON_MASTER may not write a rating for
+  /// `booking-1` (B547: not their booking) — the POST's 403 arm.
+  bool get _salonMasterReviewForbidden =>
+      currentRole == UserRole.salonMaster && !_bookingPerformedBySignedInMaster;
+
+  /// Phase 386 (backend 355) — a SALON_MASTER may not complete a booking, and
+  /// (B547) may not rate the client of a booking they did not perform; the
+  /// real server answers 403 and mutates nothing.
   Map<String, dynamic> _forbiddenEnvelope() => <String, dynamic>{
     'success': false,
     'message': 'Access denied',
@@ -12900,14 +12938,18 @@ final class FakeBackend {
     _roleRoutesReady = true;
     _adapter.onRoute(
       '/api/v1/client-reviews',
+      // B547 / REV-D06: the performing SALON_MASTER may rate the client too;
+      // a SALON_MASTER on another master's booking gets 403. One salon-side
+      // rating per booking: the second writer's 409 is
+      // [clientReviewRejectDuplicate].
       (server) => server.replyCallback(
-        currentRole == UserRole.salonMaster
+        _salonMasterReviewForbidden
             ? 403
             : (_clientReviewRejectDuplicate ? 409 : 200),
         (req) {
           createClientReviewCalls++;
-          if (currentRole == UserRole.salonMaster) {
-            // Phase 386 (backend 355): counted, never flips the flag.
+          if (_salonMasterReviewForbidden) {
+            // Counted, never flips the flag.
             return _forbiddenEnvelope();
           }
           final body = _decodeBody(req.data);
@@ -13615,6 +13657,17 @@ final class FakeBackend {
               req,
             );
           }),
+          request: const Request(method: RequestMethods.get),
+        );
+        _adapter.onRoute(
+          '$root/comments',
+          // Not recorded in [clientCardCalls]: flows count card / visits
+          // reads there.
+          (server) => server.replyCallback(
+            200,
+            (req) =>
+                pageOf(clientComments[id] ?? <Map<String, dynamic>>[], req),
+          ),
           request: const Request(method: RequestMethods.get),
         );
       }

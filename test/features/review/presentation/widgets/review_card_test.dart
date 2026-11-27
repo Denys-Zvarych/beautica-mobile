@@ -11,6 +11,7 @@
 //     serviceName is null/empty (the master case) and PRESENT when supplied
 //     (the salon case) — rendered as the raw service name with no label.
 
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -328,6 +329,75 @@ void main() {
         ),
       );
       expect(tester.getSize(find.byKey(const Key('k-a'))).height, plain);
+    });
+  });
+
+  // ── Phase 545 — anonymous client comments (REV-D10) ─────────────────────
+  //
+  // «Рейтинг клієнта» renders each anonymous comment through THIS card with
+  // `showAvatar: false` (no author) and `dateLabel` = the visit month. Both
+  // are additive: the defaults must keep every shipped caller as before.
+  group('showAvatar / dateLabel (phase 545)', () {
+    testWidgets('showAvatar: true (default) renders the avatar; false drops '
+        'it and its gap, so the name slot starts further left', (tester) async {
+      await tester.pumpApp(_host(ReviewCard(data: _data(), keyPrefix: 'k')));
+      expect(find.byType(ReviewAvatar), findsOneWidget);
+      final double avatarWidth = tester
+          .getSize(find.byType(ReviewAvatar))
+          .width;
+      // i18n-finder-ok: masked name is fixture data, not UI copy.
+      final double withAvatar = tester.getTopLeft(find.text('Олена К.')).dx;
+
+      await tester.pumpApp(
+        _host(ReviewCard(data: _data(), keyPrefix: 'k', showAvatar: false)),
+      );
+      expect(find.byType(ReviewAvatar), findsNothing);
+      // i18n-finder-ok: masked name is fixture data, not UI copy.
+      final double without = tester.getTopLeft(find.text('Олена К.')).dx;
+      // Exactly the avatar plus its gap is gone.
+      expect(withAvatar - without, avatarWidth + VelvetSpacing.sm + 2);
+    });
+
+    testWidgets('dateLabel replaces the relative date (same line count)', (
+      tester,
+    ) async {
+      await tester.pumpApp(_host(ReviewCard(data: _data(), keyPrefix: 'k')));
+      final List<String> relative = _texts(tester);
+
+      await tester.pumpApp(
+        _host(
+          ReviewCard(
+            data: _data(),
+            keyPrefix: 'k',
+            dateLabel: 'листопад 2026', // i18n-finder-ok: caller-formatted
+          ),
+        ),
+      );
+      final List<String> labelled = _texts(tester);
+
+      expect(labelled.length, relative.length);
+      final Set<String> gone = relative.toSet().difference(labelled.toSet());
+      expect(gone, hasLength(1), reason: 'the relative date is replaced');
+      expect(
+        labelled.toSet().difference(relative.toSet()),
+        <String>{'листопад 2026'}, // i18n-finder-ok: caller-formatted
+      );
+    });
+
+    testWidgets('dateLabel renders even when createdAt is null', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        _host(
+          ReviewCard(
+            data: _data(noDate: true),
+            keyPrefix: 'k',
+            dateLabel: 'листопад 2026', // i18n-finder-ok: caller-formatted
+          ),
+        ),
+      );
+      // i18n-finder-ok: caller-formatted date label.
+      expect(find.text('листопад 2026'), findsOneWidget);
     });
   });
 }

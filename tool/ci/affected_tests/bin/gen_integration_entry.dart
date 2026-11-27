@@ -2,15 +2,18 @@
 //
 //   dart tool/ci/affected_tests/bin/gen_integration_entry.dart
 //        --selection <selection.json> [--repo <root>] [--out <file>]
-//        [--threshold 0.7] [--force-selected]
+//        [--threshold 0.7] [--force-selected] [--fanout=true|false]
 //
-// Prints `entry=<parts|selected|none>` on the first stdout line (the workflow
+// Prints `entry=<parts|selected|none|deferred>` on the first stdout line (the workflow
 // parses it) and, for `selected` only, `count=<N flows>` on the second and
 // `tests=<testWidgets of those flows>` on the third (the workflow's per-attempt
 // bound is derived from it, mobile-perf cycle 2 P1):
 //   selected  <out> was written; run it instead of the two part files.
 //   parts     run all_tests_part1.dart + all_tests_part2.dart unchanged.
 //   none      the selection holds no flow; nothing was written.
+//   deferred  phase 566 L3: `--fanout=false` (draft PR / push) and the result
+//             would be `parts`; the workflow skips the shard fan-out.
+//             `--fanout` absent or `true` = the behaviour before 566.
 //
 // Audit cycle 1 (401): a selection of more than [maxSelectedFlows] flows or
 // [maxSelectedTests] testWidgets (one shard's size: above it the 8 parallel
@@ -361,7 +364,10 @@ int run(List<String> args) {
   String? selection, out, shard;
   var repo = Directory.current.path,
       force = false,
+      fanout = true,
       threshold = defaultThreshold;
+  // L3: `parts` becomes `deferred` only on an explicit --fanout=false.
+  String finalEntry(String e) => (!fanout && e == 'parts') ? 'deferred' : e;
   try {
     for (var i = 0; i < args.length; i++) {
       String next() => i + 1 < args.length
@@ -380,6 +386,10 @@ int run(List<String> args) {
           force = true;
         case '--shard':
           shard = next();
+        case '--fanout=true':
+          fanout = true;
+        case '--fanout=false':
+          fanout = false;
         default:
           throw FormatException('unknown argument ${args[i]}');
       }
@@ -432,11 +442,11 @@ int run(List<String> args) {
     } on FileSystemException {
       // best effort; the workflow rm -f's it again for `parts`
     }
-    stdout.writeln('entry=parts');
+    stdout.writeln('entry=${finalEntry('parts')}');
     return 0;
   }
   stderr.writeln('gen_integration_entry: ${d.entry} (${d.why})');
-  stdout.writeln('entry=${d.entry}');
+  stdout.writeln('entry=${finalEntry(d.entry)}');
   if (d.entry == 'selected') {
     stdout
       ..writeln('count=${d.count}')
