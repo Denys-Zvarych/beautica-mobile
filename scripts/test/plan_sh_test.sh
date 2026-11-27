@@ -48,6 +48,149 @@ case_plan "PR other workflow -> not native"       pull_request      ""          
 case_plan "PR docs only -> not native"            pull_request      ""            selective false 0 docs/x.md lib/features/a.dart
 case_plan "PR failed merge-base -> full"          pull_request      ""            full      true  1 lib/a.dart
 
+# Phase 566 L1/L3/L7: push selective on EVENT_BEFORE, it_fanout, selector_needed.
+# case566 <name> <want "mode it_fanout selector_needed native"> <env...>
+# Fixture diff = C566_PATH (default assets/a.png: NOT a selector-test input, L7).
+case566() {
+  local name="$1" want="$2"; shift 2
+  printf 'M\t%s\n' "${C566_PATH:-assets/a.png}" >"$tmp/c566.txt"
+  local out got
+  out="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY PLAN_CHANGES_FILE="$tmp/c566.txt" \
+    PLAN_OUT_DIR="$tmp/o566" HEAD_SHA=h "$@" bash "$plan")"
+  got="$(for k in mode it_fanout selector_needed native; do sed -n "s/^$k=//p" <<<"$out"; done | tr '\n' ' ')"
+  if [ "$got" = "$want " ]; then printf '  PASS  566: %s\n' "$name"
+  else printf '  FAIL  566: %s (want [%s] got [%s])\n' "$name" "$want" "$got"; rc=1; fi
+}
+z40="0000000000000000000000000000000000000000"
+case566 "push, valid before -> selective, no fan-out, selector needed" "selective false true false" EVENT_NAME=push EVENT_BEFORE=abc1234
+case566 "push, all-zero before -> full (fail-safe), no fan-out"      "full false true false"      EVENT_NAME=push EVENT_BEFORE="$z40"
+case566 "push, empty before -> full (fail-safe)"                     "full false true false"      EVENT_NAME=push EVENT_BEFORE=
+case566 "push, non-sha before -> full (fail-safe)"                   "full false true false"      EVENT_NAME=push "EVENT_BEFORE=x;y"
+case566 "push, merge-base failure -> full"                           "full false true false"      EVENT_NAME=push EVENT_BEFORE=abc1234 PLAN_FORCE_MERGE_BASE_FAIL=1
+case566 "PR draft -> it_fanout=false, selector not needed"           "selective false false false" EVENT_NAME=pull_request PR_DRAFT=true
+case566 "PR draft + full-ci -> full, it_fanout=true"                 "full true true false"       EVENT_NAME=pull_request PR_DRAFT=true LABELS=full-ci
+case566 "PR non-draft -> it_fanout=true"                             "selective true false false" EVENT_NAME=pull_request PR_DRAFT=false
+case566 "PR, PR_DRAFT unset (old event) -> it_fanout=true"           "selective true false false" EVENT_NAME=pull_request
+case566 "PR failed merge-base -> full, selector needed (fail-safe)"  "full true true true"        EVENT_NAME=pull_request PLAN_FORCE_MERGE_BASE_FAIL=1
+case566 "dispatch -> full, it_fanout=true, selector needed"          "full true true false"       EVENT_NAME=workflow_dispatch
+case566 "unknown event -> full, it_fanout=true, selector needed"     "full true true false"       EVENT_NAME=schedule
+# Push over a REAL git diff (no fixture hook): base = before, the diff = before..HEAD.
+pg="$tmp/push-repo"; git init -q "$pg"
+pgg() { git -C "$pg" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
+echo a >"$pg/a.txt"; pgg add -A; pgg commit -qm base; pbefore="$(pgg rev-parse HEAD)"
+mkdir -p "$pg/lib"; echo b >"$pg/lib/b.dart"; pgg add -A; pgg commit -qm head; pafter="$(pgg rev-parse HEAD)"
+out="$(cd "$pg" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY EVENT_NAME=push EVENT_BEFORE="$pbefore" HEAD_SHA="$pafter" \
+  PLAN_OUT_DIR="$tmp/o566g" bash "$plan")"
+if grep -qx 'mode=selective' <<<"$out" && grep -qx "base=$pbefore" <<<"$out" && grep -qx 'changed_count=1' <<<"$out" \
+   && grep -qxF $'A\tlib/b.dart' "$tmp/o566g/changes.txt"; then
+  echo "  PASS  566: push real diff before..HEAD -> selective, base=before, 1 change"
+else echo "  FAIL  566: push real diff ($out)"; rc=1; fi
+out="$(cd "$pg" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY EVENT_NAME=push EVENT_BEFORE=deadbeefdeadbeef HEAD_SHA="$pafter" \
+  PLAN_OUT_DIR="$tmp/o566g" bash "$plan")"
+grep -qx 'mode=full' <<<"$out" && echo "  PASS  566: push unreachable before -> full" || { echo "  FAIL  566: push unreachable before"; rc=1; }
+
+# QA 566 invariants (owner: no quality loss). (1) full-ci / dispatch fan out, label
+# match is exact; a promotion PR dev->main is a plain non-draft PR => fans out.
+case566 "draft + full-ci among labels -> full, fan-out"              "full true true false"        EVENT_NAME=pull_request PR_DRAFT=true LABELS=bug,full-ci
+case566 "draft + not-full-ci (substring) -> no fan-out"              "selective false false false" EVENT_NAME=pull_request PR_DRAFT=true LABELS=not-full-ci
+case566 "dispatch ignores a stray PR_DRAFT=true -> full, fan-out"    "full true true false"        EVENT_NAME=workflow_dispatch PR_DRAFT=true
+case566 "PR (not promotion) dev->other base, release label -> selective" "selective true false false" EVENT_NAME=pull_request PR_DRAFT=false LABELS=release PR_BASE_REF=dev PR_HEAD_REF=feat
+# L11/Q1: promotion PR (base main, head dev) = full + fan-out + selector, draft or not,
+# any labels; near-miss refs stay ordinary PRs.
+for d in true false; do
+  for l in "" bug full-ci run-patrol,release; do
+    case566 "promotion PR draft=$d labels=[$l] -> full, fan-out, selector" "full true true false" \
+      EVENT_NAME=pull_request PR_DRAFT="$d" LABELS="$l" PR_BASE_REF=main PR_HEAD_REF=dev
+  done
+done
+case566 "promotion PR + merge-base failure -> full, fan-out, selector" "full true true true" \
+  EVENT_NAME=pull_request PR_DRAFT=true PR_BASE_REF=main PR_HEAD_REF=dev PLAN_FORCE_MERGE_BASE_FAIL=1
+case566 "base main, head feat (not promotion) draft -> deferred as usual" "selective false false false" \
+  EVENT_NAME=pull_request PR_DRAFT=true PR_BASE_REF=main PR_HEAD_REF=feat
+case566 "base dev, head dev-x (not promotion) draft -> deferred as usual" "selective false false false" \
+  EVENT_NAME=pull_request PR_DRAFT=true PR_BASE_REF=dev PR_HEAD_REF=dev
+case566 "push to main ignores stray PR refs -> push rules" "selective false true false" \
+  EVENT_NAME=push EVENT_BEFORE=abc1234 PR_BASE_REF=main PR_HEAD_REF=dev
+# TC-9 (L7/Q2): an e2e-leg input (.github/**, tool/ci/**) forces selector_needed=true
+# on a selective PR (draft or ready); every other path keeps it false (the fast leg
+# runs regardless). The glob list is pinned against what the e2e legs read in
+# workflow_wiring_test.dart (566 TC-9).
+for ip in .github/workflows/pr-validate.yml .github/actions/flutter-setup/action.yml .github/x \
+          tool/ci/x.sh tool/ci/affected_tests/pubspec.lock tool/ci/affected_tests/lib/a.dart; do
+  for d in true false; do
+    nat=false; [ "$ip" = .github/workflows/pr-validate.yml ] && nat=true
+    C566_PATH="$ip" case566 "e2e input $ip draft=$d -> e2e legs needed" "selective $([ $d = true ] && echo false || echo true) true $nat" \
+      EVENT_NAME=pull_request PR_DRAFT="$d"
+  done
+done
+for np in lib/a.dart test/a_test.dart integration_test/a_test.dart pubspec.yaml pubspec.lock api/pubspec.yaml \
+          scripts/a.sh assets/a.png docs/x.md android/app/src/main/res/x.xml release-notes/whatsnew-uk ios/x.plist \
+          tool/cix.sh .githubx/a tool/x.sh; do
+  nat=false; case "$np" in android/* | pubspec.yaml) nat=true ;; esac
+  C566_PATH="$np" case566 "non-e2e input $np -> e2e legs not needed" "selective true false $nat" EVENT_NAME=pull_request PR_DRAFT=false
+done
+
+# (3)+(4) A PR's selection is IDENTICAL to the pre-566 planner (verbatim fixture)
+# for every draft flag: draft/ready only ever moves it_fanout, never what is selected.
+oldp="$tmp/oldplan"; mkdir -p "$oldp"
+cp "$here/fixtures/plan_base_pre566.sh" "$oldp/plan.sh"; cp "$repo/tool/ci/pubspec_version_only.sh" "$oldp/"
+plan_sel() { # plan_sel <plan.sh> <cwd> <env...> -> selection outputs + changes.txt (no it_fanout)
+  local p="$1" cwd="$2" o="$tmp/psel" out k; shift 2
+  out="$(cd "$cwd" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY PLAN_OUT_DIR="$o" SELECTIVE_ENABLED=true "$@" bash "$p" 2>"$tmp/psel.err")" ||
+    { echo "PLAN-ERROR"; cat "$tmp/psel.err" >&2; return 0; }
+  for k in mode native run_all base head changed_count selection_count; do printf '%s=%s\n' "$k" "$(sed -n "s/^$k=//p" <<<"$out")"; done
+  cat "$o/changes.txt"
+}
+pr_parity() { # pr_parity <name> <cwd> <env...>
+  local name="$1" cwd="$2" want got d bad=""; shift 2
+  want="$(plan_sel "$oldp/plan.sh" "$cwd" EVENT_NAME=pull_request "$@")"
+  for d in unset false true; do
+    if [ "$d" = unset ]; then got="$(plan_sel "$plan" "$cwd" EVENT_NAME=pull_request "$@")"
+    else got="$(plan_sel "$plan" "$cwd" EVENT_NAME=pull_request PR_DRAFT="$d" "$@")"; fi
+    [ "$got" = "$want" ] || bad="$bad draft=$d"
+  done
+  if [ -z "$bad" ] && [ "$want" != PLAN-ERROR ]; then printf '  PASS  566 parity: %s\n' "$name"
+  else printf '  FAIL  566 parity: %s (differs from pre-566 at:%s)\n' "$name" "${bad:- planner error}"; rc=1; fi
+}
+pfx() { : >"$tmp/pfx.txt"; for l in "$@"; do printf '%s\n' "$l" >>"$tmp/pfx.txt"; done; }
+pfx $'M\tlib/a.dart';                        pr_parity "plain lib change"            "$repo" BASE_SHA=b HEAD_SHA=h PLAN_CHANGES_FILE="$tmp/pfx.txt"
+pr_parity "plain lib change, bug label"       "$repo" BASE_SHA=b HEAD_SHA=h PLAN_CHANGES_FILE="$tmp/pfx.txt" LABELS=bug
+pr_parity "full-ci label"                     "$repo" BASE_SHA=b HEAD_SHA=h PLAN_CHANGES_FILE="$tmp/pfx.txt" LABELS=x,full-ci
+pr_parity "merge-base failure (fail-safe)"    "$repo" BASE_SHA=b HEAD_SHA=h PLAN_CHANGES_FILE="$tmp/pfx.txt" PLAN_FORCE_MERGE_BASE_FAIL=1
+pfx $'M\tpubspec.yaml' $'A\tandroid/app/x.gradle' $'D\tdocs/x.md'; pr_parity "native + docs mix" "$repo" BASE_SHA=b HEAD_SHA=h PLAN_CHANGES_FILE="$tmp/pfx.txt"
+pfx $'R100\tlib/old.dart\tlib/routing/new.dart' $'M\t.github/workflows/pr-validate.yml'; pr_parity "rename into routing + workflow" "$repo" BASE_SHA=b HEAD_SHA=h PLAN_CHANGES_FILE="$tmp/pfx.txt"
+pfx; pr_parity "empty diff"                   "$repo" BASE_SHA=b HEAD_SHA=h PLAN_CHANGES_FILE="$tmp/pfx.txt"
+# Real merge-base diff (no fixture hook), incl. the pubspec version-only helper.
+qr="$tmp/qa-pr-repo"; git init -q "$qr"
+qg() { git -C "$qr" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
+printf 'name: x\nversion: 1.0.0+1\n' >"$qr/pubspec.yaml"; mkdir -p "$qr/lib"; echo a >"$qr/lib/a.dart"
+qg add -A; qg commit -qm base; qbase="$(qg rev-parse HEAD)"
+qg checkout -qb feat; echo b >"$qr/lib/a.dart"; mkdir -p "$qr/tool/ci"; echo x >"$qr/tool/ci/x.sh"
+sed -i 's/1.0.0+1/1.0.1+2/' "$qr/pubspec.yaml"; qg add -A; qg commit -qm feat; qhead="$(qg rev-parse HEAD)"
+qg checkout -q "$qbase"; echo c >"$qr/other.txt"; qg add -A; qg commit -qm moved; qmoved="$(qg rev-parse HEAD)"
+pr_parity "real git diff, version-only bump"  "$qr" BASE_SHA="$qbase" HEAD_SHA="$qhead"
+pr_parity "real git diff, base moved on"      "$qr" BASE_SHA="$qmoved" HEAD_SHA="$qhead"
+pr_parity "real git diff, unknown base"       "$qr" BASE_SHA=deadbeef HEAD_SHA="$qhead"
+
+# (2) Push fail-safe through the guard as CI wires it (guard BASE_SHA = plan's base):
+# a CI-machinery push is full + selector_needed; an unusable `before` is full too.
+guard_on_push() { # guard_on_push <name> <before>
+  local out base g
+  out="$(cd "$qr" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY EVENT_NAME=push EVENT_BEFORE="$2" HEAD_SHA="$qhead" \
+    PLAN_OUT_DIR="$tmp/ogp" bash "$plan")"
+  base="$(sed -n 's/^base=//p' <<<"$out")"
+  : >"$tmp/gp-out.txt"
+  (cd "$qr" && BASE_SHA="$base" HEAD_SHA="$qhead" RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$tmp/gp-out.txt" \
+    bash "$repo/tool/ci/ci_paths_guard.sh" >/dev/null 2>&1) || { printf '  FAIL  566 push guard: %s (guard rc!=0)\n' "$1"; rc=1; return 0; }
+  g="$(tr '\n' ' ' <"$tmp/gp-out.txt")"
+  if [ "$g" = "mode=full run_all=true selector_needed=true " ] && grep -qx 'selector_needed=true' <<<"$out"; then
+    printf '  PASS  566 push guard: %s\n' "$1"
+  else printf '  FAIL  566 push guard: %s (plan [%s] guard [%s])\n' "$1" "$(tr '\n' ' ' <<<"$out")" "$g"; rc=1; fi
+}
+guard_on_push "tool/ci change, valid before -> forced full, selector needed" "$qbase"
+guard_on_push "all-zero before -> guard forces full too" "$z40"
+guard_on_push "empty before -> guard forces full too" ""
+
 # rename: both columns considered
 printf 'R100\tlib/old.dart\tlib/routing/new.dart\n' >"$tmp/r.txt"
 out="$(env -u GITHUB_OUTPUT EVENT_NAME=pull_request PLAN_CHANGES_FILE="$tmp/r.txt" PLAN_OUT_DIR="$tmp/o2" bash "$plan")"
@@ -159,6 +302,99 @@ case_gate "mode=none, count unknown -> red"     1 none      unknown "$ok"
 case_gate "mode=none, count 3 -> red"           1 none      3       "$ok"
 case_gate "mode=none, count missing -> red"     1 none      ""      "$ok"
 
+# Phase 566 L7: the fast leg always runs, so selector-tests is ALWAYS required;
+# a stray SELECTOR_NEEDED=false (old ci-gate env) never relaxes it.
+case_gate_sn() { # <name> <expect_rc> <selector_needed> <mode> <needs json>
+  local got=0
+  EXPECT_TESTS=true SELECTOR_NEEDED="$3" NEEDS_JSON="$5" PLAN_MODE="$4" PLAN_SELECTION_COUNT=unknown bash "$gate" >/dev/null 2>&1 || got=$?
+  if [ "$got" -eq "$2" ]; then printf '  PASS  gate 566: %s\n' "$1"; else printf '  FAIL  gate 566: %s (want rc=%s got %s)\n' "$1" "$2" "$got"; rc=1; fi
+}
+s_skip="$(j gates-fast=success selector-tests=skipped gates=success unit=success tests-ran=success)"
+s_ok="$(j gates-fast=success selector-tests=success gates=success unit=success tests-ran=success)"
+for sn in false true ""; do
+  case_gate_sn "selector-tests skipped + SELECTOR_NEEDED=[$sn] -> red" 1 "$sn" selective "$s_skip"
+  case_gate_sn "selector-tests missing + SELECTOR_NEEDED=[$sn] -> red" 1 "$sn" selective "$(j gates-fast=success gates=success unit=success tests-ran=success)"
+  case_gate_sn "selector-tests success + SELECTOR_NEEDED=[$sn] -> green" 0 "$sn" selective "$s_ok"
+done
+case_gate_sn "selector-tests FAILED + SELECTOR_NEEDED=false -> red" 1 false selective "$(j gates-fast=success selector-tests=failure gates=success unit=success tests-ran=success)"
+case_gate_sn "SELECTOR_NEEDED=false never drops gates" 1 false selective "$(j gates-fast=success selector-tests=success gates=skipped unit=success tests-ran=success)"
+case_gate_sn "full, selector skipped + false, all else success -> red" 1 false full "$(jq -c '.["selector-tests"].result = "skipped"' <<<"$f_ok")"
+# L3: entry=deferred = the shard matrix and verify skipped/green; L5: one apk result.
+# 566 Q3: a deferred fan-out is green ONLY on push; a PR is RED (live draft re-check).
+d_json="$(jq -c '.["selector-tests"].result = "success" | .plan.outputs.it_fanout = "false" | .integration = {"result":"success","outputs":{"entry":"deferred"}} | .["integration-shard"].result = "skipped" | .["integration-verify"].result = "success"' <<<"$f_ok")"
+ghstub="$tmp/ghstub"; mkdir -p "$ghstub"
+cat >"$ghstub/gh" <<'GH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GH_LOG"
+case "${GH_STUB:-}" in
+  draft) echo true ;;
+  ready) echo false ;;
+  empty) : ;;
+  *) echo "HTTP 500" >&2; exit 1 ;;
+esac
+GH
+chmod +x "$ghstub/gh"
+case_gate_d() { # <name> <want rc> <want msg regex|""> <gh stub> <json> <env...>
+  local name="$1" want="$2" msg="$3" stub="$4" json="$5" out got=0; shift 5
+  : >"$tmp/gh.log"
+  out="$(env PATH="$ghstub:$PATH" GH_LOG="$tmp/gh.log" GH_STUB="$stub" EXPECT_TESTS=true SELECTOR_NEEDED=false \
+    PLAN_MODE=full PLAN_SELECTION_COUNT=unknown NEEDS_JSON="$json" "$@" bash "$gate" 2>&1)" || got=$?
+  if [ "$got" -eq "$want" ] && { [ -z "$msg" ] || grep -qE "$msg" <<<"$out"; }; then printf '  PASS  gate 566 Q3: %s\n' "$name"
+  else printf '  FAIL  gate 566 Q3: %s (want rc=%s /%s/, got rc=%s: %s)\n' "$name" "$want" "$msg" "$got" "$out"; rc=1; fi
+}
+case_gate_d "push, deferred (shards skipped) -> green"            0 "deferred on push" none  "$d_json" EVENT_NAME=push
+case_gate_d "push, deferred -> never calls gh"                    0 ""                 none  "$d_json" EVENT_NAME=push
+[ ! -s "$tmp/gh.log" ] && echo "  PASS  gate 566 Q3: push never queries the PR" || { echo "  FAIL  gate 566 Q3: push queried gh"; rc=1; }
+case_gate_d "PR draft (live draft=true) -> RED DEFERRED: draft"   1 "DEFERRED: draft"  draft "$d_json" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+grep -qx 'api repos/o/r/pulls/7 --jq .draft' "$tmp/gh.log" && echo "  PASS  gate 566 Q3: live re-check hits repos/o/r/pulls/7 .draft" || { echo "  FAIL  gate 566 Q3: gh call ($(cat "$tmp/gh.log"))"; rc=1; }
+case_gate_d "PR now ready (live draft=false) -> RED STALE"        1 "STALE DEFERRED: PR is ready, re-run" ready "$d_json" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+case_gate_d "PR, gh API error -> RED STALE (fail closed)"         1 "STALE DEFERRED"   error "$d_json" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+case_gate_d "PR, gh empty answer -> RED STALE (fail closed)"      1 "STALE DEFERRED"   empty "$d_json" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+case_gate_d "PR, no PR_NUMBER -> RED STALE, gh not called"        1 "STALE DEFERRED"   draft "$d_json" EVENT_NAME=pull_request GH_REPO=o/r
+[ ! -s "$tmp/gh.log" ] && echo "  PASS  gate 566 Q3: no PR number => no gh call" || { echo "  FAIL  gate 566 Q3: gh called without PR"; rc=1; }
+case_gate_d "PR, hostile GH_REPO -> RED STALE, gh not called"     1 "STALE DEFERRED"   draft "$d_json" EVENT_NAME=pull_request PR_NUMBER=7 'GH_REPO=o/r;x'
+case_gate_d "PR draft, it_fanout=false but entry=selected -> RED" 1 "DEFERRED: draft"  draft \
+  "$(jq -c '.integration.outputs.entry = "selected"' <<<"$d_json")" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+case_gate_d "PR, entry=deferred but it_fanout empty -> RED"       1 "DEFERRED"         ready \
+  "$(jq -c 'del(.plan.outputs)' <<<"$d_json")" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+case_gate_d "dispatch, deferred -> RED (only push may defer)"     1 "only push may defer" none "$d_json" EVENT_NAME=workflow_dispatch
+case_gate_d "deferred, EVENT_NAME empty -> RED (fail closed)"     1 "only push may defer" none "$d_json"
+case_gate_d "PR ready, it_fanout=true, shards success -> green"   0 ""                 none \
+  "$(jq -c '.plan.outputs.it_fanout = "true" | .integration.outputs.entry = "parts" | .["integration-shard"].result = "success"' <<<"$d_json")" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+case_gate_d "PR draft + full-ci (it_fanout=true) -> judged as full, green" 0 "" none \
+  "$(jq -c '.plan.outputs.it_fanout = "true" | .integration.outputs.entry = "parts" | .["integration-shard"].result = "success"' <<<"$d_json")" EVENT_NAME=pull_request PR_NUMBER=7 GH_REPO=o/r
+# L11/Q1: the promotion PR gate.
+p_ok="$(jq -c '.plan.outputs.it_fanout = "true" | .integration = {"result":"success","outputs":{"entry":"parts"}} | .["integration-shard"].result = "success" | .["integration-verify"].result = "success"' <<<"$f_ok")"
+case_gate_d "promotion PR, full + all shards -> green"            0 ""                 none "$p_ok" EVENT_NAME=pull_request PR_BASE_REF=main PR_HEAD_REF=dev
+case_gate_d "promotion PR, mode=selective -> RED"                 1 "promotion PR must run mode=full" none "$p_ok" EVENT_NAME=pull_request PR_BASE_REF=main PR_HEAD_REF=dev PLAN_MODE=selective
+for pj in integration-shard integration-verify selector-tests; do
+  for pr_ in skipped missing; do
+    if [ "$pr_" = missing ]; then pjson="$(jq -c --arg j "$pj" 'del(.[$j])' <<<"$p_ok")"; else pjson="$(jq -c --arg j "$pj" '.[$j].result = "skipped"' <<<"$p_ok")"; fi
+    case_gate_d "promotion PR, $pj $pr_ -> RED" 1 "promotion PR: $pj must be success" none "$pjson" EVENT_NAME=pull_request PR_BASE_REF=main PR_HEAD_REF=dev
+  done
+done
+case_gate_d "non-promotion (main<-feat), shards skipped, selective -> not judged as promotion" 0 "" none \
+  "$(jq -c '.["integration-shard"].result = "skipped"' <<<"$p_ok")" EVENT_NAME=pull_request PR_BASE_REF=main PR_HEAD_REF=feat PLAN_MODE=selective
+case_gate_sn "full, apk (release leg only) success -> green" 0 true full "$f_ok"
+# QA 566 (1)(4): neither SELECTOR_NEEDED=false nor a draft / no-fan-out context ever
+# relaxes the full-mode jobs or tests-ran (the gate must not learn about drafts).
+for jn in unit tz-sweeps goldens apk; do
+  for r in skipped missing; do
+    if [ "$r" = missing ]; then nj="$(jq -c --arg j "$jn" 'del(.[$j]) | .["selector-tests"].result = "success"' <<<"$f_ok")"
+    else nj="$(jq -c --arg j "$jn" '.[$j].result = "skipped" | .["selector-tests"].result = "success"' <<<"$f_ok")"; fi
+    got=0
+    PR_DRAFT=true IT_FANOUT=false EXPECT_TESTS=true SELECTOR_NEEDED=false NEEDS_JSON="$nj" PLAN_MODE=full \
+      PLAN_SELECTION_COUNT=unknown bash "$gate" >/dev/null 2>&1 || got=$?
+    if [ "$got" -eq 1 ]; then printf '  PASS  gate 566 QA: full, %s %s on a draft (selector not needed) -> red\n' "$jn" "$r"
+    else printf '  FAIL  gate 566 QA: full, %s %s on a draft must be red (rc=%s)\n' "$jn" "$r" "$got"; rc=1; fi
+  done
+done
+got=0
+PR_DRAFT=true IT_FANOUT=false EXPECT_TESTS=true SELECTOR_NEEDED=false PLAN_MODE=selective PLAN_SELECTION_COUNT=unknown \
+  NEEDS_JSON="$(j gates-fast=success selector-tests=success gates=success unit=success tests-ran=skipped)" bash "$gate" >/dev/null 2>&1 || got=$?
+if [ "$got" -eq 1 ]; then echo "  PASS  gate 566 QA: selective draft, tests-ran skipped -> red"
+else echo "  FAIL  gate 566 QA: selective draft, tests-ran skipped must be red"; rc=1; fi
+
 # CI-paths guard (`is_forced` / `is_forbidden`, phase 402 D14: moved out of the
 # pr-validate.yml `plan` step into tool/ci/ci_paths_guard.sh). Sourced (main is
 # guarded), so the table below tests the exact functions CI runs.
@@ -266,7 +502,7 @@ if extract_fn is_forced; then
     out="$(GITHUB_WORKSPACE="$gws" GITHUB_OUTPUT="$gout" bash -c "$step_body" 2>&1)" || true
     if grep -qxF "::warning::ci_paths_guard bootstrap: base lacks the script, forcing full" <<<"$out"; then echo "  PASS  guard step: base copy absent -> bootstrap warning"; else echo "  FAIL  guard step: base copy absent, no warning, got: $out"; rc=1; fi
     if grep -q "ran=pr" <<<"$out"; then echo "  FAIL  guard step: base copy absent -> PR copy RAN"; rc=1; else echo "  PASS  guard step: base copy absent -> PR copy not run"; fi
-    if [ "$(tr '\n' ' ' <"$gout")" = "mode=full run_all=true " ]; then echo "  PASS  guard step: base copy absent -> GITHUB_OUTPUT mode=full run_all=true"; else echo "  FAIL  guard step: base copy absent, GITHUB_OUTPUT: $(cat "$gout")"; rc=1; fi
+    if [ "$(tr '\n' ' ' <"$gout")" = "mode=full run_all=true selector_needed=true " ]; then echo "  PASS  guard step: base copy absent -> GITHUB_OUTPUT mode=full run_all=true selector_needed=true (566)"; else echo "  FAIL  guard step: base copy absent, GITHUB_OUTPUT: $(cat "$gout")"; rc=1; fi
   fi
   # main(): run the real script end-to-end over a throwaway repo's merge-base
   # diff, so the fail-closed exit and the force-full outputs are pinned, not
@@ -288,14 +524,14 @@ if extract_fn is_forced; then
     else printf '  FAIL  guard main: %s (want rc=%s out=[%s], got rc=%s out=[%s])\n' "$1" "$2" "$3" "$got_rc" "$got_out"; rc=1; fi
   }
   case_main "plain lib change -> no output, exit 0" 0 "" lib/a.dart
-  case_main "tool/ci change -> mode=full run_all=true" 0 "mode=full run_all=true " tool/ci/x.sh
-  case_main "non-ASCII .github path still forces (NUL diff)" 0 "mode=full run_all=true " ".github/ü x.yml"
+  case_main "tool/ci change -> mode=full run_all=true selector_needed=true" 0 "mode=full run_all=true selector_needed=true " tool/ci/x.sh
+  case_main "non-ASCII .github path still forces (NUL diff)" 0 "mode=full run_all=true selector_needed=true " ".github/ü x.yml"
   case_main "build/ artefact -> exit 1 (fail closed), no force" 1 "" build/planted.txt
   : >"$tmp/guard-out.txt"
   got_rc=0
   (cd "$grepo" && BASE_SHA=deadbeef HEAD_SHA="$gbase" RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$tmp/guard-out.txt" \
     bash "$guard" >/dev/null 2>&1) || got_rc=$?
-  if [ "$got_rc" = 0 ] && [ "$(tr '\n' ' ' <"$tmp/guard-out.txt")" = "mode=full run_all=true " ]; then
+  if [ "$got_rc" = 0 ] && [ "$(tr '\n' ' ' <"$tmp/guard-out.txt")" = "mode=full run_all=true selector_needed=true " ]; then
     echo "  PASS  guard main: unresolvable base -> forces full (diff unavailable)"
   else echo "  FAIL  guard main: unresolvable base (rc=$got_rc)"; rc=1; fi
 else
@@ -345,7 +581,7 @@ vo_case() {
       "$1" "$2" "$3" "$grc" "$gout" "$pnative" "$pmode" "$inlist"; rc=1
   fi
 }
-FULL="mode=full run_all=true "
+FULL="mode=full run_all=true selector_needed=true "
 vo_case "(a) version-only bump -> not forced, not native" "" false \
   "sed -i 's/^version: 1.4.0+12$/version: 1.4.1+13/' pubspec.yaml"
 vo_case "(a2) version-only bump + release notes -> not forced, not native" "" false \
@@ -536,6 +772,13 @@ case_verdict "cancelled -> red"               1 completed cancelled
 case_verdict "in_progress -> red"             1 in_progress ""
 case_verdict "skipped -> red"                 1 completed skipped
 case_verdict "empty -> red"                   1 "" ""
+# 566 Q3: the draft run's ci-gate is RED (DEFERRED: draft), so that run concludes
+# failure; once ready the mirror selects the newer ready run, else copies the red.
+rd="$(run 100 pull_request "Fix x" 7 | sed 's/"conclusion":"success"/"conclusion":"failure"/')"
+rr="$(run 110 pull_request "Fix x" 7)"
+case_sel "draft (deferred, red) run only -> selected"   100  99 7 "$(mk "$rd")"
+case_sel "draft run + newer ready run -> ready run"     110  99 7 "$(mk "$rd" "$rr")"
+case_verdict "deferred draft run concluded failure -> red" 1 completed failure
 
 # L2: non-ASCII / hostile paths through the REAL git diff (no fixture hook).
 g="$tmp/repo"; mkdir -p "$g/lib/routing"; git -C "$g" init -q

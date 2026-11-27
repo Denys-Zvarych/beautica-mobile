@@ -15,23 +15,25 @@ points here with `# why: docs/ci/<topic>.md#<anchor>`.
 
 ## Job map
 
-15 jobs. Required checks: `ci-gate` (this workflow) and `Scan for secrets` (gitleaks).
+17 jobs. Required checks (rulesets "Protect dev" / "Protect main"): `ci-gate` (this workflow),
+`Scan for secrets` (gitleaks) and `Promotion source (dev|main)` (promotion-source.yml). Every
+`runs-on` is a repo variable with today's image as fallback ([runner-vars](#runner-vars)).
 
 | Job id | Check name | needs | Runs when | Notes |
 |---|---|---|---|---|
 | `plan` | Plan (mode + diff) | none | every non-noop event | [plan](#job-plan) |
 | `gates-fast` | Static guards (no Flutter) | none | every non-noop event | [gates-fast](#job-gates-fast) |
 | `gates` | Analyze & Gates | none | every non-noop event | [gates](#job-gates) |
-| `selector-tests` | Selector tests (leg) | none | every non-noop event | [selector-tests](#job-selector-tests) |
+| `selector-tests` | Selector tests (leg) | plan | non-noop event; `fast` always, `e2e-a`/`e2e-b` unless `selector_needed == 'false'` | [selector-tests](#job-selector-tests), [selector-needed](#selector-needed) |
 | `unit` | Unit tests (shard N) | plan | full, or selective with units | [unit](#job-unit) |
 | `tz-sweeps` | TZ sweep (zone) | plan | full, or selective with tz files | [tz-sweeps.md](tz-sweeps.md#job-tz-sweeps) |
 | `goldens` | Golden regression tests | plan | full, or selective with goldens | [goldens](#goldens-step) |
-| `apk` | Build APKs (variant) | plan, gates-fast | full, or a native-surface PR | [apk](#job-apk) |
+| `apk` | Build APKs (variant) | plan, gates-fast | full, or a native-surface PR; draft PR = release leg only | [apk](#job-apk), [apk-pr-release-only](#apk-pr-release-only) |
 | `coverage` | Coverage (merge shards) | plan, unit | whole-suite runs; non-blocking | [coverage](#job-coverage) |
 | `test` | Test & Build (aggregate) | unit, tz-sweeps, goldens, apk | always (bootstrap bridge) | [test](#job-test-aggregate) |
 | `tests-ran` | Tests actually ran | plan, unit, tz-sweeps, goldens | plan ok, mode != none | [tests-ran](#job-tests-ran) |
 | `integration` | Integration entry + selected flows (emulator) | plan | full (entry only), or selected flows | [emulator-integration.md](emulator-integration.md#job-integration) |
-| `integration-shard` | Integration shard K/8 (emulator) | plan, integration | entry = parts (full suite) | [emulator-integration.md](emulator-integration.md#integration-shards) |
+| `integration-shard` | Integration shard K/8 (emulator) | plan, integration | entry = parts (full suite); `deferred` skips | [emulator-integration.md](emulator-integration.md#integration-shards), [it-fanout](#it-fanout) |
 | `integration-verify` | Integration tests (emulator) | plan, integration, integration-shard | integration ran | [emulator-integration.md](emulator-integration.md#integration-verdict) |
 | `integration-profile` | Integration profile drive (emulator) | none | dispatch, or `run-patrol` | [emulator-integration.md](emulator-integration.md#job-integration-profile) |
 | `patrol` | Patrol native E2E (emulator) (API N) | plan | dispatch, `run-patrol`, native PR | [patrol.md](patrol.md#job-patrol) |
@@ -96,6 +98,10 @@ so workflow and code come from the same branch, then waits for the dispatched
 run (found by its `dispatch:nightly:<token>` run title) and fails when it
 fails. Guarded by scripts/forbid_schedule_in_pr_validate.sh.
 
+pull_request types (phase 566): `opened, synchronize, reopened, labeled,
+ready_for_review`. `ready_for_review` is the event that fans a draft's head
+out to the full integration suite ([it-fanout](#it-fanout)).
+
 <a id="concurrency"></a>
 
 ### Concurrency groups (phase 396 D4, audit 2026-10-10)
@@ -112,6 +118,8 @@ Group suffixes (audit 2026-10-10):
     below is gated on the same condition).
   * workflow_dispatch gets run_id, so a manual dispatch can never replace the
     pending nightly (a group holds one running + one pending run).
+  * Phase 566: `ready_for_review` shares the PR's pull_request group, so
+    marking a draft ready cancels its in-flight `synchronize` run.
 
 <a id="job-plan"></a>
 
@@ -412,7 +420,12 @@ setup required".
 Decode the release keystore from the base64 secret. NEVER on
 pull_request: PR-controlled Gradle runs in the release build below and
 must not see signing secrets (security audit 2026-10-10). Real signing
-happens only on push (dev/main) and workflow_dispatch.
+happens only on push (dev/main) and workflow_dispatch. The keystore is
+decoded to `$RUNNER_TEMP/beautica-release.jks` (mode 600, never the
+workspace) and removed by the `if: always()` "Remove release keystore" step,
+so a persistent self-hosted runner never keeps it (mirrors `release-aab.yml`).
+Test: `workflow_wiring_test.dart` — every base64 decode in pr-validate writes
+under `$RUNNER_TEMP` and has a later `always()` `rm -f`.
 
 <a id="apk-build-debug"></a>
 
@@ -577,7 +590,8 @@ each list at run time, incl. every listed file loading as a suite).
 
 ### ci-gate (phase 397)
 
-ci-gate (phase 397) — the ONLY required status check on dev and main.
+ci-gate (phase 397) — the workflow's required status check on dev and main
+(the rulesets also require `Scan for secrets` and `Promotion source (dev|main)`).
 
 `if: always()` so it reports even when upstream jobs are skipped. A skipped
 job reports success, so a failed `plan` (which skips everything downstream)
@@ -587,8 +601,10 @@ when EXPECT_TESTS=true: then `tests-ran`, `gates-fast` and `gates` must be
 success and, in a FULL run, so must unit / tz-sweeps / goldens / apk (phase
 402). `coverage` is non-blocking (audit F2): a failed one is a warning. The
 `test` aggregator exists only for an old base gate.sh and is not consulted
-by the new one. Verdict logic lives in tool/ci/gate.sh (table-tested).
-Every new job MUST be added to `needs:`.
+by the new one. Phase 566 L7: `selector-tests` is ALWAYS required (its fast
+leg runs on every event; `selector_needed` only trims the e2e legs from its
+matrix, see [selector-needed](#selector-needed)). Verdict logic lives in tool/ci/gate.sh
+(table-tested). Every new job MUST be added to `needs:`.
 
 NEVER SKIPPED, not even on an irrelevant-label (noop) event: a skipped
 required check counts as passing and the newest same-named check wins, so a
@@ -606,3 +622,121 @@ the slowest real path, `integration` entry + one 120-min `integration-shard`
 leg (~140 min), plus runner QUEUE time, which
 the job timeout does not cover) + verdict. Must stay
 ABOVE both, or the gate dies before the thing it is mirroring.
+
+<a id="phase-566"></a>
+
+## Phase 566: CI-minutes levers (on top of the planner)
+
+Every lever below sits on the planner's verdict; none changes `plan.sh` modes
+(`full | selective | none`), the selector, `ci_paths_guard.sh` globs or unit
+sharding. New planner outputs that are EMPTY (a PR that runs the old base
+`tool/ci`) mean today's behaviour: `it_fanout != 'false'` fans out,
+`selector_needed != 'false'` runs selector-tests.
+
+<a id="push-selective"></a>
+
+### L1: push to dev / main is selective on the push diff
+
+`plan.sh` treats `push` like a PR: `mode=selective` on the diff
+`EVENT_BEFORE..HEAD_SHA` (`github.event.before` .. the pushed commit; the plan
+checkout is full-history on push too). An empty, all-zero (new branch,
+force-push) or unreachable `before`, or a failed merge-base, takes the existing
+fail-safe full. The `ci_paths_guard.sh` step now also runs on push with the
+planner's base, so a push that touches CI machinery is still FULL (and an
+unusable base forces full: "diff unavailable"). Push runs never fan out the
+integration suite ([it-fanout](#it-fanout)); `selected` flows (<= 19) still run.
+
+<a id="it-fanout"></a>
+
+### L3: `it_fanout` — integration fan-out only for a ready PR
+
+New plan output `it_fanout`, computed after the mode is final (it never
+changes the mode): `false` for a push and for a draft PR without the `full-ci`
+label; `true` for a non-draft PR (incl. the dev -> main promotion PR),
+`ready_for_review`, a `full-ci` draft, workflow_dispatch / nightly.
+
+When `false`, the `integration` entry job still runs `selected` flows; when the
+result would be `parts` (FULL mode, or a selection above the 19-flow cap) it
+publishes `entry=deferred` (also `gen_integration_entry.dart --fanout=false`),
+the shards skip, and a `::notice::` plus the job summary say
+`integration fan-out deferred (draft/push) — runs on ready-for-review / promotion PR / nightly`.
+`integration-verify` accepts `deferred` only when `it_fanout` is `false`
+(fail closed). Unit / TZ / golden / APK keep following the mode.
+
+`ci-gate` (`gate.sh`, Q3) is never green on a PR with a deferred fan-out
+(`it_fanout=false` or `entry=deferred`, read from `NEEDS_JSON`): it re-reads the
+live flag (`gh api repos/$GH_REPO/pulls/$PR_NUMBER --jq .draft`, the job holds
+`pull-requests: read`) and fails `DEFERRED: draft` (still draft) or
+`STALE DEFERRED: PR is ready, re-run` (ready, empty answer or API error). Only
+`push` may defer. A noop-label mirror copies the real run's conclusion, so a
+draft run (red) can never be mirrored green.
+
+Safety model: every non-draft PR head fans out before merge (drafts cannot
+merge; `gh pr ready` fires `ready_for_review` on the same head); push runs the
+selector on the merge diff; the promotion PR fans out over the accumulated dev
+diff; the main nightly stays full. No dev nightly (owner OD-2).
+
+<a id="selector-needed"></a>
+
+### L7: `selector_needed` — the e2e selector-test legs only when CI machinery changed
+
+The `fast` leg of `selector-tests` runs on EVERY event (it reads real `lib/`,
+`test/`, `integration_test/` files, so it can be affected by almost any PR).
+Plan output `selector_needed` gates ONLY the two e2e legs (`e2e-a`, `e2e-b`):
+the job matrix is `["fast"]` on the literal `false` and
+`["fast","e2e-a","e2e-b"]` otherwise (empty = all legs). It is `false` ONLY on
+a selective pull_request whose diff touches no e2e-leg input (`plan.sh`
+`is_e2e_leg_input`: `.github/*`, `tool/ci/*`). It is `true` on push / dispatch
+/ nightly / any other event, on any FULL plan (`full-ci`, fail-safe, diff
+unreadable), on a promotion PR, when `ci_paths_guard.sh` forces full (incl. its
+bootstrap branch), and when the selector itself returns FULL (incl. a selector
+failure, D7). `gate.sh` always requires `selector-tests` = success; the single
+job result covers every leg the matrix scheduled. TC-9 in
+`workflow_wiring_test.dart` fails if the fast leg becomes conditional or if an
+e2e-leg file (or anything it imports) reads a repo path outside `.github/**` +
+`tool/ci/**`.
+
+<a id="apk-pr-release-only"></a>
+
+### L5: a draft PR builds the release APK only
+
+The `apk` matrix is `["release"]` only for a DRAFT pull_request that is not a
+promotion PR (base `main`) and has no `full-ci` label; ready PRs, push and
+dispatch build `["debug","release"]` as before (Q2; the mode is untouched). The
+single `apk` job result still satisfies the full-mode gate. The debug compile is
+proven by the integration pre-build whenever flows run, and by push / nightly.
+
+<a id="apk-gradle-cache"></a>
+
+### L6a: Gradle cache restore in `apk`
+
+Restore-only, same key as the integration jobs (`gradle-it-…`). The save stays
+in integration shard 1 off pull_request, so a PR can never write the cache.
+
+<a id="runner-vars"></a>
+
+### L8: `runs-on` from repo variables (self-hosted-ready)
+
+Emulator jobs (`integration`, `integration-shard`, `integration-profile`,
+`patrol`) use `${{ vars.CI_RUNNER_KVM || 'ubuntu-latest' }}`; every other job
+`${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}`, and `coverage` keeps its
+pinned fallback `${{ vars.CI_RUNNER_LINUX || 'ubuntu-24.04' }}` (lcov pin).
+Unset variables = the same runner images as before.
+
+Every expression is fork-guarded (Q9, security HIGH):
+`${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}`
+(same with `CI_RUNNER_KVM`; `coverage` falls back to `ubuntu-24.04`), so a fork
+PR always lands on GitHub-hosted runners. The guard keys on `pull_request`
+only, so a `pull_request_target` workflow (`promotion-source.yml`) must use
+literal GitHub-hosted labels, never a variable (pinned in
+`workflow_wiring_test.dart`).
+
+<a id="promotion-full"></a>
+
+### L11: the promotion PR (dev -> main) is always full
+
+`plan.sh`: `PR_BASE_REF=main` + `PR_HEAD_REF=dev` => `mode=full`,
+`it_fanout=true`, `selector_needed=true`, whatever the draft flag or labels
+(any head repo: stricter is safe). `apk` builds both legs, all 3 TZ zones run.
+`gate.sh` fails a promotion PR whose mode is not full or whose
+`integration-shard`, `integration-verify` or `selector-tests` is not success.
