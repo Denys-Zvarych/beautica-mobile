@@ -40,6 +40,7 @@ import 'master_bookings_working_hours_window_flow_test.dart'
 import 'master_create_booking_test.dart' as master_create_booking;
 import 'walk_in_pick_client_flow_test.dart' as walk_in_pick_client;
 import 'book_client_from_card_flow_test.dart' as book_client_from_card;
+import 'client_card_next_visit_flow_test.dart' as client_card_next_visit;
 import 'master_avatar_upload_test.dart' as master_avatar_upload;
 import 'owner_admin_avatar_upload_test.dart' as owner_admin_avatar_upload;
 import 'salon_logo_cover_owner_test.dart' as salon_logo_cover_owner;
@@ -159,6 +160,7 @@ void main() {
   group('walk_in_pick_client_flow', walk_in_pick_client.main);
   // M543 (CLI-80) — «Записати» on the client card → prefilled walk-in.
   group('book_client_from_card_flow', book_client_from_card.main);
+  group('client_card_next_visit_flow', client_card_next_visit.main);
   // Phase 231 (mobile-qa, Step 2.7 Rule 3b) — the master «Архів» page: past
   // bookings including an elapsed-unclosed row, filtering to «Заплановано»,
   // closing via «Виконано» on the real HTTP boundary, the client-side-filter

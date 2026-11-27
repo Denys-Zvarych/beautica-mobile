@@ -13534,6 +13534,14 @@ final class FakeBackend {
   /// query (CLI-74) drops a visit whose items name a DIFFERENT `masterId`
   /// (a visit without one is kept, so fixtures that never set it are
   /// unaffected). Recorded in [clientCardCalls]. Call AFTER filling the maps.
+  ///
+  /// B530 / CLI-89 — the card answers `nextVisit` like the server: the visit
+  /// (row shape) holding the earliest CONFIRMED item that starts after
+  /// [kFixedNow] (the app's pinned clock, M15) among the SAME scoped rows the
+  /// visits route serves (`masterId` honoured), tie → lowest booking id; null
+  /// when there is none. Computed per request, so a walk-in / decline that
+  /// edits [clientVisits] moves it. A card body that sets `nextVisit` itself
+  /// (even to null) is served as-is.
   void wireClientCard({
     List<String> salonIds = const <String>['salon-owner-1'],
   }) {
@@ -13564,6 +13572,45 @@ final class FakeBackend {
       };
     }
 
+    List<Map<String, dynamic>> scopedVisits(String id, Object? masterId) {
+      final List<Map<String, dynamic>> all =
+          clientVisits[id] ?? <Map<String, dynamic>>[];
+      if (masterId == null) return all;
+      return <Map<String, dynamic>>[
+        for (final Map<String, dynamic> v in all)
+          if ((v['items'] as List<dynamic>? ?? <dynamic>[]).every(
+            (dynamic i) =>
+                (i as Map<String, dynamic>)['masterId'] == null ||
+                i['masterId'] == masterId,
+          ))
+            v,
+      ];
+    }
+
+    Map<String, dynamic>? nextVisitOf(List<Map<String, dynamic>> visits) {
+      Map<String, dynamic>? best;
+      DateTime? bestAt;
+      String? bestId;
+      for (final Map<String, dynamic> v in visits) {
+        for (final dynamic raw in v['items'] as List<dynamic>? ?? <dynamic>[]) {
+          final Map<String, dynamic> item = raw as Map<String, dynamic>;
+          if (item['status'] != 'CONFIRMED') continue;
+          final DateTime? at = DateTime.tryParse('${item['startsAt']}');
+          if (at == null || !at.isAfter(kFixedNow)) continue;
+          final String bookingId = '${item['bookingId']}';
+          if (bestAt == null ||
+              at.isBefore(bestAt) ||
+              (at.isAtSameMomentAs(bestAt) &&
+                  bookingId.compareTo(bestId ?? '') < 0)) {
+            best = v;
+            bestAt = at;
+            bestId = bookingId;
+          }
+        }
+      }
+      return best;
+    }
+
     void register(String base) {
       final Set<String> ids = <String>{
         ...clientCards.keys,
@@ -13586,10 +13633,18 @@ final class FakeBackend {
           }
           server.replyCallback(200, (req) {
             record('card', req);
+            final Map<String, dynamic> card = clientCards[id]!;
             return <String, dynamic>{
               'success': true,
               'message': 'ok',
-              'data': clientCards[id],
+              'data': card.containsKey('nextVisit')
+                  ? card
+                  : <String, dynamic>{
+                      ...card,
+                      'nextVisit': nextVisitOf(
+                        scopedVisits(id, req.queryParameters['masterId']),
+                      ),
+                    },
             };
           });
         }, request: const Request(method: RequestMethods.get));
@@ -13597,21 +13652,8 @@ final class FakeBackend {
           '$root/visits',
           (server) => server.replyCallback(200, (req) {
             record('visits', req);
-            final Object? masterId = req.queryParameters['masterId'];
-            final List<Map<String, dynamic>> all =
-                clientVisits[id] ?? <Map<String, dynamic>>[];
             return pageOf(
-              masterId == null
-                  ? all
-                  : <Map<String, dynamic>>[
-                      for (final Map<String, dynamic> v in all)
-                        if ((v['items'] as List<dynamic>? ?? <dynamic>[]).every(
-                          (dynamic i) =>
-                              (i as Map<String, dynamic>)['masterId'] == null ||
-                              i['masterId'] == masterId,
-                        ))
-                          v,
-                    ],
+              scopedVisits(id, req.queryParameters['masterId']),
               req,
             );
           }),

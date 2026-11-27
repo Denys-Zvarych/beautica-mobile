@@ -463,6 +463,7 @@ ClientCard clientCardFromDto(
     ratingCount: ratingCount,
     ratingDistribution: List<int>.unmodifiable(distribution),
     nextVisitAt: dto.nextVisitAt,
+    nextVisit: clientVisitFromDto(dto.nextVisit),
     servedByMasters: List<ClientServedMaster>.unmodifiable(
       _servedMastersOf(dto.servedByMasters),
     ),

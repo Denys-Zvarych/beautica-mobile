@@ -88,6 +88,7 @@ import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
 import 'clients_tab_flow_test.dart' as clients_tab;
+import 'clients_card_flow_test.dart' as clients_card;
 import 'clients_remove_from_list_flow_test.dart' as clients_remove_from_list;
 import 'clients_remove_scope_rebook_flow_test.dart'
     as clients_remove_scope_rebook;
@@ -294,6 +295,7 @@ void main() {
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
   group('clients_tab_flow', clients_tab.main);
+  group('clients_card_flow', clients_card.main);
   // M544 — remove a client from «Клієнти» (swipe / card «⋯») + undo snack
   // countdown; owner/admin shared vs salon-master scope; re-book comeback.
   group('clients_remove_from_list_flow', clients_remove_from_list.main);

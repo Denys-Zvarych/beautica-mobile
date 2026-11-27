@@ -136,7 +136,10 @@ class _Repo implements ClientRepository {
   }) async {
     final Failure? f = failure;
     if (f != null) throw f;
-    return card;
+    // CLI-89 (B530): the server's next visit, derived from the served visits.
+    return card.nextVisit != null
+        ? card
+        : card.copyWith(nextVisit: pickNextVisit(visits, _now()));
   }
 
   @override
