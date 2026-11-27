@@ -30,6 +30,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -48,9 +49,11 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_comments_controller.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -138,9 +141,28 @@ const AuthSession _providerSession = AuthSession.authenticated(
 );
 
 /// Counts the client-views reads a review submit must re-trigger.
-class _CountingClientRepository implements ClientRepository {
+class _CountingClientRepository
+    implements ClientRepository, ClientCommentsRepository {
   int cardCalls = 0;
   int firstPageCalls = 0;
+  int commentsCalls = 0;
+
+  @override
+  Future<PageResponse<ClientReviewComment>> getComments(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async {
+    if (page == 0) commentsCalls++;
+    return PageResponse<ClientReviewComment>(
+      items: const <ClientReviewComment>[],
+      page: page,
+      totalPages: 1,
+      totalElements: 0,
+    );
+  }
 
   @override
   Future<ClientCard> getCard(
@@ -367,7 +389,32 @@ void main() {
         find.byKey(const Key('leave-client-feedback-privacy-note')),
         findsNothing,
       );
-      expect(find.text('Клієнт цього коментаря не побачить'), findsNothing);
+      // The removed row's eye-off icon is gone, and exactly ONE muted
+      // privacy note renders in the comment card: the anon notice (the old
+      // counter-row note used the same `feedbackMutedSm` style).
+      expect(find.byIcon(Icons.visibility_off_rounded), findsNothing);
+      // Scoped to the comment card (the Column holding the field + notes).
+      final Finder commentCard = find
+          .ancestor(
+            of: find.byKey(const Key('leave-client-feedback-comment')),
+            matching: find.byType(Column),
+          )
+          .first;
+      final Finder mutedNotes = find.descendant(
+        of: commentCard,
+        matching: find.byWidgetPredicate(
+          (Widget w) =>
+              w is Text &&
+              w.style == VelvetText.feedbackMutedSm &&
+              // The empty `0 / 2000` counter shares the style; not a note.
+              !(w.data ?? '').contains(' / '),
+        ),
+      );
+      expect(mutedNotes, findsOneWidget);
+      expect(
+        tester.widget<Text>(mutedNotes).key,
+        const Key('leave-client-feedback-anon-notice'),
+      );
     });
 
     testWidgets('M545 (CLI-93): the anonymous-visibility notice renders '
@@ -685,7 +732,9 @@ void main() {
     // drop `invalidateClientViews(ref.invalidate)` and both counts stay at 1.
     for (final ClientReviewEntry entry in ClientReviewEntry.values) {
       testWidgets('a successful submit from the $entry entry refetches the '
-          'client card and the «Клієнти» list', (tester) async {
+          'client card, the «Клієнти» list and the client comments', (
+        tester,
+      ) async {
         const ClientListScope scope = ClientListScope.me();
         const ClientRef client = ClientRef.registered('c1');
         final repo = _MockClientReviewRepository();
@@ -705,6 +754,7 @@ void main() {
           extraOverrides: <Object>[
             authProvider.overrideWith(() => _StubAuth(_providerSession)),
             clientRepositoryProvider.overrideWithValue(clients),
+            clientCommentsRepositoryProvider.overrideWithValue(clients),
           ],
         );
         // Live listeners, as the card / «Клієнти» tab are under the route.
@@ -722,9 +772,15 @@ void main() {
           (_, _) {},
         );
         addTearDown(listSub.close);
+        final commentsSub = container.listen(
+          clientCommentsControllerProvider(scope, client),
+          (_, _) {},
+        );
+        addTearDown(commentsSub.close);
         await tester.pumpAndSettle();
         expect(clients.cardCalls, 1);
         expect(clients.firstPageCalls, 1);
+        expect(clients.commentsCalls, 1);
 
         await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
         await tester.pumpAndSettle();
@@ -740,6 +796,13 @@ void main() {
           clients.firstPageCalls,
           2,
           reason: 'a client review must invalidate ClientListController',
+        );
+        expect(
+          clients.commentsCalls,
+          2,
+          reason:
+              'M545: a client review must invalidate the «Рейтинг клієнта» '
+              'comments',
         );
         await pumpPastVelvetSnack(tester);
       });
