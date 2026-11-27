@@ -291,17 +291,15 @@ void main() {
       expect(find.text(_l10n(tester).clientReviewRatingLabel5), findsOneWidget);
     });
 
-    testWidgets('the privacy reminder renders beside the comment field', (
-      tester,
-    ) async {
+    testWidgets('M545 (CLI-93): the duplicate privacy reminder beside the '
+        'counter is gone — only the anon notice remains', (tester) async {
       await pumpFeedback(tester, detail: (ref) async => _booking());
 
-      final AppLocalizations l10n = _l10n(tester);
       expect(
         find.byKey(const Key('leave-client-feedback-privacy-note')),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(find.text(l10n.clientReviewCommentPrivacyNote), findsOneWidget);
+      expect(find.text('Клієнт цього коментаря не побачить'), findsNothing);
     });
 
     testWidgets('M545 (CLI-93): the anonymous-visibility notice renders '

@@ -5146,10 +5146,6 @@
   "@clientReviewCommentHint": {
     "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
   },
-  "clientReviewCommentPrivacyNote": "The client will not see this comment",
-  "@clientReviewCommentPrivacyNote": {
-    "description": "Inline reminder beside the comment counter on the leave-client-feedback screen — the client never sees this text, only their aggregate rating number moves."
-  },
   "clientReviewRoleLabel": "Client",
   "@clientReviewRoleLabel": {
     "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."

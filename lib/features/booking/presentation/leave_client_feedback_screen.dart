@@ -828,11 +828,7 @@ class _CommentCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: VelvetSpacing.xs),
-          _CommentFooterRow(
-            controller: controller,
-            maxChars: maxChars,
-            privacyNote: l10n.clientReviewCommentPrivacyNote,
-          ),
+          _CommentFooterRow(controller: controller, maxChars: maxChars),
           // M545 (CLI-93) — other providers read the comment anonymously.
           const SizedBox(height: VelvetSpacing.xs),
           Text(
@@ -846,30 +842,18 @@ class _CommentCard extends StatelessWidget {
   }
 }
 
-/// The privacy reminder + live `$length / 2000` counter, on one row — the
-/// thing that makes this comment field visibly different from the CLIENT's
-/// own leave-review comment. Scoped to a [ValueListenableBuilder] on the
+/// The live `$length / 2000` counter, right-aligned under the field. The
+/// privacy reminder lives once, in `clientReviewCommentAnonNotice` below it
+/// (CLI-93). Scoped to a [ValueListenableBuilder] on the
 /// shared [TextEditingController] so a keystroke rebuilds only this leaf row —
 /// never the client card, star input, or submit CTA (mobile-perf, mirrors
 /// `LeaveReviewScreen._CommentCounter`).
 class _CommentFooterRow extends StatelessWidget {
-  const _CommentFooterRow({
-    required this.controller,
-    required this.maxChars,
-    required this.privacyNote,
-  });
+  const _CommentFooterRow({required this.controller, required this.maxChars});
 
   final TextEditingController controller;
   final int maxChars;
-  final String privacyNote;
 
-  // `VelvetText.feedbackMutedSm` is already the muted 11sp variant of the
-  // feedback base style, so it renders identically to the previous
-  // `VelvetText.feedback(BrandColors.muted)` plus a manual size override —
-  // that manual override was redundant (the base is already 11sp) and is
-  // exactly the pattern `scripts/forbid_inline_fontsize.sh` disallows.
-  // Reusing the cached token avoids both the redundancy and the gate.
-  static final TextStyle _noteStyle = VelvetText.feedbackMutedSm;
   static final TextStyle _fullStyle = VelvetText.feedbackCounter.copyWith(
     color: BrandColors.error,
   );
@@ -889,24 +873,9 @@ class _CommentFooterRow extends StatelessWidget {
         final TextStyle counterStyle = length >= maxChars
             ? _fullStyle
             : (length > 0 ? _activeStyle : _emptyStyle);
-        return Row(
-          children: <Widget>[
-            const Icon(
-              Icons.visibility_off_rounded,
-              size: 13,
-              color: BrandColors.muted,
-            ),
-            const SizedBox(width: VelvetSpacing.xs),
-            Expanded(
-              child: Text(
-                privacyNote,
-                key: const Key('leave-client-feedback-privacy-note'),
-                style: _noteStyle,
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.xs),
-            Text('$length / $maxChars', style: counterStyle),
-          ],
+        return Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: Text('$length / $maxChars', style: counterStyle),
         );
       },
     );
