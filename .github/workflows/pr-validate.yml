@@ -1959,6 +1959,9 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # Repairs a platform-tools install left without adb (else boot poll + long idle).
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh
           # AOT, asserts stripped. ONE PHYSICAL LINE: emulator-runner runs each line via `sh -c`.
           # why: docs/ci/emulator-integration.md#profile-one-line
           script: |
@@ -2048,6 +2051,9 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # Repairs a platform-tools install left without adb (else boot poll + long idle).
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh
           # Scope to integration_test/patrol (non-patrol flows stay on `integration`).
           # why: docs/ci/patrol.md#patrol-scope
           script: |
@@ -2108,6 +2114,9 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest
+          # Repairs a platform-tools install left without adb (else boot poll + long idle).
+          # why: docs/ci/emulator-integration.md#adb-missing
+          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh
           # Scope to integration_test/patrol (non-patrol flows stay on `integration`).
           # why: docs/ci/patrol.md#patrol-scope
           script: |
