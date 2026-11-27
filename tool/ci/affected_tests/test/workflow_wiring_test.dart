@@ -2365,8 +2365,21 @@ void main() {
       final src = wfFile.readAsStringSync();
       const hook =
           '          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh\n';
-      expect(hook.allMatches(src).length, 3);
-      final cut = loadYaml(src.replaceFirst(hook, '')) as YamlMap;
+      // 3 shard + 1 integration-profile + 2 patrol attempts.
+      expect(hook.allMatches(src).length, 6);
+      final cut =
+          loadYaml(
+                src.replaceFirst(
+                  '          # why: docs/ci/emulator-integration.md#emulator-device-loss\n'
+                      '          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan\n'
+                      '          # Repairs a platform-tools install left without adb (else boot poll + 35-min idle).\n'
+                      '          # why: docs/ci/emulator-integration.md#adb-missing\n'
+                      '$hook',
+                  '          # why: docs/ci/emulator-integration.md#emulator-device-loss\n'
+                      '          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan\n',
+                ),
+              )
+              as YamlMap;
       expect(
         missing((cut['jobs'] as YamlMap)['integration-shard'] as YamlMap),
         hasLength(1),
@@ -2390,7 +2403,11 @@ void main() {
         ])
           if (l.contains('why:')) l,
       ];
-      expect(whys.length, 7, reason: 'script + 3 shard + 3 entry attempts');
+      expect(
+        whys.length,
+        10,
+        reason: 'script + 3 shard + 3 entry + 1 profile + 2 patrol attempts',
+      );
       for (final l in whys) {
         final m = ptr.firstMatch(l);
         expect(m, isNotNull, reason: l);
@@ -2460,6 +2477,77 @@ void main() {
         missing((cut['jobs'] as YamlMap)['integration'] as YamlMap),
         hasLength(1),
       );
+    });
+
+    test('Scope 8a: EVERY android-emulator-runner step in EVERY workflow '
+        'carries the adb-missing hook in the form its job\'s script: trusts '
+        '(base-owned trusted/ for `integration`, PR tree elsewhere)', () {
+      const trustedHook =
+          r't="$GITHUB_WORKSPACE/trusted/tool/ci/ensure_adb.sh"; '
+          r'test ! -f "$t" || bash "$t"';
+      const prHook = 'bash tool/ci/ensure_adb.sh';
+      // Jobs whose emulator script: runs base-owned trusted/ code.
+      const trustedJobs = {'integration'};
+      List<String> missing(String file, YamlMap doc) {
+        final out = <String>[];
+        ((doc['jobs'] as YamlMap?) ?? YamlMap()).forEach((name, job) {
+          for (final st
+              in ((job as YamlMap)['steps'] as YamlList? ?? YamlList())
+                  .cast<YamlMap>()) {
+            if (!st['uses'].toString().startsWith(
+              'reactivecircus/android-emulator-runner@',
+            )) {
+              continue;
+            }
+            final want = trustedJobs.contains(name) ? trustedHook : prHook;
+            final got = (st['with'] as YamlMap?)?['pre-emulator-launch-script'];
+            if (got != want) out.add('$file/$name: ${st['name']}');
+          }
+        });
+        return out;
+      }
+
+      final dir = wfFile.parent;
+      final files =
+          dir
+              .listSync()
+              .whereType<File>()
+              .where((f) => RegExp(r'\.ya?ml$').hasMatch(f.path))
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path));
+      var steps = 0;
+      for (final f in files) {
+        final src = f.readAsStringSync();
+        steps += 'reactivecircus/android-emulator-runner@'
+            .allMatches(src)
+            .length;
+        final doc = loadYaml(src);
+        if (doc is! YamlMap) continue;
+        expect(missing(p.basename(f.path), doc), isEmpty);
+      }
+      // Guards against the scan silently matching nothing.
+      expect(steps, 9, reason: '3 entry + 3 shard + 1 profile + 2 patrol');
+      // Falsified: dropping the integration-profile hook is red.
+      final src = wfFile.readAsStringSync();
+      const profileHook =
+          '          profile: pixel_6\n'
+          '          # Repairs a platform-tools install left without adb (else boot poll + long idle).\n'
+          '          # why: docs/ci/emulator-integration.md#adb-missing\n'
+          '          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh\n'
+          '          # AOT, asserts stripped.';
+      expect(profileHook.allMatches(src).length, 1);
+      final cut =
+          loadYaml(
+                src.replaceFirst(
+                  profileHook,
+                  '          profile: pixel_6\n          # AOT, asserts stripped.',
+                ),
+              )
+              as YamlMap;
+      expect(missing('pr-validate.yml', cut), [
+        'pr-validate.yml/integration-profile: '
+            'Run logout flow in profile mode on emulator',
+      ]);
     });
 
     test('every secret/keystore decode writes under \$RUNNER_TEMP and is '
