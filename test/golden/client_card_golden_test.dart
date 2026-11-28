@@ -18,7 +18,7 @@
 //     (2026-11-22): owner master mode (route masterId = the owner's own row,
 //     servedByMasters salon-wide INCLUDING that row) → NO chip row
 //   • client_rating_comments_360_1x        — M545: the «Коментарі» section
-//     (own «Ваш коментар» row without «⋮», an anonymous row with «⋮», visit
+//     (M572 dense rows: own «Ваш коментар» tag + «⋮», an anonymous row with «⋮», visit
 //     month in the date slot, no avatar / author)
 // M545 moves client_rating_rated_360_1x / client_rating_unrated_360_1x: the
 // note text changed (CLI-60) — confined to the note line.
@@ -184,6 +184,9 @@ class _Repo implements ClientRepository {
 
 /// M545 — one fixed page of comments.
 class _Comments implements ClientCommentsRepository {
+  @override
+  Future<void> deleteOwnReview(String reviewId) async {}
+
   const _Comments(this.items);
 
   final List<ClientReviewComment> items;

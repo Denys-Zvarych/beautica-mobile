@@ -12,6 +12,9 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
@@ -20,6 +23,7 @@ import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_rating_screen.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/delete_client_rating_dialog.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
@@ -29,6 +33,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/public_profile_skeleton.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -50,6 +55,7 @@ class _Repo implements ClientRepository {
   final ClientCard card;
 
   int cardCalls = 0;
+  int listCalls = 0;
 
   /// When set, the card request throws it.
   Failure? cardFailure;
@@ -87,7 +93,15 @@ class _Repo implements ClientRepository {
     int page = 0,
     int size = kClientPageSize,
     CancelToken? cancelToken,
-  }) => throw UnimplementedError();
+  }) async {
+    listCalls++;
+    return PageResponse<ClientSummary>(
+      items: const <ClientSummary>[],
+      page: page,
+      totalPages: 1,
+      totalElements: 0,
+    );
+  }
 
   @override
   Future<void> removeFromList(ClientListScope scope, ClientRef client) =>
@@ -101,9 +115,25 @@ class _Repo implements ClientRepository {
 /// M545 — the comments seam: [all] served in pages of [kClientPageSize];
 /// a page listed in [failPages] throws a [NetworkFailure] once.
 class _Comments implements ClientCommentsRepository {
+  final List<String> deleted = <String>[];
+  Object? deleteError;
+
+  @override
+  Future<void> deleteOwnReview(String reviewId) async {
+    deleted.add(reviewId);
+    final Object? e = deleteError;
+    // The server's truth after the call: gone on success AND on a 404.
+    if (e == null || e is NotFoundFailure) {
+      all = all
+          .where((ClientReviewComment c) => c.reviewId != reviewId)
+          .toList();
+    }
+    if (e != null) throw e;
+  }
+
   _Comments([this.all = const <ClientReviewComment>[], this.serveSize]);
 
-  final List<ClientReviewComment> all;
+  List<ClientReviewComment> all;
 
   /// Overrides the requested page size (a short page that fits the viewport).
   final int? serveSize;
@@ -162,6 +192,8 @@ Future<_Repo> _pump(
   UserRole role = UserRole.independentMaster,
   _Comments? comments,
   FakeContentReportRepository? reports,
+  void Function(GoRouter router)? onRouter,
+  List<Object> extraOverrides = const <Object>[],
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1.0;
@@ -178,9 +210,15 @@ Future<_Repo> _pump(
         builder: (BuildContext context, GoRouterState state) =>
             ClientRatingScreen(scope: _scope, client: client),
       ),
+      GoRoute(
+        path: '/away',
+        builder: (BuildContext context, GoRouterState state) =>
+            const SizedBox.shrink(),
+      ),
     ],
   );
   addTearDown(router.dispose);
+  onRouter?.call(router);
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
@@ -192,6 +230,7 @@ Future<_Repo> _pump(
         reports ?? FakeContentReportRepository(),
       ),
       authProvider.overrideWith(() => FixedRoleAuth(role)),
+      ...extraOverrides,
     ],
     retry: (_, _) => null,
   );
@@ -466,7 +505,9 @@ void main() {
       expect(more(1), findsOneWidget);
     });
 
-    testWidgets('E3: own comment → «Ваш коментар», no «⋮»', (tester) async {
+    testWidgets('E3: own comment → «Ваш коментар» tag and a «⋮» (M572)', (
+      tester,
+    ) async {
       await _pump(
         tester,
         _Repo(card: _rated),
@@ -482,7 +523,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(more(1), findsNothing);
+      expect(more(1), findsOneWidget);
       expect(more(2), findsOneWidget);
     });
 
@@ -515,6 +556,341 @@ void main() {
       );
       expect(more(1), findsNothing);
       expect(more(2), findsOneWidget);
+    });
+
+    // ---- M572 (CLI-102, REV-45): delete own rating ------------------------
+
+    Finder confirm() => find.byKey(DeleteClientRatingDialog.confirmKey);
+
+    testWidgets('own «⋮» → confirm → deleteOwnReview, row gone, snack', (
+      tester,
+    ) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+        _comment(2),
+      ]);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      expect(find.byType(DeleteClientRatingDialog), findsOneWidget);
+      expect(find.text(_l10n(tester).clientRatingDeleteBody), findsOneWidget);
+      await tester.tap(confirm());
+      await tester.pumpAndSettle();
+      expect(comments.deleted, <String>['r-1']);
+      expect(row(1), findsNothing);
+      expect(row(2), findsOneWidget);
+      expect(find.text(_l10n(tester).clientRatingDeleted), findsOneWidget);
+    });
+
+    testWidgets('an own row at rest has no ClipRect (its shadows are never '
+        'clipped)', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: _rated),
+        comments: _Comments(<ClientReviewComment>[_comment(1, own: true)]),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('client-comment-row-r-1')),
+          matching: find.byType(ClipRect),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('cancel → no delete call, row stays', (tester) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+      ]);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(DeleteClientRatingDialog.cancelKey));
+      await tester.pumpAndSettle();
+      expect(comments.deleted, isEmpty);
+      expect(row(1), findsOneWidget);
+    });
+
+    testWidgets('delete failure → the row comes back + an error snack', (
+      tester,
+    ) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+        _comment(2),
+      ])..deleteError = const NetworkFailure();
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(confirm());
+      await tester.pumpAndSettle();
+      expect(comments.deleted, <String>['r-1']);
+      expect(row(1), findsOneWidget);
+      expect(find.text(_l10n(tester).clientRatingDeleted), findsNothing);
+      expect(
+        find.text(
+          const NetworkFailure().userMessage(
+            tester.element(find.byType(ClientRatingScreen)),
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('404 → the row stays dropped, no success snack', (
+      tester,
+    ) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+        _comment(2),
+      ])..deleteError = const NotFoundFailure();
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(confirm());
+      await tester.pumpAndSettle();
+      expect(row(1), findsNothing);
+      expect(find.text(_l10n(tester).clientRatingDeleted), findsNothing);
+    });
+
+    testWidgets('reduced motion: the row leaves at once, no collapse timer', (
+      tester,
+    ) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+        _comment(2),
+      ]);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(confirm());
+      await tester.pump();
+      await tester.pump();
+      expect(row(1), findsNothing);
+      expect(row(2), findsOneWidget);
+    });
+
+    testWidgets('the row collapses out (still mounted mid-collapse), then '
+        'leaves', (tester) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+        _comment(2),
+      ]);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(confirm());
+      await tester.pump(); // dialog closes, call resolves
+      // fixed-wait-ok: a sample at the collapse's midpoint (140 of 280 ms) IS
+      // the assertion — the row must still be mounted while it collapses.
+      await tester.pump(const Duration(milliseconds: 140));
+      expect(
+        find.byKey(const ValueKey<String>('client-comment-row-r-1')),
+        findsOneWidget,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('client-comment-row-r-1')),
+        findsNothing,
+      );
+    });
+
+    List<Object> countingOverrides(Map<String, int> builds) => <Object>[
+      pendingBookingActionsCountProvider.overrideWith((ref, scope) async {
+        builds['pending'] = (builds['pending'] ?? 0) + 1;
+        return 0;
+      }),
+      bookingDetailProvider.overrideWith((ref, id) async {
+        builds['detail'] = (builds['detail'] ?? 0) + 1;
+        throw const NotFoundFailure();
+      }),
+    ];
+
+    testWidgets('success re-reads card, list, pending count and booking '
+        'detail — NOT the comments', (tester) async {
+      final Map<String, int> builds = <String, int>{};
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+        _comment(2),
+      ]);
+      final _Repo repo = _Repo(card: _rated);
+      await _pump(
+        tester,
+        repo,
+        comments: comments,
+        extraOverrides: countingOverrides(builds),
+      );
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(ClientRatingScreen)),
+        listen: false,
+      );
+      final List<ProviderSubscription<Object?>> subs =
+          <ProviderSubscription<Object?>>[
+            container.listen(
+              pendingBookingActionsCountProvider(
+                const PendingActionsScope.me(asMaster: true),
+              ),
+              (_, _) {},
+            ),
+            container.listen(bookingDetailProvider('b-1'), (_, _) {}),
+            container.listen(clientListControllerProvider(_scope), (_, _) {}),
+          ];
+      addTearDown(() {
+        for (final ProviderSubscription<Object?> sub in subs) {
+          sub.close();
+        }
+      });
+      await tester.pumpAndSettle();
+      final int cardBefore = repo.cardCalls;
+      final int pendingBefore = builds['pending'] ?? 0;
+      final int detailBefore = builds['detail'] ?? 0;
+      final int listBefore = repo.listCalls;
+
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(confirm());
+      await tester.pumpAndSettle();
+
+      expect(row(1), findsNothing);
+      expect(repo.cardCalls, cardBefore + 1);
+      expect(builds['pending'], pendingBefore + 1);
+      expect(builds['detail'], detailBefore + 1);
+      expect(repo.listCalls, listBefore + 1);
+      expect(comments.pages, <int>[0]); // never refetched
+    });
+
+    testWidgets('the invalidations still happen when the screen is popped '
+        'mid-collapse', (tester) async {
+      final Map<String, int> builds = <String, int>{};
+      late GoRouter router;
+      final _Comments comments = _Comments(<ClientReviewComment>[
+        _comment(1, own: true),
+      ]);
+      final _Repo repo = _Repo(card: _rated);
+      await _pump(
+        tester,
+        repo,
+        comments: comments,
+        onRouter: (GoRouter r) => router = r,
+        extraOverrides: countingOverrides(builds),
+      );
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(ClientRatingScreen)),
+        listen: false,
+      );
+      final ProviderSubscription<Object?> sub = container.listen(
+        bookingDetailProvider('b-1'),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await tester.pumpAndSettle();
+      final int cardBefore = repo.cardCalls;
+      final int detailBefore = builds['detail'] ?? 0;
+
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(confirm());
+      await tester.pump(); // the call resolves, the collapse starts
+      router.go('/away'); // the screen leaves mid-collapse
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ClientRatingScreen), findsNothing);
+      expect(builds['detail'], detailBefore + 1);
+      expect(comments.deleted, <String>['r-1']);
+      // The card re-read happened although the screen left mid-collapse.
+      expect(repo.cardCalls, cardBefore + 1);
+    });
+
+    testWidgets('an EXPANDED own comment stays expanded once the collapse '
+        'starts (no re-clamp)', (tester) async {
+      final String long = List<String>.filled(40, 'довгий').join(' ');
+      await _pump(
+        tester,
+        _Repo(card: _rated),
+        comments: _Comments(<ClientReviewComment>[
+          ClientReviewComment(
+            reviewId: 'r-1',
+            visitYear: 2026,
+            visitMonth: 11,
+            stars: 5,
+            comment: long,
+            own: true,
+          ),
+        ]),
+      );
+      final Finder expand = find.byKey(
+        ReviewCard.expandKey(ClientCommentsSliver.keyPrefix, 'r-1'),
+      );
+      final Finder text = find.byKey(
+        ReviewCard.textKey(ClientCommentsSliver.keyPrefix, 'r-1'),
+      );
+      await tester.tap(expand);
+      await tester.pumpAndSettle();
+      expect(expand, findsNothing);
+
+      await tester.tap(more(1));
+      await tester.pumpAndSettle();
+      await tester.tap(confirm());
+      await tester.pump(); // the call resolves, the collapse starts
+      // fixed-wait-ok: a sample early in the 280 ms collapse IS the assertion
+      // — the row is mid-collapse and must not have re-clamped.
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(
+        find.byKey(const ValueKey<String>('client-comment-row-r-1')),
+        findsOneWidget,
+      );
+      expect(expand, findsNothing);
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(of: text, matching: find.byType(Text)).first,
+            )
+            .maxLines,
+        isNull,
+      );
+    });
+
+    testWidgets('a non-own row never offers delete (report sheet only)', (
+      tester,
+    ) async {
+      final _Comments comments = _Comments(<ClientReviewComment>[_comment(3)]);
+      await _pump(tester, _Repo(card: _rated), comments: comments);
+      await tester.tap(more(3));
+      await tester.pumpAndSettle();
+      expect(find.byType(DeleteClientRatingDialog), findsNothing);
+      expect(find.byType(ReportSheet), findsOneWidget);
+      expect(comments.deleted, isEmpty);
+    });
+
+    testWidgets('a long comment clamps at 3 lines; «Ще» expands in place', (
+      tester,
+    ) async {
+      final String long = List<String>.filled(40, 'довгий').join(' ');
+      await _pump(
+        tester,
+        _Repo(card: _rated),
+        comments: _Comments(<ClientReviewComment>[
+          ClientReviewComment(
+            reviewId: 'r-9',
+            visitYear: 2026,
+            visitMonth: 11,
+            stars: 5,
+            comment: long,
+            own: false,
+          ),
+        ]),
+      );
+      final Finder expand = find.byKey(
+        ReviewCard.expandKey(ClientCommentsSliver.keyPrefix, 'r-9'),
+      );
+      expect(expand, findsOneWidget);
+      await tester.tap(expand);
+      await tester.pumpAndSettle();
+      expect(expand, findsNothing);
     });
 
     testWidgets('25 comments: page 2 loads on scroll', (tester) async {
