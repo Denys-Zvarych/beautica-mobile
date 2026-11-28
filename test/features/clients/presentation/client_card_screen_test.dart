@@ -2052,13 +2052,14 @@ void main() {
         await tester.tap(book());
         await tester.pump();
         expect(launched, <ClientPrefill>[
-          const ClientPrefill(
+          ClientPrefill(
             firstName: 'Оксана',
             lastName: 'Мельник',
             phone: _phone,
             avatarUrl: photo,
             rating: 4.9,
             ratingCount: 12,
+            ref: client,
           ),
         ]);
         // M554 / CLI-D16 — the card's photo + rating ride along.
@@ -2108,7 +2109,12 @@ void main() {
       await tester.tap(book());
       await tester.pump();
       expect(launched, <ClientPrefill>[
-        const ClientPrefill(phone: _phone, rating: 4.9, ratingCount: 12),
+        const ClientPrefill(
+          phone: _phone,
+          rating: 4.9,
+          ratingCount: 12,
+          ref: _gst,
+        ),
       ]);
       // No photo on the card → none in the prefill; the rating still rides.
       expect(launched.single.avatarUrl, isNull);
@@ -2190,6 +2196,7 @@ void main() {
           phone: _phone,
           rating: 4.9,
           ratingCount: 12,
+          ref: _reg,
         ),
       ]);
       expect(launched.single.avatarUrl, isNull);

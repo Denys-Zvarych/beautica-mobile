@@ -75,5 +75,5 @@ abstract class ClientPrefill with _$ClientPrefill {
       part == null || part.trim().isEmpty ? null : part;
 
   @override
-  String toString() => 'ClientPrefill()';
+  String toString() => 'ClientPrefill(${ref?.runtimeType})';
 }
