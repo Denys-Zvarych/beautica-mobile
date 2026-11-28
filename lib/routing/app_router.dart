@@ -1094,7 +1094,7 @@ GoRouter appRouter(Ref ref) {
                       (id) => BookingDetailScreen(bookingId: id),
                     ),
                     routes: [
-                      // Phase 14.6 — «ВІДГУК ПРО МАЙСТРА» (leave-review),
+                      // Phase 14.6 — «Відгук про майстра» (leave-review),
                       // nested under the detail so it pushes onto the Записи
                       // branch's own navigator (swipe-back returns to the
                       // detail). Reached from the detail's `canReview` entry CTA
@@ -2455,6 +2455,9 @@ GoRouter appRouter(Ref ref) {
                     guest: guest,
                     // Phase 487 — `?at=` forwarded by the guest step.
                     seed: _createSeedOf(state),
+                    // M569 — the walk-in confirm / done strips open the
+                    // master's own client card (CLI-D20).
+                    clientCardBase: RouteNames.masterClients,
                   ),
                   _ => const _MissingRouteExtra(
                     fallbackRoute: RouteNames.masterBookingNew,
@@ -2732,6 +2735,10 @@ GoRouter appRouter(Ref ref) {
               final ClientReviewEntry entry => entry,
               _ => ClientReviewEntry.bookingDetail,
             },
+            // M569 — the compose strip opens the salon-scoped client card
+            // (the booking's own salon), as on the detail route above.
+            clientCardBase: (String? salonId) =>
+                salonId == null ? null : RouteNames.salonClients(salonId),
           ),
         ),
       ),
@@ -2798,6 +2805,8 @@ GoRouter appRouter(Ref ref) {
               final ClientReviewEntry entry => entry,
               _ => ClientReviewEntry.bookingDetail,
             },
+            // M569 — the compose strip opens the master's own client card.
+            clientCardBase: (_) => RouteNames.masterClients,
           ),
         ),
       ),
@@ -3505,6 +3514,8 @@ GoRouter appRouter(Ref ref) {
               final ClientReviewEntry entry => entry,
               _ => ClientReviewEntry.bookingDetail,
             },
+            // M569 — the compose strip opens the salon master's own card.
+            clientCardBase: (_) => RouteNames.salonMasterClients,
           ),
         ),
       ),

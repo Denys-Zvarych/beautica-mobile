@@ -1,7 +1,13 @@
-// The CLIENT as a provider sees them — photo (monogram fallback), name, a
-// and the client's ★ rating (em-dash when unreviewed; none at all for a guest,
-// who has no account to be rated). No client-kind label for any client
-// (CLI-100 / CLI-D19, M568).
+// The CLIENT as a provider sees them — photo (monogram fallback), name and
+// the client's ★ rating (em-dash when unreviewed or unknown) for EVERY client
+// kind: registered, LINK guest and STAFF walk-in (a guest's is phone-keyed,
+// REV-D04 / B546). No client-kind label for any client (CLI-100 / CLI-D19,
+// M568).
+//
+// M569 (CLI-101 / CLI-D20): the ONE client widget on every provider booking
+// page. The former `isGuest` flag (which hid the ★ for guests) is gone — no
+// caller set it any more — and [BookingClientStrip.fromBooking] gained an
+// ADDITIVE `details` sub-line (the compose screen's «Послуга · дата»).
 //
 // PROMOTED (2026-11-14) from `booking_counterparty_header.dart`'s private
 // `_ClientStrip`, so the provider RESCHEDULE confirm screen («Підтвердження»)
@@ -55,7 +61,6 @@ class BookingClientStrip extends StatelessWidget {
     this.initials,
     this.rating,
     this.reviewCount = 0,
-    this.isGuest = false,
     this.dimmed = false,
     this.topLabel,
     this.shellKey = defaultShellKey,
@@ -73,8 +78,10 @@ class BookingClientStrip extends StatelessWidget {
   /// picked existing client — [avatarUrl] / [rating] / [reviewCount]. A
   /// hand-typed walk-in has none of those: the strip falls back to the
   /// name's monogram and the «—» readout, exactly like a guest row of the
-  /// «Клієнти» list (CLI-47). [isGuest] stays `false` on purpose: that flag
-  /// hides the rating readout, which a picked client keeps.
+  /// «Клієнти» list (CLI-47).
+  ///
+  /// [onTap] (ADDITIVE, M569): the picked client's card route — `null` (a
+  /// hand-typed or edited walk-in, which has no card yet, CLI-D20) is inert.
   factory BookingClientStrip.walkIn({
     Key? key,
     required String firstName,
@@ -86,6 +93,7 @@ class BookingClientStrip extends StatelessWidget {
     String? topLabel,
     Key shellKey = defaultShellKey,
     Key avatarImageKey = defaultAvatarImageKey,
+    VoidCallback? onTap,
   }) {
     final String name = '$firstName $lastName'.trim();
     final String? shownPhone = (phone == null || phone.isEmpty) ? null : phone;
@@ -108,6 +116,7 @@ class BookingClientStrip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
       semanticsDetail: shownPhone,
+      onTap: onTap,
     );
   }
 
@@ -124,22 +133,27 @@ class BookingClientStrip extends StatelessWidget {
 
   /// The «Деталі запису» render of [booking]'s client — the exact derivation
   /// the private `_ClientStrip` used before the promotion.
+  ///
+  /// [details] (ADDITIVE, M569): a sub-line under the name (the compose
+  /// screen's «Послуга · дата») with [semanticsDetail] appended to the spoken
+  /// label. Both `null` (every other caller) render exactly as before.
   factory BookingClientStrip.fromBooking(
     Booking booking, {
     Key? key,
     VoidCallback? onTap,
     bool avatarPreviewOnTap = false,
     PhotoViewerReport? avatarPreviewReport,
+    Widget? details,
+    String? semanticsDetail,
   }) => BookingClientStrip(
     key: key,
     name: booking.clientName,
     avatarUrl: booking.clientAvatarUrl,
     initials: booking.clientInitials,
     rating: booking.clientDisplayRating,
+    // ★ for every client kind (CLI-101): since B546 a guest's phone-keyed
+    // rating rides `clientAvgRating` / `clientReviewCount`; `null` / 0 → «—».
     reviewCount: booking.clientReviewCount ?? 0,
-    // Guest = an actual guest booking (`client_id IS NULL`) — never merely
-    // because a name is missing. Hides the rating; no label (CLI-100).
-    isGuest: booking.isGuestBooking,
     // A cancelled/declined booking's counterparty is dimmed — the same
     // `Opacity(0.7)` treatment the master strip gets.
     dimmed:
@@ -150,6 +164,8 @@ class BookingClientStrip extends StatelessWidget {
     onTap: onTap,
     avatarPreviewOnTap: avatarPreviewOnTap,
     avatarPreviewReport: avatarPreviewReport,
+    details: details,
+    semanticsDetail: semanticsDetail,
   );
 
   static const Key defaultShellKey = Key('booking-detail-client-strip');
@@ -175,13 +191,9 @@ class BookingClientStrip extends StatelessWidget {
   final String? initials;
 
   /// Already display-normalized (`BookingDisplayX.clientDisplayRating`);
-  /// `null` = unreviewed (em-dash). Ignored when [isGuest].
+  /// `null` = unreviewed or unknown (em-dash), for every client kind.
   final double? rating;
   final int reviewCount;
-
-  /// Guest booking (no client account): no rating, name-only semantics. No
-  /// client-kind label (CLI-100, M568).
-  final bool isGuest;
 
   /// Dead (cancelled/declined) booking: `Opacity(0.7)`.
   final bool dimmed;
@@ -203,7 +215,7 @@ class BookingClientStrip extends StatelessWidget {
   final VoidCallback? onTap;
 
   /// ADDITIVE (M509): replaces the computed screen-reader label. `null` keeps
-  /// the label derived from [name] / [rating] / [isGuest].
+  /// the label derived from [name] / [rating].
   final String? semanticsLabel;
 
   /// ADDITIVE (2026-11-25): appended to the COMPUTED screen-reader label
@@ -220,8 +232,6 @@ class BookingClientStrip extends StatelessWidget {
     final String computed;
     if (semanticsLabel != null) {
       computed = semanticsLabel!;
-    } else if (isGuest) {
-      computed = l10n.bookingDetailClientSemantics(displayName);
     } else if (rating == null) {
       // Unreviewed: spoken as plain "no reviews yet", never «Рейтинг —». The
       // visible readout keeps its em-dash.
@@ -264,9 +274,10 @@ class BookingClientStrip extends StatelessWidget {
         avatarPreviewOnTap: avatarPreviewOnTap,
         avatarPreviewReport: avatarPreviewReport,
         middleLine: middle,
-        trailing: isGuest
-            ? null
-            : MasterRatingReadout(avgRating: rating, reviewCount: reviewCount),
+        trailing: MasterRatingReadout(
+          avgRating: rating,
+          reviewCount: reviewCount,
+        ),
         onTap: onTap,
       ),
     );

@@ -4981,7 +4981,7 @@
   "@bookingDetailCompleteCta": {
     "description": "Track 27.x Wave A — PROVIDER footer primary action on a CONFIRMED booking whose appointment has started (Booking.hasStarted), shown alongside bookingDetailDeclineCta; opens the complete confirmation."
   },
-  "reviewScreenTitle": "ВІДГУК ПРО МАЙСТРА",
+  "reviewScreenTitle": "Відгук про майстра",
   "@reviewScreenTitle": {
     "description": "Top-bar title of the leave-review screen (Phase 14.6)."
   },
@@ -5151,10 +5151,6 @@
   "clientReviewCommentHint": "Додайте коментар (необов’язково)",
   "@clientReviewCommentHint": {
     "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
-  },
-  "clientReviewRoleLabel": "Клієнт",
-  "@clientReviewRoleLabel": {
-    "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
   },
   "clientReviewSubmitCta": "Надіслати відгук",
   "@clientReviewSubmitCta": {

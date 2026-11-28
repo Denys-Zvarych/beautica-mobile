@@ -55,6 +55,8 @@ class BookingCounterpartyHeader extends StatelessWidget {
     required this.viewer,
     this.showPerformingMaster = false,
     this.onOpenClient,
+    this.clientDetails,
+    this.clientSemanticsDetail,
   });
 
   final Booking booking;
@@ -70,6 +72,14 @@ class BookingCounterpartyHeader extends StatelessWidget {
   /// card. `null` (the default) leaves the strip inert; ignored on the client
   /// branch.
   final VoidCallback? onOpenClient;
+
+  /// ADDITIVE (M569): provider branch only — a sub-line under the client's
+  /// name (the client-review compose's «Послуга · дата»), forwarded to
+  /// [BookingClientStrip.fromBooking]'s `details`, with
+  /// [clientSemanticsDetail] appended to its spoken label. `null` (every
+  /// other caller) renders exactly as before.
+  final Widget? clientDetails;
+  final String? clientSemanticsDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +102,8 @@ class BookingCounterpartyHeader extends StatelessWidget {
         onTap: onOpenClient,
         avatarPreviewOnTap: true,
         avatarPreviewReport: clientReport,
+        details: clientDetails,
+        semanticsDetail: clientSemanticsDetail,
       );
     }
     return Column(
@@ -103,6 +115,8 @@ class BookingCounterpartyHeader extends StatelessWidget {
           onTap: onOpenClient,
           avatarPreviewOnTap: true,
           avatarPreviewReport: clientReport,
+          details: clientDetails,
+          semanticsDetail: clientSemanticsDetail,
         ),
         const SizedBox(height: VelvetSpacing.sm),
         _PerformingMasterStrip(booking: booking),

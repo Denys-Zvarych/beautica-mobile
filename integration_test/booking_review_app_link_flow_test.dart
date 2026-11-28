@@ -13,7 +13,7 @@
 // message into the real router tree and asserts where go_router + authRedirect
 // land it:
 //
-//   • signed-in CLIENT → «ВІДГУК ПРО МАЙСТРА» (LeaveReviewScreen) for the
+//   • signed-in CLIENT → «Відгук про майстра» (LeaveReviewScreen) for the
 //     linked booking, both for the full https URL and for a path-only route;
 //   • signed-out visitor → /login (the CLIENT-only `/bookings` gate holds; the
 //     review screen never renders for an anonymous session).
@@ -98,7 +98,7 @@ void main() {
       expect(
         find.byType(LeaveReviewScreen),
         findsOneWidget,
-        reason: 'the App Link must land on «ВІДГУК ПРО МАЙСТРА»',
+        reason: 'the App Link must land on «Відгук про майстра»',
       );
       final LeaveReviewScreen screen = tester.widget<LeaveReviewScreen>(
         find.byType(LeaveReviewScreen),

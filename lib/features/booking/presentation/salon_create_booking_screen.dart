@@ -161,6 +161,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart'
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -174,6 +175,7 @@ import '../data/slot_repository.dart' show maxServicesPerVisit;
 import '../domain/appointment.dart';
 import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
+import 'client_card_opener.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
@@ -581,6 +583,14 @@ class _SalonCreateBookingScreenState
           clientAvatarUrl: shown.avatarUrl,
           clientRating: shown.rating,
           clientReviewCount: shown.ratingCount,
+          // M569 (CLI-D20) — a picked / card-launched client whose name,
+          // surname and phone are unchanged opens their salon card on top;
+          // a hand-typed or edited one has no card yet (inert).
+          onOpenClient: clientCardOpener(
+            context,
+            base: RouteNames.salonClients(widget.salonId),
+            ref: shown.clientRef,
+          ),
         );
       case _BookingStep.done:
         // Unreachable — `done` is rendered directly from `build()` below,

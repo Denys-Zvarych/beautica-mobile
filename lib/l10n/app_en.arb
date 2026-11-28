@@ -4975,7 +4975,7 @@
   "@bookingDetailReviewCta": {
     "description": "Pinned action on a COMPLETED booking's detail screen, shown only when canReview is true; opens the leave-review screen (Phase 14.6)."
   },
-  "reviewScreenTitle": "MASTER REVIEW",
+  "reviewScreenTitle": "Master review",
   "@reviewScreenTitle": {
     "description": "Top-bar title of the leave-review screen (Phase 14.6)."
   },
@@ -5145,10 +5145,6 @@
   "clientReviewCommentHint": "Add a comment (optional)",
   "@clientReviewCommentHint": {
     "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
-  },
-  "clientReviewRoleLabel": "Client",
-  "@clientReviewRoleLabel": {
-    "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
   },
   "clientReviewSubmitCta": "Send feedback",
   "@clientReviewSubmitCta": {

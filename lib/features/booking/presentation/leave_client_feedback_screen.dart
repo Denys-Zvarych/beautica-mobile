@@ -101,11 +101,12 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import '../application/booking_calendar_invalidation.dart'
     show invalidatePendingBookingActionsCount;
 import '../application/booking_detail_notifier.dart';
+import '../application/booking_viewer_role.dart';
 import '../application/client_review_signal_provider.dart';
 import '../application/leave_client_feedback_notifier.dart';
 import '../domain/booking.dart';
-import '../domain/booking_display_x.dart';
-import 'widgets/client_feedback_card.dart';
+import 'client_card_opener.dart';
+import 'widgets/booking_counterparty_header.dart';
 import 'widgets/master_feedback_card.dart' show ReviewSectionLabel;
 import 'widgets/star_rating_input.dart';
 
@@ -142,9 +143,17 @@ class LeaveClientFeedbackScreen extends ConsumerStatefulWidget {
     super.key,
     required this.bookingId,
     this.entry = ClientReviewEntry.bookingDetail,
+    this.clientCardBase,
   });
 
   final String bookingId;
+
+  /// M569 (CLI-101 / CLI-D20) — the «Клієнти» list base the client strip's
+  /// card hangs under, given the booking's salon id — the SAME route
+  /// parameter as `BookingDetailScreen.clientCardBase` (a route fact, never a
+  /// role flag, decision D5). `null` (the default, and a `null` return)
+  /// keeps the strip inert.
+  final String? Function(String? salonId)? clientCardBase;
 
   /// Which surface pushed this screen — see [ClientReviewEntry] for the one
   /// behaviour it changes and why the default is the conservative direction.
@@ -380,6 +389,13 @@ class _LeaveClientFeedbackScreenState
                     ? const _NotReviewable(popResult: true)
                     : _Form(
                         booking: booking,
+                        // CLI-D20 — the strip opens the client card on top;
+                        // back returns to this form with its input intact.
+                        onOpenClient: clientCardOpener(
+                          context,
+                          base: widget.clientCardBase?.call(booking.salonId),
+                          ref: clientRefOfBooking(booking),
+                        ),
                         comment: _comment,
                         rating: _rating,
                         submitting: submitting,
@@ -512,8 +528,8 @@ class _LoadingFormState extends State<_LoadingForm>
   }
 }
 
-/// Silhouette of [ClientFeedbackCard] — a round avatar well + name/role/
-/// context line wells.
+/// Silhouette of the client strip ([BookingCounterpartyHeader]) — a round
+/// avatar well + name / visit line wells.
 class _ClientCardWell extends StatelessWidget {
   const _ClientCardWell();
 
@@ -522,22 +538,23 @@ class _ClientCardWell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // M569 — the strip's geometry (`MasterStripShell`): 12 dp padding, the
+    // 48 dp avatar, a md gap, then the name + visit sub-line (2 dp apart), so
+    // the real strip replaces this without the form shifting.
     return NeumorphicCard(
       color: _cardColor,
-      padding: const EdgeInsets.all(VelvetSpacing.md),
+      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
       child: Row(
         children: <Widget>[
           const _Well(width: 48, height: 48, radius: 24),
-          const SizedBox(width: VelvetSpacing.sm),
+          const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 _Well(width: _fraction(context, 0.4), height: 15),
-                const SizedBox(height: VelvetSpacing.xs),
-                _Well(width: _fraction(context, 0.22), height: 12),
-                const SizedBox(height: VelvetSpacing.xs),
+                const SizedBox(height: 2),
                 _Well(width: _fraction(context, 0.5), height: 12),
               ],
             ),
@@ -637,6 +654,7 @@ class _Well extends StatelessWidget {
 class _Form extends StatelessWidget {
   const _Form({
     required this.booking,
+    this.onOpenClient,
     required this.comment,
     required this.rating,
     required this.submitting,
@@ -646,9 +664,10 @@ class _Form extends StatelessWidget {
   });
 
   final Booking booking;
+  final VoidCallback? onOpenClient;
   final TextEditingController comment;
   // Scoped via [ValueListenableBuilder] around `_RatingCard` and the submit
-  // CTA below — a star tap must not rebuild `ClientFeedbackCard` or
+  // CTA below — a star tap must not rebuild the client strip or
   // `_CommentCard` (mobile-perf LOW).
   final ValueNotifier<int> rating;
   final bool submitting;
@@ -659,10 +678,6 @@ class _Form extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String? clientName = booking.clientName;
-    final String name = clientName ?? l10n.bookingDetailGuestClient;
-    // No client-kind label for any client (CLI-100, M568).
-    final String roleLabel = l10n.clientReviewRoleLabel;
     final String visitContext =
         '${booking.serviceName} · ${formatFullDate(booking.startAt)}';
 
@@ -681,11 +696,25 @@ class _Form extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                ClientFeedbackCard(
-                  name: name,
-                  roleLabel: roleLabel,
-                  visitContext: visitContext,
-                  semanticsLabel: '$name, $visitContext',
+                // M569 (CLI-101 / CLI-D20) — the ONE shared client strip of
+                // every provider booking page (avatar or monogram, name, ★
+                // for every client kind, no kind label), the visit line as
+                // its sub-line (CLI-D20: no second client header widget).
+                BookingCounterpartyHeader(
+                  booking: booking,
+                  // Provider-only screen: every route that mounts it sits
+                  // behind a provider role gate (`/master/*`, `/staff/*`,
+                  // `/salon/*`), so the viewer is always the provider — the
+                  // client branch of the header can never apply here.
+                  viewer: BookingViewerRole.provider,
+                  onOpenClient: onOpenClient,
+                  clientDetails: Text(
+                    visitContext,
+                    style: VelvetText.feedbackMutedSm,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  clientSemanticsDetail: visitContext,
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
                 ValueListenableBuilder<int>(

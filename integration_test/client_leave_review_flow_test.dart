@@ -1,5 +1,5 @@
 // Phase 14.6 (CLIENT leave-review) — E2E: the «МОЇ ЗАПИСИ» → «Деталі запису»
-// → «ВІДГУК ПРО МАЙСТРА» → submit journey.
+// → «Відгук про майстра» → submit journey.
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
@@ -12,7 +12,7 @@
 //   1. CLIENT logs in and opens the Записи branch.
 //   2. A COMPLETED, still-reviewable booking is visible in Минулі («Виконано»).
 //   3. Opening it lands on «Деталі запису» with the «Залишити відгук» CTA.
-//   4. Tapping it PUSHES «ВІДГУК ПРО МАЙСТРА» onto the Записи branch.
+//   4. Tapping it PUSHES «Відгук про майстра» onto the Записи branch.
 //   5. Rating 5 + a comment + submit fires POST /reviews carrying the exact
 //      bookingId/rating/comment, and the server flips the booking's canReview
 //      false.
@@ -146,7 +146,7 @@ void main() {
         reason: 'a reviewable COMPLETED booking must offer «Залишити відгук»',
       );
 
-      // ── 4. Tap it → «ВІДГУК ПРО МАЙСТРА» is pushed. ───────────────────────
+      // ── 4. Tap it → «Відгук про майстра» is pushed. ───────────────────────
       await tester.tap(find.byKey(const Key('booking-detail-leave-review')));
       await AppHarness.settle(tester);
       expect(find.byType(LeaveReviewScreen), findsOneWidget);

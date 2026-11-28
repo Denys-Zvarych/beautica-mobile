@@ -71,6 +71,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
 import 'booking_create_seed.dart';
+import '../../clients/domain/client_summary.dart';
 import 'create_master_booking_request.dart';
 
 part 'booking_slot_picker_args.freezed.dart';
@@ -229,6 +230,17 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// `RouteNames.ownerMasterBookings`, since `/master/*` would bounce a
     /// SALON_OWNER. Inert on every non-walk-in path.
     String? returnRoute,
+
+    /// M569 (CLI-101 / CLI-D20) — the provider's client-card list base
+    /// (`RouteNames.masterClients` / `salonMasterClients` /
+    /// `RouteNames.salonClients(salonId)`) the confirm / done client strips
+    /// open the card under, and [clientCardRef] — the RESCHEDULE target's
+    /// card handle (a walk-in create carries its picked client on
+    /// `WalkInGuest.clientRef` instead). Forwarded unchanged picker →
+    /// confirm → done. ADDITIVE: `null` (every other path) keeps the strips
+    /// inert. In memory only (route `extra`).
+    String? clientCardBase,
+    ClientRef? clientCardRef,
 
     /// Phase 487 — the empty week-grid tap's day + time hint
     /// ([BookingCreateSeed]). `SlotDateScreen` applies it ONCE: opens the

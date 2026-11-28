@@ -128,9 +128,10 @@ extension BookingDisplayX on Booking {
   /// The CLIENT's rating as the provider should see it — the client-side twin
   /// of [masterDisplayRating], folding the same "no rating yet" shapes onto one
   /// `null`: an absent average, a stale `<= 0` average, and a KNOWN zero
-  /// [Booking.clientReviewCount]. A guest booking (null average and count)
-  /// also lands on `null`; the caller decides whether that renders «—» or
-  /// nothing via [isGuestBooking].
+  /// [Booking.clientReviewCount]. A guest booking carries its phone-keyed
+  /// rating here too (B546, REV-D04); an unrated or anonymised one (null
+  /// average and count) lands on `null`, which the strip renders «—»
+  /// (CLI-101).
   double? get clientDisplayRating {
     final double? avg = clientAvgRating;
     if (avg == null || avg <= 0) return null;

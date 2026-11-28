@@ -327,6 +327,7 @@ WalkInGuest walkInGuestFrom({
     avatarUrl: same ? picked.avatarUrl : null,
     rating: same ? picked.rating : null,
     ratingCount: same ? picked.ratingCount : 0,
+    clientRef: same ? picked.ref : null,
   );
 }
 
@@ -931,6 +932,7 @@ class ConfirmStep extends ConsumerWidget {
     this.clientAvatarUrl,
     this.clientRating,
     this.clientReviewCount = 0,
+    this.onOpenClient,
   }) : assert(
          (service == null) != (services == null),
          'ConfirmStep needs exactly one of service (legacy single) or '
@@ -965,6 +967,12 @@ class ConfirmStep extends ConsumerWidget {
   final String? clientAvatarUrl;
   final double? clientRating;
   final int clientReviewCount;
+
+  /// M569 (CLI-D20) — the client strip's tap into the picked client's card.
+  /// The caller passes it only while the typed identity still is the picked
+  /// (or card-launched) client ([walkInGuestFrom]'s `clientRef`); `null` (a
+  /// hand-typed or edited client, which has no card yet) keeps it inert.
+  final VoidCallback? onOpenClient;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1045,6 +1053,7 @@ class ConfirmStep extends ConsumerWidget {
             avatarImageKey: const Key(
               'master-create-booking-guest-avatar-photo',
             ),
+            onTap: onOpenClient,
           ),
           const SizedBox(height: VelvetSpacing.md),
           // WHERE / WHEN / WHAT — the shared booking-details card, the SAME
