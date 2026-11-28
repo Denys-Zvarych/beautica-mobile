@@ -39,6 +39,9 @@ PageResponse<T> _empty<T>(int page) => PageResponse<T>(
 
 /// Counts the first-page read of every client view.
 class _Repo implements ClientRepository, ClientCommentsRepository {
+  @override
+  Future<void> deleteOwnReview(String reviewId) async {}
+
   int listCalls = 0;
   int cardCalls = 0;
   int visitsCalls = 0;

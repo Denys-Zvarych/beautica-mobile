@@ -3,7 +3,7 @@
 //
 //   (a) SALON_OWNER: «Клієнти» → registered card → rating chip → «Коментарі»
 //       lists every comment anonymously (no avatar, no author), with the visit
-//       month; the viewer's own row says «Ваш коментар» and has no «⋮»;
+//       month; the viewer's own row says «Ваш коментар» and has a «⋮» (delete);
 //   (b) the «⋮» on another provider's comment → report sheet → the request is
 //       {CLIENT_REVIEW, that comment's reviewId};
 //   (c) no comments → the section is hidden (the read DID happen);
@@ -11,7 +11,11 @@
 //       renders the last row;
 //   (e) INDEPENDENT_MASTER: a GUEST card reads `/masters/me/clients/guests/
 //       {id}/comments` and lists the comment;
-//   (f) REV-13: a CLIENT on «Мій рейтинг» never calls any `/comments` path.
+//   (f) REV-13: a CLIENT on «Мій рейтинг» never calls any `/comments` path;
+//   (g) M572 / REV-45 / REV-43: INDEPENDENT_MASTER deletes the OWN comment →
+//       confirm → the row leaves, «Оцінку видалено» shows, the average and
+//       count move (also after re-opening the screen), the booking detail
+//       offers «Залишити відгук про клієнта» again and re-rating succeeds.
 //
 // REAL router, REAL `HttpClientRepository` + generated models over the stubbed
 // Dio (`FakeBackend.wireClientCard` serves `…/comments`); only the report seam
@@ -32,10 +36,13 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_rating_screen.dart';
 import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/delete_client_rating_dialog.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_body.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
@@ -44,6 +51,7 @@ import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.da
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +61,7 @@ import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/features/moderation/support/fake_content_report_repository.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
@@ -274,8 +283,8 @@ void main() {
         'Текст c-other', // i18n-finder-ok: fixture comment text
       ]);
       expect(_texts(tester, _comment('c-own')), <String>[
-        _l10n.clientRatingOwnComment,
         _month(2026, 6),
+        _l10n.clientRatingOwnComment,
         'Текст c-own', // i18n-finder-ok: fixture comment text
       ]);
       expect(
@@ -289,8 +298,8 @@ void main() {
             .rating,
         2,
       );
-      // E3 — own: no «⋮»; another provider's: «⋮».
-      expect(_more('c-own'), findsNothing);
+      // E3 / M572 — own: «⋮» (the delete flow); another provider's: «⋮».
+      expect(_more('c-own'), findsOneWidget);
       expect(_more('c-other'), findsOneWidget);
 
       // (b) MOD-41 — report the other comment.
@@ -448,5 +457,206 @@ void main() {
       });
     },
     timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  testWidgets(
+    '(g) M572 INDEPENDENT_MASTER deletes the OWN comment: row gone + snack, '
+    'average/count move (also on re-open), booking detail offers «Залишити '
+    'відгук про клієнта» again and re-rating succeeds',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        const String ownId = '11111111-1111-4111-8111-111111111111';
+        const String otherId = '22222222-2222-4222-8222-222222222222';
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.independentMaster
+          ..bookingStatus = 'COMPLETED'
+          // Already rated by this provider: the CTA is absent until the delete.
+          ..bookingProviderCanReviewClient = false
+          ..wireClientList();
+        final List<String> log = _recordRequests(fb);
+        _seed(
+          fb,
+          _kUser,
+          guest: false,
+          comments: <Map<String, dynamic>>[
+            _row(ownId, own: true, stars: 5, month: '2026-06'),
+            _row(otherId, stars: 4),
+          ],
+        );
+        final GoRouter router = await _openRating(
+          tester,
+          fb,
+          UserRole.independentMaster,
+          'master-nav-tile-3',
+          _kUser,
+        );
+        await AppHarness.pumpUntilFound(tester, _comment(ownId));
+        String avg() =>
+            tester.widget<Text>(find.byKey(RatingBody.averageKey)).data!;
+        String count() =>
+            tester.widget<Text>(find.byKey(RatingBody.countKey)).data!;
+        expect(avg(), '4,5');
+        expect(count(), _l10n.clientRatingCount(2));
+
+        // «⋮» → confirm → DELETE with the exact review id.
+        await AppHarness.tapVisible(tester, _more(ownId));
+        await AppHarness.settle(tester);
+        expect(find.byType(DeleteClientRatingDialog), findsOneWidget);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(DeleteClientRatingDialog.confirmKey),
+        );
+        await AppHarness.pumpUntilGone(tester, _comment(ownId));
+        await AppHarness.settle(tester);
+
+        expect(fb.deleteClientReviewCalls, 1);
+        expect(fb.lastDeletedClientReviewId, ownId);
+        expectVelvetSnack(
+          _l10n.clientRatingDeleted,
+          variant: VelvetSnackVariant.success,
+        );
+        expect(_comment(otherId), findsOneWidget);
+        // The readout re-read the card without the deleted rating.
+        await AppHarness.pumpUntilFound(tester, find.text('4,0'));
+        expect(avg(), '4,0');
+        expect(count(), _l10n.clientRatingCount(1));
+        await pumpPastVelvetSnack(tester);
+
+        // Re-open the rating screen: a real reload agrees.
+        final int commentReads = _commentCalls(log).length;
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientRatingScreen.backKey),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(ClientCardScreen.ratingChipKey),
+        );
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientCardScreen.ratingChipKey),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(RatingBody.averageKey),
+        );
+        await AppHarness.pumpUntilFound(tester, _comment(otherId));
+        expect(_commentCalls(log).length, greaterThan(commentReads));
+        expect(avg(), '4,0');
+        expect(count(), _l10n.clientRatingCount(1));
+        expect(_comment(ownId), findsNothing);
+
+        // REV-43: the booking detail offers the CTA again.
+        const Key cta = Key('booking-detail-leave-client-feedback');
+        unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+        await AppHarness.settle(tester);
+        await AppHarness.pumpUntilFound(tester, find.byKey(cta));
+        expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+        // Re-rating succeeds: a real POST /client-reviews.
+        await tester.tap(find.byKey(cta));
+        await AppHarness.settle(tester);
+        expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
+        await AppHarness.settle(tester);
+        await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+        await AppHarness.settle(tester);
+        expect(fb.createClientReviewCalls, 1);
+        expect(fb.lastClientReviewBookingId, 'booking-1');
+        expect(fb.lastClientReviewRating, 4);
+        expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
+        await pumpPastVelvetSnack(tester);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 180)),
+  );
+
+  testWidgets(
+    '(h) M572 the booking detail stays MOUNTED under the rating screen: '
+    'deleting the own comment re-reads it, so «Залишити відгук про клієнта» '
+    'is back on pop without a re-open',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        const String ownId = '33333333-3333-4333-8333-333333333333';
+        const Key cta = Key('booking-detail-leave-client-feedback');
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.independentMaster
+          ..bookingStatus = 'COMPLETED'
+          ..bookingProviderCanReviewClient = false
+          ..bookingRegisteredClientId = _kUser
+          ..wireClientList();
+        _seed(
+          fb,
+          _kUser,
+          guest: false,
+          comments: <Map<String, dynamic>>[
+            _row(ownId, own: true, stars: 5, month: '2026-06'),
+          ],
+        );
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+        await AppHarness.settle(tester);
+
+        // detail (mounted, no CTA) → client strip → card → rating.
+        unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('booking-detail-client-strip')),
+        );
+        await AppHarness.settle(tester);
+        expect(find.byKey(cta), findsNothing);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('booking-detail-client-strip')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(ClientCardScreen.ratingChipKey),
+        );
+        await AppHarness.settle(tester);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientCardScreen.ratingChipKey),
+        );
+        await AppHarness.pumpUntilFound(tester, _comment(ownId));
+        // The detail is still in the tree underneath (offstage).
+        expect(
+          find.byType(BookingDetailScreen, skipOffstage: false),
+          findsOneWidget,
+        );
+        final int detailReads = fb.getBookingDetailCalls;
+
+        await AppHarness.tapVisible(tester, _more(ownId));
+        await AppHarness.settle(tester);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(DeleteClientRatingDialog.confirmKey),
+        );
+        await AppHarness.pumpUntilGone(tester, _comment(ownId));
+        await AppHarness.settle(tester);
+        expect(fb.deleteClientReviewCalls, 1);
+        await pumpPastVelvetSnack(tester);
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientRatingScreen.backKey),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(ClientCardScreen.backKey),
+        );
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientCardScreen.backKey),
+        );
+        await AppHarness.pumpUntilGone(tester, find.byType(ClientCardScreen));
+
+        // Back on the SAME detail instance: it re-read and offers the CTA.
+        expect(find.byType(BookingDetailScreen), findsOneWidget);
+        await AppHarness.pumpUntilFound(tester, find.byKey(cta));
+        expect(fb.getBookingDetailCalls, greaterThan(detailReads));
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 180)),
   );
 }

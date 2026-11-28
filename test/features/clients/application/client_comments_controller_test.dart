@@ -40,6 +40,19 @@ ClientReviewComment _c(String id) => ClientReviewComment(
 
 /// Serves [pages] verbatim (page i = pages[i]); records every requested page.
 class _Repo implements ClientCommentsRepository {
+  final List<String> deleted = <String>[];
+  Object? deleteError;
+  Completer<void>? deleteGate;
+
+  @override
+  Future<void> deleteOwnReview(String reviewId) async {
+    deleted.add(reviewId);
+    final Completer<void>? g = deleteGate;
+    if (g != null) await g.future;
+    final Object? e = deleteError;
+    if (e != null) throw e;
+  }
+
   _Repo(this.pages);
 
   final List<List<ClientReviewComment>> pages;
@@ -105,6 +118,70 @@ List<String> _ids(ProviderContainer c) => <String>[
 ];
 
 void main() {
+  group('M572 deleteOwn', () {
+    test('success: the repo is called, the list is untouched until '
+        'dropComment', () async {
+      final _Repo repo = _Repo(<List<ClientReviewComment>>[
+        <ClientReviewComment>[_c('a'), _c('b'), _c('c')],
+      ]);
+      final ProviderContainer c = _container(repo);
+      await _load(c);
+
+      expect(await c.read(_provider.notifier).deleteOwn('b'), isTrue);
+      expect(repo.deleted, <String>['b']);
+      expect(_ids(c), <String>['a', 'b', 'c']);
+
+      c.read(_provider.notifier).dropComment('b');
+      expect(_ids(c), <String>['a', 'c']);
+    });
+
+    test('failure: the Failure rethrows and the row stays', () async {
+      final _Repo repo = _Repo(<List<ClientReviewComment>>[
+        <ClientReviewComment>[_c('a'), _c('b'), _c('c')],
+      ])..deleteError = const NetworkFailure();
+      final ProviderContainer c = _container(repo);
+      await _load(c);
+
+      await expectLater(
+        c.read(_provider.notifier).deleteOwn('b'),
+        throwsA(isA<NetworkFailure>()),
+      );
+      expect(_ids(c), <String>['a', 'b', 'c']);
+    });
+
+    test('dropComment returns false when no list is loaded, true once the '
+        'row is removed', () async {
+      final _Repo failing = _Repo(<List<ClientReviewComment>>[
+        <ClientReviewComment>[_c('a')],
+      ])..failOnce.add(0);
+      final ProviderContainer c = _container(failing);
+      await c.read(authProvider.future);
+      final ProviderSubscription<AsyncValue<ClientCommentsState>> sub = c
+          .listen(_provider, (_, _) {});
+      addTearDown(sub.close);
+      await expectLater(
+        c.read(_provider.future),
+        throwsA(isA<NetworkFailure>()),
+      );
+      expect(c.read(_provider.notifier).dropComment('a'), isFalse);
+
+      c.invalidate(_provider);
+      await c.read(_provider.future);
+      expect(c.read(_provider.notifier).dropComment('a'), isTrue);
+      expect(_ids(c), isEmpty);
+    });
+
+    test('404: returns false', () async {
+      final _Repo repo = _Repo(<List<ClientReviewComment>>[
+        <ClientReviewComment>[_c('a'), _c('b')],
+      ])..deleteError = const NotFoundFailure();
+      final ProviderContainer c = _container(repo);
+      await _load(c);
+
+      expect(await c.read(_provider.notifier).deleteOwn('b'), isFalse);
+    });
+  });
+
   test('page 0 → its rows, and hasMore from the server page', () async {
     final _Repo repo = _Repo(<List<ClientReviewComment>>[
       <ClientReviewComment>[_c('a'), _c('b')],

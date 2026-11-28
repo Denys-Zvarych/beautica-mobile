@@ -143,6 +143,9 @@ const AuthSession _providerSession = AuthSession.authenticated(
 /// Counts the client-views reads a review submit must re-trigger.
 class _CountingClientRepository
     implements ClientRepository, ClientCommentsRepository {
+  @override
+  Future<void> deleteOwnReview(String reviewId) async {}
+
   int cardCalls = 0;
   int firstPageCalls = 0;
   int commentsCalls = 0;

@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
+import 'package:beautica_mobile/shared/validators/uuid_validator.dart';
 
 part 'client_repository.g.dart';
 
@@ -134,6 +135,11 @@ abstract interface class ClientCommentsRepository {
     int size = kClientPageSize,
     CancelToken? cancelToken,
   });
+
+  /// M572 (B570, REV-45) — deletes the viewer's OWN client review: the whole
+  /// rating goes, comment included (`DELETE /client-reviews/{reviewId}`).
+  /// Throws a [Failure] ([NotFoundFailure] when it is already gone).
+  Future<void> deleteOwnReview(String reviewId);
 }
 
 /// HTTP implementation of [ClientRepository] and [ClientCommentsRepository].
@@ -143,13 +149,17 @@ abstract interface class ClientCommentsRepository {
 final class HttpClientRepository
     implements ClientRepository, ClientCommentsRepository {
   HttpClientRepository(this._dio)
-    : _api = ProviderClientControllerApi(_dio, standardSerializers);
+    : _api = ProviderClientControllerApi(_dio, standardSerializers),
+      _reviewApi = ClientReviewControllerApi(_dio, standardSerializers);
 
   final Dio _dio;
 
   /// The generated client — used for the B564 removal writes. The reads stay
   /// on [_dio] (flat paging, see the file header).
   final ProviderClientControllerApi _api;
+
+  /// The generated client for the B570 own-review delete.
+  final ClientReviewControllerApi _reviewApi;
 
   @override
   Future<PageResponse<ClientSummary>> list(
@@ -256,6 +266,29 @@ final class HttpClientRepository
   @override
   Future<void> restoreToList(ClientListScope scope, ClientRef client) =>
       _removal(scope, client, restore: true);
+
+  @override
+  Future<void> deleteOwnReview(String reviewId) async {
+    // The generated client puts the id in the path unencoded: a non-UUID never
+    // reaches the network — it is the same outcome as an unknown review.
+    if (!isUuid(reviewId)) throw const NotFoundFailure();
+    try {
+      await _reviewApi.deleteOwn(reviewId: reviewId);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        // Transport metadata only — never the body, the path or an id.
+        log(
+          'deleteOwnReview failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw mapClientDioException(e);
+    }
+  }
 
   /// B564 — the generated removal operations with the generated
   /// [ClientListRemovalRequest] (exactly one of `clientId` /

@@ -110,6 +110,7 @@ Class | Method | HTTP request | Description
 [*ClientControllerApi*](doc/ClientControllerApi.md) | [**getPassport**](doc/ClientControllerApi.md#getpassport) | **GET** /api/v1/clients/me/passport | 
 [*ClientControllerApi*](doc/ClientControllerApi.md) | [**getTimeline**](doc/ClientControllerApi.md#gettimeline) | **GET** /api/v1/clients/me/timeline | 
 [*ClientReviewControllerApi*](doc/ClientReviewControllerApi.md) | [**create**](doc/ClientReviewControllerApi.md#create) | **POST** /api/v1/client-reviews | 
+[*ClientReviewControllerApi*](doc/ClientReviewControllerApi.md) | [**deleteOwn**](doc/ClientReviewControllerApi.md#deleteown) | **DELETE** /api/v1/client-reviews/{reviewId} | 
 [*DashboardControllerApi*](doc/DashboardControllerApi.md) | [**getRevenueSummary**](doc/DashboardControllerApi.md#getrevenuesummary) | **GET** /api/v1/dashboard/revenue | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**registerToken**](doc/DeviceControllerApi.md#registertoken) | **POST** /api/v1/devices/token | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**unregisterToken**](doc/DeviceControllerApi.md#unregistertoken) | **DELETE** /api/v1/devices/token | 

@@ -13577,6 +13577,85 @@ final class FakeBackend {
   /// (a visit without one is kept, so fixtures that never set it are
   /// unaffected). Recorded in [clientCardCalls]. Call AFTER filling the maps.
   ///
+  /// M572 / B570 (REV-45) — `DELETE /client-reviews/{reviewId}` calls.
+  int deleteClientReviewCalls = 0;
+
+  /// The `reviewId` of the last `DELETE /client-reviews/{reviewId}`.
+  String? lastDeletedClientReviewId;
+
+  /// One `DELETE /api/v1/client-reviews/{reviewId}` route per own comment row
+  /// seeded in [clientComments] for [clientId] (the path carries the id, so the
+  /// route is registered per seeded row, like every id-bearing route here; a
+  /// row seeded AFTER [wireClientCard] has no route). Models the server: the
+  /// whole rating goes — the row leaves [clientComments], the card's
+  /// `ratingAvg` / `ratingCount` / `ratingDistribution` and the client row
+  /// are recomputed without it, and `providerCanReviewClient` flips back to
+  /// `true` (REV-43) so the booking detail offers «Залишити відгук про
+  /// клієнта» again.
+  void _wireDeleteOwnClientReviews(String clientId) {
+    for (final Map<String, dynamic> c
+        in clientComments[clientId] ?? <Map<String, dynamic>>[]) {
+      if (c['own'] != true) continue;
+      final String reviewId = '${c['reviewId']}';
+      _adapter.onRoute(
+        '/api/v1/client-reviews/$reviewId',
+        (server) => server.replyCallback(200, (req) {
+          deleteClientReviewCalls++;
+          lastDeletedClientReviewId = reviewId;
+          final List<Map<String, dynamic>> rows =
+              clientComments[clientId] ?? <Map<String, dynamic>>[];
+          rows.removeWhere(
+            (Map<String, dynamic> r) => r['reviewId'] == reviewId,
+          );
+          final int stars = c['stars'] as int;
+          final Map<String, dynamic>? card = clientCards[clientId];
+          if (card != null) {
+            final int count = (card['ratingCount'] as int) - 1;
+            final double? avg = count <= 0
+                ? null
+                : ((card['ratingAvg'] as num) * (count + 1) - stars) / count;
+            clientCards[clientId] = <String, dynamic>{
+              ...card,
+              'ratingAvg': avg,
+              'ratingCount': count,
+              'ratingDistribution': <Map<String, int>>[
+                for (final dynamic b
+                    in card['ratingDistribution'] as List<dynamic>)
+                  if ((b as Map<String, dynamic>)['rating'] == stars &&
+                      (b['count'] as int) > 1)
+                    <String, int>{
+                      'rating': stars,
+                      'count': (b['count'] as int) - 1,
+                    }
+                  else if (b['rating'] != stars)
+                    <String, int>{
+                      'rating': b['rating'] as int,
+                      'count': b['count'] as int,
+                    },
+              ],
+            };
+          }
+          for (int i = 0; i < clientRows.length; i++) {
+            final Map<String, dynamic> row = clientRows[i];
+            if (row['userId'] != clientId &&
+                row['guestBookingId'] != clientId) {
+              continue;
+            }
+            final Map<String, dynamic>? next = clientCards[clientId];
+            clientRows[i] = <String, dynamic>{
+              ...row,
+              'ratingAvg': next?['ratingAvg'],
+              'ratingCount': next?['ratingCount'],
+            };
+          }
+          bookingProviderCanReviewClient = true;
+          return _okVoid;
+        }),
+        request: const Request(method: RequestMethods.delete),
+      );
+    }
+  }
+
   /// B530 / CLI-89 — the card answers `nextVisit` like the server: the visit
   /// (row shape) holding the earliest CONFIRMED item that starts after
   /// [kFixedNow] (the app's pinned clock, M15) among the SAME scoped rows the
@@ -13712,6 +13791,7 @@ final class FakeBackend {
           ),
           request: const Request(method: RequestMethods.get),
         );
+        _wireDeleteOwnClientReviews(id);
       }
     }
 

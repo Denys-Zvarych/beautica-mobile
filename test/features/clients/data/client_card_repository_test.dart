@@ -481,6 +481,35 @@ void main() {
     });
   });
 
+  group('M572 deleteOwnReview', () {
+    test('a valid id → DELETE /client-reviews/{id}', () async {
+      final r = _build(status: 204);
+      await r.repo.deleteOwnReview(_userId);
+      expect(r.adapter.requests.single.method, 'DELETE');
+      expect(
+        r.adapter.requests.single.path,
+        endsWith('/client-reviews/$_userId'),
+      );
+    });
+
+    test('a non-UUID id → NotFoundFailure and NO request', () async {
+      final r = _build(status: 204);
+      await expectLater(
+        r.repo.deleteOwnReview('x/../..?tab='),
+        throwsA(isA<NotFoundFailure>()),
+      );
+      expect(r.adapter.requests, isEmpty);
+    });
+
+    test('a 404 → NotFoundFailure', () async {
+      final r = _build(status: 404, body: <String, Object?>{});
+      await expectLater(
+        r.repo.deleteOwnReview(_userId),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+  });
+
   group('M545 comments', () {
     for (final (
           String name,

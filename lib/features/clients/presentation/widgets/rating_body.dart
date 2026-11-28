@@ -23,7 +23,13 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/clients/application/client_comments_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/delete_client_rating_dialog.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
 import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
@@ -34,6 +40,7 @@ import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/load_more_retry_footer.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 
@@ -181,8 +188,9 @@ class ClientCommentsSliver extends ConsumerWidget {
         clientCommentsControllerProvider(scope, client);
     final AsyncValue<ClientCommentsState> comments = ref.watch(provider);
     return comments.when(
-      // A failed refresh keeps the loaded rows.
+      // A failed refresh keeps the loaded rows, and a reload never blanks them.
       skipError: comments.hasValue,
+      skipLoadingOnReload: true,
       loading: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
       error: (Object e, StackTrace _) => SliverToBoxAdapter(
         child: Padding(
@@ -220,35 +228,42 @@ class ClientCommentsSliver extends ConsumerWidget {
             }
             if (index <= count) {
               final ClientReviewComment c = s.comments[index - 1];
+              final double gap = index == count && !tail ? 0 : _kRowGap;
+              // Own «⋮» → delete the whole rating, the row collapsing out
+              // (M572, REV-45).
+              if (c.own) {
+                return _OwnCommentRow(
+                  key: ValueKey<String>('client-comment-row-${c.reviewId}'),
+                  comment: c,
+                  provider: provider,
+                  bottomGap: gap,
+                );
+              }
               return Padding(
                 key: ValueKey<String>('client-comment-row-${c.reviewId}'),
-                padding: EdgeInsets.only(
-                  bottom: index == count && !tail ? 0 : VelvetSpacing.md,
-                ),
-                child: c.own
-                    ? _commentCard(l10n, c, onMore: null)
-                    // Report once, ever (phase 428): a per-row Consumer so a
-                    // report flips ONE row, never the whole section.
-                    : Consumer(
-                        builder: (BuildContext context, WidgetRef ref, _) =>
-                            _commentCard(
-                              l10n,
-                              c,
-                              onMore:
-                                  watchIsReported(
-                                    ref,
-                                    ReportTargetType.clientReview,
-                                    c.reviewId,
-                                  )
-                                  ? null
-                                  : () => showReportSheet(
-                                      context,
-                                      targetType: ReportTargetType.clientReview,
-                                      targetId: c.reviewId,
-                                      subject: l10n.reportSubjectClientComment,
-                                    ),
-                            ),
+                padding: EdgeInsets.only(bottom: gap),
+                // Report once, ever (phase 428): a per-row Consumer so a
+                // report flips ONE row, never the whole section.
+                child: Consumer(
+                  builder: (BuildContext context, WidgetRef ref, _) =>
+                      _commentCard(
+                        l10n,
+                        c,
+                        onMore:
+                            watchIsReported(
+                              ref,
+                              ReportTargetType.clientReview,
+                              c.reviewId,
+                            )
+                            ? null
+                            : () => showReportSheet(
+                                context,
+                                targetType: ReportTargetType.clientReview,
+                                targetId: c.reviewId,
+                                subject: l10n.reportSubjectClientComment,
+                              ),
                       ),
+                ),
               );
             }
             return s.loadMoreFailed
@@ -296,8 +311,168 @@ String formatCommentVisitMonth(
 /// One `LLLL y` formatter per locale, built once — not per row per build.
 final Map<String, DateFormat> _visitMonthFormats = <String, DateFormat>{};
 
-/// One comment as the shared [ReviewCard]: no avatar, no author — the name
-/// slot carries only «Ваш коментар» on the viewer's own (REV-D10).
+/// The gap between two comment rows (M572 — the compact row's `sm+4`).
+const double _kRowGap = VelvetSpacing.sm + 4;
+
+/// Rows clamp to this many lines; «Ще» expands the rest (M572).
+const int _kCommentCollapsedLines = 3;
+
+/// How long a deleted row takes to collapse out (the M571 preview's value).
+const Duration _kCollapse = Duration(milliseconds: 280);
+
+/// The fade takes the first part of the collapse (the preview's 180 ms).
+const int _kFadeMs = 180;
+
+/// The viewer's own comment row (M572, CLI-102, REV-45): «⋮» → confirm → the
+/// server deletes the whole rating → the row fades and collapses out (the M571
+/// preview's curve and duration; at once under reduced motion) → it is dropped
+/// from the list. The row only leaves AFTER the server said yes, so a failure
+/// leaves it exactly where it was (error snack, no flash). On success (or an
+/// already-gone 404) the views that show the rating are dropped so they
+/// re-read: the card (average and distribution), the «Клієнти» list row, the
+/// archive pending count (BOOK-D11) and every cached booking detail — the
+/// comment is anonymous (REV-44), so its booking is unknown and the whole
+/// family goes, letting `providerCanReviewClient` re-read true (REV-43).
+class _OwnCommentRow extends ConsumerStatefulWidget {
+  const _OwnCommentRow({
+    super.key,
+    required this.comment,
+    required this.provider,
+    required this.bottomGap,
+  });
+
+  final ClientReviewComment comment;
+  final ClientCommentsControllerProvider provider;
+  final double bottomGap;
+
+  @override
+  ConsumerState<_OwnCommentRow> createState() => _OwnCommentRowState();
+}
+
+class _OwnCommentRowState extends ConsumerState<_OwnCommentRow>
+    with SingleTickerProviderStateMixin {
+  /// 1 (visible, at rest) → 0 over [_kCollapse]: drives the size and (its
+  /// last 180 ms) the fade. The tree below is the SAME before and during the
+  /// collapse, so the card's own state (an expanded «Ще») survives it.
+  late final AnimationController _collapse;
+  late final CurvedAnimation _size;
+  late final CurvedAnimation _fade;
+
+  /// A delete is in flight or playing out — a second «⋮» tap does nothing.
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _collapse = AnimationController(
+      vsync: this,
+      duration: _kCollapse,
+      value: 1,
+    );
+    _size = CurvedAnimation(parent: _collapse, curve: Curves.easeInOutCubic);
+    _fade = CurvedAnimation(
+      parent: _collapse,
+      curve: const Interval(1 - _kFadeMs / 280, 1),
+    );
+  }
+
+  @override
+  void dispose() {
+    _size.dispose();
+    _fade.dispose();
+    _collapse.dispose();
+    super.dispose();
+  }
+
+  Future<void> _delete() async {
+    if (_busy) return;
+    final bool? confirmed = await showDeleteClientRatingDialog(context);
+    if (confirmed != true || !mounted || _busy) return;
+    _busy = true;
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    // Captured BEFORE any await: the invalidations below must still run when
+    // the screen is popped during the request or the collapse.
+    final ProviderContainer container = ProviderScope.containerOf(
+      context,
+      listen: false,
+    );
+    final ClientCommentsController controller = ref.read(
+      widget.provider.notifier,
+    );
+    final String reviewId = widget.comment.reviewId;
+    final bool deleted;
+    try {
+      deleted = await controller.deleteOwn(reviewId);
+    } catch (e) {
+      _busy = false;
+      if (!mounted) return;
+      showErrorSnack(
+        context,
+        (e is Failure ? e : UnknownFailure(cause: e)).userMessage(context),
+      );
+      return;
+    }
+    // Gone on the server (deleted or already gone): the views that show the
+    // rating re-read now. NOT the comments family — [dropComment] removes the
+    // row locally, and a refetch would drop the loaded pages — and NOT the
+    // visits (a deleted rating changes none).
+    container.invalidate(clientCardProvider);
+    container.invalidate(clientListControllerProvider);
+    container.invalidate(pendingBookingActionsCountProvider);
+    container.invalidate(bookingDetailProvider);
+    if (!mounted) {
+      // The row is already gone from the tree: drop it from the list at once
+      // so a surviving provider never shows a stale row.
+      controller.dropComment(reviewId);
+      return;
+    }
+    if (deleted) showSuccessSnack(context, l10n.clientRatingDeleted);
+    if (!MediaQuery.disableAnimationsOf(context)) {
+      try {
+        await _collapse.reverse().orCancel;
+      } on TickerCanceled {
+        // Unmounted mid-collapse: drop it now.
+      }
+    }
+    final bool dropped = controller.dropComment(reviewId);
+    if (!dropped && mounted) {
+      // Nothing to drop it from (the list is not loaded): never leave an
+      // invisible zero-height ghost — the row reappears at rest and the
+      // provider's next data removes it (the delete does not invalidate the
+      // comments family).
+      _collapse.value = 1;
+      _busy = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final Widget card = Padding(
+      padding: EdgeInsets.only(bottom: widget.bottomGap),
+      child: _commentCard(l10n, widget.comment, onMore: _delete),
+    );
+    // `Align` (not `SizeTransition`) shrinks the row: it never clips, so the
+    // card's neumorphic shadows stay whole at rest; while collapsing, the
+    // overflow fades with the row.
+    return AnimatedBuilder(
+      animation: _size,
+      builder: (BuildContext context, Widget? child) => Align(
+        alignment: Alignment.topCenter,
+        heightFactor: _size.value,
+        child: child,
+      ),
+      // dim-decorative: the delete collapse-out fade; 1 at rest, and the row
+      // is gone once it reaches 0 — nothing durable is encoded.
+      child: FadeTransition(opacity: _fade, child: card),
+    );
+  }
+}
+
+/// One comment as the shared [ReviewCard] in its dense layout (M572, CLI-102):
+/// stars, visit month and — on the viewer's own — the «Ваш коментар» tag on
+/// one meta line, then the text clamped to three lines. No avatar, no author
+/// (REV-D10).
 ReviewCard _commentCard(
   AppLocalizations l10n,
   ClientReviewComment c, {
@@ -305,13 +480,17 @@ ReviewCard _commentCard(
 }) => ReviewCard(
   data: ReviewCardData(
     id: c.reviewId,
-    clientDisplayName: c.own ? l10n.clientRatingOwnComment : '',
+    clientDisplayName: '',
     rating: c.stars,
     comment: c.comment,
   ),
   keyPrefix: ClientCommentsSliver.keyPrefix,
   showAvatar: false,
+  dense: true,
   dateLabel: formatCommentVisitMonth(l10n, c),
+  tagLabel: c.own ? l10n.clientRatingOwnComment : null,
+  collapsedLines: _kCommentCollapsedLines,
+  expandLabel: l10n.clientRatingExpand,
   onMore: onMore,
 );
 

@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart'
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
@@ -134,5 +135,48 @@ class ClientCommentsController extends _$ClientCommentsController {
       current.copyWith(loadMoreFailed: false),
     );
     await loadMore();
+  }
+
+  /// M572 (REV-45, CLI-102) — deletes the viewer's OWN rating (the whole
+  /// review, comment included) on the server. The list is NOT touched: the row
+  /// stays exactly where it was, so a failure needs no restore and nothing
+  /// flashes. The caller plays the row's collapse-out and then calls
+  /// [dropComment].
+  ///
+  /// Returns `true` when the server deleted it, `false` when it was already
+  /// gone (404); throws the [Failure] otherwise. The caller invalidates the
+  /// dependent views (card summary, list row, pending count, booking detail)
+  /// — never in here.
+  Future<bool> deleteOwn(String reviewId) async {
+    try {
+      await ref
+          .read(clientCommentsRepositoryProvider)
+          .deleteOwnReview(reviewId);
+      return true;
+    } on NotFoundFailure {
+      return false;
+    } catch (_) {
+      log('own comment delete failed', name: _tag, level: 900);
+      rethrow;
+    }
+  }
+
+  /// M572 — removes the row for [reviewId] from the loaded list (after its
+  /// collapse-out). Returns `false` when it could not act — the provider is
+  /// disposed or holds no loaded list — and `true` otherwise (the row is not
+  /// in the list any more).
+  bool dropComment(String reviewId) {
+    if (!ref.mounted) return false;
+    final ClientCommentsState? current = state.value;
+    if (current == null) return false;
+    state = AsyncData<ClientCommentsState>(
+      current.copyWith(
+        comments: List<ClientReviewComment>.unmodifiable(<ClientReviewComment>[
+          for (final ClientReviewComment c in current.comments)
+            if (c.reviewId != reviewId) c,
+        ]),
+      ),
+    );
+    return true;
   }
 }
