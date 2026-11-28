@@ -155,11 +155,13 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -173,6 +175,7 @@ import '../data/slot_repository.dart' show maxServicesPerVisit;
 import '../domain/appointment.dart';
 import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
+import 'client_card_opener.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
 import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
@@ -205,11 +208,26 @@ enum _BookingStep { client, service, dateTime, masters, confirm, done }
 
 /// The salon «Новий запис» wizard — see file header for the full reuse map.
 class SalonCreateBookingScreen extends ConsumerStatefulWidget {
-  const SalonCreateBookingScreen({super.key, required this.salonId});
+  const SalonCreateBookingScreen({
+    super.key,
+    required this.salonId,
+    this.onPickClient,
+    this.initialPrefill,
+  });
 
   /// Used ONLY to list this salon's masters (`SalonMastersStep`) — never
   /// sent in the create call, see this file's header.
   final String salonId;
+
+  /// M553 — forwarded verbatim to [ClientStep.onPickClient]; the route binds
+  /// it to `ClientListScope.salon(salonId)` (D1). `null` → no picker.
+  final Future<ClientPrefill?> Function(BuildContext context)? onPickClient;
+
+  /// M543 (BOOK-80) — the client-card launch's prefill (CLI-80), applied
+  /// ONCE to the client controllers in `initState`, so stepping back to the
+  /// client step never overwrites edits. `null` (the default) → today.
+  /// PII: never logged.
+  final ClientPrefill? initialPrefill;
 
   @override
   ConsumerState<SalonCreateBookingScreen> createState() =>
@@ -260,6 +278,29 @@ class _SalonCreateBookingScreenState
 
   late final ScreenProtectionManager _screenProtection;
 
+  /// The last picked client (or the client-card launch's prefill) — the
+  /// confirm card's photo + ★ source, applied only while the typed fields
+  /// still are that client ([walkInGuestFrom]). In memory only; PII: never
+  /// logged.
+  ClientPrefill? _picked;
+
+  /// BOOK-80 — `true` when a complete client-card prefill opened the wizard
+  /// on `service` (the client step skipped); [_handleBack] then pops from
+  /// `service` instead of stepping back to `client`.
+  bool _openedPastClient = false;
+
+  /// [SalonCreateBookingScreen.onPickClient], remembering what was picked.
+  Future<ClientPrefill?> Function(BuildContext context)? get _pickClient {
+    final Future<ClientPrefill?> Function(BuildContext context)? pick =
+        widget.onPickClient;
+    if (pick == null) return null;
+    return (BuildContext context) async {
+      final ClientPrefill? picked = await pick(context);
+      if (picked != null) _picked = picked;
+      return picked;
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -267,6 +308,23 @@ class _SalonCreateBookingScreenState
     // who never installed the app and never consented in it. Mirrors
     // `master_create_booking_screen.dart`'s identical guard.
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    final ClientPrefill? prefill = widget.initialPrefill;
+    _picked = prefill;
+    if (prefill != null) {
+      applyClientPrefill(
+        prefill,
+        first: _firstNameCtrl,
+        last: _lastNameCtrl,
+        phone: _phoneCtrl,
+      );
+      // BOOK-80 / CLI-80 (user 2026-11-26) — a COMPLETE card prefill skips
+      // the client step: open on `service`; back from there leaves the
+      // wizard (to the card) instead of revealing the client step.
+      if (walkInGuestFromPrefill(prefill) != null) {
+        _step = _BookingStep.service;
+        _openedPastClient = true;
+      }
+    }
   }
 
   @override
@@ -314,13 +372,16 @@ class _SalonCreateBookingScreenState
 
   void _goTo(_BookingStep s) => setState(() => _step = s);
 
-  /// Header back-chevron handler. On `client`, pops the whole wizard route;
+  /// Header back-chevron handler. On `client` (or on `service` when a
+  /// complete card prefill skipped the client step, BOOK-80), pops the whole
+  /// wizard route;
   /// every other step steps back one index. Unlike the master wizard, there
   /// is no embedded date/time sub-phase to special-case here — `dateTime`
   /// and `masters` are two ordinary steps, not one combined widget with an
   /// internal phase.
   void _handleBack() {
-    if (_step == _BookingStep.client) {
+    if (_step == _BookingStep.client ||
+        (_openedPastClient && _step == _BookingStep.service)) {
       context.pop();
       return;
     }
@@ -460,6 +521,7 @@ class _SalonCreateBookingScreenState
           lastNameCtrl: _lastNameCtrl,
           phoneCtrl: _phoneCtrl,
           onNext: () => _goTo(_BookingStep.service),
+          onPickClient: _pickClient,
         );
       case _BookingStep.service:
         return ServiceStep(
@@ -504,6 +566,12 @@ class _SalonCreateBookingScreenState
               },
         );
       case _BookingStep.confirm:
+        final WalkInGuest shown = walkInGuestFrom(
+          firstName: _firstNameCtrl.text.trim(),
+          lastName: _lastNameCtrl.text.trim(),
+          phone: toE164UaPhone(_phoneCtrl.text) ?? '',
+          picked: _picked,
+        );
         return ConfirmStep(
           key: const ValueKey<_BookingStep>(_BookingStep.confirm),
           services: _selectedServices,
@@ -512,6 +580,17 @@ class _SalonCreateBookingScreenState
           lastName: _lastNameCtrl.text.trim(),
           phone: _phoneCtrl.text.trim(),
           masterCard: _buildMasterCard(_master!),
+          clientAvatarUrl: shown.avatarUrl,
+          clientRating: shown.rating,
+          clientReviewCount: shown.ratingCount,
+          // M569 (CLI-D20) — a picked / card-launched client whose name,
+          // surname and phone are unchanged opens their salon card on top;
+          // a hand-typed or edited one has no card yet (inert).
+          onOpenClient: clientCardOpener(
+            context,
+            base: RouteNames.salonClients(widget.salonId),
+            ref: shown.clientRef,
+          ),
         );
       case _BookingStep.done:
         // Unreachable — `done` is rendered directly from `build()` below,

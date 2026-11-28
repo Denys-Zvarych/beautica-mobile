@@ -1507,6 +1507,12 @@ abstract final class VelvetText {
   /// emphasized / muted otherwise) applied at the call site.
   static final TextStyle feedbackTag = _feedbackBase.copyWith(fontSize: 10);
 
+  /// M572 — the camel caption tag on a dense review row («Ваш коментар»):
+  /// [feedbackTag]'s 10 sp in [BrandColors.accentDeep].
+  static final TextStyle feedbackAccentTag = feedbackTag.copyWith(
+    color: BrandColors.accentDeep,
+  );
+
   /// Master identity-card display name on the leave-review header — displayName
   /// stepped to Comfortaa 16/700, height 1.2, espresso.
   static final TextStyle feedbackName = _displayNameStyle.copyWith(

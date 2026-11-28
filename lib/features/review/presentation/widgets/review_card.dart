@@ -105,6 +105,12 @@ class ReviewCard extends StatelessWidget {
     required this.keyPrefix,
     this.serviceName,
     this.onMore,
+    this.showAvatar = true,
+    this.dateLabel,
+    this.dense = false,
+    this.tagLabel,
+    this.collapsedLines,
+    this.expandLabel,
   });
 
   final ReviewCardData data;
@@ -121,17 +127,121 @@ class ReviewCard extends StatelessWidget {
   /// «⋮» and the header row is exactly as before.
   final VoidCallback? onMore;
 
+  /// ADDITIVE (phase 545): `false` drops the avatar and its gap — the
+  /// anonymous client comments on «Рейтинг клієнта» have no author (REV-D10).
+  /// `true` (the default) renders the header exactly as before.
+  final bool showAvatar;
+
+  /// ADDITIVE (phase 545): a ready header date text (the comment's visit
+  /// month) shown instead of the relative [ReviewCardData.createdAt] date.
+  /// `null` (the default) keeps the relative date.
+  final String? dateLabel;
+
+  /// ADDITIVE (M572): the compact comment row — ONE meta line
+  /// `[★ 12dp][date][tag?] … [⋮]`, then the text. No name or avatar slot.
+  /// `false` (the default) renders the classic card exactly as before.
+  final bool dense;
+
+  /// ADDITIVE (M572): a small caption tag after the date in the dense meta
+  /// line («Ваш коментар»). Dense only.
+  final String? tagLabel;
+
+  /// ADDITIVE (M572): clamp the dense text to this many lines; a
+  /// [expandLabel] link expands it in place (one-way). `null` = unclamped.
+  final int? collapsedLines;
+
+  /// ADDITIVE (M572): the «Ще» link label. `null` disables clamping.
+  final String? expandLabel;
+
   /// Widget key of the «⋮» slot for the card of review [id].
   static Key moreKey(String keyPrefix, String id) => Key('$keyPrefix-more-$id');
 
+  /// Widget key of the dense text expand link for review [id].
+  static Key expandKey(String keyPrefix, String id) =>
+      Key('$keyPrefix-expand-$id');
+
+  /// Widget key of the dense text for review [id].
+  static Key textKey(String keyPrefix, String id) => Key('$keyPrefix-text-$id');
+
+  /// The dense meta line is pinned to the «⋮» hit height so a row without
+  /// «⋮» (already reported) is exactly as tall as one with it.
+  static const double _denseMetaHeight = 40;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      dense ? _denseCard(context) : _classicCard(context);
+
+  Widget _denseCard(BuildContext context) {
+    final VoidCallback? more = onMore;
+    final String? date = dateLabel;
+    final String? tag = tagLabel;
+    final String? comment = data.comment;
+    return NeumorphicCard(
+      key: Key('$keyPrefix-${data.id}'),
+      // Right padding 4: the «⋮» hit box (44 wide, nudged 10 dp right) sits in
+      // the corner; the text gets the missing 8 back (right edge = 12).
+      padding: const EdgeInsets.fromLTRB(
+        VelvetSpacing.sm + 4,
+        VelvetSpacing.xs,
+        VelvetSpacing.xs,
+        VelvetSpacing.sm + 4,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          SizedBox(
+            height: _denseMetaHeight,
+            child: Row(
+              children: <Widget>[
+                // Priority when space runs out: stars and date never shrink;
+                // the tag ellipsizes.
+                ReviewStarRow(rating: data.rating, size: 12, gap: 2),
+                if (date != null) ...<Widget>[
+                  const SizedBox(width: VelvetSpacing.sm - 2),
+                  Text(date, style: VelvetText.feedbackMutedSm, maxLines: 1),
+                ],
+                if (tag != null) ...<Widget>[
+                  const SizedBox(width: VelvetSpacing.sm - 2),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ReviewCaptionTag(label: tag),
+                    ),
+                  ),
+                ] else
+                  const Spacer(),
+                if (more != null)
+                  ReviewMoreButton(
+                    tapKey: ReviewCard.moreKey(keyPrefix, data.id),
+                    onTap: more,
+                  ),
+              ],
+            ),
+          ),
+          if (comment != null && comment.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: VelvetSpacing.sm),
+              child: _ClampedText(
+                key: ReviewCard.textKey(keyPrefix, data.id),
+                text: comment,
+                maxLines: collapsedLines,
+                expandLabel: expandLabel,
+                expandKey: ReviewCard.expandKey(keyPrefix, data.id),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _classicCard(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final VoidCallback? more = onMore;
     final DateTime? createdAt = data.createdAt;
-    final String? relativeDate = createdAt == null
-        ? null
-        : formatRelativeDate(l10n, createdAt);
+    final String? relativeDate =
+        dateLabel ??
+        (createdAt == null ? null : formatRelativeDate(l10n, createdAt));
     final String? comment = data.comment;
     final String? service = serviceName;
     return NeumorphicCard(
@@ -144,8 +254,10 @@ class ReviewCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              ReviewAvatar(seed: data.id),
-              const SizedBox(width: VelvetSpacing.sm + 2),
+              if (showAvatar) ...<Widget>[
+                ReviewAvatar(seed: data.id),
+                const SizedBox(width: VelvetSpacing.sm + 2),
+              ],
               Expanded(
                 child: Text(
                   data.clientDisplayName,
@@ -196,6 +308,162 @@ class ReviewCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// M572 — the dense text clamped to [maxLines] with a [expandLabel] link when
+/// it overflows. Expanding is one-way (no «Згорнути»): the row grows in place.
+/// The expanded flag is the ONLY local state a comment row carries. Without a
+/// [maxLines] or an [expandLabel] the text renders unclamped.
+class _ClampedText extends StatefulWidget {
+  const _ClampedText({
+    super.key,
+    required this.text,
+    required this.maxLines,
+    required this.expandLabel,
+    required this.expandKey,
+  });
+
+  final String text;
+  final int? maxLines;
+  final String? expandLabel;
+  final Key expandKey;
+
+  @override
+  State<_ClampedText> createState() => _ClampedTextState();
+}
+
+class _ClampedTextState extends State<_ClampedText> {
+  bool _expanded = false;
+
+  static final TextStyle _style = VelvetText.bodyStrong();
+
+  // The last overflow measurement and what it was measured for: layout passes
+  // that change none of these (rebuilds, scrolling) reuse it.
+  bool? _overflows;
+  double? _measuredWidth;
+  TextScaler? _measuredScaler;
+  String? _measuredText;
+  Locale? _measuredLocale;
+  TextStyle? _measuredStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final int? lines = widget.maxLines;
+    final String? label = widget.expandLabel;
+    if (lines == null || label == null || _expanded) {
+      return Text(widget.text, style: _style);
+    }
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints c) {
+        final bool clamp = _measureOverflow(context, c.maxWidth, lines);
+        return AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topLeft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                widget.text,
+                style: _style,
+                maxLines: clamp ? lines : null,
+                overflow: clamp ? TextOverflow.ellipsis : null,
+              ),
+              if (clamp)
+                Semantics(
+                  button: true,
+                  label: label,
+                  excludeSemantics: true,
+                  child: GestureDetector(
+                    key: widget.expandKey,
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setState(() => _expanded = true),
+                    // The label sits at the top of the hit strip, so the row
+                    // only grows by the link's line.
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: 2,
+                        bottom: 6,
+                        right: VelvetSpacing.lg,
+                      ),
+                      child: Text(label, style: VelvetText.linkCompact),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Whether the text needs more than [lines] lines at [maxWidth], measured
+  /// with exactly what the rendered [Text] resolves (ambient style, locale,
+  /// text-height behaviour, scaler). Cached per (text, width, scaler, locale).
+  bool _measureOverflow(BuildContext context, double maxWidth, int lines) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    final Locale? locale = Localizations.maybeLocaleOf(context);
+    final DefaultTextStyle ambient = DefaultTextStyle.of(context);
+    final TextStyle resolved = ambient.style.merge(_style);
+    final bool? cached = _overflows;
+    if (cached != null &&
+        _measuredStyle == resolved &&
+        _measuredWidth == maxWidth &&
+        _measuredScaler == scaler &&
+        _measuredText == widget.text &&
+        _measuredLocale == locale) {
+      return cached;
+    }
+    final TextPainter tp = TextPainter(
+      text: TextSpan(text: widget.text, style: resolved),
+      maxLines: lines,
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      locale: locale,
+      textWidthBasis: ambient.textWidthBasis,
+      textHeightBehavior:
+          ambient.textHeightBehavior ??
+          DefaultTextHeightBehavior.maybeOf(context),
+    )..layout(maxWidth: maxWidth);
+    final bool overflows = tp.didExceedMaxLines;
+    tp.dispose();
+    _overflows = overflows;
+    _measuredWidth = maxWidth;
+    _measuredScaler = scaler;
+    _measuredText = widget.text;
+    _measuredLocale = locale;
+    _measuredStyle = resolved;
+    return overflows;
+  }
+}
+
+/// M572 — the small caption tag («Ваш коментар»). Same geometry as the
+/// shipped `BlockedTag` (pill, 6/2 padding), camel tint instead of error, no
+/// icon.
+class ReviewCaptionTag extends StatelessWidget {
+  const ReviewCaptionTag({super.key, required this.label});
+
+  final String label;
+
+  static final TextStyle _style = VelvetText.feedbackAccentTag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: BrandColors.accent.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(VelvetRadii.pill),
+      ),
+      child: Text(
+        label,
+        style: _style,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }

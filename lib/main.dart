@@ -23,6 +23,7 @@ import 'features/notifications/presentation/push_message_listener.dart';
 import 'features/notifications/presentation/push_tap_dispatcher.dart';
 import 'features/notifications/presentation/push_registration_notifier.dart';
 import 'features/notifications/presentation/unread_notifications_notifier.dart';
+import 'features/services/presentation/category_icon_urls_provider.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
 import 'shared/widgets/release_error_box.dart';
@@ -270,6 +271,8 @@ class BeauticaApp extends ConsumerWidget {
     ref.listen(pushMessageListenerProvider, (_, _) {});
     // Phase 069 — push tap (background / cold start) -> mark read -> open.
     ref.listen(pushTapDispatcherProvider, (_, _) {});
+    // M542 — signed-in only: prefetch the backend's category icons (no UI).
+    ref.listen(categoryIconUrlsProvider, (_, _) {});
     return MaterialApp.router(
       // `MaterialApp.title` is evaluated at app-construction time, BEFORE the
       // `Localizations` widget is in scope, so `AppLocalizations.of(context)`

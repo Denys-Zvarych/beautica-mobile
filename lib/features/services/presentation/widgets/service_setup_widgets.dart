@@ -20,7 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
-import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icon_glyph.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -104,6 +104,7 @@ class CategoryChip extends StatelessWidget {
     required this.selected,
     required this.includedCount,
     required this.onTap,
+    this.iconCategoryKey,
   });
 
   /// Resolved SVG asset path for the category glyph (from
@@ -111,6 +112,11 @@ class CategoryChip extends StatelessWidget {
   /// `null` for an uncategorised entry. `null` renders no icon but the leading
   /// slot still reserves [_iconSize] so every chip's label stays aligned.
   final String? iconAsset;
+
+  /// Wire slug of the category behind [iconAsset] — lets the glyph show the
+  /// backend's cached remote icon (M542, SVC-04). Additive: `null` renders
+  /// [iconAsset] exactly as before.
+  final String? iconCategoryKey;
   final String label;
   final bool selected;
 
@@ -179,8 +185,9 @@ class CategoryChip extends StatelessWidget {
             height: _iconSize,
             child: iconAsset == null
                 ? null
-                : AppIcon(
+                : CategoryIconGlyph(
                     iconAsset!,
+                    categoryKey: iconCategoryKey,
                     size: _iconSize,
                     color: BrandColors.white,
                   ),
@@ -215,8 +222,9 @@ class CategoryChip extends StatelessWidget {
               height: _iconSize,
               child: iconAsset == null
                   ? null
-                  : AppIcon(
+                  : CategoryIconGlyph(
                       iconAsset!,
+                      categoryKey: iconCategoryKey,
                       size: _iconSize,
                       color: BrandColors.accent,
                     ),
@@ -268,6 +276,7 @@ class CategoryGroupHeader extends StatelessWidget {
     required this.label,
     required this.includedCount,
     required this.total,
+    this.iconCategoryKey,
   });
 
   /// Resolved SVG asset path for the category glyph (from
@@ -275,6 +284,11 @@ class CategoryGroupHeader extends StatelessWidget {
   /// `null` for an uncategorised entry. `null` renders no icon but the leading
   /// slot still reserves [_iconSize] so every header's label stays aligned.
   final String? iconAsset;
+
+  /// Wire slug of the category behind [iconAsset] — lets the glyph show the
+  /// backend's cached remote icon (M542, SVC-04). Additive: `null` renders
+  /// [iconAsset] exactly as before.
+  final String? iconCategoryKey;
   final String label;
   final int includedCount;
   final int total;
@@ -301,8 +315,9 @@ class CategoryGroupHeader extends StatelessWidget {
             height: _iconSize,
             child: iconAsset == null
                 ? null
-                : AppIcon(
+                : CategoryIconGlyph(
                     iconAsset!,
+                    categoryKey: iconCategoryKey,
                     size: _iconSize,
                     color: BrandColors.accentDeep,
                   ),

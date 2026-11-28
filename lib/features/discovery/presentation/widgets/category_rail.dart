@@ -13,7 +13,7 @@
 
 import 'package:flutter/material.dart';
 
-import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/category_icon_glyph.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -35,6 +35,7 @@ class CategoryRailTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.iconAsset,
+    this.iconCategoryKey,
   });
 
   final IconData icon;
@@ -43,7 +44,7 @@ class CategoryRailTile extends StatelessWidget {
   final VoidCallback onTap;
 
   /// Optional SVG asset path (e.g. from `categoryIconFor` in
-  /// `core/icons/category_icons.dart`), rendered via [AppIcon] at
+  /// `core/icons/category_icons.dart`), rendered via [CategoryIconGlyph] at
   /// [kGlyphAssetSize] instead of the Material [icon]. Additive — defaults to
   /// `null` so every existing caller keeps rendering the Material [icon] at
   /// [kGlyphSize] exactly as before.
@@ -56,6 +57,11 @@ class CategoryRailTile extends StatelessWidget {
   /// `category_aesthetic_cosmetology`) at 24–48 dp. 36 dp is the smallest size
   /// at which all of them read as distinct silhouettes.
   final String? iconAsset;
+
+  /// Wire slug of the category behind [iconAsset] — lets the glyph show the
+  /// backend's cached remote icon (M542, SVC-04). Additive: `null` renders
+  /// [iconAsset] exactly as before.
+  final String? iconCategoryKey;
 
   /// Material [icon] glyph size — used only when [iconAsset] is null.
   static const double kGlyphSize = 24;
@@ -97,7 +103,12 @@ class CategoryRailTile extends StatelessWidget {
         ? BrandColors.accent
         : BrandColors.textSecondary;
     final Widget glyph = iconAsset != null
-        ? AppIcon(iconAsset!, color: glyphColor, size: kGlyphAssetSize)
+        ? CategoryIconGlyph(
+            iconAsset!,
+            categoryKey: iconCategoryKey,
+            color: glyphColor,
+            size: kGlyphAssetSize,
+          )
         : Icon(icon, color: glyphColor, size: kGlyphSize);
     final Widget inner = Padding(
       padding: const EdgeInsets.symmetric(horizontal: _kTileHPadding),

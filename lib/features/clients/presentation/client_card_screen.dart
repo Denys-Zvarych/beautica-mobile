@@ -33,6 +33,13 @@
 // app-switcher guard ([ScreenProtectionManager]) for its lifetime, like
 // «Деталі запису».
 //
+// REMOVE (M544, CLI-86): the «⋯» also offers «Прибрати зі списку» to every
+// provider role. The write runs through the shared `removeClientFromList`;
+// on success the card pops (back to the list — or to booking detail when it
+// was opened from there, CLI-84) and the SAME undo snack as the list swipe
+// shows, its «Повернути» running on the root container (the card is gone by
+// then). A failed remove stays on the card with an error snack.
+//
 // FRESHNESS: a pull-to-refresh that fails keeps the loaded card / timeline and
 // shows an error snack (a first-load failure is still the full error state).
 // On app resume the timeline's "now" is re-read, so a «Наступний візит» whose
@@ -41,6 +48,7 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
@@ -58,21 +66,24 @@ import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_removal.dart';
 import 'package:beautica_mobile/features/clients/application/client_visits_controller.dart';
+import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_route.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_photo_report.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/blocked_tag.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/client_avatar.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/client_removed_snack.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/phone_link.dart';
 import 'package:beautica_mobile/features/clients/presentation/widgets/rating_readout.dart';
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorites_filter.dart'
     show FavoriteCategoryChip;
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_scaffold.dart';
 import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
-import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/client_actions_flow.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -87,6 +98,7 @@ import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
     show PhotoViewerReport;
 import 'package:beautica_mobile/shared/widgets/public_profile_skeleton.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
+import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
 
 /// The client card. See the file header.
 class ClientCardScreen extends ConsumerStatefulWidget {
@@ -96,6 +108,7 @@ class ClientCardScreen extends ConsumerStatefulWidget {
     required this.client,
     required this.cardBase,
     required this.bookingRoute,
+    this.onBookClient,
   });
 
   /// Which clients the card is read from (salon / salon + masterId / me).
@@ -108,12 +121,21 @@ class ClientCardScreen extends ConsumerStatefulWidget {
   /// The booking-detail route of the host shell for a visit's first booking.
   final String Function(String bookingId) bookingRoute;
 
+  /// M543 (CLI-80) — «Записати»: opens the staff walk-in flow with the
+  /// loaded card's [ClientPrefill]. ADDITIVE: `null` (the default) renders
+  /// the card exactly as before — no button. The ROUTE binds it, only where
+  /// `canPickClients(role)` (never SALON_MASTER); this widget never decides
+  /// role. PII: the prefill is never logged.
+  final void Function(BuildContext context, ClientPrefill prefill)?
+  onBookClient;
+
   static const Key screenKey = Key('client-card-screen');
   static const Key backKey = Key('btn-back-client-card');
 
   /// The top bar's «⋯» — report / block / unblock (R3), the same flow as the
   /// provider «Деталі запису» client strip.
   static const Key moreKey = Key('client-card-more');
+  static const Key bookKey = Key('client-card-book');
   static const Key nameKey = Key('client-card-name');
   static const Key phoneChipKey = Key('phone-link');
   static const Key ratingChipKey = Key('rating-link');
@@ -181,15 +203,16 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
   /// refresh / retry / block must drop ALL of them, not only the current one.
   late final Set<String?> _visitedMasterIds = <String?>{_masterId};
 
-  /// Invalidates the visits of every chip key read for this client.
+  /// Invalidates the visits of every chip key read for this client, and the
+  /// chip-scoped card each one heads from (CLI-89: the timeline's «Наступний
+  /// візит» is that card's `nextVisit`). The route-scope card is the screen's
+  /// own [_cardProvider]; invalidating it again is a no-op.
   void _invalidateVisits() {
     for (final String? masterId in _visitedMasterIds) {
-      ref.invalidate(
-        clientVisitsControllerProvider(
-          _visitsScopeFor(masterId),
-          widget.client,
-        ),
-      );
+      final ClientListScope scope = _visitsScopeFor(masterId);
+      ref
+        ..invalidate(clientCardProvider(scope, widget.client))
+        ..invalidate(clientVisitsControllerProvider(scope, widget.client));
     }
   }
 
@@ -311,21 +334,92 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
     },
   };
 
-  /// Whether the «⋯» has anything to offer [role] before the anchor read:
-  /// report a registered client not yet reported, or a role that may block.
-  /// The exact gate (server `clientBlockable` / `clientBlocked`) is
-  /// [clientActionsGateFor] on tap. Called from build.
-  bool _showMore(UserRole? role) {
-    if (role == null || role == UserRole.client) return false;
-    final bool canReport = switch (widget.client) {
-      RegisteredClientRef(:final String userId) => !watchIsReported(
-        ref,
-        ReportTargetType.clientProfile,
-        userId,
-      ),
-      GuestClientRef() => false,
-    };
-    return canReport || clientBlocksAllowedFor(role);
+  /// Whether the «⋯» has anything to offer [role] before the anchor read.
+  /// Since M544 every provider role may remove the client from the list
+  /// (CLI-69), so this is "any provider role"; the exact gate (report once,
+  /// server `clientBlockable` / `clientBlocked`) is [clientActionsGateFor] on
+  /// tap. Called from build.
+  bool _showMore(UserRole? role) => role != null && role != UserRole.client;
+
+  /// M544 — «Прибрати зі списку». See the file header.
+  Future<void> _removeFromList() async {
+    final ProviderContainer container = ProviderScope.containerOf(
+      context,
+      listen: false,
+    );
+    // Outlives this card: the undo's error snack needs a live context. The
+    // root navigator's context, read through go_router (no direct Navigator
+    // in features) — the canonical pattern of
+    // `notifications/presentation/push_tap_dispatcher.dart`.
+    final BuildContext? rootContext = GoRouter.of(
+      context,
+    ).routerDelegate.navigatorKey.currentContext;
+    final ClientListScope scope = widget.scope;
+    final ClientRef client = widget.client;
+    try {
+      await removeClientFromList(
+        container.read(clientRepositoryProvider),
+        container.invalidate,
+        scope,
+        client,
+      );
+    } catch (_) {
+      if (mounted) {
+        showErrorSnack(
+          context,
+          AppLocalizations.of(context).clientsRemoveFailed,
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    showClientRemovedSnack(
+      context,
+      onUndo: () async {
+        final Object? error = await restoreClientToList(
+          container.read(clientRepositoryProvider),
+          container.invalidate,
+          scope,
+          client,
+        );
+        if (error == null || rootContext == null || !rootContext.mounted) {
+          return;
+        }
+        // The navigator's own context sits ABOVE its overlay; the snack host
+        // needs one inside it (a live route's).
+        final BuildContext? host = _insideRootOverlay(rootContext);
+        if (host == null) return;
+        showErrorSnack(
+          host,
+          (error is Failure ? error : UnknownFailure(cause: error)).userMessage(
+            host,
+          ),
+        );
+      },
+    );
+    if (context.canPop()) context.pop();
+  }
+
+  /// The first element under [navigatorContext] that sits INSIDE the root
+  /// overlay (a mounted route's subtree) — what `showVelvetSnack` needs,
+  /// since `Overlay.of` looks for an overlay ANCESTOR and the navigator's own
+  /// context is above its overlay. `null` when nothing is mounted. Depth-first
+  /// and stops at the first hit (the bottom route's subtree, ~15 elements
+  /// down); the bound only caps a pathological tree.
+  static BuildContext? _insideRootOverlay(BuildContext navigatorContext) {
+    const int maxDepth = 40;
+    BuildContext? found;
+    void visit(Element e, int depth) {
+      if (found != null || depth > maxDepth) return;
+      if (Overlay.maybeOf(e, rootOverlay: true) != null) {
+        found = e;
+        return;
+      }
+      e.visitChildren((Element c) => visit(c, depth + 1));
+    }
+
+    (navigatorContext as Element).visitChildren((Element c) => visit(c, 1));
+    return found;
   }
 
   Future<void> _onMore(UserRole? role) async {
@@ -386,10 +480,28 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
           ref.invalidate(_cardProvider);
           _invalidateVisits();
         },
+        onRemove: _removeFromList,
       );
     } finally {
       _moreInFlight = false;
     }
+  }
+
+  /// D8 — the «Записати» tap for a loaded [card], or `null` (no button)
+  /// without a launcher or when the card has nothing to prefill (no name
+  /// part and no phone: anonymised / detached). Prefill = the card as shown
+  /// at tap time (D5).
+  VoidCallback? _bookLauncherFor(ClientCard card) {
+    final void Function(BuildContext, ClientPrefill)? launch =
+        widget.onBookClient;
+    if (launch == null) return null;
+    final ClientPrefill prefill = ClientPrefill.fromCard(card);
+    if (prefill.firstName == null &&
+        prefill.lastName == null &&
+        prefill.phone == null) {
+      return null;
+    }
+    return () => launch(context, prefill);
   }
 
   void _openRating() => context.pushOnce<void>(
@@ -440,6 +552,7 @@ class _ClientCardScreenState extends ConsumerState<ClientCardScreen> {
       data: (ClientCard c) => (
         _CardHeader(
           card: c,
+          onBook: _bookLauncherFor(c),
           // D5 — fail closed on the role; no `kind` check.
           showPhone: canSeeClientPhone(role),
           onOpenRating: _openRating,
@@ -578,9 +691,13 @@ class _CardHeader extends StatelessWidget {
     required this.onOpenRating,
     required this.clipboard,
     this.avatarReport,
+    this.onBook,
   });
 
   final ClientCard card;
+
+  /// M543 — «Записати» under the chips; `null` → no button (today's layout).
+  final VoidCallback? onBook;
   final ClipboardService clipboard;
   final bool showPhone;
   final VoidCallback onOpenRating;
@@ -644,6 +761,15 @@ class _CardHeader extends StatelessWidget {
             ),
           ],
         ),
+        if (onBook case final VoidCallback book) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.md),
+          SuccessSecondaryButton(
+            buttonKey: ClientCardScreen.bookKey,
+            label: l10n.clientCardBookCta,
+            icon: Icons.event_available_rounded,
+            onPressed: book,
+          ),
+        ],
         const SizedBox(height: 22),
       ],
     );

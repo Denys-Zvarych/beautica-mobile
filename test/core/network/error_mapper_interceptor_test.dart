@@ -1107,6 +1107,57 @@ void main() {
     });
   });
 
+  // POST /service-types/suggest 409s keep mapping to ServerFailure(409); the
+  // suggestion dialog reads the typed code through ServerFailure.errorCode, so
+  // the envelope's data.code must survive the interceptor for every code.
+  group('ErrorMapperInterceptor — 409 on /service-types/suggest', () {
+    const suggestPath = '/api/v1/service-types/suggest';
+    for (final code in <String>[
+      'DUPLICATE_PENDING',
+      'CATEGORY_BUSY',
+      'TYPE_EXISTS',
+    ]) {
+      test(
+        '409 data.code == $code → ServerFailure(409) with errorCode $code',
+        () {
+          final rejected = _captureRejected(
+            _httpError(
+              409,
+              path: suggestPath,
+              body: <String, dynamic>{
+                'success': false,
+                'data': <String, dynamic>{'code': code},
+                'message': 'Conflict',
+              },
+            ),
+          );
+
+          final failure = rejected.error as ServerFailure;
+          expect(failure.statusCode, 409);
+          expect(failure.errorCode, code);
+        },
+      );
+    }
+
+    test('409 with no data.code → ServerFailure(409) with null errorCode', () {
+      final rejected = _captureRejected(
+        _httpError(
+          409,
+          path: suggestPath,
+          body: <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'A matching suggestion is already pending review',
+          },
+        ),
+      );
+
+      final failure = rejected.error as ServerFailure;
+      expect(failure.statusCode, 409);
+      expect(failure.errorCode, isNull);
+    });
+  });
+
   group('ErrorMapperInterceptor — Failure carries original cause', () {
     test('cause is the original DioException', () {
       final input = _httpError(404);

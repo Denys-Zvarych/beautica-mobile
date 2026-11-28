@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_badge.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
 import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
@@ -41,6 +42,7 @@ import 'package:beautica_mobile/features/moderation/presentation/widgets/content
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:beautica_mobile/shared/widgets/profile_photo_preview.dart';
@@ -133,6 +135,27 @@ class _Repo implements ClientRepository {
   /// Visit pages (0-based) that fail with a [NetworkFailure].
   final Set<int> failVisitPages = <int>{};
 
+  /// M544 — the removal writes, in order (`remove:<scope>` / `restore:…`).
+  final List<String> writes = <String>[];
+  Failure? removeFailure;
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) async {
+    writes.add('remove');
+    final Failure? f = removeFailure;
+    if (f != null) throw f;
+  }
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) async {
+    writes.add('restore');
+    final Failure? f = restoreFailure;
+    if (f != null) throw f;
+  }
+
+  /// M544 — when set, the undo's restore throws it.
+  Failure? restoreFailure;
+
   @override
   Future<ClientCard> getCard(
     ClientListScope scope,
@@ -143,7 +166,20 @@ class _Repo implements ClientRepository {
     await cardGate?.future;
     final Failure? f = cardFailure;
     if (f != null) throw f;
-    return card!(client);
+    final ClientCard base = card!(client);
+    if (base.nextVisit != null) return base;
+    // CLI-89 (B530): the server's next visit for this scope, derived from the
+    // pages this fake serves for it.
+    final List<List<ClientVisit>> served =
+        pagesByMaster[_masterIdOf(scope)] ?? pages;
+    return base.copyWith(
+      nextVisit: pickNextVisit(
+        clientVisitsPerBooking(<ClientVisit>[
+          for (final List<ClientVisit> p in served) ...p,
+        ]),
+        _now,
+      ),
+    );
   }
 
   @override
@@ -157,11 +193,8 @@ class _Repo implements ClientRepository {
     visitPages.add(page);
     visitScopes.add(scope);
     if (failVisitPages.contains(page)) throw const NetworkFailure();
-    final String? masterId = switch (scope) {
-      SalonClientListScope(:final String? masterId) => masterId,
-      MyClientListScope() => null,
-    };
-    final List<List<ClientVisit>> served = pagesByMaster[masterId] ?? pages;
+    final List<List<ClientVisit>> served =
+        pagesByMaster[_masterIdOf(scope)] ?? pages;
     return PageResponse<ClientVisit>(
       items: served[page],
       page: page,
@@ -179,6 +212,11 @@ class _Repo implements ClientRepository {
     CancelToken? cancelToken,
   }) => throw UnimplementedError();
 }
+
+String? _masterIdOf(ClientListScope scope) => switch (scope) {
+  SalonClientListScope(:final String? masterId) => masterId,
+  MyClientListScope() => null,
+};
 
 class _MockUrlLauncher extends Mock
     with MockPlatformInterfaceMixin
@@ -202,9 +240,13 @@ class _Harness {
     this.role,
     this.extra = const <Object>[],
     this.scope = const ClientListScope.me(),
+    this.onBook,
   });
 
   final _Repo repo;
+
+  /// M543 — the card's «Записати» launcher; `null` → no button (today).
+  final void Function(BuildContext, ClientPrefill)? onBook;
   final ClientListScope scope;
   final List<Object> extra;
   final ClientRef client;
@@ -225,6 +267,7 @@ class _Harness {
               client: client,
               cardBase: RouteNames.masterClients,
               bookingRoute: RouteNames.masterBookingDetail,
+              onBookClient: onBook,
             ),
       ),
       GoRoute(
@@ -271,6 +314,7 @@ Future<_Harness> _pump(
   double? textScale,
   List<Object> extra = const <Object>[],
   ClientListScope scope = const ClientListScope.me(),
+  void Function(BuildContext, ClientPrefill)? onBook,
 }) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1.0;
@@ -286,6 +330,7 @@ Future<_Harness> _pump(
     role: role,
     extra: extra,
     scope: scope,
+    onBook: onBook,
   );
   await tester.pumpRoutedApp(
     h.router,
@@ -540,6 +585,23 @@ void main() {
       await tester.tap(_ratingChip());
       await tester.pumpAndSettle();
       expect(h.opened, <String>['/master/clients/guest/b-1/rating']);
+    });
+
+    // M548 / REV-D04 — a guest is rated by phone: the chip renders the
+    // server's values, with no client-side "guest ⇒ unrated" shortcut.
+    testWidgets('a rated guest shows the server values «4,3 · 3 оцінки»', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _Repo(card: (r) => _card(r, avg: 4.3, count: 3)),
+        client: _gst,
+      );
+      expect(find.byKey(RatingReadout.emptyKey), findsNothing);
+      expect(
+        find.text('4,3 · ${_l10n(tester).clientRatingCount(3)}'),
+        findsOneWidget,
+      );
     });
 
     for (final ClientRef ref in <ClientRef>[_reg, _gst]) {
@@ -1007,9 +1069,8 @@ void main() {
     }
 
     testWidgets('select a master → visits re-read with masterId (history AND '
-        'next visit), card not refetched; «Усі майстри» clears from cache', (
-      tester,
-    ) async {
+        'next visit — the chip-scoped card heads it, CLI-89); «Усі майстри» '
+        'clears from cache', (tester) async {
       final _Repo repo = repoWithFilter();
       await _pump(tester, repo, role: UserRole.salonOwner, scope: salon);
       expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
@@ -1028,7 +1089,14 @@ void main() {
       expect(selected(tester, chip(m1)), isTrue);
       expect(selected(tester, all()), isFalse);
       expect(chip(m2), findsOneWidget, reason: 'chips stay salon-wide');
-      expect(repo.cardScopes, hasLength(1), reason: 'card not refetched');
+      expect(
+        repo.cardScopes,
+        <ClientListScope>[
+          salon,
+          const ClientListScope.salon(salonId: 's-1', masterId: m1),
+        ],
+        reason: 'the route card is not refetched; the chip reads its own head',
+      );
 
       final int reads = repo.visitScopes.length;
       await tester.tap(all());
@@ -1039,7 +1107,7 @@ void main() {
       expect(find.byKey(ClientCardScreen.visitKey('all-past')), findsOneWidget);
       expect(find.byKey(ClientCardScreen.nextVisitKey), findsOneWidget);
       expect(selected(tester, all()), isTrue);
-      expect(repo.cardScopes, hasLength(1));
+      expect(repo.cardScopes, hasLength(2), reason: 'no re-read');
     });
 
     testWidgets('pull-to-refresh on «Усі» drops EVERY chip\'s cached visits: '
@@ -1542,7 +1610,9 @@ void main() {
       expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
     });
 
-    testWidgets('salon master, guest: no «⋯» at all', (tester) async {
+    testWidgets('salon master, guest: remove only (CLI-69, M544)', (
+      tester,
+    ) async {
       await _pump(
         tester,
         _Repo(card: (ClientRef r) => _card(r)),
@@ -1550,7 +1620,136 @@ void main() {
         role: UserRole.salonMaster,
         extra: env(anchor('b-1', clientId: null, blockable: false)),
       );
-      expect(more, findsNothing);
+      await openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.removeKey), findsOne);
+    });
+
+    // M544 (CLI-86) — «Прибрати зі списку» from the card: the card pops back
+    // to where it was opened from and the undo snack shows there.
+    Future<_Repo> pumpPushed(
+      WidgetTester tester, {
+      UserRole role = UserRole.salonOwner,
+      Failure? removeFailure,
+    }) async {
+      final _Repo repo = regRepo()..removeFailure = removeFailure;
+      final GoRouter router = GoRouter(
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/',
+            builder: (BuildContext context, GoRouterState state) =>
+                const Scaffold(body: Text('list-page')),
+          ),
+          GoRoute(
+            path: '/card',
+            builder: (BuildContext context, GoRouterState state) =>
+                const ClientCardScreen(
+                  scope: ClientListScope.salon(salonId: 's-1'),
+                  client: _reg,
+                  cardBase: RouteNames.masterClients,
+                  bookingRoute: RouteNames.masterBookingDetail,
+                ),
+          ),
+        ],
+      );
+      final _Harness h = _Harness(repo, role: role, extra: env(anchor('bk-1')));
+      tester.view.physicalSize = const Size(360, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: h.overrides,
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+      unawaited(router.push<void>('/card'));
+      await _loaded(tester);
+      return repo;
+    }
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+      UserRole.independentMaster,
+      UserRole.salonMaster,
+    ]) {
+      testWidgets('$role: «Прибрати зі списку» is offered', (tester) async {
+        await _pump(tester, regRepo(), role: role, extra: env(anchor('bk-1')));
+        await openSheet(tester);
+        expect(find.byKey(ClientActionsSheet.removeKey), findsOne);
+      });
+    }
+
+    testWidgets('remove → back to the list + the undo snack with its '
+        'countdown; «Повернути» calls restore once', (tester) async {
+      final _Repo repo = await pumpPushed(tester);
+      final AppLocalizations l10n = _l10n(tester);
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.removeKey));
+      await tester.pump();
+      // The list page is in the stack (offstage) all along: wait for the
+      // card itself to leave.
+      await pumpUntilGone(tester, find.byType(ClientCardScreen));
+
+      expect(repo.writes, <String>['remove']);
+      expect(find.byType(ClientCardScreen), findsNothing);
+      expect(find.text('list-page'), findsOneWidget);
+      expect(find.text(l10n.clientsRemovedSnack), findsOneWidget);
+      expect(find.byKey(VelvetSnack.countdownKey), findsOneWidget);
+
+      await tester.tap(find.text(l10n.clientsRemoveUndo));
+      await tester.pump();
+      await pumpUntilGone(tester, find.text(l10n.clientsRemovedSnack));
+      expect(repo.writes, <String>['remove', 'restore']);
+      await pumpPastVelvetSnack(tester, hasAction: true);
+    });
+
+    // PR #201 CI fix — the undo's error snack uses the ROOT navigator's
+    // context (read through go_router): the card is gone by the time
+    // «Повернути» fails, and the failure must still be shown on the list.
+    testWidgets('restore fails AFTER the card popped → the failure snack shows '
+        'on the list screen', (tester) async {
+      final _Repo repo = await pumpPushed(tester)
+        ..restoreFailure = const NetworkFailure();
+      final AppLocalizations l10n = _l10n(tester);
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.removeKey));
+      await tester.pump();
+      await pumpUntilGone(tester, find.byType(ClientCardScreen));
+      expect(find.text('list-page'), findsOneWidget);
+
+      await tester.tap(find.text(l10n.clientsRemoveUndo));
+      await tester.pump();
+      final String message = const NetworkFailure().userMessage(
+        tester.element(find.text('list-page')),
+      );
+      await pumpUntilFound(tester, find.text(message));
+      expect(repo.writes, <String>['remove', 'restore']);
+      expectVelvetSnack(message, variant: VelvetSnackVariant.error);
+      expect(find.byType(ClientCardScreen), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('a failed remove stays on the card with the error snack', (
+      tester,
+    ) async {
+      final _Repo repo = await pumpPushed(
+        tester,
+        removeFailure: const NetworkFailure(),
+      );
+      final AppLocalizations l10n = _l10n(tester);
+      await openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.removeKey));
+      await tester.pump();
+      await pumpUntilFound(tester, find.text(l10n.clientsRemoveFailed));
+
+      expect(repo.writes, <String>['remove']);
+      expect(find.byType(ClientCardScreen), findsOneWidget);
+      expect(find.text(l10n.clientsRemoveFailed), findsOneWidget);
+      expect(find.text(l10n.clientsRemovedSnack), findsNothing);
+      await pumpPastVelvetSnack(tester);
     });
 
     testWidgets('independent master, guest: block only, through the card\'s '
@@ -1805,6 +2004,203 @@ void main() {
         extra: env(anchor('b-1', clientId: null)),
       );
       expect(moreEnabled(tester), isTrue);
+    });
+  });
+  group('«Записати» (M543 / CLI-80)', () {
+    Finder book() => find.byKey(ClientCardScreen.bookKey);
+
+    ClientCard parts(
+      ClientRef ref, {
+      String? first = 'Оксана',
+      String? last = 'Мельник',
+      String? phone = _phone,
+      String? avatarUrl,
+      bool blocked = false,
+      List<ClientServedMaster> served = const <ClientServedMaster>[],
+    }) => _card(
+      ref,
+      avatarUrl: avatarUrl,
+      phone: phone,
+      blocked: blocked,
+      served: served,
+    ).copyWith(firstName: first, lastName: last);
+
+    testWidgets('no launcher → no button (today\'s card)', (tester) async {
+      await _pump(tester, _Repo(card: (ref) => parts(ref)));
+      expect(book(), findsNothing);
+    });
+
+    for (final ClientRef client in <ClientRef>[_reg, _gst]) {
+      testWidgets('launcher + loaded ${client.runtimeType} card → button '
+          'under the chips; tap hands the fromCard prefill once', (
+        tester,
+      ) async {
+        const String photo = 'https://cdn.example.test/o.jpg';
+        final List<ClientPrefill> launched = <ClientPrefill>[];
+        await _pump(
+          tester,
+          _Repo(card: (ref) => parts(ref, avatarUrl: photo)),
+          client: client,
+          onBook: (_, ClientPrefill p) => launched.add(p),
+        );
+        expect(book(), findsOneWidget);
+        expect(find.text(_l10n(tester).clientCardBookCta), findsOneWidget);
+        expect(
+          tester.getTopLeft(book()).dy,
+          greaterThan(tester.getBottomLeft(_ratingChip()).dy),
+        );
+        await tester.tap(book());
+        await tester.pump();
+        expect(launched, <ClientPrefill>[
+          ClientPrefill(
+            firstName: 'Оксана',
+            lastName: 'Мельник',
+            phone: _phone,
+            avatarUrl: photo,
+            rating: 4.9,
+            ratingCount: 12,
+            ref: client,
+          ),
+        ]);
+        // M554 / CLI-D16 — the card's photo + rating ride along.
+        expect(launched.single.avatarUrl, photo);
+        expect(launched.single.rating, 4.9);
+        expect(launched.single.ratingCount, 12);
+      });
+    }
+
+    testWidgets('blocked client → button shown (owner rule)', (tester) async {
+      await _pump(
+        tester,
+        _Repo(card: (ref) => parts(ref, blocked: true)),
+        onBook: (_, _) {},
+      );
+      expect(find.byType(BlockedTag), findsOneWidget);
+      expect(book(), findsOneWidget);
+    });
+
+    testWidgets('no phone → button shown, prefill phone null', (tester) async {
+      final List<ClientPrefill> launched = <ClientPrefill>[];
+      await _pump(
+        tester,
+        _Repo(card: (ref) => parts(ref, phone: null)),
+        onBook: (_, ClientPrefill p) => launched.add(p),
+      );
+      await tester.tap(book());
+      await tester.pump();
+      expect(launched.single.phone, isNull);
+      expect(launched.single.firstName, 'Оксана');
+      expect(launched.single.lastName, 'Мельник');
+    });
+
+    testWidgets('nameless guest with a phone → button shown, names null', (
+      tester,
+    ) async {
+      final List<ClientPrefill> launched = <ClientPrefill>[];
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) =>
+              _card(ref, name: null).copyWith(firstName: null, lastName: null),
+        ),
+        client: _gst,
+        onBook: (_, ClientPrefill p) => launched.add(p),
+      );
+      await tester.tap(book());
+      await tester.pump();
+      expect(launched, <ClientPrefill>[
+        const ClientPrefill(
+          phone: _phone,
+          rating: 4.9,
+          ratingCount: 12,
+          ref: _gst,
+        ),
+      ]);
+      // No photo on the card → none in the prefill; the rating still rides.
+      expect(launched.single.avatarUrl, isNull);
+      expect(launched.single.rating, 4.9);
+    });
+
+    testWidgets('no name and no phone (anonymised) → no button', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) => _card(
+            ref,
+            name: null,
+            phone: null,
+          ).copyWith(firstName: null, lastName: null),
+        ),
+        onBook: (_, _) => fail('must not launch'),
+      );
+      expect(find.byKey(ClientCardScreen.nameKey), findsOneWidget);
+      expect(book(), findsNothing);
+    });
+
+    testWidgets('loading → no button', (tester) async {
+      final Completer<void> gate = Completer<void>();
+      final _Harness h = _Harness(
+        _Repo(card: (ref) => parts(ref), cardGate: gate),
+        onBook: (_, _) {},
+      );
+      await tester.pumpRoutedApp(h.router, overrides: h.overrides);
+      await tester.pump();
+      expect(find.byKey(ClientCardScreen.skeletonKey), findsOneWidget);
+      expect(book(), findsNothing);
+      gate.complete();
+      await _loaded(tester);
+      expect(book(), findsOneWidget);
+    });
+
+    for (final Failure failure in const <Failure>[
+      NotFoundFailure(),
+      NetworkFailure(),
+    ]) {
+      testWidgets('${failure.runtimeType} → no button', (tester) async {
+        final _Repo repo = _Repo(card: (ref) => parts(ref))
+          ..cardFailure = failure;
+        await _pump(tester, repo, onBook: (_, _) {});
+        expect(find.byType(ErrorState), findsOneWidget);
+        expect(book(), findsNothing);
+      });
+    }
+
+    testWidgets('a selected master chip does not change the prefill; the '
+        'launcher is called once', (tester) async {
+      const String m1 = 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+      final List<ClientPrefill> launched = <ClientPrefill>[];
+      await _pump(
+        tester,
+        _Repo(
+          card: (ref) => parts(
+            ref,
+            served: const <ClientServedMaster>[
+              ClientServedMaster(masterId: m1, name: 'Олена'),
+            ],
+          ),
+        ),
+        role: UserRole.salonOwner,
+        scope: const ClientListScope.salon(salonId: 's-1'),
+        onBook: (_, ClientPrefill p) => launched.add(p),
+      );
+      await tester.tap(find.byKey(ClientCardScreen.masterChipKey(m1)));
+      await tester.pumpAndSettle();
+      await tester.tap(book());
+      await tester.pump();
+      expect(launched, <ClientPrefill>[
+        const ClientPrefill(
+          firstName: 'Оксана',
+          lastName: 'Мельник',
+          phone: _phone,
+          rating: 4.9,
+          ratingCount: 12,
+          ref: _reg,
+        ),
+      ]);
+      expect(launched.single.avatarUrl, isNull);
+      expect(launched.single.rating, 4.9);
     });
   });
 }

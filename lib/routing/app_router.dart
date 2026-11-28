@@ -61,6 +61,7 @@ import '../features/booking/domain/create_master_booking_request.dart'
     show WalkInGuest;
 import '../features/booking/domain/salon_booking_args.dart';
 import '../features/booking/domain/salon_booking_confirm_args.dart';
+import '../features/booking/domain/walk_in_launch.dart';
 import '../features/booking/presentation/booking_confirm_screen.dart';
 import '../features/booking/presentation/booking_detail_screen.dart';
 import '../features/booking/presentation/leave_client_feedback_screen.dart';
@@ -79,11 +80,15 @@ import '../features/booking/presentation/service_selector_sheet.dart';
 import '../features/booking/presentation/slot_picker_screen.dart';
 import '../features/booking/presentation/walk_in_guest_step_screen.dart';
 import '../features/booking/presentation/walk_in_service_step_screen.dart';
+import '../features/booking/presentation/widgets/booking_wizard_steps.dart'
+    show walkInGuestFromPrefill;
 import '../features/clients/domain/client_summary.dart';
 import '../shared/validators/uuid_validator.dart';
 import '../features/clients/presentation/client_card_screen.dart';
 import '../features/clients/presentation/client_rating_screen.dart';
 import '../features/clients/presentation/clients_screen.dart';
+import '../features/clients/presentation/widgets/client_picker_sheet.dart';
+import '../features/clients/domain/client_prefill.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
@@ -378,6 +383,70 @@ GoRouter appRouter(Ref ref) {
   /// ([kBookingFromClientCardQuery]); its client strip pops back to it.
   bool openedFromClientCard(GoRouterState state) =>
       state.uri.queryParameters[kBookingFromClientCardQuery] == '1';
+
+  /// M553 (BOOK-79, D1) — the walk-in client step's picker, bound to
+  /// [scope]; `null` (no picker control) unless the settled role may pick
+  /// ([canPickClients] — never SALON_MASTER). The sheet re-checks the role
+  /// on open and the server enforces the scope (B550).
+  Future<ClientPrefill?> Function(BuildContext)? walkInClientPicker(
+    ClientListScope scope,
+  ) {
+    if (!canPickClients(authUserRoleSettledOrNull(ref.read(authProvider)))) {
+      return null;
+    }
+    return (BuildContext context) =>
+        showClientPickerSheet(context, scope: scope);
+  }
+
+  /// M543 (CLI-80, D2/D3/D6) — the client card's «Записати», pushing the
+  /// staff walk-in at [location] with a typed in-memory [WalkInLaunch]
+  /// `extra` (never a path / query / log). `null` (no button) unless the
+  /// settled role may pick clients ([canPickClients] — never SALON_MASTER);
+  /// the target route's own gate still decides. `context.push`, so closing
+  /// the flow returns to the card.
+  ///
+  /// BOOK-80 / CLI-80 (user 2026-11-26) — with [servicesLocation] set and a
+  /// COMPLETE prefill ([walkInGuestFromPrefill]) the client step is skipped:
+  /// the service step is pushed directly with the minted [WalkInGuest]
+  /// `extra` (which satisfies its redirect), so back returns to the card.
+  /// `null` (the default) or an incomplete prefill → [location], as before.
+  void Function(BuildContext, ClientPrefill)? cardBookLauncher(
+    String location, {
+    String? salonId,
+    String? servicesLocation,
+  }) {
+    if (!canPickClients(authUserRoleSettledOrNull(ref.read(authProvider)))) {
+      return null;
+    }
+    return (BuildContext context, ClientPrefill prefill) {
+      final WalkInGuest? guest = servicesLocation == null
+          ? null
+          : walkInGuestFromPrefill(prefill);
+      if (servicesLocation != null && guest != null) {
+        context.pushOnce<void>(servicesLocation, extra: guest);
+        return;
+      }
+      context.pushOnce<void>(
+        location,
+        extra: WalkInLaunch(prefill: prefill, salonId: salonId),
+      );
+    };
+  }
+
+  /// M543 D6 — the card launch's prefill from a route `extra`, type-checked
+  /// (any other / absent extra → `null`, the empty form).
+  ClientPrefill? walkInPrefillOf(GoRouterState state) => switch (state.extra) {
+    final WalkInLaunch launch => launch.prefill,
+    _ => null,
+  };
+
+  /// M543 D6 — `/salon/bookings/new`'s salon id: the legacy `String` extra
+  /// or a [WalkInLaunch]'s `salonId`; `null` when absent or empty.
+  String? salonBookingNewSalonIdOf(Object? extra) => switch (extra) {
+    final String id when id.isNotEmpty => id,
+    WalkInLaunch(salonId: final String id) when id.isNotEmpty => id,
+    _ => null,
+  };
 
   ClientListScope salonClientScope(GoRouterState state, String salonId) {
     final String? raw = state.uri.queryParameters[kClientCardMasterIdQuery];
@@ -1025,7 +1094,7 @@ GoRouter appRouter(Ref ref) {
                       (id) => BookingDetailScreen(bookingId: id),
                     ),
                     routes: [
-                      // Phase 14.6 — «ВІДГУК ПРО МАЙСТРА» (leave-review),
+                      // Phase 14.6 — «Відгук про майстра» (leave-review),
                       // nested under the detail so it pushes onto the Записи
                       // branch's own navigator (swipe-back returns to the
                       // detail). Reached from the detail's `canReview` entry CTA
@@ -1843,6 +1912,11 @@ GoRouter appRouter(Ref ref) {
             client: ClientRef.registered(ids[1]),
             cardBase: RouteNames.salonClients(ids[0]),
             bookingRoute: RouteNames.salonStaffBookingDetail,
+            // M543 D3 — owner / admin book in the salon wizard.
+            onBookClient: cardBookLauncher(
+              RouteNames.salonStaffBookingNew,
+              salonId: ids[0],
+            ),
           ),
         ),
       ),
@@ -1871,6 +1945,10 @@ GoRouter appRouter(Ref ref) {
               client: ClientRef.guest(bookingId),
               cardBase: RouteNames.salonClients(ids[0]),
               bookingRoute: RouteNames.salonStaffBookingDetail,
+              onBookClient: cardBookLauncher(
+                RouteNames.salonStaffBookingNew,
+                salonId: ids[0],
+              ),
             ),
           ),
         ),
@@ -2215,6 +2293,11 @@ GoRouter appRouter(Ref ref) {
                 client: ClientRef.registered(ids[0]),
                 cardBase: RouteNames.masterClients,
                 bookingRoute: RouteNames.masterBookingDetail,
+                // M543 D3 — the independent master's own walk-in.
+                onBookClient: cardBookLauncher(
+                  RouteNames.masterBookingNew,
+                  servicesLocation: RouteNames.masterBookingNewServices,
+                ),
               );
             }),
       ),
@@ -2238,6 +2321,10 @@ GoRouter appRouter(Ref ref) {
             client: ClientRef.guest(bookingId),
             cardBase: RouteNames.masterClients,
             bookingRoute: RouteNames.masterBookingDetail,
+            onBookClient: cardBookLauncher(
+              RouteNames.masterBookingNew,
+              servicesLocation: RouteNames.masterBookingNewServices,
+            ),
           ),
         ),
       ),
@@ -2313,7 +2400,13 @@ GoRouter appRouter(Ref ref) {
             // the (+) path → `seed: null`, today's screen exactly).
             pageBuilder: (context, state) => MaterialPage<void>(
               fullscreenDialog: true,
-              child: WalkInGuestStepScreen(seed: _createSeedOf(state)),
+              child: WalkInGuestStepScreen(
+                seed: _createSeedOf(state),
+                // M553 D1 — an independent master picks from own clients.
+                onPickClient: walkInClientPicker(const ClientListScope.me()),
+                // M543 — the client card's «Записати» prefill.
+                initialPrefill: walkInPrefillOf(state),
+              ),
             ),
             routes: [
               // Phase 264 — /master/bookings/new/services, the walk-in
@@ -2362,6 +2455,9 @@ GoRouter appRouter(Ref ref) {
                     guest: guest,
                     // Phase 487 — `?at=` forwarded by the guest step.
                     seed: _createSeedOf(state),
+                    // M569 — the walk-in confirm / done strips open the
+                    // master's own client card (CLI-D20).
+                    clientCardBase: RouteNames.masterClients,
                   ),
                   _ => const _MissingRouteExtra(
                     fallbackRoute: RouteNames.masterBookingNew,
@@ -2429,8 +2525,9 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.salonStaffBookingNew,
         redirect: (context, state) {
-          final Object? extra = state.extra;
-          if (extra is! String || extra.isEmpty) {
+          // M543 D6 — the legacy `String` salonId or a card launch's
+          // [WalkInLaunch] with a non-empty `salonId`.
+          if (salonBookingNewSalonIdOf(state.extra) == null) {
             // No natural upstream to chain-redirect through — same shape as
             // [salonBookingServices]'s own missing-extra fallback, but the
             // landing is role-derived (this route's callers are staff, not
@@ -2444,8 +2541,15 @@ GoRouter appRouter(Ref ref) {
         },
         pageBuilder: (context, state) => MaterialPage<void>(
           fullscreenDialog: true,
-          child: switch (state.extra) {
-            final String salonId => SalonCreateBookingScreen(salonId: salonId),
+          child: switch (salonBookingNewSalonIdOf(state.extra)) {
+            final String salonId => SalonCreateBookingScreen(
+              salonId: salonId,
+              // M553 D1 — owner / admin pick from the booked salon's clients.
+              onPickClient: walkInClientPicker(
+                ClientListScope.salon(salonId: salonId),
+              ),
+              initialPrefill: walkInPrefillOf(state),
+            ),
             _ => _MissingRouteExtra(fallbackRoute: _staffLanding(ref)),
           },
         ),
@@ -2565,25 +2669,19 @@ GoRouter appRouter(Ref ref) {
       // an owner to their role home — see that RouteName's doc.
       //
       // `clientReviewRouteBuilder` re-aims the ONE push that would otherwise
-      // leave the `/salon/*` subtree. It is NOT optional here — but Phase 320
-      // narrowed WHO it serves, and this comment asserted the opposite until
-      // then. `Booking.providerCanReviewClient` is computed by
-      // `BookingService#computeProviderCanReviewClient` (read at backend
-      // `a0df4cf`), whose provider-authority leg is now the SINGLE term
-      // `isPerformingMasterOfBooking(...)`; the former
-      // `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted
-      // the salon's OWNER and the assigned SALON_ADMIN whoever performed the
-      // service, is GONE. An owner or admin may still COMPLETE a booking;
-      // only the master who performed it may rate its client.
-      //
-      // So the audience is OWNER-AS-MASTER: an owner who personally performed
-      // the booking still gets the flag, and views that booking through THIS
-      // mount. Left null, their push falls through to
-      // `/master/bookings/:id/review`, whose INDEPENDENT_MASTER-only gate
-      // bounces them to `/salons/mine`. `_providerActions` in
-      // `booking_detail_screen.dart` renders the CTA ABOVE the
-      // `bookingTransitionsEnabledProvider` gate, so read-only-ness does not
-      // suppress it either — the server flag is the only gate.
+      // leave the `/salon/*` subtree. It is NOT optional here. B547 /
+      // REV-D06 (superseding Phase 320's "performing master only"): in a
+      // salon the OWNER, the ADMIN or the SALON_MASTER who performed the
+      // booking may rate its client, ONE salon-side rating per booking (first
+      // writer wins, the second gets 409); the server's
+      // `Booking.providerCanReviewClient` says which, and it is the only gate
+      // (M548 D2 — no Dart-side role check). So an owner or admin viewing a
+      // COMPLETED booking through THIS mount gets the CTA. Left null, their push
+      // falls through to `/master/bookings/:id/review`, whose
+      // INDEPENDENT_MASTER-only gate bounces them to `/salons/mine`.
+      // `_providerActions` in `booking_detail_screen.dart` renders the CTA
+      // ABOVE the `bookingTransitionsEnabledProvider` gate, so read-only-ness
+      // does not suppress it either.
       GoRoute(
         path: '${RouteNames.salonStaffBookings}/:bookingId',
         builder: (context, state) => bookingIdGuarded(
@@ -2616,9 +2714,8 @@ GoRouter appRouter(Ref ref) {
         ),
       ),
       // Phase 21.12 — /salon/bookings/:bookingId/review, «ВІДГУК ПРО КЛІЄНТА»
-      // for the OWNER-AS-MASTER viewer of the salon board (Phase 320 narrowed
-      // this from "every SALON_OWNER/SALON_ADMIN"; see the `:bookingId`
-      // route's comment above for the backend method that decides it).
+      // for the salon OWNER / ADMIN viewer of the salon board (B547 /
+      // REV-D06; see the `:bookingId` route's comment above).
       // Mirrors the `/staff/*` twin
       // registered further down (`salonMasterClientReview`) exactly, including
       // its `extra`-carries-the-entry-point contract — see
@@ -2638,6 +2735,10 @@ GoRouter appRouter(Ref ref) {
               final ClientReviewEntry entry => entry,
               _ => ClientReviewEntry.bookingDetail,
             },
+            // M569 — the compose strip opens the salon-scoped client card
+            // (the booking's own salon), as on the detail route above.
+            clientCardBase: (String? salonId) =>
+                salonId == null ? null : RouteNames.salonClients(salonId),
           ),
         ),
       ),
@@ -2704,6 +2805,8 @@ GoRouter appRouter(Ref ref) {
               final ClientReviewEntry entry => entry,
               _ => ClientReviewEntry.bookingDetail,
             },
+            // M569 — the compose strip opens the master's own client card.
+            clientCardBase: (_) => RouteNames.masterClients,
           ),
         ),
       ),
@@ -3207,10 +3310,34 @@ GoRouter appRouter(Ref ref) {
             path: RouteNames.ownerMasterBookingNew,
             pageBuilder: (context, state) => MaterialPage<void>(
               fullscreenDialog: true,
-              child: WalkInGuestStepScreen(
-                servicesRoute: RouteNames.ownerMasterBookingNewServices,
-                // Phase 487 — see `/master/bookings/new`.
-                seed: _createSeedOf(state),
+              // M553 D1 — the owner's salon clients (never `/masters/me`,
+              // which 403s for an owner). A Consumer so the picker appears
+              // once the owner's profile resolves the salon id; until then
+              // the step renders exactly as before (no picker).
+              child: Consumer(
+                builder: (BuildContext context, WidgetRef ref, Widget? _) {
+                  // Select the salon id alone (not the whole
+                  // [_OwnMasterIds] record) so a profile refresh's
+                  // `isLoading`/error flips don't rebuild the step.
+                  final String? salonId = ref.watch(
+                    masterProfileProvider.select(
+                      (AsyncValue<Master> async) =>
+                          _selectOwnMasterIds(async).salonId,
+                    ),
+                  );
+                  return WalkInGuestStepScreen(
+                    servicesRoute: RouteNames.ownerMasterBookingNewServices,
+                    // Phase 487 — see `/master/bookings/new`.
+                    seed: _createSeedOf(state),
+                    onPickClient: salonId == null || salonId.isEmpty
+                        ? null
+                        : walkInClientPicker(
+                            ClientListScope.salon(salonId: salonId),
+                          ),
+                    // M543 D3 — typed-extra parity; not bound from a card.
+                    initialPrefill: walkInPrefillOf(state),
+                  );
+                },
               ),
             ),
             routes: [
@@ -3368,9 +3495,12 @@ GoRouter appRouter(Ref ref) {
         ),
       ),
       // Phase 330 — /staff/bookings/:bookingId/review, the SALON_MASTER's
-      // «ВІДГУК ПРО КЛІЄНТА». Backend phase 316 (✅ COMPLETE) grants this role
-      // exactly one write on their own booking; without a `/staff/*`
-      // counterpart the CTA would render and then bounce off the `/master/*`
+      // «ВІДГУК ПРО КЛІЄНТА». B547 / REV-D06: the master who performed the
+      // booking rates its client when the salon has not yet (one salon-side
+      // rating per booking); there is no notification (NTF-D07), so this
+      // route is reached from the booking-detail CTA and the archive «Відгук»
+      // slot. The `/staff/*` role gate (`auth_redirect.dart`) still applies;
+      // without this counterpart the CTA would bounce off the `/master/*`
       // gate. Same `extra`-carries-the-entry-point contract as
       // [RouteNames.clientReview]'s registration — see that route's comment
       // for why an absent/unexpected `extra` falls back to `bookingDetail`.
@@ -3384,6 +3514,8 @@ GoRouter appRouter(Ref ref) {
               final ClientReviewEntry entry => entry,
               _ => ClientReviewEntry.bookingDetail,
             },
+            // M569 — the compose strip opens the salon master's own card.
+            clientCardBase: (_) => RouteNames.salonMasterClients,
           ),
         ),
       ),

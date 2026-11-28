@@ -24,6 +24,7 @@ Name | Type | Description | Notes
 **priceMax** | **num** |  | [optional] 
 **priceDisplay** | **String** |  | [optional] 
 **isFavorite** | **bool** | true/false only for an authenticated CLIENT caller on GET /salons/{salonId}/services; null everywhere else (anonymous/non-CLIENT callers, every provider-side service-management response, and always null inside the salon-service-catalog cache) — decorated per-request, after the cache read. | [optional] 
+**categoryDisplayName** | **String** | Display name of the service's platform category, including a category the operator has since HIDDEN (SVC-56), so an existing service keeps its label. Filled on the app's read paths (salon catalogue, master services, own services); null on write responses or for an unknown / rejected category — fall back to category then. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

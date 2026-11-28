@@ -313,11 +313,11 @@ void main() {
     testWidgets('a guest row looks like any row: «—» readout, NO «Запис за '
         'посиланням» kind label', (tester) async {
       await _pump(tester, _FakeRepo(<ClientSummary>[_guest()]));
-      final AppLocalizations l10n = _l10n(tester);
       // i18n-finder-ok: asserts the exact approved UA copy / data value
       expect(find.text('Ірина Коваль'), findsOneWidget);
       expect(find.text('—'), findsOneWidget);
-      expect(find.text(l10n.bookingDetailGuestBookingLabel), findsNothing);
+      // i18n-finder-ok: asserts the removed UA copy never renders
+      expect(find.text('Запис за посиланням'), findsNothing);
     });
 
     testWidgets('unrated registered client → «—»', (tester) async {

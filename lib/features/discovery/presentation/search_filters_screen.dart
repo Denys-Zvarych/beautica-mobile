@@ -922,6 +922,7 @@ class _CategorySection extends ConsumerWidget {
                           categoryKey: c.name,
                           categoryName: c.displayName,
                         ),
+                        iconCategoryKey: c.name,
                         label: c.displayName,
                         selected: selectedKey == c.name,
                         onTap: () => _toggle(ref, c, selectedKey),

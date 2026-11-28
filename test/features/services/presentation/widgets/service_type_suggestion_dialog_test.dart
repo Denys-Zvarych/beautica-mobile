@@ -23,6 +23,9 @@
 //   3. (Change 1 guard) the removed description field is ABSENT from the tree so
 //      it cannot silently return.
 //   4. 400 ValidationFailure{name} → inline name error, dialog stays open.
+//   7. 409 DUPLICATE_PENDING / CATEGORY_BUSY / TYPE_EXISTS / no code / unknown
+//      code → its own copy (never errServer), dialog open, name intact.
+//   8. 409 CATEGORY_BUSY → resubmitting the intact input succeeds.
 //   5. 429 CategoryRequestThrottledFailure → throttle VelvetSnack, dialog stays
 //      open.
 //   6a. (Change 2 — genuine regression) with a 300 px keyboard the Dialog
@@ -35,6 +38,7 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,6 +118,31 @@ Future<void> _enterName(WidgetTester tester, String value) async {
 Future<void> _submit(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('btn-submit-suggest-service-type')));
   await tester.pumpAndSettle();
+}
+
+/// The failure [ErrorMapperInterceptor] attaches to a 409 from
+/// `POST /service-types/suggest`: `ServerFailure(409)` whose cause carries the
+/// `{success:false, data:{code}}` envelope ([code] `null` → `data: null`).
+ServerFailure _suggest409(String? code) {
+  final RequestOptions options = RequestOptions(
+    path: '/api/v1/service-types/suggest',
+  );
+  return ServerFailure(
+    statusCode: 409,
+    cause: DioException(
+      requestOptions: options,
+      type: DioExceptionType.badResponse,
+      response: Response<Map<String, dynamic>>(
+        requestOptions: options,
+        statusCode: 409,
+        data: <String, dynamic>{
+          'success': false,
+          'data': code == null ? null : <String, dynamic>{'code': code},
+          'message': 'Conflict',
+        },
+      ),
+    ),
+  );
 }
 
 AppLocalizations _l10n(WidgetTester tester) => AppLocalizations.of(
@@ -302,6 +331,90 @@ void main() {
     // Dialog stays open so the user can retry.
     expect(find.byType(ServiceTypeSuggestionDialog), findsOneWidget);
     await pumpPastVelvetSnack(tester);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 409 typed codes (docs/specs/services.md § 10) — each maps to its own copy,
+  // never errServer, and the dialog stays open with the name intact.
+  // ---------------------------------------------------------------------------
+
+  final Map<String?, String Function(AppLocalizations)> conflictCopy =
+      <String?, String Function(AppLocalizations)>{
+        'DUPLICATE_PENDING': (l) => l.serviceTypeSuggestErrDuplicatePending,
+        'CATEGORY_BUSY': (l) => l.serviceTypeSuggestErrCategoryBusy,
+        'TYPE_EXISTS': (l) => l.serviceTypeSuggestErrTypeExists,
+        null: (l) => l.serviceTypeSuggestErrConflict,
+        'SOME_FUTURE_CODE': (l) => l.serviceTypeSuggestErrConflict,
+      };
+
+  for (final MapEntry<String?, String Function(AppLocalizations)> entry
+      in conflictCopy.entries) {
+    testWidgets('7. 409 data.code == ${entry.key} → its own VelvetSnack copy '
+        '(not errServer), dialog stays open, name intact', (tester) async {
+      when(
+        () => repo.suggestServiceType(
+          categoryName: any(named: 'categoryName'),
+          name: any(named: 'name'),
+          description: any(named: 'description'),
+        ),
+      ).thenThrow(_suggest409(entry.key));
+
+      await _openDialog(tester, repo);
+      final l10n = _l10n(tester);
+
+      await _enterName(tester, 'Ламінування вій');
+      await _submit(tester);
+
+      final String expected = entry.value(l10n);
+      expect(expected, isNot(l10n.errServer));
+      expectVelvetSnack(expected, variant: VelvetSnackVariant.error);
+      expect(find.text(l10n.errServer), findsNothing);
+      expect(find.byType(ServiceTypeSuggestionDialog), findsOneWidget);
+      expect(
+        tester.widget<TextField>(_nameField).controller?.text,
+        'Ламінування вій',
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+  }
+
+  testWidgets('8. 409 CATEGORY_BUSY → resubmitting the intact input succeeds '
+      'and pops', (tester) async {
+    var calls = 0;
+    when(
+      () => repo.suggestServiceType(
+        categoryName: any(named: 'categoryName'),
+        name: any(named: 'name'),
+        description: any(named: 'description'),
+      ),
+    ).thenAnswer((_) async {
+      calls++;
+      if (calls == 1) throw _suggest409('CATEGORY_BUSY');
+    });
+
+    await _openDialog(tester, repo);
+    final l10n = _l10n(tester);
+
+    await _enterName(tester, 'Ламінування вій');
+    await _submit(tester);
+    expectVelvetSnack(
+      l10n.serviceTypeSuggestErrCategoryBusy,
+      variant: VelvetSnackVariant.error,
+    );
+    await pumpPastVelvetSnack(tester);
+
+    // Resubmit without re-typing — the input survived the 409.
+    await _submit(tester);
+
+    final captured = verify(
+      () => repo.suggestServiceType(
+        categoryName: any(named: 'categoryName'),
+        name: captureAny(named: 'name'),
+        description: any(named: 'description'),
+      ),
+    ).captured;
+    expect(captured, <Object?>['Ламінування вій', 'Ламінування вій']);
+    expect(find.byType(ServiceTypeSuggestionDialog), findsNothing);
   });
 
   // ---------------------------------------------------------------------------

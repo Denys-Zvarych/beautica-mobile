@@ -56,7 +56,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icon_glyph.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -468,8 +468,9 @@ class CatalogueCategoryHeader extends StatelessWidget {
                 height: _iconSize,
                 child: iconAsset == null
                     ? null
-                    : AppIcon(
+                    : CategoryIconGlyph(
                         iconAsset,
+                        categoryKey: slug,
                         size: _iconSize,
                         color: BrandColors.accentDeep,
                       ),

@@ -148,6 +148,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart'
     show approvedCategoriesProvider;
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -163,14 +164,15 @@ import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
 
 import '../../application/master_create_booking_notifier.dart'
     show masterCreateBookingProvider;
 import '../../domain/create_master_booking_request.dart'
-    show kWalkInGuestNameMaxLength;
+    show WalkInGuest, kWalkInGuestNameMaxLength;
+import 'booking_client_strip.dart';
 import 'booking_recap.dart';
 import 'booking_summary_cards.dart';
-import 'labelled_row.dart';
 
 // ---------------------------------------------------------------------------
 // Phone normalization
@@ -277,6 +279,85 @@ class StepIndicator extends StatelessWidget {
 // Step — Client
 // ---------------------------------------------------------------------------
 
+/// M543 D7 — the ONE write path from a [ClientPrefill] into a host's three
+/// client controllers, promoted from `ClientStep._pickClient` (REUSE-FIRST):
+/// the picker (M553) and the client-card launch (CLI-80) both call it.
+///
+/// A part the client lacks leaves its field EMPTY (never a stale value from a
+/// previous pick or a manual entry) — `ClientStep._canAdvance` then keeps
+/// «Далі» disabled until it is typed. The phone is shown in the UA display
+/// format. PII: never logged.
+void applyClientPrefill(
+  ClientPrefill prefill, {
+  required TextEditingController first,
+  required TextEditingController last,
+  required TextEditingController phone,
+}) {
+  final String? e164 = prefill.phone;
+  _setPrefillText(first, prefill.firstName ?? '');
+  _setPrefillText(last, prefill.lastName ?? '');
+  _setPrefillText(
+    phone,
+    e164 == null ? '' : UaPhoneInputFormatter.display(e164),
+  );
+}
+
+/// The walk-in guest the review card and the create call use: the TYPED
+/// identity ([firstName] / [lastName] trimmed, [phone] E.164) plus — only
+/// while that identity still IS the [picked] client (names and phone
+/// unchanged since the pick or the client-card launch) — the picked client's
+/// display-only photo + ★ readout. An edited, cleared or hand-typed identity
+/// gets none of them (the strip's monogram + «—» fallback): the photo of
+/// someone the guest no longer is would be wrong. PII: never logged.
+WalkInGuest walkInGuestFrom({
+  required String firstName,
+  required String lastName,
+  required String phone,
+  ClientPrefill? picked,
+}) {
+  final bool same =
+      picked != null &&
+      (picked.firstName ?? '').trim() == firstName &&
+      (picked.lastName ?? '').trim() == lastName &&
+      picked.phone == phone;
+  return WalkInGuest(
+    name: firstName,
+    surname: lastName,
+    phone: phone,
+    avatarUrl: same ? picked.avatarUrl : null,
+    rating: same ? picked.rating : null,
+    ratingCount: same ? picked.ratingCount : 0,
+    clientRef: same ? picked.ref : null,
+  );
+}
+
+/// BOOK-80 / CLI-80 (user 2026-11-26) — the client-card launch's walk-in
+/// guest when its [prefill] is COMPLETE: a non-blank first name AND surname
+/// plus a phone [toE164UaPhone] accepts. Then the flow skips the client step
+/// and opens on the service step with this guest (photo + ★ carried, BOOK-81,
+/// via [walkInGuestFrom]). `null` — a missing phone (CLI-E10), a single name
+/// part, a non-UA phone — keeps the client step, prefilled as before.
+/// PII: never logged.
+WalkInGuest? walkInGuestFromPrefill(ClientPrefill prefill) {
+  final String firstName = (prefill.firstName ?? '').trim();
+  final String lastName = (prefill.lastName ?? '').trim();
+  final String? raw = prefill.phone;
+  final String? phone = raw == null ? null : toE164UaPhone(raw);
+  if (firstName.isEmpty || lastName.isEmpty || phone == null) return null;
+  return walkInGuestFrom(
+    firstName: firstName,
+    lastName: lastName,
+    phone: phone,
+    picked: prefill,
+  );
+}
+
+void _setPrefillText(TextEditingController ctrl, String text) =>
+    ctrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+
 class ClientStep extends StatefulWidget {
   const ClientStep({
     super.key,
@@ -284,6 +365,7 @@ class ClientStep extends StatefulWidget {
     required this.lastNameCtrl,
     required this.phoneCtrl,
     required this.onNext,
+    this.onPickClient,
   });
 
   final TextEditingController firstNameCtrl;
@@ -291,11 +373,59 @@ class ClientStep extends StatefulWidget {
   final TextEditingController phoneCtrl;
   final VoidCallback onNext;
 
+  /// M553 (BOOK-79) — opens the client picker and resolves the picked
+  /// client's [ClientPrefill] (`null` = dismissed). ADDITIVE: `null` (the
+  /// default) renders the step exactly as before — no picker control. The
+  /// ROUTE passes it, already bound to the role's scope (D1: IM → `me()`,
+  /// owner / admin → the booked salon) and only where `canPickClients(role)`;
+  /// this widget never decides scope or role.
+  final Future<ClientPrefill?> Function(BuildContext context)? onPickClient;
+
+  static const Key pickClientKey = Key('walk-in-pick-client');
+  static const Key pickedChipKey = Key('walk-in-pick-client-chip');
+  static const Key clearPickKey = Key('walk-in-pick-client-clear');
+
   @override
   State<ClientStep> createState() => _ClientStepState();
 }
 
 class _ClientStepState extends State<ClientStep> {
+  /// The picked client's name for the hint chip (D3: a hint only — never
+  /// sent, cleared by its «×» while the fields keep their text). PII: never
+  /// logged.
+  String? _pickedLabel;
+
+  /// Re-entrancy guard: a second tap while the sheet is up is ignored.
+  bool _picking = false;
+
+  Future<void> _pickClient(
+    Future<ClientPrefill?> Function(BuildContext context) pick,
+  ) async {
+    if (_picking) return;
+    _picking = true;
+    final ClientPrefill? prefill;
+    try {
+      prefill = await pick(context);
+    } finally {
+      _picking = false;
+    }
+    if (!mounted || prefill == null) return;
+    final ClientPrefill picked = prefill;
+    setState(() {
+      applyClientPrefill(
+        picked,
+        first: widget.firstNameCtrl,
+        last: widget.lastNameCtrl,
+        phone: widget.phoneCtrl,
+      );
+      final String label = <String>[
+        picked.firstName ?? '',
+        picked.lastName ?? '',
+      ].where((String p) => p.isNotEmpty).join(' ');
+      _pickedLabel = label.isEmpty ? null : label;
+    });
+  }
+
   bool get _canAdvance =>
       widget.firstNameCtrl.text.trim().isNotEmpty &&
       widget.lastNameCtrl.text.trim().isNotEmpty &&
@@ -310,6 +440,8 @@ class _ClientStepState extends State<ClientStep> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final Future<ClientPrefill?> Function(BuildContext context)? pick =
+        widget.onPickClient;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(VelvetSpacing.lg),
       child: Column(
@@ -322,6 +454,28 @@ class _ClientStepState extends State<ClientStep> {
           ),
           const SizedBox(height: VelvetSpacing.xs),
           Text(l10n.masterCreateBookingClientIntro, style: VelvetText.body()),
+          // M553 — «Обрати з моїх клієнтів» as a real button (2026-11-25,
+          // user: the compact heading link did not read as one): the shipped
+          // raised base-tone secondary [SuccessSecondaryButton] (54 dp,
+          // mocha person-search glyph + Comfortaa label), full width, so
+          // «Далі» stays the one gradient CTA. Without a launcher: nothing.
+          if (pick != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            SuccessSecondaryButton(
+              buttonKey: ClientStep.pickClientKey,
+              label: l10n.walkInPickClientCta,
+              icon: Icons.person_search_rounded,
+              onPressed: () => _pickClient(pick),
+            ),
+          ],
+          if (_pickedLabel case final String picked) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _PickedClientChip(
+              label: picked,
+              clearLabel: l10n.walkInPickClientClear,
+              onClear: () => setState(() => _pickedLabel = null),
+            ),
+          ],
           const SizedBox(height: VelvetSpacing.lg),
           NeumorphicTextField(
             key: const Key('master-create-booking-first-name'),
@@ -400,6 +554,80 @@ class _ClientStepState extends State<ClientStep> {
             onPressed: _canAdvance ? widget.onNext : null,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// M553 — the picked client's name in a recessed well, with a «×» that
+/// clears the hint (D3: the fields keep their text). No shared removable
+/// chip exists — the codebase's close affordances are private row parts of
+/// unrelated controls — so this is composed from the shipped
+/// [NeumorphicInset] well and the 32 dp close target the selected-services
+/// shelf and attachment tray already use.
+class _PickedClientChip extends StatelessWidget {
+  const _PickedClientChip({
+    required this.label,
+    required this.clearLabel,
+    required this.onClear,
+  });
+
+  final String label;
+  final String clearLabel;
+  final VoidCallback onClear;
+
+  static const double _tapTarget = 32;
+
+  @override
+  Widget build(BuildContext context) {
+    return NeumorphicInset(
+      key: ClientStep.pickedChipKey,
+      child: Padding(
+        padding: const EdgeInsets.only(
+          left: VelvetSpacing.md,
+          right: VelvetSpacing.xs,
+          top: VelvetSpacing.sm,
+          bottom: VelvetSpacing.sm,
+        ),
+        child: Row(
+          children: <Widget>[
+            const Icon(
+              Icons.person_rounded,
+              size: 18,
+              color: BrandColors.accent,
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: VelvetText.input(),
+              ),
+            ),
+            Semantics(
+              container: true,
+              button: true,
+              label: clearLabel,
+              child: GestureDetector(
+                key: ClientStep.clearPickKey,
+                behavior: HitTestBehavior.opaque,
+                onTap: onClear,
+                child: const SizedBox(
+                  height: _tapTarget,
+                  width: _tapTarget,
+                  child: Center(
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: BrandColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -701,6 +929,10 @@ class ConfirmStep extends ConsumerWidget {
     required this.lastName,
     required this.phone,
     this.masterCard,
+    this.clientAvatarUrl,
+    this.clientRating,
+    this.clientReviewCount = 0,
+    this.onOpenClient,
   }) : assert(
          (service == null) != (services == null),
          'ConfirmStep needs exactly one of service (legacy single) or '
@@ -728,6 +960,19 @@ class ConfirmStep extends ConsumerWidget {
   /// header for why a master booking themselves has no business naming
   /// themselves here.
   final Widget? masterCard;
+
+  /// 2026-11-25 — the picked existing client's display-only photo and ★
+  /// readout for the client card (see [walkInGuestFrom]). ADDITIVE: `null` /
+  /// `0` (a hand-typed walk-in) → the strip's monogram + «—» fallback.
+  final String? clientAvatarUrl;
+  final double? clientRating;
+  final int clientReviewCount;
+
+  /// M569 (CLI-D20) — the client strip's tap into the picked client's card.
+  /// The caller passes it only while the typed identity still is the picked
+  /// (or card-launched) client ([walkInGuestFrom]'s `clientRef`); `null` (a
+  /// hand-typed or edited client, which has no card yet) keeps it inert.
+  final VoidCallback? onOpenClient;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -789,26 +1034,26 @@ class ConfirmStep extends ConsumerWidget {
           // own calendar, so a card naming them would be self-referential
           // (see `master_create_booking_screen.dart`'s file-header deviation
           // list, item 4).
-          NeumorphicCard(
+          //
+          // 2026-11-25 — the SAME [BookingClientStrip] «Деталі запису», the
+          // «Клієнти» list and the reschedule confirm show the client in
+          // (photo / monogram, ★ readout), with the shipped «Клієнт» caption
+          // and the phone as its sub-line, instead of a bare label card. The
+          // strip bounds the third-party name to one ellipsized line.
+          BookingClientStrip.walkIn(
             key: const Key('master-create-booking-guest-card'),
-            padding: const EdgeInsets.all(VelvetSpacing.md),
-            child: LabelledRow(
-              label: l10n.masterCreateBookingGuestLabel,
-              value: '$firstName $lastName'.trim(),
-              detail: phone.isEmpty ? null : phone,
-              // THIRD-PARTY FREE TEXT (audit-fix cycle 1, FINDING 4 —
-              // mobile-security LOW, 2026-08-20). The guest's name is typed
-              // in by the master, not formatted by the backend, and the
-              // backend's own ceiling is 100 characters PER field
-              // (`StaffClientRef.Guest.MAX_NAME_LENGTH`) — 200 across the two.
-              // Unbounded, a pasted 200-character name flooded this recap card
-              // and pushed the booking details it exists to confirm off the
-              // step. `labelled_row.dart:37-47` prescribes exactly this pair
-              // for the case; two lines keeps a genuinely long-but-real
-              // Ukrainian double-barrelled name readable.
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            firstName: firstName,
+            lastName: lastName,
+            phone: phone,
+            avatarUrl: clientAvatarUrl,
+            rating: clientRating,
+            reviewCount: clientReviewCount,
+            topLabel: l10n.masterCreateBookingGuestLabel,
+            shellKey: const Key('master-create-booking-guest-strip'),
+            avatarImageKey: const Key(
+              'master-create-booking-guest-avatar-photo',
             ),
+            onTap: onOpenClient,
           ),
           const SizedBox(height: VelvetSpacing.md),
           // WHERE / WHEN / WHAT — the shared booking-details card, the SAME

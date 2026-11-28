@@ -9,7 +9,7 @@
 //   • the row mapper: registered, guest, a registered row whose visits came
 //     from walk-ins (B527 — maps like any registered row), unknown `kind`
 //     dropped, a row without its kind's id dropped, blank name → null, a
-//     guest never carries a photo or a rating;
+//     guest never carries a photo but DOES carry the backend's rating (M548);
 //   • `completedVisits` is mapped but is not a display value;
 //   • `clientQueryFor`: the 2–50-char `q` rule;
 //   • an unreadable envelope → ResponseUnusableFailure, HTTP errors → typed
@@ -99,8 +99,9 @@ Map<String, Object?> _guest({String? displayName = 'Ірина Коваль'}) =
       'kind': 'GUEST',
       'guestBookingId': _bookingId,
       'displayName': displayName,
-      // A guest must never carry these; the mapper must not trust them.
+      // A guest never carries a photo; the mapper must not trust one.
       'avatarUrl': 'https://cdn.test/leak.jpg',
+      // M548 / REV-D10: a guest's rating IS the backend's value.
       'ratingAvg': 3.0,
       'ratingCount': 2,
       'completedVisits': 1,
@@ -224,7 +225,7 @@ void main() {
       expect(s.displayRating, isNull, reason: 'unrated → «—»');
     });
 
-    test('guest row: guest ref, no photo, no rating even if sent', () async {
+    test('guest row: guest ref, no photo, backend rating mapped', () async {
       final r = _build(body: _page(<Map<String, Object?>>[_guest()]));
       final ClientSummary s = (await r.repo.list(
         const ClientListScope.me(),
@@ -233,6 +234,20 @@ void main() {
       expect(s.isGuest, isTrue);
       expect(s.id, _bookingId);
       expect(s.avatarUrl, isNull);
+      expect(s.ratingAvg, 3.0);
+      expect(s.ratingCount, 2);
+      expect(s.displayRating, 3.0);
+    });
+
+    test('guest row: unrated guest stays unrated', () async {
+      final r = _build(
+        body: _page(<Map<String, Object?>>[
+          <String, Object?>{..._guest(), 'ratingAvg': null, 'ratingCount': 0},
+        ]),
+      );
+      final ClientSummary s = (await r.repo.list(
+        const ClientListScope.me(),
+      )).items.single;
       expect(s.ratingAvg, isNull);
       expect(s.ratingCount, 0);
       expect(s.displayRating, isNull);
@@ -370,5 +385,77 @@ void main() {
         );
       },
     );
+  });
+
+  // M544 / B564 — the removal writes go through the GENERATED client with the
+  // generated `ClientListRemovalRequest`: path, method and EXACTLY one key.
+  group('removeFromList / restoreToList (B564)', () {
+    const String salonId = 'c3333333-0000-4000-8000-000000000003';
+
+    Map<String, dynamic> bodyOf(RequestOptions r) =>
+        (r.data is String ? jsonDecode(r.data as String) : r.data)
+            as Map<String, dynamic>;
+
+    test('salon scope, registered → POST …/salons/{id}/clients/removals '
+        '{clientId}, no masterId', () async {
+      final b = _build(status: 204);
+      await b.repo.removeFromList(
+        const ClientListScope.salon(salonId: salonId, masterId: 'm-1'),
+        const ClientRef.registered(_userId),
+      );
+      final RequestOptions r = b.adapter.requests.single;
+      expect(r.method, 'POST');
+      expect(r.path, '/api/v1/salons/$salonId/clients/removals');
+      expect(r.queryParameters, isEmpty);
+      expect(bodyOf(r), <String, dynamic>{'clientId': _userId});
+    });
+
+    test('salon scope, guest restore → …/removals/restore '
+        '{guestBookingId}', () async {
+      final b = _build(status: 204);
+      await b.repo.restoreToList(
+        const ClientListScope.salon(salonId: salonId),
+        const ClientRef.guest(_bookingId),
+      );
+      final RequestOptions r = b.adapter.requests.single;
+      expect(r.path, '/api/v1/salons/$salonId/clients/removals/restore');
+      expect(bodyOf(r), <String, dynamic>{'guestBookingId': _bookingId});
+    });
+
+    test('me scope → /masters/me/clients/removals[/restore]', () async {
+      final b = _build(status: 204);
+      await b.repo.removeFromList(
+        const ClientListScope.me(),
+        const ClientRef.registered(_userId),
+      );
+      await b.repo.restoreToList(
+        const ClientListScope.me(),
+        const ClientRef.guest(_bookingId),
+      );
+      expect(b.adapter.requests.map((RequestOptions r) => r.path), <String>[
+        '/api/v1/masters/me/clients/removals',
+        '/api/v1/masters/me/clients/removals/restore',
+      ]);
+    });
+
+    test('HTTP errors → typed Failures', () async {
+      await expectLater(
+        _build(
+          status: 404,
+          body: <String, Object?>{'success': false},
+        ).repo.removeFromList(
+          const ClientListScope.me(),
+          const ClientRef.registered(_userId),
+        ),
+        throwsA(isA<NotFoundFailure>()),
+      );
+      await expectLater(
+        _build(throwType: DioExceptionType.connectionError).repo.restoreToList(
+          const ClientListScope.me(),
+          const ClientRef.registered(_userId),
+        ),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
   });
 }

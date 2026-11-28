@@ -38,12 +38,27 @@
 // mutation invalidate the WHOLE family (card / blocked-clients screen and
 // `booking_calendar_invalidation.dart`).
 //
+// HOST (M552): the family key also carries a [ClientListHost]. The «Клієнти»
+// tab ([ClientListHost.tab], the default) behaves exactly as above; the client
+// picker ([ClientListHost.picker]) gets its OWN instance — its search never
+// changes the tab's list — with no cache-for, so it is released when the sheet
+// closes and every open starts with an empty search.
+//
+// REMOVE (M544, CLI-86): [remove] drops the row at once (optimistic, keeping
+// its index) and calls the B564 write; a failure puts it back at the same
+// index. [restore] (the undo snack) puts it back and calls restore. THIS list
+// keeps its loaded pages; the other instances (owner `masterId` views, the
+// picker) refetch once per swipe burst, when the undo window closes
+// ([ClientListRemovalBroadcast], `client_list_removal.dart`). A failed
+// restore refetches the whole family (server truth).
+//
 // PII: names are never logged.
 
 import 'dart:async';
 import 'dart:developer';
 
 import 'package:dio/dio.dart' show CancelToken;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart'
     show ProviderListenableSelect;
 import 'package:freezed_annotation/freezed_annotation.dart';
@@ -51,6 +66,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/clients/application/client_list_removal.dart';
 import 'package:beautica_mobile/features/clients/data/client_repository.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 
@@ -62,6 +78,20 @@ const Duration kClientSearchDebounce = Duration(milliseconds: 300);
 
 /// How long an unlistened [ClientListController] instance stays cached.
 const Duration kClientListCacheFor = Duration(seconds: 30);
+
+/// Which surface hosts a [ClientListController] instance (part of the family
+/// key, so the two never share a search).
+enum ClientListHost {
+  /// The «Клієнти» tab: cached for [kClientListCacheFor] once unlistened.
+  tab,
+
+  /// The client-picker sheet: released as soon as the sheet closes.
+  picker,
+}
+
+/// What [ClientListController.remove] did: the row's former [index] (for the
+/// undo) and the write's [error] (`null` = removed; else the row is back).
+typedef ClientRemoval = ({int index, Object? error});
 
 /// The loaded list and its paging cursor.
 @freezed
@@ -115,7 +145,18 @@ class ClientListController extends _$ClientListController {
   CancelToken? _token;
 
   @override
-  Future<ClientListState> build(ClientListScope scope) {
+  Future<ClientListState> build(
+    ClientListScope scope, {
+    ClientListHost host = ClientListHost.tab,
+  }) {
+    // M544 — a swipe burst elsewhere changed what this list shows: refetch,
+    // unless THIS instance made the whole burst (it already shows it).
+    ref.listen<ClientListRemovalEpoch>(clientListRemovalBroadcastProvider, (
+      ClientListRemovalEpoch? _,
+      ClientListRemovalEpoch next,
+    ) {
+      if (clientListNeedsRefetch(next, _source)) ref.invalidateSelf();
+    });
     ref.onDispose(() {
       _debounce?.cancel();
       _token?.cancel();
@@ -137,7 +178,8 @@ class ClientListController extends _$ClientListController {
     }
     final CancelToken token = _supersede();
     _reloading = false;
-    _cacheFor();
+    // The picker keeps nothing between opens (see the file header).
+    if (host == ClientListHost.tab) _cacheFor();
     // Logged out: nothing to show and nothing to fetch.
     if (userId == null) {
       return Future<ClientListState>.value(
@@ -192,6 +234,13 @@ class ClientListController extends _$ClientListController {
   void setQuery(String raw) {
     _debounce?.cancel();
     _debounce = Timer(kClientSearchDebounce, () => _applyQuery(raw));
+  }
+
+  /// Drops a pending [setQuery] debounce, so a search typed just before the
+  /// host closes never fetches (called from `ClientListView.dispose`).
+  void cancelPendingSearch() {
+    _debounce?.cancel();
+    _debounce = null;
   }
 
   Future<void> _applyQuery(String raw) async {
@@ -294,5 +343,89 @@ class ClientListController extends _$ClientListController {
         current.copyWith(isLoadingMore: false, loadMoreFailed: true),
       );
     }
+  }
+
+  /// This instance's stable identity (its family key) for the removal
+  /// broadcast — never `this` (see [ClientListSource]).
+  ClientListSource get _source => (scope: scope, host: host);
+
+  /// M544 — removes [item]'s row at once, then calls the removal write. On
+  /// failure the row goes back at the same index (unless a reload replaced
+  /// the list meanwhile — the server's page is the truth then). `null` when
+  /// the row is not on the list (nothing to remove).
+  Future<ClientRemoval?> remove(ClientSummary item) async {
+    final ClientListState? current = state.value;
+    if (current == null) return null;
+    final int index = current.items.indexWhere(
+      (ClientSummary s) => s.ref == item.ref,
+    );
+    if (index < 0) return null;
+    final int generation = _generation;
+    // Built once and handed to freezed as its own unmodifiable view (no
+    // second copy; a stable `items` instance for identity memos).
+    state = AsyncData<ClientListState>(
+      current.copyWith(
+        items: EqualUnmodifiableListView<ClientSummary>(
+          List<ClientSummary>.of(current.items)..removeAt(index),
+        ),
+      ),
+    );
+    try {
+      await ref.read(clientRepositoryProvider).removeFromList(scope, item.ref);
+      // The other list instances hear about it once the undo window closes;
+      // this one keeps its pages (see the file header).
+      if (ref.mounted) {
+        ref
+            .read(clientListRemovalBroadcastProvider.notifier)
+            .removed(_source, item.ref);
+      }
+      return (index: index, error: null);
+    } catch (e) {
+      if (kDebugMode) log('remove failed', name: _tag, level: 900);
+      if (ref.mounted && generation == _generation) _reinsert(item, index);
+      return (index: index, error: e);
+    }
+  }
+
+  /// M544 — the undo: puts [item] back at [index] and calls restore. On
+  /// success this list keeps its pages and the others hear about it with the
+  /// burst; a failure refetches the whole family (the server's truth).
+  /// Returns the restore error, or `null`.
+  Future<Object?> restore(ClientSummary item, int index) async {
+    _reinsert(item, index);
+    try {
+      await ref.read(clientRepositoryProvider).restoreToList(scope, item.ref);
+    } catch (e) {
+      if (ref.mounted) {
+        // The whole family refetches now: no pending flush may do it a
+        // second time (any source's).
+        ref.read(clientListRemovalBroadcastProvider.notifier).cancelAll();
+        ref.invalidate(clientListControllerProvider);
+      }
+      return e;
+    }
+    if (ref.mounted) {
+      ref
+          .read(clientListRemovalBroadcastProvider.notifier)
+          .restored(_source, item.ref);
+    }
+    return null;
+  }
+
+  /// Inserts [item] at [index] (clamped) unless it is already listed.
+  void _reinsert(ClientSummary item, int index) {
+    final ClientListState? current = state.value;
+    if (current == null ||
+        current.items.any((ClientSummary s) => s.ref == item.ref)) {
+      return;
+    }
+    state = AsyncData<ClientListState>(
+      current.copyWith(
+        items: EqualUnmodifiableListView<ClientSummary>(
+          List<ClientSummary>.of(current.items)
+            ..insert(index.clamp(0, current.items.length), item),
+        ),
+      ),
+    );
   }
 }

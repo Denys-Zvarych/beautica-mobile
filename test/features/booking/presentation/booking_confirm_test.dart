@@ -26,6 +26,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart'
+    show debugMediaCacheManager;
+import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
+    show walkInGuestFrom;
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -71,6 +77,8 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip_shell.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -81,7 +89,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lottie/lottie.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -760,6 +770,12 @@ GoRouter _router() => GoRouter(
       path: RouteNames.contactSupport,
       builder: (context, state) =>
           const SizedBox.shrink(key: Key('test-contact-support')),
+    ),
+    // M569 — the client-card stub the strips push (user + guest paths).
+    GoRoute(
+      path: '${RouteNames.masterClients}/:kind/:id',
+      builder: (context, state) =>
+          Scaffold(body: Text('card-stub:${state.uri}')),
     ),
   ],
 );
@@ -2527,11 +2543,10 @@ void main() {
     });
 
     // Audit-fix cycle 3 (FIX 1, 2026-08-21) — the walk-in GUEST identity
-    // card. REUSE-FIRST: `GuestIdentityCard` (`widgets/guest_identity_card
-    // .dart`), promoted from `BookingSuccessScreen`'s own inline card (audit-
-    // fix cycle 2) — same key naming convention (`booking-confirm-guest-card`
-    // mirrors `booking-success-guest-card`), same `LabelledRow` +
-    // `masterCreateBookingGuestLabel`.
+    // card — `BookingClientStrip.walkIn` since 2026-11-25 (was the retired
+    // `GuestIdentityCard`), the same card the done screen shows — same key
+    // naming convention (`booking-confirm-guest-card` mirrors
+    // `booking-success-guest-card`), same `masterCreateBookingGuestLabel`.
     group('guest identity card (audit-fix cycle 3, FIX 1)', () {
       testWidgets(
         'should_showGuestCard_when_guestNonNull — walk-in confirm echoes the '
@@ -2601,9 +2616,92 @@ void main() {
       );
     });
 
+    // 2026-11-25 (BOOK-79/80) — the walk-in review card is the shared
+    // `BookingClientStrip.walkIn`: a picked client's photo + ★, and the
+    // monogram + «—» once the typed identity diverged from the pick
+    // (`walkInGuestFrom`, the composition the guest step routes on).
+    group('walk-in client strip — picked vs typed (2026-11-25)', () {
+      const ClientPrefill picked = ClientPrefill(
+        firstName: _kPickedFirst,
+        lastName: _kPickedLast,
+        phone: _kPickedPhone,
+        avatarUrl: _kPickedAvatar,
+        rating: _kPickedRating,
+        ratingCount: _kPickedRatingCount,
+      );
+      final Finder card = find.byKey(const Key('booking-confirm-guest-card'));
+      Finder inReadout(String text) => find.descendant(
+        of: find.descendant(
+          of: card,
+          matching: find.byType(MasterRatingReadout),
+        ),
+        matching: find.text(text),
+      );
+
+      setUp(() {
+        MediaConfig.debugAllowedHosts = <String>{'media.test'};
+        debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+      });
+      tearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+
+      testWidgets('a picked client shows its photo and ★ rating', (
+        tester,
+      ) async {
+        final WalkInGuest guest = walkInGuestFrom(
+          firstName: _kPickedFirst,
+          lastName: _kPickedLast,
+          phone: _kPickedPhone,
+          picked: picked,
+        );
+        await pump(
+          tester,
+          _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          ),
+          args: _confirmArgs(guest: guest, hideMasterIdentity: true),
+        );
+
+        expect(tester.widget(card), isA<BookingClientStrip>());
+        expect(renderedImageUrls(tester, within: card), <String>[
+          _kPickedAvatar,
+        ]);
+        expect(inReadout(_kPickedRating.toStringAsFixed(1)), findsOneWidget);
+        expect(inReadout('($_kPickedRatingCount)'), findsOneWidget);
+      });
+
+      testWidgets('a typed phone that diverged from the pick shows initials '
+          'and «—», no photo', (tester) async {
+        final WalkInGuest guest = walkInGuestFrom(
+          firstName: _kPickedFirst,
+          lastName: _kPickedLast,
+          phone: _kTypedPhone,
+          picked: picked,
+        );
+        await pump(
+          tester,
+          _FakeAppointmentRepository(
+            appointmentToReturn: _appointmentFixture(),
+          ),
+          args: _confirmArgs(guest: guest, hideMasterIdentity: true),
+        );
+
+        expect(card, findsOneWidget);
+        expect(renderedImageUrls(tester, within: card), isEmpty);
+        expect(
+          find.descendant(of: card, matching: find.text(_kPickedInitials)),
+          findsOneWidget,
+        );
+        expect(inReadout(MasterStrip.noRatingLabel), findsOneWidget);
+        expect(inReadout(_kPickedRating.toStringAsFixed(1)), findsNothing);
+      });
+    });
+
     // mobile-qa (client-identity parity, 2026-08-22) — the RESCHEDULE-path
     // counterpart of the guest-identity-card group above. REUSE-FIRST: same
-    // `GuestIdentityCard` widget (via its new `.identity` constructor), same
+    // client card (`BookingClientStrip`, 2026-11-14), same
     // key-naming convention (`booking-confirm-client-card` mirrors
     // `booking-confirm-guest-card`). Mutually exclusive with the guest card
     // on THIS screen — `_ConfirmBody`'s `if (guest != null) ... else if
@@ -2711,10 +2809,8 @@ void main() {
         );
       });
 
-      testWidgets('should_showGuestQualifierAndNoRating_when_walkInTarget — '
-          'a walk-in client gets the booking card\'s guest fallback', (
-        tester,
-      ) async {
+      testWidgets('should_showNoQualifierButRating_when_walkInTarget — '
+          'a walk-in client shows its phone-keyed ★ (CLI-101)', (tester) async {
         final fake = _RecordingRescheduleRepository();
         final router = _router();
         await tester.pumpRoutedApp(
@@ -2732,14 +2828,13 @@ void main() {
             extra: _rescheduleArgsWithClientName().copyWith(
               rescheduleTargetIsWalkIn: true,
               rescheduleClientInitials: 'МД',
+              rescheduleClientRating: 4.6,
+              rescheduleClientReviewCount: 2,
             ),
           ),
         );
         await tester.pumpAndSettle();
 
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(BookingConfirmScreen)),
-        );
         final Finder card = find.byKey(
           const Key('booking-confirm-client-card'),
         );
@@ -2747,13 +2842,14 @@ void main() {
         expect(
           find.descendant(
             of: card,
-            matching: find.text(l10n.bookingDetailGuestBookingLabel),
+            // i18n-finder-ok: asserts the removed UA copy never renders
+            matching: find.text('Запис за посиланням'),
           ),
-          findsOneWidget,
+          findsNothing,
         );
         expect(
-          find.descendant(of: card, matching: find.byType(MasterRatingReadout)),
-          findsNothing,
+          find.descendant(of: card, matching: find.text('4.6')),
+          findsOneWidget,
         );
       });
 
@@ -4107,4 +4203,115 @@ void main() {
       expect(appointments.rescheduleItemCalls, hasLength(1));
     });
   });
+
+  // M569 (CLI-101 / CLI-D20) — the confirm screen's client strips open the
+  // client card on top; back returns to the confirm step.
+  group('M569 client strip tap → client card', () {
+    Future<GoRouter> pushConfirm(
+      WidgetTester tester,
+      BookingConfirmArgs args,
+    ) async {
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWith(
+            (_) => _RecordingRescheduleRepository(),
+          ),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+        ],
+      );
+      unawaited(router.push(RouteNames.bookingConfirm, extra: args));
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets('reschedule: tap pushes the target\'s card, back returns to '
+        'the confirm step', (tester) async {
+      final GoRouter router = await pushConfirm(
+        tester,
+        _rescheduleArgsWithClientName().copyWith(
+          clientCardBase: RouteNames.masterClients,
+          clientCardRef: const ClientRef.registered('c-42'),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('booking-confirm-client-strip')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'card-stub:${RouteNames.clientCardUser(RouteNames.masterClients, 'c-42')}',
+        ),
+        findsOneWidget,
+      );
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+    });
+
+    testWidgets('reschedule without a card base stays inert', (tester) async {
+      await pushConfirm(
+        tester,
+        _rescheduleArgsWithClientName().copyWith(
+          clientCardRef: const ClientRef.guest('booking-1'),
+        ),
+      );
+      expect(
+        tester
+            .widget<MasterStripShell>(
+              find.byKey(const Key('booking-confirm-client-strip')),
+            )
+            .onTap,
+        isNull,
+      );
+    });
+
+    testWidgets('walk-in: a picked, unchanged client opens their card', (
+      tester,
+    ) async {
+      await pushConfirm(
+        tester,
+        _walkInConfirmArgs().copyWith(
+          guest: _kGuest.copyWith(clientRef: const ClientRef.guest('b-old')),
+          clientCardBase: RouteNames.masterClients,
+        ),
+      );
+      await tester.tap(find.byKey(const Key('booking-confirm-guest-strip')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'card-stub:${RouteNames.clientCardGuest(RouteNames.masterClients, 'b-old')}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('walk-in: a hand-typed / edited client (no clientRef) is '
+        'inert even with a card base', (tester) async {
+      await pushConfirm(
+        tester,
+        _walkInConfirmArgs().copyWith(clientCardBase: RouteNames.masterClients),
+      );
+      expect(
+        tester
+            .widget<MasterStripShell>(
+              find.byKey(const Key('booking-confirm-guest-strip')),
+            )
+            .onTap,
+        isNull,
+      );
+    });
+  });
 }
+
+// Fixture data for the walk-in picked-vs-typed group (named, never a literal
+// at a finder call site).
+const String _kPickedFirst = 'Оксана';
+const String _kPickedLast = 'Мельник';
+const String _kPickedInitials = 'ОМ';
+const String _kPickedPhone = '+380671234567';
+const String _kTypedPhone = '+380671234568';
+const String _kPickedAvatar = 'https://media.test/avatars/u-oksana.png';
+const double _kPickedRating = 4.5;
+const int _kPickedRatingCount = 3;

@@ -19,8 +19,9 @@
 //   (b) INDEPENDENT_MASTER: strip → client card «⋯» → «Заблокувати клієнта» →
 //       confirm dialog → block → success snack + booking detail re-fetched.
 //       SALON_OWNER: strip → card «⋯» → report + block rows → block. SALON_MASTER: report only, which
-//       sends {CLIENT_PROFILE, client id}. SALON_MASTER on a guest booking: no
-//       «⋯» (an independent master on the same guest booking gets block-only).
+//       sends {CLIENT_PROFILE, client id}. SALON_MASTER on a guest booking:
+//       «⋯» with «Прибрати зі списку» only (M544 CLI-69; an independent
+//       master on the same guest booking gets block + remove).
 //       CLIENT on their own booking: no «⋯» (clients never block).
 //       Public master avatar photo → full-screen viewer; no photo → the
 //       monogram is not tappable (2026-11-21).
@@ -669,8 +670,11 @@ void main() {
     await pumpPastVelvetSnack(tester);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
-  testWidgets('guest booking: SALON_MASTER gets NO «⋯» (nothing to report, '
-      'cannot block)', (tester) async {
+  // M544 (CLI-69, 2026-11-26) — every provider role gets «⋯» for «Прибрати
+  // зі списку»; a SALON_MASTER on a guest card has nothing to report and
+  // cannot block, so the sheet carries remove ONLY (was: no «⋯» at all).
+  testWidgets('guest booking: SALON_MASTER\'s card «⋯» offers «Прибрати зі '
+      'списку» only (nothing to report, cannot block)', (tester) async {
     final FakeBackend fb = FakeBackend()
       ..currentRole = UserRole.salonMaster
       ..bookingClientIsGuest = true;
@@ -683,12 +687,19 @@ void main() {
     await AppHarness.settle(tester);
 
     expect(find.byType(BookingCounterpartyHeader), findsOneWidget);
-    await openClientCard(tester);
-    expect(clientCardMore, findsNothing);
+    await openClientCardMore(tester);
+    await AppHarness.settle(tester);
+    expect(_actions, findsOneWidget);
+    expect(find.byKey(ClientActionsSheet.removeKey), findsOneWidget);
+    expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+    expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+    expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('guest booking (positive control): INDEPENDENT_MASTER gets «⋯» '
-      'with block only — no report row for a guest', (tester) async {
+      'with block + «Прибрати зі списку» — no report row for a guest', (
+    tester,
+  ) async {
     final FakeBackend fb = FakeBackend()
       ..currentRole = UserRole.independentMaster
       ..bookingClientIsGuest = true;
@@ -702,12 +713,14 @@ void main() {
     await AppHarness.settle(tester);
 
     expect(find.byKey(ClientActionsSheet.blockKey), findsOneWidget);
+    expect(find.byKey(ClientActionsSheet.removeKey), findsOneWidget);
     expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('guest booking the server marks NOT blockable (walk-in / erased '
       'guest, backend 397 clientBlockable=false): INDEPENDENT_MASTER\'s card '
-      '«⋯» offers nothing (no sheet)', (tester) async {
+      '«⋯» offers «Прибрати зі списку» only (no block, no report — M544 '
+      'CLI-69: was no sheet at all)', (tester) async {
     final FakeBackend fb = FakeBackend()
       ..currentRole = UserRole.independentMaster
       ..bookingClientIsGuest = true
@@ -723,7 +736,10 @@ void main() {
     expect(find.byType(BookingCounterpartyHeader), findsOneWidget);
     await openClientCardMore(tester);
     await AppHarness.settle(tester);
-    expect(_actions, findsNothing);
+    expect(_actions, findsOneWidget);
+    expect(find.byKey(ClientActionsSheet.removeKey), findsOneWidget);
+    expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+    expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('a blocked client: «Розблокувати клієнта» sends ONE DELETE of '

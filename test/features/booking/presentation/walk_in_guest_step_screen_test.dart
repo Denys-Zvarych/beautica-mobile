@@ -29,7 +29,8 @@ import 'package:beautica_mobile/features/booking/domain/create_master_booking_re
     show WalkInGuest;
 import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
-    show StepIndicator;
+    show ClientStep, StepIndicator;
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,7 +48,10 @@ final List<Object?> _pushedExtras = <Object?>[];
 /// Phase 487 — the `at` query value of every push to the services stub.
 final List<String?> _pushedAts = <String?>[];
 
-GoRouter _router() {
+GoRouter _router({
+  Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
+  ClientPrefill? initialPrefill,
+}) {
   _pushedExtras.clear();
   _pushedAts.clear();
   return GoRouter(
@@ -63,6 +67,8 @@ GoRouter _router() {
         // on every pre-487 test here → `seed: null`.
         builder: (context, state) => WalkInGuestStepScreen(
           seed: BookingCreateSeed.fromQuery(state.uri.queryParameters['at']),
+          onPickClient: onPickClient,
+          initialPrefill: initialPrefill,
         ),
         routes: <RouteBase>[
           GoRoute(
@@ -88,8 +94,13 @@ GoRouter _router() {
 Future<GoRouter> _pump(
   WidgetTester tester, {
   String location = RouteNames.masterBookingNew,
+  Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
+  ClientPrefill? initialPrefill,
 }) async {
-  final GoRouter router = _router();
+  final GoRouter router = _router(
+    onPickClient: onPickClient,
+    initialPrefill: initialPrefill,
+  );
   await tester.pumpRoutedApp(router);
   unawaited(router.push(location));
   await tester.pumpAndSettle();
@@ -244,6 +255,113 @@ void main() {
       expect(tf.controller!.text, _kFirstName);
     },
   );
+
+  // M553 — the route's picker launcher reaches ClientStep verbatim.
+  testWidgets('M553: no launcher (today) → no picker control', (tester) async {
+    await _pump(tester);
+    expect(find.byKey(ClientStep.pickClientKey), findsNothing);
+  });
+
+  testWidgets('M553: a launcher → picker shown; the pick prefills the guest '
+      '«Далі» mints', (tester) async {
+    int calls = 0;
+    await _pump(
+      tester,
+      onPickClient: (BuildContext _) async {
+        calls++;
+        return const ClientPrefill(
+          firstName: _kFirstName,
+          lastName: _kLastName,
+          phone: '+380501234567',
+        );
+      },
+    );
+    await tester.tap(find.byKey(ClientStep.pickClientKey));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    // User 2026-11-26 — the «+» entry is unchanged: a picked COMPLETE client
+    // only fills the fields; the client step stays until «Далі» (only the
+    // client-card launch skips it, in the router — BOOK-80).
+    expect(_pushedExtras, isEmpty);
+    expect(find.byKey(const Key('master-create-booking-first-name')), findsOne);
+
+    // The full-width picker button + the picked chip put «Далі» below the
+    // 800x600 test surface's fold (2026-11-25) — scroll to it.
+    await tester.ensureVisible(
+      find.byKey(const Key('master-create-booking-client-next')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('master-create-booking-client-next')),
+    );
+    await tester.pumpAndSettle();
+
+    final WalkInGuest guest = _pushedExtras.single! as WalkInGuest;
+    expect(guest.name, _kFirstName);
+    expect(guest.surname, _kLastName);
+    expect(guest.phone, '+380501234567');
+  });
+
+  group('M543 initialPrefill (BOOK-80)', () {
+    String text(WidgetTester tester, String key) => tester
+        .widget<NeumorphicTextField>(find.byKey(Key(key)))
+        .controller
+        .text;
+    NeumorphicButton next(WidgetTester tester) => tester.widget(
+      find.byKey(const Key('master-create-booking-client-next')),
+    );
+
+    testWidgets('fills the three fields, «Далі» enabled, no picked chip', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        initialPrefill: const ClientPrefill(
+          firstName: _kFirstName,
+          lastName: _kLastName,
+          phone: '+380501234567',
+        ),
+      );
+      expect(text(tester, 'master-create-booking-first-name'), _kFirstName);
+      expect(text(tester, 'master-create-booking-last-name'), _kLastName);
+      expect(text(tester, 'master-create-booking-phone'), isNot(isEmpty));
+      expect(next(tester).onPressed, isNotNull);
+      expect(find.byKey(ClientStep.pickedChipKey), findsNothing);
+
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await tester.pumpAndSettle();
+      final WalkInGuest guest = _pushedExtras.single! as WalkInGuest;
+      expect(guest.name, _kFirstName);
+      expect(guest.surname, _kLastName);
+      expect(guest.phone, '+380501234567');
+    });
+
+    testWidgets('no phone → phone empty, «Далі» disabled until typed', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        initialPrefill: const ClientPrefill(
+          firstName: _kFirstName,
+          lastName: _kLastName,
+        ),
+      );
+      expect(text(tester, 'master-create-booking-phone'), isEmpty);
+      expect(next(tester).onPressed, isNull);
+      await _enter(tester, const Key('master-create-booking-phone'), _kPhone);
+      expect(next(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('null → empty form, «Далі» disabled (today)', (tester) async {
+      await _pump(tester);
+      expect(text(tester, 'master-create-booking-first-name'), isEmpty);
+      expect(text(tester, 'master-create-booking-last-name'), isEmpty);
+      expect(text(tester, 'master-create-booking-phone'), isEmpty);
+      expect(next(tester).onPressed, isNull);
+    });
+  });
 
   testWidgets('should_notRenderStepIndicator_when_guestStepShown — the 4-dot '
       'indicator is dropped from the routed walk-in chain (brief decision 4)', (

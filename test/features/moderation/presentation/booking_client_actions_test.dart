@@ -98,10 +98,13 @@ const Key _moreKey = Key('flow-host-more');
 /// A mount of the shared flow: the booking read, the report-once watch, the
 /// gate and [runClientActions] — the same calls the client card makes.
 class _FlowHost extends ConsumerWidget {
-  const _FlowHost({required this.bookingId, this.salonId});
+  const _FlowHost({required this.bookingId, this.salonId, this.onRemove});
 
   final String bookingId;
   final String? salonId;
+
+  /// M544 — the card's «Прибрати зі списку» write (recorded by [_Env]).
+  final Future<void> Function()? onRemove;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -129,6 +132,7 @@ class _FlowHost extends ConsumerWidget {
                   booking: booking,
                   gate: gate,
                   salonId: salonId,
+                  onRemove: onRemove,
                 ),
               ),
       ),
@@ -143,6 +147,7 @@ class _Env {
   final ClientBlockRepository blocks;
   final FakeContentReportRepository reports;
   int detailBuilds = 0;
+  int removeCalls = 0;
 }
 
 Future<_Env> _pump(
@@ -159,7 +164,11 @@ Future<_Env> _pump(
   addTearDown(tester.view.resetDevicePixelRatio);
   final _Env env = _Env(blocks: blocks, preReported: preReported);
   await tester.pumpApp(
-    _FlowHost(bookingId: booking.id, salonId: salonId),
+    _FlowHost(
+      bookingId: booking.id,
+      salonId: salonId,
+      onRemove: () async => env.removeCalls++,
+    ),
     overrides: <Object>[
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
@@ -210,14 +219,19 @@ void main() {
       expect(find.byKey(ClientActionsSheet.blockKey), findsOne);
     });
 
-    testWidgets('salon master (report only): no «⋯» at all', (tester) async {
+    testWidgets('salon master, already reported: remove only (M544)', (
+      tester,
+    ) async {
       await _pump(
         tester,
         _booking(),
         role: UserRole.salonMaster,
         preReported: reportedC1,
       );
-      expect(_more, findsNothing);
+      await _openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.removeKey), findsOne);
     });
 
     testWidgets('reporting from the sheet hides the entry at once', (
@@ -305,7 +319,7 @@ void main() {
       expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
     });
 
-    testWidgets('clientBlockable false on a guest booking: no «⋯» at all', (
+    testWidgets('clientBlockable false on a guest booking: remove only', (
       tester,
     ) async {
       await _pump(
@@ -313,8 +327,11 @@ void main() {
         _booking(clientId: null, clientBlockable: false),
         role: UserRole.salonOwner,
       );
-      expect(find.byType(_FlowHost), findsOne);
-      expect(_more, findsNothing);
+      await _openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.removeKey), findsOne);
     });
 
     testWidgets('clientBlocked without a clientBlockId (broken payload) '
@@ -339,12 +356,14 @@ void main() {
       expect(find.byKey(ClientActionsSheet.unblockKey), findsNothing);
     });
 
-    testWidgets('salon master on a guest booking: no «⋯» at all', (
+    testWidgets('salon master on a guest booking: remove only (CLI-69)', (
       tester,
     ) async {
       await _pump(tester, _booking(clientId: null), role: UserRole.salonMaster);
-      expect(find.byType(_FlowHost), findsOne);
-      expect(_more, findsNothing);
+      await _openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.removeKey), findsOne);
     });
 
     testWidgets('a client viewer never gets a «⋯» (clients never block)', (
@@ -638,6 +657,61 @@ void main() {
       expect(repo.calls, <String>['unblock:block-1']);
       expect(repo.stored, isEmpty);
       expect(find.text(l10n.clientUnblockedSnack), findsOne);
+    });
+  });
+
+  // M544 (CLI-69, CLI-86) — «Прибрати зі списку» for every provider role.
+  group('remove from list (M544)', () {
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+      UserRole.independentMaster,
+      UserRole.salonMaster,
+    ]) {
+      test('gate: canRemove for ${role.name}', () {
+        final ClientActionsGate? gate = clientActionsGateFor(
+          _booking(),
+          role,
+          reported: false,
+        );
+        expect(gate?.canRemove, isTrue);
+      });
+    }
+
+    test('gate: a salon master on a guest booking gets remove only', () {
+      final ClientActionsGate? gate = clientActionsGateFor(
+        _booking(clientId: null),
+        UserRole.salonMaster,
+        reported: false,
+      );
+      expect(gate, isNotNull);
+      expect(gate?.canRemove, isTrue);
+      expect(gate?.canReport, isFalse);
+      expect(gate?.canBlock, isFalse);
+    });
+
+    test('gate: a CLIENT or no role gets nothing', () {
+      expect(
+        clientActionsGateFor(_booking(), UserRole.client, reported: false),
+        isNull,
+      );
+      expect(clientActionsGateFor(_booking(), null, reported: false), isNull);
+    });
+
+    testWidgets('tapping «Прибрати зі списку» runs the host write once', (
+      tester,
+    ) async {
+      final _Env env = await _pump(
+        tester,
+        _booking(),
+        role: UserRole.independentMaster,
+      );
+      await _openSheet(tester);
+      expect(find.text(_l10n(tester).clientsRemoveAction), findsOne);
+      await tester.tap(find.byKey(ClientActionsSheet.removeKey));
+      await tester.pumpAndSettle();
+      expect(env.removeCalls, 1);
+      expect(find.byType(ClientActionsSheet), findsNothing);
     });
   });
 }

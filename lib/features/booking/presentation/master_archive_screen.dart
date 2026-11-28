@@ -197,9 +197,12 @@ class MasterArchiveScreen extends ConsumerStatefulWidget {
 
   /// Builds the leave-client-feedback path for a row's «Відгук» slot. `null`
   /// means [RouteNames.clientReview]; the `/staff/*` mount passes
-  /// [RouteNames.salonMasterClientReview]. Backend phase 316 grants a
-  /// `SALON_MASTER` exactly this one write on their own booking, so the slot
-  /// genuinely renders for them and genuinely needs somewhere to go.
+  /// [RouteNames.salonMasterClientReview], the salon `/salon/*` mount
+  /// [RouteNames.salonStaffClientReview]. B547 / REV-D06: in a salon the
+  /// owner, the admin or the SALON_MASTER who performed the booking may rate
+  /// its client (one salon-side rating per booking), as the server's
+  /// `providerCanReviewClient` says — so the slot genuinely renders on every
+  /// mount and needs somewhere to go. No local role gate (M548 D2).
   final String Function(String bookingId)? reviewRouteBuilder;
 
   /// Phase 343 — the SCOPE this archive reads. `null` (the default, and what

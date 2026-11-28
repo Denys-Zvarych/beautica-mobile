@@ -57,7 +57,7 @@
 
 import 'package:flutter/material.dart';
 
-import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/category_icon_glyph.dart';
 import '../../../../core/icons/category_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
@@ -353,8 +353,9 @@ class _TimelineNode extends StatelessWidget {
           // `"UNKNOWN"` as absent.
           child: iconAsset == null
               ? null
-              : AppIcon(
+              : CategoryIconGlyph(
                   iconAsset,
+                  categoryKey: _undoUnknownSentinel(entry.categoryKey),
                   // 39dp = 48 × 52/64 — preserves the user-approved 0.75
                   // icon-to-medallion ratio (48dp inside the earlier 64dp
                   // medallion, "a little bit smaller" per that review) at

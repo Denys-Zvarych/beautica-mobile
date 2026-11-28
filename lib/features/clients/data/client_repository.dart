@@ -19,6 +19,18 @@
 // on the SAME seam, with the same flat-paging wire format.
 // The card carries the client's PHONE (B518) — the redacted prefixes above
 // cover these paths, and nothing here ever logs a body or a path id.
+//
+// M544 adds the list removal writes (B564, CLI-82) through the GENERATED
+// `ProviderClientControllerApi` (`remove|restore` `SalonClient` / `MyClient`)
+// with the generated `ClientListRemovalRequest`; 204. Both sit under the same
+// redacted prefixes. The owner/admin `masterId` view is salon-scoped
+// server-side, so `masterId` is never sent on a write.
+//
+// M545 adds the anonymous comments read (B565 `…/{users|guests}/{id}/comments`,
+// REV-44) on the SAME seam and wire format as `/visits`, behind its own
+// [ClientCommentsRepository] interface so the many [ClientRepository] test
+// fakes stay untouched. The rows carry provider-written TEXT about a person:
+// same redacted prefixes, nothing but transport metadata is logged.
 
 import 'dart:developer';
 
@@ -35,8 +47,10 @@ import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_review_comment.dart';
 import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/clients/domain/client_visit.dart';
+import 'package:beautica_mobile/shared/validators/uuid_validator.dart';
 
 part 'client_repository.g.dart';
 
@@ -96,16 +110,56 @@ abstract interface class ClientRepository {
     int size = kClientPageSize,
     CancelToken? cancelToken,
   });
+
+  /// M544 (B564, CLI-82) — removes [client] from [scope]'s list. Bookings,
+  /// history, ratings and blocks are untouched server-side. Throws a
+  /// [Failure] ([NotFoundFailure] for an out-of-scope client).
+  Future<void> removeFromList(ClientListScope scope, ClientRef client);
+
+  /// M544 (B564) — undoes [removeFromList] (the undo snack). Idempotent
+  /// server-side (204 even when nothing was removed).
+  Future<void> restoreToList(ClientListScope scope, ClientRef client);
 }
 
-/// HTTP implementation of [ClientRepository].
+/// M545 — the anonymous comments about a client (B565, REV-44).
 ///
-/// Inject via [clientRepositoryProvider] — never construct directly outside
-/// tests.
-final class HttpClientRepository implements ClientRepository {
-  HttpClientRepository(this._dio);
+/// Resolves or throws a [Failure]; raw Dio types never cross this boundary.
+abstract interface class ClientCommentsRepository {
+  /// One page of the visible comments about [client], newest first (server
+  /// order, size 20). A row the app cannot read (no id, bad month, no stars,
+  /// blank text) is dropped — never a crash, never the whole page.
+  Future<PageResponse<ClientReviewComment>> getComments(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  });
+
+  /// M572 (B570, REV-45) — deletes the viewer's OWN client review: the whole
+  /// rating goes, comment included (`DELETE /client-reviews/{reviewId}`).
+  /// Throws a [Failure] ([NotFoundFailure] when it is already gone).
+  Future<void> deleteOwnReview(String reviewId);
+}
+
+/// HTTP implementation of [ClientRepository] and [ClientCommentsRepository].
+///
+/// Inject via [clientRepositoryProvider] / [clientCommentsRepositoryProvider]
+/// — never construct directly outside tests.
+final class HttpClientRepository
+    implements ClientRepository, ClientCommentsRepository {
+  HttpClientRepository(this._dio)
+    : _api = ProviderClientControllerApi(_dio, standardSerializers),
+      _reviewApi = ClientReviewControllerApi(_dio, standardSerializers);
 
   final Dio _dio;
+
+  /// The generated client — used for the B564 removal writes. The reads stay
+  /// on [_dio] (flat paging, see the file header).
+  final ProviderClientControllerApi _api;
+
+  /// The generated client for the B570 own-review delete.
+  final ClientReviewControllerApi _reviewApi;
 
   @override
   Future<PageResponse<ClientSummary>> list(
@@ -186,6 +240,106 @@ final class HttpClientRepository implements ClientRepository {
     ),
     requestedPage: page,
   );
+
+  @override
+  Future<PageResponse<ClientReviewComment>> getComments(
+    ClientListScope scope,
+    ClientRef client, {
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async => clientCommentsFromBody(
+    await _read(
+      _cardPath(scope, client, '/comments'),
+      scope: scope,
+      page: page,
+      size: size,
+      cancelToken: cancelToken,
+    ),
+    requestedPage: page,
+  );
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) =>
+      _removal(scope, client, restore: false);
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) =>
+      _removal(scope, client, restore: true);
+
+  @override
+  Future<void> deleteOwnReview(String reviewId) async {
+    // The generated client puts the id in the path unencoded: a non-UUID never
+    // reaches the network — it is the same outcome as an unknown review.
+    if (!isUuid(reviewId)) throw const NotFoundFailure();
+    try {
+      await _reviewApi.deleteOwn(reviewId: reviewId);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        // Transport metadata only — never the body, the path or an id.
+        log(
+          'deleteOwnReview failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw mapClientDioException(e);
+    }
+  }
+
+  /// B564 — the generated removal operations with the generated
+  /// [ClientListRemovalRequest] (exactly one of `clientId` /
+  /// `guestBookingId`). A salon scope always writes the salon removal (its
+  /// `masterId` view is covered server-side), a master scope its own list.
+  Future<void> _removal(
+    ClientListScope scope,
+    ClientRef client, {
+    required bool restore,
+  }) async {
+    final ClientListRemovalRequest body = ClientListRemovalRequest(
+      (ClientListRemovalRequestBuilder b) => switch (client) {
+        RegisteredClientRef(:final String userId) => b.clientId = userId,
+        GuestClientRef(:final String bookingId) => b.guestBookingId = bookingId,
+      },
+    );
+    try {
+      await switch ((scope, restore)) {
+        (SalonClientListScope(:final String salonId), false) =>
+          _api.removeSalonClient(
+            salonId: salonId,
+            clientListRemovalRequest: body,
+          ),
+        (SalonClientListScope(:final String salonId), true) =>
+          _api.restoreSalonClient(
+            salonId: salonId,
+            clientListRemovalRequest: body,
+          ),
+        (MyClientListScope(), false) => _api.removeMyClient(
+          clientListRemovalRequest: body,
+        ),
+        (MyClientListScope(), true) => _api.restoreMyClient(
+          clientListRemovalRequest: body,
+        ),
+      };
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        // Transport metadata only — never the body, the path or an id.
+        log(
+          '${restore ? 'restore' : 'remove'} failed: '
+          '${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw mapClientDioException(e);
+    }
+  }
 
   /// `…/clients/{users|guests}/{id}{suffix}` below [scope]'s base.
   String _cardPath(ClientListScope scope, ClientRef client, String suffix) {
@@ -289,8 +443,9 @@ PageResponse<ClientSummary> clientPageFromBody(
 
 /// Maps a generated [ClientListItemResponse] to a [ClientSummary], or `null`
 /// when `kind` is unknown or the kind's id (`userId` / `guestBookingId`) is
-/// missing. A field the API sends for the other kind is not trusted: a guest
-/// has no account photo and no rating.
+/// missing. A guest has no account photo, so a guest `avatarUrl` is not
+/// trusted. Ratings are mapped for BOTH kinds (M548 / REV-D10): a guest's
+/// `ratingAvg` / `ratingCount` are the backend's values, never forced unrated.
 @visibleForTesting
 ClientSummary? clientSummaryFromDto(ClientListItemResponse? dto) {
   if (dto == null) return null;
@@ -315,13 +470,11 @@ ClientSummary? clientSummaryFromDto(ClientListItemResponse? dto) {
       final int n when n > 0 => n,
       _ => 0,
     },
-    ratingAvg: registered ? dto.ratingAvg?.toDouble() : null,
-    ratingCount: registered
-        ? switch (dto.ratingCount) {
-            final int n when n > 0 => n,
-            _ => 0,
-          }
-        : 0,
+    ratingAvg: dto.ratingAvg?.toDouble(),
+    ratingCount: switch (dto.ratingCount) {
+      final int n when n > 0 => n,
+      _ => 0,
+    },
     blocked: dto.blocked ?? false,
   );
 }
@@ -366,9 +519,17 @@ ClientCard clientCardFromDto(
     final int n when n > 0 => n,
     _ => 0,
   };
+  final String? displayName = _nonBlank(dto.displayName)?.trim();
+  final String? firstName = _nonBlank(dto.firstName)?.trim();
+  final String? lastName = _nonBlank(dto.lastName)?.trim();
+  // B550 name parts. Both absent (a pre-B550 backend) → fall back to
+  // `firstName = displayName`; one part present → the other stays null.
+  final bool noParts = firstName == null && lastName == null;
   return ClientCard(
     ref: client,
-    displayName: _nonBlank(dto.displayName)?.trim(),
+    displayName: displayName,
+    firstName: noParts ? displayName : firstName,
+    lastName: lastName,
     avatarUrl: _nonBlank(dto.avatarUrl),
     phone: _nonBlank(dto.phone)?.trim(),
     blocked: dto.blocked ?? false,
@@ -376,6 +537,7 @@ ClientCard clientCardFromDto(
     ratingCount: ratingCount,
     ratingDistribution: List<int>.unmodifiable(distribution),
     nextVisitAt: dto.nextVisitAt,
+    nextVisit: clientVisitFromDto(dto.nextVisit),
     servedByMasters: List<ClientServedMaster>.unmodifiable(
       _servedMastersOf(dto.servedByMasters),
     ),
@@ -472,6 +634,68 @@ ClientVisit? clientVisitFromDto(ClientVisitResponse? dto) {
   );
 }
 
+/// Deserializes a `…/comments` page (B565), dropping unusable rows.
+@visibleForTesting
+PageResponse<ClientReviewComment> clientCommentsFromBody(
+  Object? body, {
+  required int requestedPage,
+}) {
+  final ApiResponsePageResponseClientReviewCommentResponse? envelope;
+  try {
+    envelope = body == null
+        ? null
+        : standardSerializers.deserialize(
+                body,
+                specifiedType: const FullType(
+                  ApiResponsePageResponseClientReviewCommentResponse,
+                ),
+              )
+              as ApiResponsePageResponseClientReviewCommentResponse?;
+  } catch (_) {
+    throw const ResponseUnusableFailure();
+  }
+  final PageResponseClientReviewCommentResponse? dto = envelope?.data;
+  final Iterable<ClientReviewCommentResponse>? rows = dto?.data;
+  if (dto == null || rows == null) throw const ResponseUnusableFailure();
+  final List<ClientReviewComment> items = <ClientReviewComment>[];
+  for (final ClientReviewCommentResponse row in rows) {
+    final ClientReviewComment? comment = clientCommentFromDto(row);
+    if (comment != null) {
+      items.add(comment);
+    } else if (kDebugMode) {
+      // No row content is logged (provider-written text).
+      log('comments: dropped an unusable row', name: _tag, level: 900);
+    }
+  }
+  return PageResponse<ClientReviewComment>(
+    items: List<ClientReviewComment>.unmodifiable(items),
+    page: dto.page ?? requestedPage,
+    totalPages: dto.totalPages ?? 0,
+    totalElements: dto.totalElements ?? items.length,
+  );
+}
+
+/// Maps one comment; `null` when it has no id, no `YYYY-MM` month, stars
+/// outside 1..5 or blank text.
+@visibleForTesting
+ClientReviewComment? clientCommentFromDto(ClientReviewCommentResponse? dto) {
+  if (dto == null) return null;
+  final String? id = _nonBlank(dto.reviewId);
+  final ({int year, int month})? month = parseVisitMonth(dto.visitMonth);
+  final int? stars = dto.stars;
+  final String? text = _nonBlank(dto.comment)?.trim();
+  if (id == null || month == null || text == null) return null;
+  if (stars == null || stars < 1 || stars > kClientRatingBuckets) return null;
+  return ClientReviewComment(
+    reviewId: id,
+    visitYear: month.year,
+    visitMonth: month.month,
+    stars: stars,
+    comment: text,
+    own: dto.own ?? false,
+  );
+}
+
 String? _nonBlank(String? value) =>
     (value == null || value.trim().isEmpty) ? null : value;
 
@@ -498,6 +722,11 @@ Failure mapClientDioException(DioException e) {
       return UnknownFailure(cause: e);
   }
 }
+
+/// M545 — the app-wide [ClientCommentsRepository] on the authenticated Dio.
+@Riverpod(keepAlive: true)
+ClientCommentsRepository clientCommentsRepository(Ref ref) =>
+    HttpClientRepository(ref.watch(dioProvider));
 
 /// The app-wide [ClientRepository] on the authenticated Dio.
 @Riverpod(keepAlive: true)

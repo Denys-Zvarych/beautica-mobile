@@ -1906,6 +1906,22 @@
   "@serviceTypeSuggestSuccess": {
     "description": "SnackBar message shown after a service-type suggestion is successfully submitted (Phase 16.6)."
   },
+  "serviceTypeSuggestErrDuplicatePending": "This suggestion has already been sent and is awaiting review.",
+  "@serviceTypeSuggestErrDuplicatePending": {
+    "description": "SnackBar error in the suggest-a-service-type dialog when POST /service-types/suggest returns 409 with data.code == DUPLICATE_PENDING (the same suggestion is already awaiting review)."
+  },
+  "serviceTypeSuggestErrCategoryBusy": "The category is being updated. Try again in a moment.",
+  "@serviceTypeSuggestErrCategoryBusy": {
+    "description": "SnackBar error in the suggest-a-service-type dialog when POST /service-types/suggest returns 409 with data.code == CATEGORY_BUSY (B505; the category is being updated). The dialog stays open with the input intact so the user can resubmit."
+  },
+  "serviceTypeSuggestErrTypeExists": "This service type already exists in this category.",
+  "@serviceTypeSuggestErrTypeExists": {
+    "description": "SnackBar error in the suggest-a-service-type dialog when POST /service-types/suggest returns 409 with data.code == TYPE_EXISTS (a service type with that name already exists in the category)."
+  },
+  "serviceTypeSuggestErrConflict": "Couldn't send the suggestion. Try again later.",
+  "@serviceTypeSuggestErrConflict": {
+    "description": "SnackBar error in the suggest-a-service-type dialog for a 409 from POST /service-types/suggest with no (or an unknown) data.code — a generic conflict; never the generic server-error copy."
+  },
 
   "deleteServiceTitle": "Delete service?",
   "@deleteServiceTitle": {
@@ -4959,7 +4975,7 @@
   "@bookingDetailReviewCta": {
     "description": "Pinned action on a COMPLETED booking's detail screen, shown only when canReview is true; opens the leave-review screen (Phase 14.6)."
   },
-  "reviewScreenTitle": "MASTER REVIEW",
+  "reviewScreenTitle": "Master review",
   "@reviewScreenTitle": {
     "description": "Top-bar title of the leave-review screen (Phase 14.6)."
   },
@@ -5129,14 +5145,6 @@
   "clientReviewCommentHint": "Add a comment (optional)",
   "@clientReviewCommentHint": {
     "description": "Placeholder text inside the optional comment field on the leave-client-feedback screen."
-  },
-  "clientReviewCommentPrivacyNote": "The client will not see this comment",
-  "@clientReviewCommentPrivacyNote": {
-    "description": "Inline reminder beside the comment counter on the leave-client-feedback screen — the client never sees this text, only their aggregate rating number moves."
-  },
-  "clientReviewRoleLabel": "Client",
-  "@clientReviewRoleLabel": {
-    "description": "Generic sub-label under the client's name on the leave-client-feedback screen's identity card, for a registered (non-guest) client."
   },
   "clientReviewSubmitCta": "Send feedback",
   "@clientReviewSubmitCta": {
@@ -5984,10 +5992,6 @@
   "bookingDetailGuestClient": "Guest",
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
-  },
-  "bookingDetailGuestBookingLabel": "Booked via link",
-  "@bookingDetailGuestBookingLabel": {
-    "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
   },
   "bookingDetailClientSemantics": "Client: {name}",
   "@bookingDetailClientSemantics": {
@@ -7660,6 +7664,11 @@
   "clientsNoMatchTitle": "Nobody found",
   "clientsNoMatchBody": "Check the name or enter a shorter one.",
   "clientsLoadMoreFailed": "Couldn't load clients",
+  "clientsRemoveAction": "Remove from list",
+  "clientsRemoveSwipe": "Remove",
+  "clientsRemovedSnack": "Client removed from the list",
+  "clientsRemoveUndo": "Undo",
+  "clientsRemoveFailed": "Couldn't remove the client. Try again.",
   "clientsRowLastVisit": "Last visit",
   "clientsRowNextVisit": "Next",
   "clientsRowLastVisitShort": "Last",
@@ -7668,6 +7677,7 @@
   "clientsRowSemantics": "Client: {name}, last visit {last}",
   "clientsRowSemanticsNoVisit": "Client: {name}",
   "clientCardTitle": "Client",
+  "clientCardBookCta": "Book",
   "clientNextVisitTitle": "Next visit",
   "clientHistoryTitle": "Visit history",
   "clientMastersFilterAll": "All masters",
@@ -7676,12 +7686,27 @@
   "clientRatingTitle": "Client rating",
   "clientRatingEmpty": "No ratings yet",
   "clientRatingOpenHint": "Open client rating",
-  "clientRatingPrivacyNote": "Rating comments are private and are not shown here.",
+  "clientRatingPrivacyNote": "The client does not see these comments. The author is not shown.",
+  "clientRatingCommentsTitle": "Comments",
+  "clientRatingOwnComment": "Your comment",
+  "clientRatingExpand": "More",
+  "clientRatingDeleteTitle": "Delete rating and comment?",
+  "clientRatingDeleteBody": "The rating will be deleted together with the comment, and the client's average rating will change. You will be able to rate this visit again.",
+  "clientRatingDeleteConfirm": "Delete",
+  "clientRatingDeleteCancel": "Cancel",
+  "clientRatingDeleted": "Rating deleted",
+  "clientRatingCommentsLoadFailed": "Couldn't load comments",
+  "reportSubjectClientComment": "Comment about a client",
+  "clientReviewCommentAnonNotice": "Other masters and salons will see this comment anonymously. The client does not see it.",
   "clientCall": "Call",
   "clientCopyPhone": "Copy number",
   "clientPhoneCopied": "Number copied",
   "clientNotFound": "Client not found",
   "clientPhoneSemantics": "Phone {phone}",
   "clientRatingCount": "{count, plural, one{{count} rating} other{{count} ratings}}",
-  "clientVisitSemantics": "Visit {when}"
+  "clientVisitSemantics": "Visit {when}",
+  "walkInPickClientCta": "Choose from my clients",
+  "walkInPickClientTitle": "My clients",
+  "walkInPickClientSearchHint": "Name or phone",
+  "walkInPickClientClear": "Clear the picked client"
 }

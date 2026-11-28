@@ -91,6 +91,7 @@ import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
 import '../domain/booking_slot_picker_args.dart';
 import '../domain/booking_status.dart';
+import 'client_card_opener.dart';
 
 /// Seeds the booking slot picker for a RESCHEDULE of [bookingId] and pushes
 /// into it. Safe to call from any surface (CLIENT or PROVIDER) that has a
@@ -116,11 +117,16 @@ import '../domain/booking_status.dart';
 /// set. On any failure (load error, non-confirmed booking, or a service no
 /// longer in the master's catalogue) it surfaces a transient VelvetSnack and
 /// does NOT navigate.
+///
+/// [clientCardBase] (M569, CLI-101): the calling detail mount's client-card
+/// list base, so the provider's confirm / done client strips open the card.
+/// `null` (the default) keeps them inert.
 Future<void> startBookingReschedule({
   required BuildContext context,
   required WidgetRef ref,
   required String bookingId,
   String? salonId,
+  String? clientCardBase,
 }) async {
   // Re-entrancy guard: a reschedule navigation is already loading its seeding
   // GETs — ignore this extra tap so a double-tap can't spawn two overlapping
@@ -237,8 +243,8 @@ Future<void> startBookingReschedule({
     // this stays `false` and those paths are byte-for-byte unaffected.
     final bool rescheduleTargetIsWalkIn = booking.isGuestBooking;
     // CLIENT IDENTITY PARITY (2026-08-22): the walk-in CREATE flow renders a
-    // `GuestIdentityCard` on the confirm/done screens so the master always
-    // sees WHO the visit is for instead of their own (hidden) identity strip
+    // `BookingClientStrip.walkIn` on the confirm/done screens so the master
+    // always sees WHO the visit is for instead of their own (hidden) identity strip
     // staring back at them; the RESCHEDULE flow left that same slot EMPTY
     // because it has no guest step to source a `WalkInGuest` from. Reused
     // here off the SAME `hideMasterIdentity` boolean just above (not a second
@@ -290,6 +296,14 @@ Future<void> startBookingReschedule({
               : null,
           rescheduleClientReviewCount: hideMasterIdentity
               ? booking.clientReviewCount
+              : null,
+          // M569 (CLI-101 / CLI-D20) — the confirm / done client strips open
+          // the same card as the detail strip: the caller's card base plus
+          // this fresh booking's client handle, under the SAME provider gate.
+          // `null` (no base, a client viewer, an anonymised client) = inert.
+          clientCardBase: hideMasterIdentity ? clientCardBase : null,
+          clientCardRef: hideMasterIdentity
+              ? clientRefOfBooking(booking)
               : null,
           // VENUE ADDRESS (2026-09-18) — the done screen composes its address
           // from `Master.street/.buildingNo/.city`, and the backend

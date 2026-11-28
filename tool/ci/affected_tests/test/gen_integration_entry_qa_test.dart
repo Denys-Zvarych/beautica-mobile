@@ -287,6 +287,49 @@ void main() {
       ]);
     });
 
+    // Phase 566 L3: --fanout=false turns `parts` (only) into `deferred`.
+    test('566 --fanout=false: more than maxSelectedFlows -> deferred, no '
+        'file; --fanout absent / =true -> parts (unchanged)', () {
+      final many = sel(names('zz', gen.maxSelectedFlows + 1));
+      final d = runGen(many, extra: ['--fanout=false']);
+      expect(
+        (d.stdout as String).trim(),
+        'entry=deferred',
+        reason: '${d.stderr}',
+      );
+      expect(entry().existsSync(), isFalse);
+      expect((runGen(many).stdout as String).trim(), 'entry=parts');
+      expect(
+        (runGen(many, extra: ['--fanout=true']).stdout as String).trim(),
+        'entry=parts',
+      );
+    });
+
+    test(
+      '566 --fanout=false: <= maxSelectedFlows -> selected (still runs)',
+      () {
+        final r = runGen(
+          sel(names('zz', gen.maxSelectedFlows)),
+          extra: ['--fanout=false'],
+        );
+        expect(out(r), 'entry=selected', reason: '${r.stderr}');
+        expect(entry().existsSync(), isTrue);
+      },
+    );
+
+    test('566 --fanout=false: an empty selection stays none; a bad --fanout '
+        'value is bad usage -> parts (fail-safe)', () {
+      final none = runGen(
+        '{"mode":"selective","integration":[]}',
+        extra: ['--fanout=false'],
+      );
+      expect(out(none), 'entry=none');
+      expect(
+        out(runGen(sel(['a0']), extra: ['--fanout=maybe'])),
+        'entry=parts',
+      );
+    });
+
     test('more than maxSelectedTests testWidgets -> parts, no file', () {
       final r = runGen(
         sel(['a0', 'a1']),

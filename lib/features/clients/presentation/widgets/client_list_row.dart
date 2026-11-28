@@ -10,14 +10,14 @@
 //
 // User decisions 2026-11-20 (CLI-47 / CLI-D10), all enforced HERE:
 //   • one layout for every provider role and both client kinds — a GUEST row
-//     is a registered row without a photo: no «Запис за посиланням» qualifier,
-//     the SAME ★ readout (always «—» for a guest today);
+//     is a registered row without a photo: no client-kind label (CLI-100),
+//     the SAME ★ readout (the server's values; a guest is rated by phone, REV-D04);
 //   • NO completed-visits count and NO phone (the API sends none);
 //   • short dates, one per line, wrapping instead of ellipsizing;
 //   • the screen-reader label keeps the long «Останній візит … / Наступний …».
 //
-// The strip's own `isGuest` stays `false` on purpose — that flag is what draws
-// the qualifier and hides the readout, and this list wants neither.
+// The strip's own `isGuest` stays `false` on purpose — that flag hides the
+// ★ readout, which this list keeps.
 //
 // PII: name only; never logged.
 

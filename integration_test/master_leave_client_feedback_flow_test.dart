@@ -36,6 +36,9 @@ import 'package:beautica_mobile/features/booking/application/pending_booking_act
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/client_card_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/clients_screen.dart';
+import 'package:beautica_mobile/features/clients/presentation/widgets/client_card_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
@@ -175,6 +178,132 @@ void main() {
 
       // Drain the dwell Timer so none is pending at teardown.
       await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  // M568 / CLI-100 — a STAFF walk-in (`clientId: null` on the wire, staff-typed
+  // name resolved server-side) is indistinguishable from a LINK guest to the
+  // app, so neither the detail strip nor the compose header may carry a
+  // client-kind label. M569 (CLI-101): the walk-in's phone-keyed ★ shows on
+  // both, through the ONE shared client strip.
+  testWidgets(
+    'PROVIDER opens a COMPLETED STAFF walk-in booking: the client strip shows '
+    'the name with no «Запис за посиланням» and its ★ rating, and the compose '
+    'screen heads with the same shared strip',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingStatus = 'COMPLETED'
+        ..bookingProviderCanReviewClient = true
+        ..bookingClientIsGuest = true
+        ..bookingClientAvgRating = 4.5;
+      // M569 (CLI-D20) — the guest card anchored on this booking (CLI-42),
+      // which both strips open.
+      const String guestCardName = 'Guest card M569';
+      fb.clientCards['booking-1'] = <String, dynamic>{
+        'kind': 'GUEST',
+        'guestBookingId': 'booking-1',
+        'displayName': guestCardName,
+        'blocked': false,
+        'ratingAvg': 4.5,
+        'ratingCount': 2,
+        'ratingDistribution': <Map<String, int>>[],
+      };
+      fb.clientVisits['booking-1'] = <Map<String, dynamic>>[];
+      fb.wireClientCard();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+      await AppHarness.settle(tester);
+      final Finder cta = find.byKey(
+        const Key('booking-detail-leave-client-feedback'),
+      );
+      await AppHarness.pumpUntilFound(tester, cta);
+
+      final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+      final String walkInName = '${fb.clientFirstName} ${fb.clientLastName}';
+      expect(
+        find.descendant(of: strip, matching: find.text(walkInName)),
+        findsOneWidget,
+      );
+      expect(
+        // i18n-finder-ok: asserts the removed UA copy never renders (CLI-100)
+        find.text('Запис за посиланням'),
+        findsNothing,
+        reason: 'no client-kind label on a walk-in detail',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text('4.5')),
+        findsOneWidget,
+        reason: 'CLI-101: a walk-in strip shows its phone-keyed ★ too',
+      );
+
+      // CLI-D20 — the detail strip opens the guest's card; back returns.
+      Future<void> openCardAndBack(Finder from, Type back) async {
+        await AppHarness.tapVisible(tester, from);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(ClientCardScreen.nameKey),
+        );
+        await AppHarness.settle(tester);
+        expect(
+          tester.widget<Text>(find.byKey(ClientCardScreen.nameKey)).data,
+          guestCardName,
+          reason: 'the strip opens the card of THIS booking\'s guest',
+        );
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientCardScreen.backKey),
+        );
+        await AppHarness.pumpUntilGone(tester, find.byType(ClientCardScreen));
+        await AppHarness.settle(tester);
+        expect(find.byType(back), findsOneWidget);
+      }
+
+      await openCardAndBack(strip, BookingDetailScreen);
+
+      await tester.ensureVisible(cta);
+      await AppHarness.settle(tester);
+      await tester.tap(cta);
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      final Finder composeStrip = find.descendant(
+        of: find.byType(LeaveClientFeedbackScreen),
+        matching: find.byKey(const Key('booking-detail-client-strip')),
+      );
+      expect(composeStrip, findsOneWidget);
+      expect(
+        find.descendant(of: composeStrip, matching: find.text(walkInName)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: composeStrip, matching: find.text('4.5')),
+        findsOneWidget,
+      );
+      expect(
+        // i18n-finder-ok: asserts the removed UA copy never renders (CLI-100)
+        find.text('Запис за посиланням'),
+        findsNothing,
+        reason: 'no client-kind label on the walk-in compose header',
+      );
+
+      // CLI-D20 — the compose strip opens the same card; back returns to the
+      // compose form with its input intact.
+      await tester.enterText(
+        find.byKey(const Key('leave-client-feedback-comment')),
+        'draft-m569',
+      );
+      await AppHarness.settle(tester);
+      await openCardAndBack(composeStrip, LeaveClientFeedbackScreen);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('leave-client-feedback-comment')),
+          matching: find.text('draft-m569'),
+        ),
+        findsOneWidget,
+        reason: 'back from the card keeps the compose draft',
+      );
     },
   );
 
@@ -351,6 +480,130 @@ void main() {
       expect(fb.lastClientReviewRating, 5);
       expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
       await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  // REV-38..44 / CLI-93 (device-test bug, fix 2a8868c3) — the master opens
+  // the client's card from «Клієнти», then rates that client from the
+  // booking detail. Back on the card (and the list under it) the NEW rating
+  // must show without a manual refresh. Before the fix the submit dropped
+  // neither the card nor the list, so both kept the cached pre-review
+  // rating. The server-side rating changes only AFTER the card/list were
+  // first read, so a stale cache cannot satisfy the post-submit assertions.
+  testWidgets(
+    'a client review refreshes the open client card and the «Клієнти» row '
+    'to the new rating, no manual refresh',
+    (tester) async {
+      const String clientId = 'u-rated';
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingStatus = 'COMPLETED'
+        ..bookingProviderCanReviewClient = true
+        ..bookingRegisteredClientId = clientId
+        ..wireClientList();
+      Map<String, dynamic> row(double avg, int count) => <String, dynamic>{
+        'kind': 'REGISTERED',
+        'userId': clientId,
+        'displayName': 'Олена Ткаченко',
+        'lastVisitAt': '2026-06-01T10:00:00Z',
+        'completedVisits': 2,
+        'ratingAvg': avg,
+        'ratingCount': count,
+        'blocked': false,
+      };
+      Map<String, dynamic> card(double avg, int count) => <String, dynamic>{
+        'kind': 'REGISTERED',
+        'userId': clientId,
+        'displayName': 'Олена Ткаченко',
+        'blocked': false,
+        'ratingAvg': avg,
+        'ratingCount': count,
+      };
+      fb.clientRows.add(row(4.0, 1));
+      fb.clientCards[clientId] = card(4.0, 1);
+      fb.clientVisits[clientId] = <Map<String, dynamic>>[];
+      fb.wireClientCard();
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await AppHarness.settle(tester);
+
+      // ── 1. «Клієнти» → the client's card (both now cached). ───────────────
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('master-nav-tile-3')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientsScreen.listKey),
+      );
+      await AppHarness.settle(tester);
+      final Finder clientRow = find.byKey(const Key('client-row-$clientId'));
+      await AppHarness.tapVisible(tester, clientRow);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(ClientCardScreen.nameKey),
+      );
+      await AppHarness.settle(tester);
+      final AppLocalizations l10n = l10nOf(tester, ClientCardScreen);
+      String chipText(double avg, int count) =>
+          '${formatClientRatingAvg(avg)} · ${l10n.clientRatingCount(count)}';
+      final Finder chip = find.byKey(ClientCardScreen.ratingChipKey);
+      expect(
+        find.descendant(of: chip, matching: find.text(chipText(4.0, 1))),
+        findsOneWidget,
+      );
+
+      // ── 2. The booking detail → rate the client. ──────────────────────────
+      unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+      await AppHarness.settle(tester);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await tester.tap(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+
+      // The server's aggregate after this review: (4 + 5) / 2.
+      fb.clientRows
+        ..clear()
+        ..add(row(4.5, 2));
+      fb.clientCards[clientId] = card(4.5, 2);
+
+      await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+      await AppHarness.settle(tester);
+      expect(fb.createClientReviewCalls, 1);
+      expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
+      await pumpPastVelvetSnack(tester);
+
+      // ── 3. Back to the card: the NEW rating, no pull-to-refresh. ──────────
+      router.pop();
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.descendant(of: chip, matching: find.text(chipText(4.5, 2))),
+      );
+      expect(
+        find.descendant(of: chip, matching: find.text(chipText(4.5, 2))),
+        findsOneWidget,
+        reason: 'a client review must refetch the client card',
+      );
+
+      // ── 4. Back to «Клієнти»: the row shows the new ★ number. ─────────────
+      await AppHarness.tapVisible(tester, find.byKey(ClientCardScreen.backKey));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.descendant(of: clientRow, matching: find.text('4.5')),
+      );
+      expect(
+        find.descendant(of: clientRow, matching: find.text('4.5')),
+        findsOneWidget,
+        reason: 'a client review must refetch the «Клієнти» list',
+      );
     },
   );
 }

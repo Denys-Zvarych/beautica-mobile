@@ -71,6 +71,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
 import 'booking_create_seed.dart';
+import '../../clients/domain/client_summary.dart';
 import 'create_master_booking_request.dart';
 
 part 'booking_slot_picker_args.freezed.dart';
@@ -156,8 +157,8 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// must not see an identity card of themselves, so both stay `null` on
     /// that path. Threaded unchanged onto [BookingConfirmArgs] /
     /// [BookingSuccessArgs] so the confirm/done screens can render the SAME
-    /// [GuestIdentityCard] the walk-in CREATE path already renders (via
-    /// [GuestIdentityCard.identity]) instead of leaving that visual slot
+    /// client card (`BookingClientStrip`) the walk-in CREATE path renders
+    /// (via `BookingClientStrip.walkIn`) instead of leaving that visual slot
     /// empty. `Booking` carries no client phone field, so
     /// [rescheduleClientPhone] is always `null` today — kept nullable rather
     /// than dropped so a future phone field needs no new plumbing.
@@ -229,6 +230,17 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// `RouteNames.ownerMasterBookings`, since `/master/*` would bounce a
     /// SALON_OWNER. Inert on every non-walk-in path.
     String? returnRoute,
+
+    /// M569 (CLI-101 / CLI-D20) — the provider's client-card list base
+    /// (`RouteNames.masterClients` / `salonMasterClients` /
+    /// `RouteNames.salonClients(salonId)`) the confirm / done client strips
+    /// open the card under, and [clientCardRef] — the RESCHEDULE target's
+    /// card handle (a walk-in create carries its picked client on
+    /// `WalkInGuest.clientRef` instead). Forwarded unchanged picker →
+    /// confirm → done. ADDITIVE: `null` (every other path) keeps the strips
+    /// inert. In memory only (route `extra`).
+    String? clientCardBase,
+    ClientRef? clientCardRef,
 
     /// Phase 487 — the empty week-grid tap's day + time hint
     /// ([BookingCreateSeed]). `SlotDateScreen` applies it ONCE: opens the

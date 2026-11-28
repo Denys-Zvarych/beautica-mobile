@@ -16,6 +16,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
@@ -183,6 +185,122 @@ void main() {
             'the effective ticker mode at the Image must be false — an animated '
             'WebP (served un-transcoded) must be pinned to frame 0',
       );
+    });
+  });
+
+  group('MediaHttpClient — no redirects, optional byte cap (M542 sec)', () {
+    http.StreamedResponse streamed(List<List<int>> chunks, {int? length}) =>
+        http.StreamedResponse(
+          Stream<List<int>>.fromIterable(chunks),
+          200,
+          contentLength: length,
+        );
+
+    test('every request goes out with followRedirects = false', () async {
+      final List<bool> seen = <bool>[];
+      final MediaHttpClient client = MediaHttpClient(
+        MockClient.streaming((http.BaseRequest req, _) async {
+          seen.add(req.followRedirects);
+          return streamed(<List<int>>[
+            <int>[1, 2, 3],
+          ]);
+        }),
+      );
+      final http.StreamedResponse res = await client.send(
+        http.Request('GET', Uri.parse('https://$_kHost/a.png')),
+      );
+      expect(await res.stream.toBytes(), <int>[1, 2, 3]);
+      expect(seen, <bool>[false]);
+    });
+
+    test('a 3xx is returned as-is (not followed) — the cache manager then '
+        'fails closed on the non-200', () async {
+      final MediaHttpClient client = MediaHttpClient(
+        MockClient(
+          (_) async => http.Response(
+            '',
+            302,
+            headers: <String, String>{'location': 'http://evil.example/x'},
+          ),
+        ),
+      );
+      final http.Response res = await client.get(
+        Uri.parse('https://$_kHost/a.png'),
+      );
+      expect(res.statusCode, 302);
+    });
+
+    test(
+      'uncapped (avatars/photos): a large body passes through intact',
+      () async {
+        final List<int> big = List<int>.filled(64 * 1024, 7);
+        final MediaHttpClient client = MediaHttpClient(
+          MockClient.streaming(
+            (_, _) async => streamed(<List<int>>[big], length: big.length),
+          ),
+        );
+        final http.StreamedResponse res = await client.send(
+          http.Request('GET', Uri.parse('https://$_kHost/a.png')),
+        );
+        expect(await res.stream.toBytes(), hasLength(big.length));
+      },
+    );
+
+    test('capped: a declared Content-Length over the cap is refused', () {
+      final MediaHttpClient client = MediaHttpClient(
+        MockClient.streaming(
+          (_, _) async => streamed(<List<int>>[<int>[]], length: 11),
+        ),
+        maxResponseBytes: 10,
+      );
+      expect(
+        client.send(http.Request('GET', Uri.parse('https://$_kHost/i.svg'))),
+        throwsA(isA<MediaResponseTooLargeException>()),
+      );
+    });
+
+    test(
+      'capped: an undeclared body is aborted once it crosses the cap',
+      () async {
+        int emitted = 0;
+        Stream<List<int>> chunks() async* {
+          for (int i = 0; i < 100; i++) {
+            emitted++;
+            yield List<int>.filled(4, 1);
+          }
+        }
+
+        final MediaHttpClient client = MediaHttpClient(
+          MockClient.streaming(
+            (_, _) async => http.StreamedResponse(chunks(), 200),
+          ),
+          maxResponseBytes: 10,
+        );
+        final http.StreamedResponse res = await client.send(
+          http.Request('GET', Uri.parse('https://$_kHost/i.svg')),
+        );
+        await expectLater(
+          res.stream.toBytes(),
+          throwsA(isA<MediaResponseTooLargeException>()),
+        );
+        expect(emitted, lessThan(10));
+      },
+    );
+
+    test('capped: a body at or under the cap passes', () async {
+      final MediaHttpClient client = MediaHttpClient(
+        MockClient.streaming(
+          (_, _) async => streamed(<List<int>>[
+            <int>[1, 2, 3, 4, 5],
+            <int>[6, 7, 8, 9, 10],
+          ]),
+        ),
+        maxResponseBytes: 10,
+      );
+      final http.StreamedResponse res = await client.send(
+        http.Request('GET', Uri.parse('https://$_kHost/i.svg')),
+      );
+      expect(await res.stream.toBytes(), hasLength(10));
     });
   });
 }

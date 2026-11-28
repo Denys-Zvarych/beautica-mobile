@@ -1,12 +1,11 @@
 // Client-profile audit (2026-11-22) — ClientVisitsController:
-//   • a failed LOOKAHEAD page keeps the loaded pages (no timeline error), stops
-//     the lookahead and pauses auto-append behind the retry footer;
-//   • page 0 failing is still the timeline's error;
+//   • page 0 failing is still the timeline's error (M531: so does the card,
+//     the head's source);
 //   • refreshNow re-reads the injected clock (app resume) with no request, so
 //     a head whose start passed moves into the history;
 //   • the booking-mutation fan-out (`invalidateClientViews`) drops a cached
 //     (unlistened, inside the 30 s window) instance — the next read refetches.
-// The lookahead / paging / cache-for basics live in
+// The next-visit / paging / cache-for basics live in
 // client_card_controllers_test.dart.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -59,12 +58,20 @@ class _Repo implements ClientRepository {
   final List<int> visitPages = <int>[];
   final Set<int> failPages = <int>{};
 
+  /// The card's `nextVisit` (B530), the timeline head's source.
+  ClientVisit? nextVisit;
+  Failure? cardFailure;
+
   @override
   Future<ClientCard> getCard(
     ClientListScope scope,
     ClientRef client, {
     CancelToken? cancelToken,
-  }) => throw UnimplementedError();
+  }) async {
+    final Failure? f = cardFailure;
+    if (f != null) throw f;
+    return ClientCard(ref: client, nextVisit: nextVisit);
+  }
 
   @override
   Future<PageResponse<ClientVisit>> getVisits(
@@ -92,6 +99,14 @@ class _Repo implements ClientRepository {
     int size = kClientPageSize,
     CancelToken? cancelToken,
   }) => throw UnimplementedError();
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
 }
 
 /// The injected clock's current value (mutable for the resume tests).
@@ -122,48 +137,27 @@ Future<ClientVisitsState> _visits(ProviderContainer c) async {
 }
 
 void main() {
-  group('lookahead failure', () {
-    test('a failed lookahead page keeps the loaded pages, stops, and pauses '
-        'auto-append (retry footer) instead of failing the timeline', () async {
-      final _Repo repo = _Repo(<List<ClientVisit>>[
-        <ClientVisit>[_future('f3', const Duration(days: 30))],
-        <ClientVisit>[_future('f2', const Duration(days: 20))],
-        <ClientVisit>[_future('f1', const Duration(days: 5)), _past('p1', 3)],
-      ])..failPages.add(1);
-      final ProviderContainer c = _container(repo);
-      final ClientVisitsState s = await _visits(c);
-
-      expect(c.read(_provider).hasError, isFalse);
-      expect(repo.visitPages, <int>[0, 1], reason: 'the lookahead stopped');
-      expect(s.visits.map((ClientVisit v) => v.visitKey), <String>['f3']);
-      expect(s.page, 0, reason: 'the cursor stays on the last loaded page');
-      expect(s.hasMore, isTrue);
-      expect(s.loadMoreFailed, isTrue);
-      expect(s.canLoadMore, isFalse, reason: 'no retry storm');
-      expect(s.nextVisit?.visitKey, 'f3', reason: 'what is loaded is shown');
-    });
-
-    test('retry after a failed lookahead re-issues the failed page', () async {
-      final _Repo repo = _Repo(<List<ClientVisit>>[
-        <ClientVisit>[_future('f2', const Duration(days: 20))],
-        <ClientVisit>[_future('f1', const Duration(days: 5)), _past('p1', 3)],
-      ])..failPages.add(1);
-      final ProviderContainer c = _container(repo);
-      await _visits(c);
-      repo.failPages.clear();
-      await c.read(_provider.notifier).retryLoadMore();
-      final ClientVisitsState? s = c.read(_provider).value;
-      expect(repo.visitPages, <int>[0, 1, 1]);
-      expect(s?.loadMoreFailed, isFalse);
-      expect(s?.nextVisit?.visitKey, 'f1');
-    });
-
+  group('first load failures', () {
     test('page 0 failing is still the timeline error', () async {
       final _Repo repo = _Repo(<List<ClientVisit>>[
         <ClientVisit>[_past('p1', 3)],
       ])..failPages.add(0);
       final ProviderContainer c = _container(repo);
       await expectLater(_visits(c), throwsA(isA<NetworkFailure>()));
+    });
+
+    test('the card failing fails the timeline with the CARD failure; page 0 '
+        'was already in flight (parallel) and its own failure stays '
+        'handled', () async {
+      final _Repo repo =
+          _Repo(<List<ClientVisit>>[
+              <ClientVisit>[_past('p1', 3)],
+            ])
+            ..cardFailure = const NotFoundFailure()
+            ..failPages.add(0);
+      final ProviderContainer c = _container(repo);
+      await expectLater(_visits(c), throwsA(isA<NotFoundFailure>()));
+      expect(repo.visitPages, <int>[0]);
     });
   });
 
@@ -172,7 +166,7 @@ void main() {
         'history, no request', () async {
       final _Repo repo = _Repo(<List<ClientVisit>>[
         <ClientVisit>[_future('soon', const Duration(hours: 1)), _past('p', 3)],
-      ]);
+      ])..nextVisit = _future('soon', const Duration(hours: 1));
       final ProviderContainer c = _container(repo);
       final ClientVisitsState before = await _visits(c);
       expect(before.nextVisit?.visitKey, 'soon');

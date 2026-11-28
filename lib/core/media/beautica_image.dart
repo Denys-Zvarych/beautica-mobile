@@ -57,6 +57,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 import 'media_config.dart';
@@ -102,6 +103,81 @@ HttpClient buildMediaHttpClient() => HttpClient(context: mediaTrustContext)
   ..idleTimeout = kMediaIdleTimeout
   ..maxConnectionsPerHost = kMediaMaxConnectionsPerHost;
 
+/// The `package:http` client every media [HttpFileService] downloads through:
+/// [buildMediaHttpClient]'s socket controls, wrapped in [MediaHttpClient] so
+/// redirects are NEVER followed (M542 sec) and, when [maxResponseBytes] is
+/// set, an oversized body is aborted mid-stream.
+http.Client buildMediaClient({int? maxResponseBytes}) => MediaHttpClient(
+  IOClient(buildMediaHttpClient()),
+  maxResponseBytes: maxResponseBytes,
+);
+
+/// Thrown when a capped media response exceeds its byte ceiling.
+final class MediaResponseTooLargeException implements Exception {
+  const MediaResponseTooLargeException(this.maxBytes);
+
+  /// The ceiling that was exceeded.
+  final int maxBytes;
+
+  @override
+  String toString() => 'MediaResponseTooLargeException(> $maxBytes B)';
+}
+
+/// Media transport guard (M542 sec).
+///
+/// 1. Redirects are disabled on every request: [isAllowedMediaUrl] vets only
+///    the FIRST URL, so a followed 3xx could land on another host or on
+///    cleartext http. R2 serves media directly (no redirects), so a 3xx now
+///    reaches the cache manager as a non-200 and fails closed to the
+///    widget's local fallback.
+/// 2. Optional [maxResponseBytes]: a declared `Content-Length` above it is
+///    refused before the body is read, and an undeclared/lying body is cut
+///    off as soon as it crosses the ceiling — never fully buffered.
+@visibleForTesting
+final class MediaHttpClient extends http.BaseClient {
+  MediaHttpClient(this._inner, {this.maxResponseBytes});
+
+  final http.Client _inner;
+
+  /// Byte ceiling for one response body; `null` = uncapped (avatars/photos).
+  final int? maxResponseBytes;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    request.followRedirects = false;
+    final http.StreamedResponse response = await _inner.send(request);
+    final int? cap = maxResponseBytes;
+    if (cap == null) return response;
+    final int? declared = response.contentLength;
+    if (declared != null && declared > cap) {
+      unawaited(response.stream.listen(null).cancel());
+      throw MediaResponseTooLargeException(cap);
+    }
+    return http.StreamedResponse(
+      _capped(response.stream, cap),
+      response.statusCode,
+      contentLength: response.contentLength,
+      request: response.request,
+      headers: response.headers,
+      isRedirect: response.isRedirect,
+      persistentConnection: response.persistentConnection,
+      reasonPhrase: response.reasonPhrase,
+    );
+  }
+
+  static Stream<List<int>> _capped(Stream<List<int>> source, int cap) async* {
+    int total = 0;
+    await for (final List<int> chunk in source) {
+      total += chunk.length;
+      if (total > cap) throw MediaResponseTooLargeException(cap);
+      yield chunk;
+    }
+  }
+
+  @override
+  void close() => _inner.close();
+}
+
 // ---------------------------------------------------------------------------
 // The shared cache manager — disk cache + the injected client.
 // ---------------------------------------------------------------------------
@@ -110,7 +186,8 @@ HttpClient buildMediaHttpClient() => HttpClient(context: mediaTrustContext)
 ///
 /// Disk-caches up to 200 objects for 7 days (control against re-fetching the
 /// same avatar every scroll), and routes every download through
-/// [buildMediaHttpClient] so the socket-level controls apply. Constructed
+/// [buildMediaClient] so the socket-level controls apply (and redirects are
+/// never followed). Constructed
 /// lazily on first real use (device only — tests inject a fake via
 /// [debugMediaCacheManager], so this is never built under `flutter test`,
 /// where its path_provider / sqflite backing store is unavailable anyway).
@@ -119,7 +196,7 @@ final CacheManager beauticaImageCacheManager = CacheManager(
     'beauticaImages',
     stalePeriod: const Duration(days: 7),
     maxNrOfCacheObjects: 200,
-    fileService: HttpFileService(httpClient: IOClient(buildMediaHttpClient())),
+    fileService: HttpFileService(httpClient: buildMediaClient()),
   ),
 );
 

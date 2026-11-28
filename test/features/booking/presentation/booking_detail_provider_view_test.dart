@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip_shell.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -314,9 +315,11 @@ void main() {
           find.text('$_guestFirst $_guestLast'),
           findsOne,
         ); // i18n-finder-ok: test fixture name, not app copy
+        // CLI-100 (M568): no client-kind label, not even for a LINK guest.
         expect(
-          find.text(_l10n(tester).bookingDetailGuestBookingLabel),
-          findsOne,
+          // i18n-finder-ok: asserts the removed UA copy never renders
+          find.text('Запис за посиланням'),
+          findsNothing,
         );
       },
     );
@@ -369,7 +372,8 @@ void main() {
         );
 
         expect(
-          find.text(_l10n(tester).bookingDetailGuestBookingLabel),
+          // i18n-finder-ok: asserts the removed UA copy never renders
+          find.text('Запис за посиланням'),
           findsNothing,
         );
       },
@@ -1282,19 +1286,84 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('a guest booking shows NO rating at all', (tester) async {
+    testWidgets('a STAFF walk-in (null clientId, named) shows its name with no '
+        'client-kind label and its phone-keyed ★ rating, spoken like any '
+        'rated client (CLI-100, M568, CLI-101)', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      // A walk-in arrives exactly like a LINK guest (null clientId, staff-
+      // typed name); since B546 its rating is the phone-keyed guest rating,
+      // shown like any client's (M569 retired the `isGuest` hiding).
+      await _pump(
+        tester,
+        _booking(
+          clientId: null,
+          clientFirstName: _guestFirst,
+          clientLastName: 'Шевчук',
+          clientAvgRating: 4.6,
+          clientReviewCount: 3,
+        ),
+        role: UserRole.independentMaster,
+      );
+
+      const String walkIn = '$_guestFirst Шевчук';
+      expect(
+        find.descendant(of: strip, matching: find.text(walkIn)),
+        findsOne,
+      ); // i18n-finder-ok: test fixture name, not app copy
+      expect(
+        // i18n-finder-ok: asserts the removed UA copy never renders
+        find.text('Запис за посиланням'),
+        findsNothing,
+      );
+      expect(
+        tester.widget<MasterStripShell>(strip).middleLine,
+        isNull,
+        reason: 'no qualifier line under the walk-in name',
+      );
+      expect(
+        find.descendant(of: strip, matching: findAssetStar()),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text('4.6')),
+        findsOneWidget,
+      );
+      final AppLocalizations l10n = _l10n(tester);
+      expect(
+        tester.getSemantics(strip).label,
+        l10n.bookingDetailClientRatedSemantics(
+          walkIn,
+          '4.6',
+          l10n.salonReviewCountLabel(3),
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('an unrated guest booking shows the «—» readout (CLI-101)', (
+      tester,
+    ) async {
       await _pump(
         tester,
         _booking(clientId: null),
         role: UserRole.independentMaster,
       );
       expect(
-        find.descendant(of: strip, matching: findAssetStar()),
-        findsNothing,
+        find.descendant(of: strip, matching: find.text('—')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a LINK guest with 3 ratings shows the ★ readout (CLI-101; '
+        'hidden before M569)', (tester) async {
+      await _pump(
+        tester,
+        _booking(clientId: null, clientAvgRating: 4.2, clientReviewCount: 3),
+        role: UserRole.independentMaster,
       );
       expect(
-        find.descendant(of: strip, matching: find.text('—')),
-        findsNothing,
+        find.descendant(of: strip, matching: find.text('4.2')),
+        findsOneWidget,
       );
     });
   });

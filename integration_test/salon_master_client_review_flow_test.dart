@@ -1,6 +1,8 @@
-// Phase 333 / 334 / 386 — E2E: the SALON_MASTER's client-review journey.
-// Phase 386 (backend 355) FLIPPED scenario 1: a SALON_MASTER never sees the
-// «Залишити відгук про клієнта» CTA; the M333 narrative below is historical.
+// Phase 333 / 334 / 386 / M548 — E2E: the SALON_MASTER's client-review journey.
+// B547 / REV-D06 (M548) supersedes phase 386: the SALON_MASTER who PERFORMED
+// the booking sees «Залишити відгук про клієнта» and rates the client (one
+// salon-side rating per booking, the second writer gets 409); on another
+// master's booking there is no CTA. No after-complete prompt (REV-43).
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
@@ -73,6 +75,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 /// The client's review COMMENT the fake serves on `GET /bookings/booking-1`.
@@ -81,6 +84,12 @@ import 'support/app_harness.dart';
 /// locale, so asserting on it is locale-independent (unlike a `find.text` on a
 /// translated label, which `forbid_cyrillic_finder.sh` exists to stop).
 const String _kClientReviewComment = 'Майстриня чудова, все сподобалось.';
+
+/// The booking-detail «Залишити відгук про клієнта» CTA.
+const Key _kCta = Key('booking-detail-leave-client-feedback');
+
+/// The star the master taps on the feedback form.
+const int _kRating = 4;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -202,28 +211,73 @@ void main() {
   }
 
   // ==========================================================================
-  // 1. THE LOAD-BEARING CASE - phase 386 (backend 355): a SALON_MASTER never
-  //    rates the client. This REPLACES the phase-333 journey in which the
-  //    read-only role kept the CTA.
+  // 1. THE LOAD-BEARING CASE - B547 / REV-D06 (superseding phase 386): the
+  //    SALON_MASTER who performed the booking rates its client from the
+  //    booking-detail CTA (no notification, NTF-D07; no prompt, REV-43).
   // ==========================================================================
-  testWidgets('Phase 386 - SALON_MASTER on a COMPLETED booking whose seed says '
-      'reviewable never sees the CTA, a directly pushed review route shows the '
-      'ineligible state, and POST /client-reviews is never called', (
-    tester,
-  ) async {
+  testWidgets('B547 - the PERFORMING SALON_MASTER on a COMPLETED booking sees '
+      'the CTA, it opens /staff/bookings/:id/review, the submit POSTs the '
+      'rating, and the CTA is gone back on detail', (tester) async {
     await mockNetworkImagesFor(() async {
-      // The raw seed is `true`: only the role-aware fake (the real server's
-      // phase-355 rule) turns it into `false` for this viewer.
       final FakeBackend fb = seedCompletedBooking();
       final GoRouter router = await openBookingDetail(tester, fb);
 
       expectDetailBodyRendered();
+      expect(find.byKey(_kCta), findsOneWidget);
+
+      await AppHarness.tapVisible(tester, find.byKey(_kCta));
+      await AppHarness.settle(tester);
+
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.salonMasterClientReview('booking-1'),
+      );
       expect(
-        find.byKey(const Key('booking-detail-leave-client-feedback')),
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
         findsNothing,
-        reason:
-            'backend 355: a SALON_MASTER is never offered the client '
-            'review, even on a booking they performed',
+        reason: 'the FORM, not the ineligible branch',
+      );
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const ValueKey<String>('review-star-$_kRating')),
+      );
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('leave-client-feedback-submit')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(fb.createClientReviewCalls, 1);
+      expect(fb.lastClientReviewBookingId, 'booking-1');
+      expect(fb.lastClientReviewRating, _kRating);
+
+      // Success pops back to the detail; the invalidate re-fetch drops the CTA.
+      expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expectDetailBodyRendered();
+      await AppHarness.pumpUntilGone(tester, find.byKey(_kCta));
+      expect(find.byKey(_kCta), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+  });
+
+  testWidgets('B547 - a SALON_MASTER on a booking they did NOT perform never '
+      'sees the CTA, a directly pushed review route shows the ineligible '
+      'state, and POST /client-reviews is never called', (tester) async {
+    await mockNetworkImagesFor(() async {
+      // The raw seed is `true`: only the fake's B547 rule (not the performing
+      // master -> false) turns it off for this viewer.
+      final FakeBackend fb = seedCompletedBooking()
+        ..bookingPerformedBySignedInMaster = false;
+      final GoRouter router = await openBookingDetail(tester, fb);
+
+      expectDetailBodyRendered();
+      expect(
+        find.byKey(_kCta),
+        findsNothing,
+        reason: 'B547: only the master who performed the booking may rate',
       );
 
       // Deep-link style push of the form route: the screen pre-gates on the
@@ -245,6 +299,44 @@ void main() {
     });
   });
 
+  testWidgets('B547 - second salon-side writer: the owner rated after the '
+      'master opened the form, so the submit gets 409 and the form swaps to '
+      'the not-reviewable state', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = seedCompletedBooking();
+      await openBookingDetail(tester, fb);
+      await AppHarness.tapVisible(tester, find.byKey(_kCta));
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsOneWidget,
+      );
+
+      // One salon-side rating per booking: the owner wins the race.
+      fb.clientReviewRejectDuplicate = true;
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const ValueKey<String>('review-star-$_kRating')),
+      );
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('leave-client-feedback-submit')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(fb.createClientReviewCalls, 1);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsNothing,
+      );
+    });
+  });
+
   // ==========================================================================
   // 2. The CTA obeys the SERVER, not the role.
   // ==========================================================================
@@ -260,7 +352,7 @@ void main() {
 
         expectDetailBodyRendered();
         expect(
-          find.byKey(const Key('booking-detail-leave-client-feedback')),
+          find.byKey(_kCta),
           findsNothing,
           reason:
               'the CTA is server-gated, not role-gated: the identical '

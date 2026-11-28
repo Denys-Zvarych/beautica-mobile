@@ -19,6 +19,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
+import '../../clients/domain/client_summary.dart';
 import 'create_master_booking_request.dart';
 
 part 'booking_success_args.freezed.dart';
@@ -66,7 +67,7 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     /// ._submit`. `null` on every CREATE call site (client or walk-in) and on
     /// a CLIENT's own reschedule; non-null only when a PROVIDER rescheduled a
     /// booking with a registered client identity to show. The done screen
-    /// gates its [GuestIdentityCard.identity] recap card on
+    /// gates its `BookingClientStrip` recap card on
     /// [rescheduleClientName] non-null, mirroring how it gates the walk-in
     /// card on `isWalkIn && guest != null`, so those paths render
     /// byte-identically.
@@ -128,5 +129,22 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     /// `RouteNames.ownerMasterBookings` (a SALON_OWNER `go`ing to `/master/*`
     /// would be bounced). Read only on the `isWalkIn && !isReschedule` branch.
     String? returnRoute,
+
+    /// M569 (CLI-101 / CLI-D20) — the provider's client-card list base
+    /// (`RouteNames.masterClients` / `salonMasterClients` /
+    /// `RouteNames.salonClients(salonId)`) the confirm / done client strips
+    /// open the card under, and [clientCardRef] — the RESCHEDULE target's
+    /// card handle (a walk-in create carries its picked client on
+    /// `WalkInGuest.clientRef` instead). Forwarded unchanged picker →
+    /// confirm → done. ADDITIVE: `null` (every other path) keeps the strips
+    /// inert. In memory only (route `extra`).
+    String? clientCardBase,
+    ClientRef? clientCardRef,
+
+    /// M569 — the first booking of a just-created WALK-IN visit: the done
+    /// screen resolves its client card from it (the account the phone
+    /// attached to, CLI-62, else the guest anchored on it). `null` on every
+    /// other path.
+    String? createdBookingId,
   }) = _BookingSuccessArgs;
 }

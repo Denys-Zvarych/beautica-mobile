@@ -59,6 +59,7 @@ import 'package:beautica_mobile/core/theme/app_theme.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/notifications/presentation/push_tap_dispatcher.dart';
+import 'package:beautica_mobile/features/services/presentation/category_icon_urls_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
@@ -294,6 +295,7 @@ class E2eHarnessApp extends ConsumerWidget {
     super.key,
     this.mountPushTapDispatcher = false,
     this.mountUpdateGate = false,
+    this.mountCategoryIconPrefetch = false,
   });
 
   /// Phase 069 — mirrors `BeauticaApp`'s eager
@@ -306,11 +308,20 @@ class E2eHarnessApp extends ConsumerWidget {
   /// exactly as before and never calls `GET /app/config`.
   final bool mountUpdateGate;
 
+  /// M542 — mirrors `BeauticaApp`'s eager
+  /// `ref.listen(categoryIconUrlsProvider)` (signed-in category-icon
+  /// prefetch). Off by default: every existing flow renders exactly as before
+  /// and never prefetches an icon.
+  final bool mountCategoryIconPrefetch;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
     if (mountPushTapDispatcher) {
       ref.listen(pushTapDispatcherProvider, (_, _) {});
+    }
+    if (mountCategoryIconPrefetch) {
+      ref.listen(categoryIconUrlsProvider, (_, _) {});
     }
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,

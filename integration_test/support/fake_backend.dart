@@ -106,6 +106,10 @@ final DateTime kFixedNow = DateTime.utc(2026, 6, 14, 12, 0, 0);
 /// same dataset row rather than appending a second one.
 const String kWalkInBookingId = 'walkin-booking-1';
 
+/// Host of the fake category `iconUrl`s (M542). Deliberately distinct from the
+/// `media.test` host some flows allow-list, so an icon is never fetched.
+const String kFakeCategoryIconHost = 'icons.media.test';
+
 /// The REAL device clock, captured once per process, as the anchor for every
 /// "upcoming booking" fixture instant.
 ///
@@ -962,6 +966,26 @@ final class FakeBackend {
   /// JSON). Filled by the caller before [wireClientList]. Rows carry no phone.
   final List<Map<String, dynamic>> clientRows = <Map<String, dynamic>>[];
 
+  /// M553 QA — opt-in B550 phone search for [wireClientList]: a `q` with
+  /// digits ALSO matches a row whose [clientCards] phone contains those
+  /// digits (a leading `0` read as the UA `380` prefix). Off by default, so
+  /// every existing flow keeps the display-name-only filter.
+  bool clientSearchMatchesPhone = false;
+
+  bool _clientRowPhoneMatches(Map<String, dynamic> row, String q) {
+    if (!clientSearchMatchesPhone) return false;
+    final String digits = q.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return false;
+    final Object? id = row['userId'] ?? row['guestBookingId'];
+    final String phone = ('${clientCards[id]?['phone'] ?? ''}').replaceAll(
+      RegExp(r'\D'),
+      '',
+    );
+    if (phone.isEmpty) return false;
+    return phone.contains(digits) ||
+        (digits.startsWith('0') && phone.contains('38$digits'));
+  }
+
   /// M510 — card bodies for [wireClientCard], keyed by the client id (a
   /// registered `userId` or a guest's `bookingId`): B508/B526 `ClientCardResponse`
   /// JSON. An id with no entry answers the uniform 404.
@@ -972,9 +996,65 @@ final class FakeBackend {
   final Map<String, List<Map<String, dynamic>>> clientVisits =
       <String, List<Map<String, dynamic>>>{};
 
+  /// M545 — `…/comments` rows (B565 `ClientReviewCommentResponse` JSON) per
+  /// client id; an id with no entry answers an empty page.
+  final Map<String, List<Map<String, dynamic>>> clientComments =
+      <String, List<Map<String, dynamic>>>{};
+
+  /// M543 — client id (a [clientCards] key) by the E.164 phone a staff
+  /// walk-in names: a walk-in POST whose `guest.phone` is listed here gains
+  /// one visit row PER BOOKING at the head of that client's [clientVisits]
+  /// (the server links it by phone, CLI-62). Empty (the default) → inert.
+  final Map<String, String> clientIdByWalkInPhone = <String, String>{};
+
+  void _linkWalkInToClientVisits(
+    Map<String, dynamic> guest,
+    DateTime startsAt,
+    List<Map<String, dynamic>> items,
+  ) {
+    final String? id = clientIdByWalkInPhone[guest['phone']];
+    if (id == null) return;
+    // M544 (CLI-83) — a booking created after a removal brings the client
+    // back on EVERY list that removed them (the server's comeback rule).
+    for (final Set<String> removed in clientRemovals.values) {
+      removed.remove(id);
+    }
+    (clientVisits[id] ??= <Map<String, dynamic>>[]).insertAll(
+      0,
+      <Map<String, dynamic>>[
+        for (final Map<String, dynamic> i in items)
+          <String, dynamic>{
+            'visitKey': 'v-${i['bookingId']}',
+            'startsAt': i['startsAt'] ?? startsAt.toIso8601String(),
+            'items': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'bookingId': i['bookingId'],
+                'serviceName': i['serviceName'],
+                'status': 'CONFIRMED',
+                'startsAt': i['startsAt'] ?? startsAt.toIso8601String(),
+                'priceAtBooking': i['priceAtBooking'] ?? 0,
+              },
+            ],
+          },
+      ],
+    );
+  }
+
   /// M510 — every card-family request (`card`, `visits`) as
   /// `<kind> <path> page=<n> masterId=<m>`, newest last.
   final List<String> clientCardCalls = <String>[];
+
+  /// M544 (B564, CLI-82) — client ids REMOVED from a list, keyed by that
+  /// list's GET path (`/api/v1/salons/{id}/clients` — the owner AND admin
+  /// share it — or `/api/v1/masters/me/clients`). [wireClientList] drops a
+  /// row whose id is in its path's set; [wireClientListRemovals] fills /
+  /// empties the sets. Empty (the default) → inert for every other flow.
+  final Map<String, Set<String>> clientRemovals = <String, Set<String>>{};
+
+  /// M544 — every removal write as `<remove|restore> <list path> <body>`,
+  /// the body being the exact JSON map the app posted. See
+  /// [wireClientListRemovals].
+  final List<String> clientRemovalCalls = <String>[];
 
   /// M509 QA — pages (0-based) for which [wireClientList] answers with an
   /// unusable envelope (`success: false`, no `data`) → the app's
@@ -3656,9 +3736,19 @@ final class FakeBackend {
   /// The rows `GET /service-categories/approved` serves, read PER REQUEST so a
   /// flow can simulate an admin approving a category mid-session (append a
   /// row) and prove the app re-fetches. Defaults to the long-standing NAILS +
-  /// BROWS seed. Shape: ApprovedCategoryResponse { name, displayName }.
+  /// BROWS seed. Shape: ApprovedCategoryResponse { name, displayName,
+  /// iconUrl } — `iconUrl` (SVC-58, M542) mirrors B539's content-addressed
+  /// R2 key on [kFakeCategoryIconHost]. Flows that do not opt into
+  /// `mountCategoryIconPrefetch` never prefetch icons at all; one that does is
+  /// still refused before any request, because no flow allow-lists that host
+  /// (the M542 group seeds its own `media.test` rows instead).
   final List<Map<String, dynamic>> approvedCategories = <Map<String, dynamic>>[
-    <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
+    <String, dynamic>{
+      'name': 'NAILS',
+      'displayName': 'Нігті',
+      'iconUrl':
+          'https://$kFakeCategoryIconHost/catalog/category-icons/NAILS/0123456789abcdef.svg',
+    },
     <String, dynamic>{'name': 'BROWS', 'displayName': 'Брови'},
   ];
 
@@ -3669,6 +3759,32 @@ final class FakeBackend {
   /// and the last decoded body.
   int requestCategoryCalls = 0;
   Map<String, dynamic>? lastCategoryRequestBody;
+
+  /// Count of `POST /service-types/suggest` (suggest-a-service-type submit)
+  /// and the last decoded body. Counted at dispatch, failures included, so a
+  /// flow can pin "409 → resubmit → exactly two requests".
+  int suggestServiceTypeCalls = 0;
+  Map<String, dynamic>? lastSuggestServiceTypeBody;
+
+  /// Status code the NEXT `POST /service-types/suggest` fails with (null =
+  /// the default 200), plus its optional `data.code`. One-shot: the handler
+  /// consumes it, so the following submit succeeds — the "409 CATEGORY_BUSY →
+  /// resubmit → success" journey. Set only via [forceSuggestServiceTypeFailure].
+  int? _suggestServiceTypeFailureStatusCode;
+  String? _suggestServiceTypeFailureErrorCode;
+
+  /// Makes the NEXT `POST /api/v1/service-types/suggest` fail with
+  /// [statusCode]; [errorCode], when given, is nested as
+  /// `data: {"code": errorCode}` (docs/specs/services.md § 10). Re-registers
+  /// the route because `replyCallback` bakes the status in at registration
+  /// (see [_inviteStaffFailureStatusCode]); the handler re-registers the
+  /// default 200 after the failure is served.
+  void forceSuggestServiceTypeFailure(int? statusCode, {String? errorCode}) {
+    _suggestServiceTypeFailureStatusCode = statusCode;
+    _suggestServiceTypeFailureErrorCode = errorCode;
+    _wireSuggestServiceType();
+  }
+
   int getScheduleCalls = 0;
   int postScheduleCalls = 0;
   int putScheduleCalls = 0;
@@ -6280,6 +6396,7 @@ final class FakeBackend {
     'canReview': bookingCanReview,
     'providerCanReviewClient': providerCanReviewClientFor(
       bookingProviderCanReviewClient,
+      performedBySignedInMaster: _bookingPerformedBySignedInMaster,
     ),
     // Phase 334. Emitted ONLY on a detail payload AND only when seeded, so the
     // default keeps the pre-334 shape (key absent entirely) — same idiom as
@@ -7793,6 +7910,34 @@ final class FakeBackend {
         };
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `POST /api/v1/service-types/suggest` (the «Запропонувати
+  /// тип послуги» dialog submit). Default: 200 `data: null` (`ApiResponseVoid`).
+  /// A forced failure answers once with `{success:false, data:{code}}` and then
+  /// restores the default, so the user's resubmit succeeds.
+  void _wireSuggestServiceType() {
+    final int? failStatus = _suggestServiceTypeFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/service-types/suggest',
+      (server) => server.replyCallback(failStatus ?? 200, (req) {
+        suggestServiceTypeCalls++;
+        lastSuggestServiceTypeBody = _decodeBody(req.data);
+        if (failStatus == null) return _okVoid;
+        final String? errorCode = _suggestServiceTypeFailureErrorCode;
+        _suggestServiceTypeFailureStatusCode = null;
+        _suggestServiceTypeFailureErrorCode = null;
+        _wireSuggestServiceType();
+        return <String, dynamic>{
+          'success': false,
+          'data': errorCode == null
+              ? null
+              : <String, dynamic>{'code': errorCode},
+          'message': 'Conflict',
+        };
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }
 
@@ -9782,6 +9927,7 @@ final class FakeBackend {
             'masterType': 'SALON_OWNER',
           });
         }
+        _linkWalkInToClientVisits(guest, startsAt, items);
         return _ok(row);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -10805,6 +10951,9 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
+    // POST /api/v1/service-types/suggest — see [forceSuggestServiceTypeFailure].
+    _wireSuggestServiceType();
+
     // GET /api/v1/service-types?categoryName=X — second-level picker source
     // (Phase 16.5 regression). Keyed on the `categoryName` query param so a
     // category switch genuinely re-queries and the option list repopulates for
@@ -11589,8 +11738,11 @@ final class FakeBackend {
     // ⟶ Phase 345 D3: still true of every row the BOARD serves, which is why
     // the parameter defaults to `false`. The ARCHIVE fixture overrides it on
     // the owner-as-master rows — see the constructor doc above.
+    // B547: a SALON_MASTER session is never served a salon-board / salon-
+    // archive row (`/salon/*` is owner/admin-only), so fail closed for it.
     'providerCanReviewClient': providerCanReviewClientFor(
       providerCanReviewClient,
+      performedBySignedInMaster: false,
     ),
     // Phase 345 D3 — see the constructor doc. `false` (the default) is
     // semantically identical to omitting the key, which is what every pre-345
@@ -12578,6 +12730,7 @@ final class FakeBackend {
           'totalPriceMax': anyRange ? totalPriceMaxSum : null,
           'items': items,
         };
+        _linkWalkInToClientVisits(guest, startsAt, items);
         return _ok(row);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -12691,20 +12844,49 @@ final class FakeBackend {
     );
   }
 
-  /// Phase 386 (backend 355) — the single place that models who may see
-  /// `providerCanReviewClient == true`: only the SALON_OWNER / SALON_ADMIN of
-  /// the salon and an INDEPENDENT_MASTER on their own booking. A SALON_MASTER
-  /// (even on a booking they performed) and a CLIENT always read `false`.
-  /// Used by BOTH the detail serializer and the salon board / archive row
-  /// builder so the two can never disagree.
-  bool providerCanReviewClientFor(bool seeded) =>
+  /// B547 / REV-D06 (superseding phase 386 / backend 355) — the single place
+  /// that models who may see `providerCanReviewClient == true`: the
+  /// SALON_OWNER / SALON_ADMIN of the salon, an INDEPENDENT_MASTER on their
+  /// own booking, and a SALON_MASTER ONLY when [performedBySignedInMaster]
+  /// (the booking's master is the signed-in master). A CLIENT always reads
+  /// `false`. Used by BOTH the detail serializer and the salon board /
+  /// archive row builder so the two can never disagree.
+  bool providerCanReviewClientFor(
+    bool seeded, {
+    bool performedBySignedInMaster = true,
+  }) =>
       seeded &&
       (currentRole == UserRole.salonOwner ||
           currentRole == UserRole.salonAdmin ||
+          (currentRole == UserRole.salonMaster && performedBySignedInMaster) ||
           currentRole == UserRole.independentMaster);
 
-  /// Phase 386 (backend 355) — a SALON_MASTER may neither complete a booking
-  /// nor rate the client; the real server answers 403 and mutates nothing.
+  /// B547 / REV-D06 — whether the signed-in SALON_MASTER is the master who
+  /// performed `booking-1`. `true` (the default) is the real `/staff/*`
+  /// shape: a salon master's own bookings. `false` models a booking of
+  /// ANOTHER salon master: `providerCanReviewClient` reads `false` for the
+  /// SALON_MASTER session and `POST /client-reviews` answers 403, mutating
+  /// nothing. Irrelevant to every other role.
+  ///
+  /// RE-WIRES ON WRITE, for the same registration-time-status reason as
+  /// [clientReviewRejectDuplicate].
+  bool get bookingPerformedBySignedInMaster =>
+      _bookingPerformedBySignedInMaster;
+  set bookingPerformedBySignedInMaster(bool value) {
+    _bookingPerformedBySignedInMaster = value;
+    if (_roleRoutesReady) _wireClientReviews();
+  }
+
+  bool _bookingPerformedBySignedInMaster = true;
+
+  /// True when the signed-in SALON_MASTER may not write a rating for
+  /// `booking-1` (B547: not their booking) — the POST's 403 arm.
+  bool get _salonMasterReviewForbidden =>
+      currentRole == UserRole.salonMaster && !_bookingPerformedBySignedInMaster;
+
+  /// Phase 386 (backend 355) — a SALON_MASTER may not complete a booking, and
+  /// (B547) may not rate the client of a booking they did not perform; the
+  /// real server answers 403 and mutates nothing.
   Map<String, dynamic> _forbiddenEnvelope() => <String, dynamic>{
     'success': false,
     'message': 'Access denied',
@@ -12756,14 +12938,18 @@ final class FakeBackend {
     _roleRoutesReady = true;
     _adapter.onRoute(
       '/api/v1/client-reviews',
+      // B547 / REV-D06: the performing SALON_MASTER may rate the client too;
+      // a SALON_MASTER on another master's booking gets 403. One salon-side
+      // rating per booking: the second writer's 409 is
+      // [clientReviewRejectDuplicate].
       (server) => server.replyCallback(
-        currentRole == UserRole.salonMaster
+        _salonMasterReviewForbidden
             ? 403
             : (_clientReviewRejectDuplicate ? 409 : 200),
         (req) {
           createClientReviewCalls++;
-          if (currentRole == UserRole.salonMaster) {
-            // Phase 386 (backend 355): counted, never flips the flag.
+          if (_salonMasterReviewForbidden) {
+            // Counted, never flips the flag.
             return _forbiddenEnvelope();
           }
           final body = _decodeBody(req.data);
@@ -13279,10 +13465,15 @@ final class FakeBackend {
       }
       final List<Map<String, dynamic>> matching = <Map<String, dynamic>>[
         for (final Map<String, dynamic> row in clientRows)
-          if (q == null ||
-              ('${row['displayName'] ?? ''}').toLowerCase().contains(
-                q.toLowerCase(),
-              ))
+          if (!(clientRemovals[path]?.contains(
+                    '${row['userId'] ?? row['guestBookingId']}',
+                  ) ??
+                  false) &&
+              (q == null ||
+                  ('${row['displayName'] ?? ''}').toLowerCase().contains(
+                    q.toLowerCase(),
+                  ) ||
+                  _clientRowPhoneMatches(row, q)))
             row,
       ];
       final int from = page * size;
@@ -13322,6 +13513,62 @@ final class FakeBackend {
     );
   }
 
+  /// M544 — backend B564 `POST …/clients/removals` and `…/removals/restore`
+  /// for every salon in [salonIds] and `/masters/me`, body `{clientId}` or
+  /// `{guestBookingId}`, 204. A removal adds the id to [clientRemovals] under
+  /// the matching LIST path (so the owner's and admin's shared salon list
+  /// drops it, the `me` list does not, and the reverse); a restore takes it
+  /// out. Recorded in [clientRemovalCalls].
+  ///
+  /// [removeFailureStatusCode] (M544 audit) — when non-null, every REMOVE
+  /// answers that status with an error envelope (a raw `FAKE-…` server
+  /// message the app must never show) and changes nothing; restore is
+  /// unaffected. Re-call this method to switch modes (the status is captured
+  /// at registration).
+  void wireClientListRemovals({
+    List<String> salonIds = const <String>['salon-owner-1'],
+    int? removeFailureStatusCode,
+  }) {
+    final int? fail = removeFailureStatusCode;
+    void register(String listPath) {
+      for (final bool restore in <bool>[false, true]) {
+        final int status = (!restore && fail != null) ? fail : 204;
+        _adapter.onRoute(
+          restore ? '$listPath/removals/restore' : '$listPath/removals',
+          (server) => server.replyCallback(status, (req) {
+            final Map<String, dynamic> body = _decodeBody(req.data);
+            clientRemovalCalls.add(
+              '${restore ? 'restore' : 'remove'} $listPath $body',
+            );
+            if (!restore && fail != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'FAKE-$fail: client removal refused',
+              };
+            }
+            final String id = '${body['clientId'] ?? body['guestBookingId']}';
+            final Set<String> removed = clientRemovals.putIfAbsent(
+              listPath,
+              () => <String>{},
+            );
+            restore ? removed.remove(id) : removed.add(id);
+            return null;
+          }),
+          request: const Request(
+            method: RequestMethods.post,
+            data: Matchers.any,
+          ),
+        );
+      }
+    }
+
+    for (final String salonId in salonIds) {
+      register('/api/v1/salons/$salonId/clients');
+    }
+    register('/api/v1/masters/me/clients');
+  }
+
   /// M510 — backend B508 client-card reads for every salon in [salonIds]
   /// and `/masters/me`, for the ids in [clientCards] / [clientVisits]:
   /// `…/clients/{users|guests}/{id}` and `…/visits`. An unknown id answers the
@@ -13329,6 +13576,93 @@ final class FakeBackend {
   /// query (CLI-74) drops a visit whose items name a DIFFERENT `masterId`
   /// (a visit without one is kept, so fixtures that never set it are
   /// unaffected). Recorded in [clientCardCalls]. Call AFTER filling the maps.
+  ///
+  /// M572 / B570 (REV-45) — `DELETE /client-reviews/{reviewId}` calls.
+  int deleteClientReviewCalls = 0;
+
+  /// The `reviewId` of the last `DELETE /client-reviews/{reviewId}`.
+  String? lastDeletedClientReviewId;
+
+  /// One `DELETE /api/v1/client-reviews/{reviewId}` route per own comment row
+  /// seeded in [clientComments] for [clientId] (the path carries the id, so the
+  /// route is registered per seeded row, like every id-bearing route here; a
+  /// row seeded AFTER [wireClientCard] has no route). Models the server: the
+  /// whole rating goes — the row leaves [clientComments], the card's
+  /// `ratingAvg` / `ratingCount` / `ratingDistribution` and the client row
+  /// are recomputed without it, and `providerCanReviewClient` flips back to
+  /// `true` (REV-43) so the booking detail offers «Залишити відгук про
+  /// клієнта» again.
+  void _wireDeleteOwnClientReviews(String clientId) {
+    for (final Map<String, dynamic> c
+        in clientComments[clientId] ?? <Map<String, dynamic>>[]) {
+      if (c['own'] != true) continue;
+      final String reviewId = '${c['reviewId']}';
+      _adapter.onRoute(
+        '/api/v1/client-reviews/$reviewId',
+        (server) => server.replyCallback(200, (req) {
+          deleteClientReviewCalls++;
+          lastDeletedClientReviewId = reviewId;
+          final List<Map<String, dynamic>> rows =
+              clientComments[clientId] ?? <Map<String, dynamic>>[];
+          rows.removeWhere(
+            (Map<String, dynamic> r) => r['reviewId'] == reviewId,
+          );
+          final int stars = c['stars'] as int;
+          final Map<String, dynamic>? card = clientCards[clientId];
+          if (card != null) {
+            final int count = (card['ratingCount'] as int) - 1;
+            final double? avg = count <= 0
+                ? null
+                : ((card['ratingAvg'] as num) * (count + 1) - stars) / count;
+            clientCards[clientId] = <String, dynamic>{
+              ...card,
+              'ratingAvg': avg,
+              'ratingCount': count,
+              'ratingDistribution': <Map<String, int>>[
+                for (final dynamic b
+                    in card['ratingDistribution'] as List<dynamic>)
+                  if ((b as Map<String, dynamic>)['rating'] == stars &&
+                      (b['count'] as int) > 1)
+                    <String, int>{
+                      'rating': stars,
+                      'count': (b['count'] as int) - 1,
+                    }
+                  else if (b['rating'] != stars)
+                    <String, int>{
+                      'rating': b['rating'] as int,
+                      'count': b['count'] as int,
+                    },
+              ],
+            };
+          }
+          for (int i = 0; i < clientRows.length; i++) {
+            final Map<String, dynamic> row = clientRows[i];
+            if (row['userId'] != clientId &&
+                row['guestBookingId'] != clientId) {
+              continue;
+            }
+            final Map<String, dynamic>? next = clientCards[clientId];
+            clientRows[i] = <String, dynamic>{
+              ...row,
+              'ratingAvg': next?['ratingAvg'],
+              'ratingCount': next?['ratingCount'],
+            };
+          }
+          bookingProviderCanReviewClient = true;
+          return _okVoid;
+        }),
+        request: const Request(method: RequestMethods.delete),
+      );
+    }
+  }
+
+  /// B530 / CLI-89 — the card answers `nextVisit` like the server: the visit
+  /// (row shape) holding the earliest CONFIRMED item that starts after
+  /// [kFixedNow] (the app's pinned clock, M15) among the SAME scoped rows the
+  /// visits route serves (`masterId` honoured), tie → lowest booking id; null
+  /// when there is none. Computed per request, so a walk-in / decline that
+  /// edits [clientVisits] moves it. A card body that sets `nextVisit` itself
+  /// (even to null) is served as-is.
   void wireClientCard({
     List<String> salonIds = const <String>['salon-owner-1'],
   }) {
@@ -13359,6 +13693,45 @@ final class FakeBackend {
       };
     }
 
+    List<Map<String, dynamic>> scopedVisits(String id, Object? masterId) {
+      final List<Map<String, dynamic>> all =
+          clientVisits[id] ?? <Map<String, dynamic>>[];
+      if (masterId == null) return all;
+      return <Map<String, dynamic>>[
+        for (final Map<String, dynamic> v in all)
+          if ((v['items'] as List<dynamic>? ?? <dynamic>[]).every(
+            (dynamic i) =>
+                (i as Map<String, dynamic>)['masterId'] == null ||
+                i['masterId'] == masterId,
+          ))
+            v,
+      ];
+    }
+
+    Map<String, dynamic>? nextVisitOf(List<Map<String, dynamic>> visits) {
+      Map<String, dynamic>? best;
+      DateTime? bestAt;
+      String? bestId;
+      for (final Map<String, dynamic> v in visits) {
+        for (final dynamic raw in v['items'] as List<dynamic>? ?? <dynamic>[]) {
+          final Map<String, dynamic> item = raw as Map<String, dynamic>;
+          if (item['status'] != 'CONFIRMED') continue;
+          final DateTime? at = DateTime.tryParse('${item['startsAt']}');
+          if (at == null || !at.isAfter(kFixedNow)) continue;
+          final String bookingId = '${item['bookingId']}';
+          if (bestAt == null ||
+              at.isBefore(bestAt) ||
+              (at.isAtSameMomentAs(bestAt) &&
+                  bookingId.compareTo(bestId ?? '') < 0)) {
+            best = v;
+            bestAt = at;
+            bestId = bookingId;
+          }
+        }
+      }
+      return best;
+    }
+
     void register(String base) {
       final Set<String> ids = <String>{
         ...clientCards.keys,
@@ -13381,10 +13754,18 @@ final class FakeBackend {
           }
           server.replyCallback(200, (req) {
             record('card', req);
+            final Map<String, dynamic> card = clientCards[id]!;
             return <String, dynamic>{
               'success': true,
               'message': 'ok',
-              'data': clientCards[id],
+              'data': card.containsKey('nextVisit')
+                  ? card
+                  : <String, dynamic>{
+                      ...card,
+                      'nextVisit': nextVisitOf(
+                        scopedVisits(id, req.queryParameters['masterId']),
+                      ),
+                    },
             };
           });
         }, request: const Request(method: RequestMethods.get));
@@ -13392,26 +13773,25 @@ final class FakeBackend {
           '$root/visits',
           (server) => server.replyCallback(200, (req) {
             record('visits', req);
-            final Object? masterId = req.queryParameters['masterId'];
-            final List<Map<String, dynamic>> all =
-                clientVisits[id] ?? <Map<String, dynamic>>[];
             return pageOf(
-              masterId == null
-                  ? all
-                  : <Map<String, dynamic>>[
-                      for (final Map<String, dynamic> v in all)
-                        if ((v['items'] as List<dynamic>? ?? <dynamic>[]).every(
-                          (dynamic i) =>
-                              (i as Map<String, dynamic>)['masterId'] == null ||
-                              i['masterId'] == masterId,
-                        ))
-                          v,
-                    ],
+              scopedVisits(id, req.queryParameters['masterId']),
               req,
             );
           }),
           request: const Request(method: RequestMethods.get),
         );
+        _adapter.onRoute(
+          '$root/comments',
+          // Not recorded in [clientCardCalls]: flows count card / visits
+          // reads there.
+          (server) => server.replyCallback(
+            200,
+            (req) =>
+                pageOf(clientComments[id] ?? <Map<String, dynamic>>[], req),
+          ),
+          request: const Request(method: RequestMethods.get),
+        );
+        _wireDeleteOwnClientReviews(id);
       }
     }
 

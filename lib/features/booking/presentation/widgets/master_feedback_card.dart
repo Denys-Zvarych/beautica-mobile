@@ -72,11 +72,10 @@ class MasterFeedbackCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   /// Pre-composed, already-localized accessibility label for the whole card —
-  /// mirrors the sibling `ClientFeedbackCard`'s own parameter, and keeps this
-  /// widget l10n-free. Needed because [semanticsLabel] is the ONLY thing a
-  /// screen reader gets here (the subtree is excluded), so the ★ readout is
-  /// invisible unless the caller folds it into this string. Falls back to the
-  /// pre-rating name + visit composition.
+  /// keeps this widget l10n-free. Needed because [semanticsLabel] is the
+  /// ONLY thing a screen reader gets here (the subtree is excluded), so the ★
+  /// readout is invisible unless the caller folds it into this string. Falls
+  /// back to the pre-rating name + visit composition.
   final String? semanticsLabel;
 
   /// Phase 9.7 — the master's photo URL; `null` keeps the gradient glyph.

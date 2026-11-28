@@ -286,6 +286,9 @@ abstract interface class ServiceRepository {
   ///   - [ValidationFailure] on **400/422** (malformed name/description),
   ///     carrying any field errors keyed by `name` / `description`.
   ///   - [CategoryRequestThrottledFailure] on **429** (rate-limited).
+  ///   - `ServerFailure(statusCode: 409)` on a conflict; its
+  ///     [ServerFailure.errorCode] carries `DUPLICATE_PENDING` /
+  ///     `CATEGORY_BUSY` / `TYPE_EXISTS` (or `null` for a generic conflict).
   ///   - [ServerFailure] / [NetworkFailure] on other transport errors.
   Future<void> suggestServiceType({
     required String categoryName,

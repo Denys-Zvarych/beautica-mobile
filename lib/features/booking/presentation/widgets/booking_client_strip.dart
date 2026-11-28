@@ -1,7 +1,13 @@
-// The CLIENT as a provider sees them — photo (monogram fallback), name, a
-// muted «Запис за посиланням» qualifier on a guest booking, and the client's
-// ★ rating (em-dash when unreviewed; none at all for a guest, who has no
-// account to be rated).
+// The CLIENT as a provider sees them — photo (monogram fallback), name and
+// the client's ★ rating (em-dash when unreviewed or unknown) for EVERY client
+// kind: registered, LINK guest and STAFF walk-in (a guest's is phone-keyed,
+// REV-D04 / B546). No client-kind label for any client (CLI-100 / CLI-D19,
+// M568).
+//
+// M569 (CLI-101 / CLI-D20): the ONE client widget on every provider booking
+// page. The former `isGuest` flag (which hid the ★ for guests) is gone — no
+// caller set it any more — and [BookingClientStrip.fromBooking] gained an
+// ADDITIVE `details` sub-line (the compose screen's «Послуга · дата»).
 //
 // PROMOTED (2026-11-14) from `booking_counterparty_header.dart`'s private
 // `_ClientStrip`, so the provider RESCHEDULE confirm screen («Підтвердження»)
@@ -20,6 +26,13 @@
 // master-shaped (a role sub-line, the «Запис до майстра» caption, master-worded
 // semantics), whereas the shell is the data-agnostic frame this needs.
 //
+// 2026-11-25: [BookingClientStrip.walkIn] — the walk-in review card (master
+// «Підтвердження» and the salon wizard's confirm step) renders the client with
+// this same strip (photo + ★ of a picked existing client; monogram + «—» for a
+// hand-typed one) instead of a bare «Клієнт / <name>» label card. One more
+// ADDITIVE param, [semanticsDetail] (default `null`: every other caller's
+// screen-reader label is unchanged).
+//
 // 2026-11-21 (user): the provider «⋯» (report / block) left this strip — it
 // lives only on the client card now (tap the strip → card → «⋯»).
 //
@@ -28,7 +41,6 @@
 
 import 'package:flutter/material.dart';
 
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart'
@@ -49,7 +61,6 @@ class BookingClientStrip extends StatelessWidget {
     this.initials,
     this.rating,
     this.reviewCount = 0,
-    this.isGuest = false,
     this.dimmed = false,
     this.topLabel,
     this.shellKey = defaultShellKey,
@@ -59,26 +70,90 @@ class BookingClientStrip extends StatelessWidget {
     this.semanticsLabel,
     this.avatarPreviewOnTap = false,
     this.avatarPreviewReport,
+    this.semanticsDetail,
   });
+
+  /// The walk-in review card's client: [firstName] + [lastName], the
+  /// [phone] (as typed/shown on the step) as the sub-line, and — only for a
+  /// picked existing client — [avatarUrl] / [rating] / [reviewCount]. A
+  /// hand-typed walk-in has none of those: the strip falls back to the
+  /// name's monogram and the «—» readout, exactly like a guest row of the
+  /// «Клієнти» list (CLI-47).
+  ///
+  /// [onTap] (ADDITIVE, M569): the picked client's card route — `null` (a
+  /// hand-typed or edited walk-in, which has no card yet, CLI-D20) is inert.
+  factory BookingClientStrip.walkIn({
+    Key? key,
+    required String firstName,
+    required String lastName,
+    String? phone,
+    String? avatarUrl,
+    double? rating,
+    int reviewCount = 0,
+    String? topLabel,
+    Key shellKey = defaultShellKey,
+    Key avatarImageKey = defaultAvatarImageKey,
+    VoidCallback? onTap,
+  }) {
+    final String name = '$firstName $lastName'.trim();
+    final String? shownPhone = (phone == null || phone.isEmpty) ? null : phone;
+    return BookingClientStrip(
+      key: key,
+      name: name.isEmpty ? null : name,
+      avatarUrl: avatarUrl,
+      initials: _initialsOf(firstName, lastName),
+      rating: rating,
+      reviewCount: reviewCount,
+      topLabel: topLabel,
+      shellKey: shellKey,
+      avatarImageKey: avatarImageKey,
+      details: shownPhone == null
+          ? null
+          : Text(
+              shownPhone,
+              style: VelvetText.feedbackMutedSm,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+      semanticsDetail: shownPhone,
+      onTap: onTap,
+    );
+  }
+
+  /// First letter of each non-blank name part, upper-cased; `null` when
+  /// both are blank (the shell then draws its generic glyph).
+  static String? _initialsOf(String first, String last) {
+    final String letters = <String>[first.trim(), last.trim()]
+        .where((String p) => p.isNotEmpty)
+        .map((String p) => String.fromCharCode(p.runes.first))
+        .join()
+        .toUpperCase();
+    return letters.isEmpty ? null : letters;
+  }
 
   /// The «Деталі запису» render of [booking]'s client — the exact derivation
   /// the private `_ClientStrip` used before the promotion.
+  ///
+  /// [details] (ADDITIVE, M569): a sub-line under the name (the compose
+  /// screen's «Послуга · дата») with [semanticsDetail] appended to the spoken
+  /// label. Both `null` (every other caller) render exactly as before.
   factory BookingClientStrip.fromBooking(
     Booking booking, {
     Key? key,
     VoidCallback? onTap,
     bool avatarPreviewOnTap = false,
     PhotoViewerReport? avatarPreviewReport,
+    Widget? details,
+    String? semanticsDetail,
   }) => BookingClientStrip(
     key: key,
     name: booking.clientName,
     avatarUrl: booking.clientAvatarUrl,
     initials: booking.clientInitials,
     rating: booking.clientDisplayRating,
+    // ★ for every client kind (CLI-101): since B546 a guest's phone-keyed
+    // rating rides `clientAvgRating` / `clientReviewCount`; `null` / 0 → «—».
     reviewCount: booking.clientReviewCount ?? 0,
-    // The guest marker is shown ONLY for an actual guest booking
-    // (`client_id IS NULL`) — never merely because a name is missing.
-    isGuest: booking.isGuestBooking,
     // A cancelled/declined booking's counterparty is dimmed — the same
     // `Opacity(0.7)` treatment the master strip gets.
     dimmed:
@@ -89,6 +164,8 @@ class BookingClientStrip extends StatelessWidget {
     onTap: onTap,
     avatarPreviewOnTap: avatarPreviewOnTap,
     avatarPreviewReport: avatarPreviewReport,
+    details: details,
+    semanticsDetail: semanticsDetail,
   );
 
   static const Key defaultShellKey = Key('booking-detail-client-strip');
@@ -114,12 +191,9 @@ class BookingClientStrip extends StatelessWidget {
   final String? initials;
 
   /// Already display-normalized (`BookingDisplayX.clientDisplayRating`);
-  /// `null` = unreviewed (em-dash). Ignored when [isGuest].
+  /// `null` = unreviewed or unknown (em-dash), for every client kind.
   final double? rating;
   final int reviewCount;
-
-  /// Guest/LINK booking: «Запис за посиланням» qualifier, no rating.
-  final bool isGuest;
 
   /// Dead (cancelled/declined) booking: `Opacity(0.7)`.
   final bool dimmed;
@@ -131,7 +205,7 @@ class BookingClientStrip extends StatelessWidget {
   final Key shellKey;
   final Key avatarImageKey;
 
-  /// ADDITIVE (M509): extra sub-lines under the guest qualifier (the list row's
+  /// ADDITIVE (M509): extra sub-lines under the name (the list row's
   /// «Ост.: …» / «Наст.: …» dates and «Заблоковано» chip). `null` (every other
   /// call site) renders the sub-line exactly as before.
   final Widget? details;
@@ -141,8 +215,13 @@ class BookingClientStrip extends StatelessWidget {
   final VoidCallback? onTap;
 
   /// ADDITIVE (M509): replaces the computed screen-reader label. `null` keeps
-  /// the label derived from [name] / [rating] / [isGuest].
+  /// the label derived from [name] / [rating].
   final String? semanticsLabel;
+
+  /// ADDITIVE (2026-11-25): appended to the COMPUTED screen-reader label
+  /// (e.g. the walk-in phone shown in [details]). Ignored when
+  /// [semanticsLabel] is set; `null` (every other caller) changes nothing.
+  final String? semanticsDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -150,53 +229,35 @@ class BookingClientStrip extends StatelessWidget {
     final double? rating = this.rating;
 
     final String displayName = name ?? l10n.bookingDetailGuestClient;
-    final String? qualifier = isGuest
-        ? l10n.bookingDetailGuestBookingLabel
-        : null;
-
-    final String semantics;
+    final String computed;
     if (semanticsLabel != null) {
-      semantics = semanticsLabel!;
-    } else if (isGuest) {
-      semantics = <String>[
-        l10n.bookingDetailClientSemantics(displayName),
-        ?qualifier,
-      ].join(', ');
+      computed = semanticsLabel!;
     } else if (rating == null) {
       // Unreviewed: spoken as plain "no reviews yet", never «Рейтинг —». The
       // visible readout keeps its em-dash.
-      semantics = <String>[
+      computed = <String>[
         l10n.bookingDetailClientSemantics(displayName),
         l10n.masterReviewsEmpty,
       ].join('. ');
     } else {
-      semantics = l10n.bookingDetailClientRatedSemantics(
+      computed = l10n.bookingDetailClientRatedSemantics(
         displayName,
         rating.toStringAsFixed(1),
         l10n.salonReviewCountLabel(reviewCount),
       );
     }
+    final String? extraSemantics = semanticsDetail;
+    final String semantics = semanticsLabel != null || extraSemantics == null
+        ? computed
+        : '$computed, $extraSemantics';
 
-    final Widget? qualifierLine = qualifier == null
-        ? null
-        : Text(
-            qualifier,
-            style: VelvetText.feedbackMutedSm,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          );
     final Widget? extra = details;
     final Widget? middle = extra == null
-        ? qualifierLine
+        ? null
         : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              ?qualifierLine,
-              if (qualifierLine != null)
-                const SizedBox(height: VelvetSpacing.xs / 2),
-              extra,
-            ],
+            children: <Widget>[extra],
           );
 
     // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
@@ -213,9 +274,10 @@ class BookingClientStrip extends StatelessWidget {
         avatarPreviewOnTap: avatarPreviewOnTap,
         avatarPreviewReport: avatarPreviewReport,
         middleLine: middle,
-        trailing: isGuest
-            ? null
-            : MasterRatingReadout(avgRating: rating, reviewCount: reviewCount),
+        trailing: MasterRatingReadout(
+          avgRating: rating,
+          reviewCount: reviewCount,
+        ),
         onTap: onTap,
       ),
     );

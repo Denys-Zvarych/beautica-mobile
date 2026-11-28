@@ -26,18 +26,38 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../domain/booking_create_seed.dart';
 import '../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'widgets/booking_top_bar.dart';
-import 'widgets/booking_wizard_steps.dart' show ClientStep, toE164UaPhone;
+import 'widgets/booking_wizard_steps.dart'
+    show ClientStep, applyClientPrefill, toE164UaPhone, walkInGuestFrom;
 
 /// «Новий запис» step 1 — collects the walk-in guest's identity
 /// (ім'я/прізвище/телефон) via the shared [ClientStep].
 class WalkInGuestStepScreen extends ConsumerStatefulWidget {
-  const WalkInGuestStepScreen({super.key, this.servicesRoute, this.seed});
+  const WalkInGuestStepScreen({
+    super.key,
+    this.servicesRoute,
+    this.seed,
+    this.onPickClient,
+    this.initialPrefill,
+  });
+
+  /// M543 (BOOK-80) — the client-card launch's prefill (CLI-80), applied
+  /// ONCE to this screen's controllers in `initState`; editable afterwards,
+  /// no picked-client chip. `null` (the default) → the form opens empty,
+  /// exactly as today. PII: never logged.
+  final ClientPrefill? initialPrefill;
+
+  /// M553 — forwarded verbatim to [ClientStep.onPickClient]. The route binds
+  /// the scope (D1): `/master/bookings/new` → `ClientListScope.me()`,
+  /// `/owner/master/bookings/new` → `ClientListScope.salon(<owner's salon>)`.
+  /// `null` (the default) → no picker, today's step exactly.
+  final Future<ClientPrefill?> Function(BuildContext context)? onPickClient;
 
   /// Phase 383 (24.1f) — where «Далі» pushes the service step. `null` (the
   /// default) keeps [RouteNames.masterBookingNewServices]; the owner
@@ -64,10 +84,38 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
 
   late final ScreenProtectionManager _screenProtection;
 
+  /// The last picked client (or the client-card launch's prefill) — the
+  /// review card's photo + ★ source, carried on the [WalkInGuest] only while
+  /// the typed fields still are that client ([walkInGuestFrom]). In memory
+  /// only (route `extra`); PII: never logged.
+  ClientPrefill? _picked;
+
+  /// [WalkInGuestStepScreen.onPickClient], remembering what was picked.
+  Future<ClientPrefill?> Function(BuildContext context)? get _pickClient {
+    final Future<ClientPrefill?> Function(BuildContext context)? pick =
+        widget.onPickClient;
+    if (pick == null) return null;
+    return (BuildContext context) async {
+      final ClientPrefill? picked = await pick(context);
+      if (picked != null) _picked = picked;
+      return picked;
+    };
+  }
+
   @override
   void initState() {
     super.initState();
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    final ClientPrefill? prefill = widget.initialPrefill;
+    _picked = prefill;
+    if (prefill != null) {
+      applyClientPrefill(
+        prefill,
+        first: _firstNameCtrl,
+        last: _lastNameCtrl,
+        phone: _phoneCtrl,
+      );
+    }
   }
 
   @override
@@ -103,7 +151,12 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
         widget.servicesRoute ?? RouteNames.masterBookingNewServices,
         widget.seed,
       ),
-      extra: WalkInGuest(name: firstName, surname: lastName, phone: phone),
+      extra: walkInGuestFrom(
+        firstName: firstName,
+        lastName: lastName,
+        phone: phone,
+        picked: _picked,
+      ),
     );
   }
 
@@ -128,6 +181,7 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
                 lastNameCtrl: _lastNameCtrl,
                 phoneCtrl: _phoneCtrl,
                 onNext: _onNext,
+                onPickClient: _pickClient,
               ),
             ),
           ],

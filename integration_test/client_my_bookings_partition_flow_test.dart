@@ -358,9 +358,8 @@ void main() {
       // The app's only source-like copy («Запис за посиланням») must not
       // render on the client's detail of an attached booking either.
       expect(
-        find.text(
-          l10nOf(tester, BookingDetailScreen).bookingDetailGuestBookingLabel,
-        ),
+        // i18n-finder-ok: asserts the removed UA copy never renders (CLI-100)
+        find.text('Запис за посиланням'),
         findsNothing,
         reason: 'no «Запис за посиланням» label for the client',
       );

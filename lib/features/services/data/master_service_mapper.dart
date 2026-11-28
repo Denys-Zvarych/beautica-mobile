@@ -448,6 +448,10 @@ abstract final class MasterServiceMapper {
       displayName: (dto.displayName?.isNotEmpty ?? false)
           ? dto.displayName!
           : name,
+      // M542 — blank is the same as absent (bundled fallback, SVC-04).
+      // TODO(contract): `iconUrl` was added to the committed spec snapshot by
+      // hand ahead of B539; re-fetch the spec from a B539 backend and regen.
+      iconUrl: (dto.iconUrl?.trim().isNotEmpty ?? false) ? dto.iconUrl : null,
     );
   }
 

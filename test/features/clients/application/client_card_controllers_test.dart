@@ -1,7 +1,7 @@
 // M510 — the card's data controllers: the card provider (404 →
-// NotFoundFailure for the not-found state) and the visits timeline (paging, D4
-// next-visit lookahead stopping at the first past visit and at 5 pages, a
-// failed append pausing auto-append). Signed out →
+// NotFoundFailure for the not-found state) and the visits timeline (paging, a
+// failed append pausing auto-append; M531 / CLI-89: the head is the card's
+// `nextVisit` and the first load reads ONE visits page). Signed out →
 // the card fails with UnauthorizedFailure and no request; an append that
 // resolves after a refresh never overwrites the fresh state (generation guard).
 // CLI-74: a salon scope with a `masterId` is its own visits family member and
@@ -66,9 +66,22 @@ class _SignedOutAuth extends AuthNotifier {
 }
 
 class _Repo implements ClientRepository {
-  _Repo({this.cardFailure, this.pages = const <List<ClientVisit>>[]});
+  _Repo({
+    this.cardFailure,
+    this.pages = const <List<ClientVisit>>[],
+    this.nextVisit,
+  });
 
-  final Failure? cardFailure;
+  Failure? cardFailure;
+
+  /// When set, every card request waits on this.
+  Completer<void>? cardGate;
+
+  /// The card's `nextVisit` (B530), as the server would send it.
+  ClientVisit? nextVisit;
+
+  /// The scope of every card request, in order.
+  final List<ClientListScope> cardScopes = <ClientListScope>[];
 
   /// Visit pages, newest first; the last page has no successor.
   List<List<ClientVisit>> pages;
@@ -91,9 +104,12 @@ class _Repo implements ClientRepository {
     CancelToken? cancelToken,
   }) async {
     cardCalls++;
+    cardScopes.add(scope);
+    final Completer<void>? gate = cardGate;
+    if (gate != null) await gate.future;
     final Failure? f = cardFailure;
     if (f != null) throw f;
-    return ClientCard(ref: client, displayName: 'Оксана');
+    return ClientCard(ref: client, displayName: 'Оксана', nextVisit: nextVisit);
   }
 
   @override
@@ -126,6 +142,14 @@ class _Repo implements ClientRepository {
     int size = kClientPageSize,
     CancelToken? cancelToken,
   }) => throw UnimplementedError();
+
+  @override
+  Future<void> removeFromList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> restoreToList(ClientListScope scope, ClientRef client) =>
+      throw UnimplementedError();
 }
 
 ProviderContainer _container(_Repo repo, {bool signedOut = false}) =>
@@ -195,107 +219,268 @@ void main() {
     });
   });
 
-  group('visits — D4 next-visit lookahead', () {
-    test('first page only when it already reaches a past visit', () async {
+  group('visits — next visit from the card (M531 / CLI-89)', () {
+    test('head = the card\'s nextVisit after ONE page, even when page 0 is '
+        'all future; the history excludes it', () async {
       final repo = _Repo(
-        pages: <List<ClientVisit>>[
-          <ClientVisit>[_future('f1', 5), _past('p1', 3)],
-          <ClientVisit>[_past('p2', 9)],
-        ],
-      );
-      final ClientVisitsState s = await _visits(_container(repo));
-      expect(repo.visitPages, <int>[
-        0,
-      ], reason: 'a past visit ends the lookahead');
-      expect(s.nextVisit?.visitKey, 'f1');
-      expect(s.history.map((v) => v.visitKey), <String>['p1']);
-      expect(s.hasMore, isTrue);
-    });
-
-    test(
-      'a grouped API visit becomes ONE entry per booking (BOOK-05): key = '
-      'bookingId, newest first; next = the earliest upcoming booking',
-      () async {
-        final DateTime at = _now.add(const Duration(days: 2));
-        final repo = _Repo(
-          pages: <List<ClientVisit>>[
-            <ClientVisit>[
-              ClientVisit(
-                visitKey: 'appt-1',
-                startsAt: at,
-                items: <ClientVisitItem>[
-                  ClientVisitItem(
-                    bookingId: 'b-early',
-                    serviceName: 'Губи',
-                    status: BookingStatus.confirmed,
-                    startsAt: at,
-                  ),
-                  ClientVisitItem(
-                    bookingId: 'b-late',
-                    serviceName: 'Пілінг шкіри голови',
-                    status: BookingStatus.confirmed,
-                    startsAt: at.add(const Duration(hours: 1)),
-                  ),
-                ],
-              ),
-              _past('p1', 3),
-            ],
-          ],
-        );
-        final ClientVisitsState s = await _visits(_container(repo));
-        expect(s.visits.map((v) => v.visitKey), <String>[
-          'b-late',
-          'b-early',
-          'p1',
-        ]);
-        expect(s.visits.every((v) => v.items.length == 1), isTrue);
-        expect(s.nextVisit?.visitKey, 'b-early');
-        expect(s.history.map((v) => v.visitKey), <String>['b-late', 'p1']);
-      },
-    );
-
-    test('keeps loading while every visit is in the future', () async {
-      final repo = _Repo(
+        nextVisit: _future('f1', 5),
         pages: <List<ClientVisit>>[
           <ClientVisit>[_future('f3', 30), _future('f2', 20)],
           <ClientVisit>[_future('f1', 5), _past('p1', 3)],
-          <ClientVisit>[_past('p2', 9)],
         ],
       );
       final ClientVisitsState s = await _visits(_container(repo));
-      expect(repo.visitPages, <int>[0, 1]);
-      expect(
-        s.nextVisit?.visitKey,
-        'f1',
-        reason: 'the earliest upcoming visit is on the OLDER page',
-      );
-      expect(s.history.any((v) => v.visitKey == 'f1'), isFalse);
+      expect(repo.visitPages, <int>[0], reason: 'no lookahead');
+      expect(repo.cardCalls, 1, reason: 'one card read, shared');
+      expect(s.nextVisit?.visitKey, 'f1');
+      expect(s.history.map((v) => v.visitKey), <String>['f3', 'f2']);
+      expect(s.hasMore, isTrue);
     });
 
-    test('stops at 5 pages even if all are still future', () async {
+    test('60 future visits: one visits page on first open', () async {
       final repo = _Repo(
+        nextVisit: _future('f0', 1),
         pages: <List<ClientVisit>>[
-          for (int i = 0; i < 8; i++) <ClientVisit>[_future('f$i', 100 - i)],
+          for (int p = 0; p < 3; p++)
+            <ClientVisit>[
+              for (int i = 0; i < 20; i++)
+                _future('f${60 - (p * 20 + i) - 1}', 60 - (p * 20 + i)),
+            ],
         ],
       );
       final ClientVisitsState s = await _visits(_container(repo));
-      expect(repo.visitPages, <int>[0, 1, 2, 3, 4]);
-      expect(s.hasMore, isTrue);
+      expect(repo.visitPages, <int>[0]);
+      expect(s.nextVisit?.visitKey, 'f0');
+      expect(s.history, hasLength(20));
+    });
+
+    test('card nextVisit null → no head, one visits page', () async {
+      final repo = _Repo(
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_future('f1', 5), _past('p1', 3)],
+        ],
+      );
+      final ClientVisitsState s = await _visits(_container(repo));
+      expect(repo.visitPages, <int>[0]);
+      expect(s.nextVisit, isNull);
+      expect(s.history.map((v) => v.visitKey), <String>['f1', 'p1']);
+    });
+
+    test('the head\'s booking on a later page is not duplicated', () async {
+      final repo = _Repo(
+        nextVisit: _future('f1', 5),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_future('f2', 20)],
+          <ClientVisit>[_future('f1', 5), _past('p1', 3)],
+        ],
+      );
+      final c = _container(repo);
+      await _visits(c);
+      await c
+          .read(clientVisitsControllerProvider(_me, _client).notifier)
+          .loadMore();
+      final ClientVisitsState s = c
+          .read(clientVisitsControllerProvider(_me, _client))
+          .requireValue;
+      expect(s.visits.map((v) => v.visitKey), <String>['f2', 'f1', 'p1']);
+      expect(s.nextVisit?.visitKey, 'f1');
+      expect(s.history.map((v) => v.visitKey), <String>['f2', 'p1']);
+    });
+
+    test('card and visits invalidated together → one card and one page-0 '
+        'read (pull-to-refresh, no double fetch)', () async {
+      final repo = _Repo(
+        nextVisit: _future('f1', 5),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_future('f1', 5), _past('p1', 3)],
+        ],
+      );
+      final c = _container(repo);
+      await _visits(c);
+      final cardSub = c.listen(clientCardProvider(_me, _client), (_, _) {});
+      addTearDown(cardSub.close);
+      await c.read(clientCardProvider(_me, _client).future);
+      expect(repo.cardCalls, 1);
+      c
+        ..invalidate(clientCardProvider(_me, _client))
+        ..invalidate(clientVisitsControllerProvider(_me, _client));
+      await c.read(clientCardProvider(_me, _client).future);
+      await c.read(clientVisitsControllerProvider(_me, _client).future);
+      expect(repo.cardCalls, 2);
+      expect(repo.visitPages, <int>[0, 0]);
+    });
+
+    test('a card refresh alone swaps the head in place: no page re-read, '
+        'appended pages kept', () async {
+      final repo = _Repo(
+        nextVisit: _future('f2', 20),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_future('f2', 20), _future('f1', 5)],
+          <ClientVisit>[_past('p1', 3)],
+        ],
+      );
+      final c = _container(repo);
+      await _visits(c);
+      await c
+          .read(clientVisitsControllerProvider(_me, _client).notifier)
+          .loadMore();
+      repo.nextVisit = _future('f1', 5);
+      c.invalidate(clientCardProvider(_me, _client));
+      await c.read(clientCardProvider(_me, _client).future);
+      final ClientVisitsState s = c
+          .read(clientVisitsControllerProvider(_me, _client))
+          .requireValue;
+      expect(repo.cardCalls, 2);
+      expect(repo.visitPages, <int>[0, 1]);
+      expect(s.page, 1);
+      expect(s.visits.map((v) => v.visitKey), <String>['f2', 'f1', 'p1']);
+      expect(s.nextVisit?.visitKey, 'f1');
+      expect(s.history.map((v) => v.visitKey), <String>['f2', 'p1']);
+    });
+
+    test('page 0 is requested before the card resolves (parallel)', () async {
+      final repo = _Repo(
+        nextVisit: _future('f1', 5),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_future('f1', 5)],
+        ],
+      )..cardGate = Completer<void>();
+      final c = _container(repo);
+      await c.read(authProvider.future);
+      final sub = c.listen(
+        clientVisitsControllerProvider(_me, _client),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await Future<void>.delayed(Duration.zero);
+      expect(repo.cardCalls, 1);
+      expect(repo.visitPages, <int>[0]);
+      expect(
+        c.read(clientVisitsControllerProvider(_me, _client)).isLoading,
+        isTrue,
+      );
+      repo.cardGate?.complete();
+      final ClientVisitsState s = await c.read(
+        clientVisitsControllerProvider(_me, _client).future,
+      );
+      expect(s.nextVisit?.visitKey, 'f1');
+      expect(repo.visitPages, <int>[0]);
+    });
+
+    test('card failure → the timeline errors with the card failure; a card '
+        'retry that succeeds rebuilds it', () async {
+      final repo = _Repo(
+        nextVisit: _future('f1', 5),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_future('f1', 5), _past('p1', 3)],
+        ],
+      )..cardFailure = const NetworkFailure();
+      final c = _container(repo);
+      await expectLater(_visits(c), throwsA(isA<NetworkFailure>()));
+      repo.cardFailure = null;
+      c.invalidate(clientCardProvider(_me, _client));
+      await c.read(clientCardProvider(_me, _client).future);
+      final ClientVisitsState s = await c.read(
+        clientVisitsControllerProvider(_me, _client).future,
+      );
+      expect(s.nextVisit?.visitKey, 'f1');
+      expect(s.history.map((v) => v.visitKey), <String>['p1']);
+      expect(repo.visitPages, <int>[0, 0]);
+    });
+
+    test('page 0 fails on refresh → a card-only refresh rebuilds the timeline '
+        '(new page-0 read), never the stale pages as AsyncData', () async {
+      final repo = _Repo(
+        nextVisit: _future('f1', 5),
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[_future('f1', 5), _past('p1', 3)],
+        ],
+      );
+      final c = _container(repo);
+      final provider = clientVisitsControllerProvider(_me, _client);
+      await _visits(c);
+      final cardSub = c.listen(clientCardProvider(_me, _client), (_, _) {});
+      addTearDown(cardSub.close);
+      repo.failVisitPage = 0;
+      c
+        ..invalidate(clientCardProvider(_me, _client))
+        ..invalidate(provider);
+      await c.read(clientCardProvider(_me, _client).future);
+      await expectLater(
+        c.read(provider.future),
+        throwsA(isA<NetworkFailure>()),
+      );
+      final AsyncValue<ClientVisitsState> failed = c.read(provider);
+      expect(failed.hasError, isTrue);
+      expect(failed.value, isNotNull, reason: 'Riverpod 3 keeps the value');
+      expect(repo.visitPages, <int>[0, 0]);
+
+      repo
+        ..failVisitPage = -1
+        ..nextVisit = _future('f2', 9)
+        ..pages = <List<ClientVisit>>[
+          <ClientVisit>[_future('f2', 9), _past('p2', 1)],
+        ];
+      c.invalidate(clientCardProvider(_me, _client));
+      await c.read(clientCardProvider(_me, _client).future);
+      final ClientVisitsState s = await c.read(provider.future);
+      expect(repo.visitPages, <int>[0, 0, 0], reason: 'rebuilt: new page 0');
+      expect(c.read(provider).hasError, isFalse);
+      expect(s.visits.map((v) => v.visitKey), <String>['f2', 'p2']);
+      expect(s.nextVisit?.visitKey, 'f2');
+    });
+
+    test('an appointment as nextVisit: head = its earliest CONFIRMED future '
+        'booking; the sibling booking stays in the history (CLI-78)', () async {
+      final DateTime at = _now.add(const Duration(days: 2));
+      final ClientVisit appointment = ClientVisit(
+        visitKey: 'appt-1',
+        startsAt: at,
+        items: <ClientVisitItem>[
+          ClientVisitItem(
+            bookingId: 'b-early',
+            serviceName: 'Губи',
+            status: BookingStatus.confirmed,
+            startsAt: at,
+          ),
+          ClientVisitItem(
+            bookingId: 'b-late',
+            serviceName: 'Пілінг шкіри голови',
+            status: BookingStatus.confirmed,
+            startsAt: at.add(const Duration(hours: 1)),
+          ),
+        ],
+      );
+      final repo = _Repo(
+        nextVisit: appointment,
+        pages: <List<ClientVisit>>[
+          <ClientVisit>[appointment, _past('p1', 3)],
+        ],
+      );
+      final ClientVisitsState s = await _visits(_container(repo));
+      expect(s.visits.map((v) => v.visitKey), <String>[
+        'b-late',
+        'b-early',
+        'p1',
+      ]);
+      expect(s.visits.every((v) => v.items.length == 1), isTrue);
+      expect(s.nextVisit?.visitKey, 'b-early');
+      expect(s.nextVisit?.items, hasLength(1));
+      expect(s.history.map((v) => v.visitKey), <String>['b-late', 'p1']);
     });
 
     test(
       'a cancelled / declined future visit is never the next visit',
       () async {
+        final ClientVisit cancelled = _visit(
+          'x',
+          _now.add(const Duration(days: 1)),
+          status: BookingStatus.cancelled,
+        );
         final repo = _Repo(
+          nextVisit: cancelled,
           pages: <List<ClientVisit>>[
-            <ClientVisit>[
-              _visit(
-                'x',
-                _now.add(const Duration(days: 1)),
-                status: BookingStatus.cancelled,
-              ),
-              _past('p1', 3),
-            ],
+            <ClientVisit>[cancelled, _past('p1', 3)],
           ],
         );
         final ClientVisitsState s = await _visits(_container(repo));
@@ -349,6 +534,10 @@ void main() {
       await c.read(clientVisitsControllerProvider(salon, _client).future);
       expect(repo.visitScopes.last, salon);
       expect(repo.visitPages, <int>[0, 1, 0]);
+      expect(repo.cardScopes, <ClientListScope>[
+        filtered,
+        salon,
+      ], reason: 'the head follows the chip (E4)');
     });
   });
 
@@ -456,7 +645,13 @@ void main() {
 
       await c.read(provider.notifier).loadMore();
 
-      expect(repo.visitPages, <int>[], reason: 'no throwaway page-1 request');
+      // Page 0 now lands after the card read (a microtask later), so only the
+      // page-1 request is the thing that must not happen.
+      expect(
+        repo.visitPages,
+        isNot(contains(1)),
+        reason: 'no throwaway page-1 request',
+      );
       expect(c.read(provider).isLoading, isTrue);
       gate.complete();
       final ClientVisitsState s = await c.read(provider.future);

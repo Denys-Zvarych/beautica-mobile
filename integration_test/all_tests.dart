@@ -109,6 +109,13 @@ import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_search_flow_test.dart' as client_search;
 import 'clients_tab_flow_test.dart' as clients_tab;
+import 'clients_card_flow_test.dart' as clients_card;
+import 'guest_client_rating_readout_flow_test.dart'
+    as guest_client_rating_readout;
+import 'client_rating_comments_flow_test.dart' as client_rating_comments;
+import 'clients_remove_from_list_flow_test.dart' as clients_remove_from_list;
+import 'clients_remove_scope_rebook_flow_test.dart'
+    as clients_remove_scope_rebook;
 import 'client_search_query_with_filters_flow_test.dart'
     as client_search_query_with_filters;
 import 'client_search_query_shrink_flow_test.dart'
@@ -164,6 +171,9 @@ import 'master_bookings_declared_time_cards_flow_test.dart'
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
+import 'walk_in_pick_client_flow_test.dart' as walk_in_pick_client;
+import 'book_client_from_card_flow_test.dart' as book_client_from_card;
+import 'client_card_next_visit_flow_test.dart' as client_card_next_visit;
 import 'master_avatar_upload_test.dart' as master_avatar_upload;
 import 'owner_admin_avatar_upload_test.dart' as owner_admin_avatar_upload;
 import 'salon_logo_cover_owner_test.dart' as salon_logo_cover_owner;
@@ -246,6 +256,8 @@ import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
+import 'service_type_suggestion_conflict_flow_test.dart'
+    as service_type_suggestion_conflict;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
@@ -445,6 +457,14 @@ void main() {
   // M509 — the «Клієнти» tab on every provider surface (list → search → paging
   // → row tap; salon shell, master bar, salon master, owner master mode).
   group('clients_tab_flow', clients_tab.main);
+  group('clients_card_flow', clients_card.main);
+  // M548 — a rated guest shows the server rating on card / rating page / row.
+  group('guest_client_rating_readout_flow', guest_client_rating_readout.main);
+  group('client_rating_comments_flow', client_rating_comments.main);
+  // M544 — remove a client from «Клієнти» (swipe / card «⋯») + undo snack
+  // countdown; owner/admin shared vs salon-master scope; re-book comeback.
+  group('clients_remove_from_list_flow', clients_remove_from_list.main);
+  group('clients_remove_scope_rebook_flow', clients_remove_scope_rebook.main);
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
   // reaching /search/masters + /search/salons TOGETHER with location.cityId,
   // category and a price bound on the SAME request, plus the results
@@ -526,6 +546,12 @@ void main() {
   // list. Registered beside `master_bookings_flow`, whose login/router
   // scaffolding it shares.
   group('master_create_booking_flow', master_create_booking.main);
+  // M553 (BOOK-79) — walk-in client step: pick an existing client (IM own
+  // list, owner salon list), prefill, submit; SALON_MASTER gets no picker.
+  group('walk_in_pick_client_flow', walk_in_pick_client.main);
+  // M543 (CLI-80) — «Записати» on the client card → prefilled walk-in.
+  group('book_client_from_card_flow', book_client_from_card.main);
+  group('client_card_next_visit_flow', client_card_next_visit.main);
   // Phase 231 (mobile-qa, Step 2.7 Rule 3b) — the master «Архів» page: past
   // bookings including an elapsed-unclosed row, filtering to «Заплановано»,
   // closing via «Виконано» on the real HTTP boundary, the client-side-filter
@@ -870,6 +896,12 @@ void main() {
   // Service-setup per-field 400 → inline row error (Step 2.7 Rule 3b) — the
   // bulk-save validation-error display fix, end-to-end.
   group('service_setup_field_error_flow', service_setup_field_error.main);
+  // Suggest-a-service-type 409 data.code → own copy + resubmit (Step 2.7
+  // Rule 3b) — fix/suggestion-conflict-messages, end-to-end.
+  group(
+    'service_type_suggestion_conflict_flow',
+    service_type_suggestion_conflict.main,
+  );
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);

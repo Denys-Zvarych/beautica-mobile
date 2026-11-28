@@ -15,8 +15,10 @@
 //
 // NOTE — the preview's `ConfidentialityNote` widget was REMOVED from the
 // approved design by the user (locked decision, 2026-07-25) and is
-// deliberately NOT ported. The inline «Клієнт цього коментаря не побачить»
-// reminder beside the comment counter IS still part of the design and is kept.
+// deliberately NOT ported. The inline privacy reminder that once sat beside
+// the comment counter was later removed too; the only privacy copy left on
+// this screen is the anonymity notice (`clientReviewCommentAnonNotice`,
+// CLI-93 in docs/specs/client.md).
 //
 // ## The gating (read before touching this file)
 //
@@ -91,6 +93,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/clients/application/client_views_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
@@ -98,11 +101,12 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import '../application/booking_calendar_invalidation.dart'
     show invalidatePendingBookingActionsCount;
 import '../application/booking_detail_notifier.dart';
+import '../application/booking_viewer_role.dart';
 import '../application/client_review_signal_provider.dart';
 import '../application/leave_client_feedback_notifier.dart';
 import '../domain/booking.dart';
-import '../domain/booking_display_x.dart';
-import 'widgets/client_feedback_card.dart';
+import 'client_card_opener.dart';
+import 'widgets/booking_counterparty_header.dart';
 import 'widgets/master_feedback_card.dart' show ReviewSectionLabel;
 import 'widgets/star_rating_input.dart';
 
@@ -139,9 +143,17 @@ class LeaveClientFeedbackScreen extends ConsumerStatefulWidget {
     super.key,
     required this.bookingId,
     this.entry = ClientReviewEntry.bookingDetail,
+    this.clientCardBase,
   });
 
   final String bookingId;
+
+  /// M569 (CLI-101 / CLI-D20) — the «Клієнти» list base the client strip's
+  /// card hangs under, given the booking's salon id — the SAME route
+  /// parameter as `BookingDetailScreen.clientCardBase` (a route fact, never a
+  /// role flag, decision D5). `null` (the default, and a `null` return)
+  /// keeps the strip inert.
+  final String? Function(String? salonId)? clientCardBase;
 
   /// Which surface pushed this screen — see [ClientReviewEntry] for the one
   /// behaviour it changes and why the default is the conservative direction.
@@ -266,6 +278,9 @@ class _LeaveClientFeedbackScreenState
     // Phase 394 — a review removes the booking from the pending-actions count
     // on EVERY entry (detail or archive); no status changes, so only the count.
     invalidatePendingBookingActionsCount(ref);
+    // REV-38..44 — the review changes the client's rating / «Відгук» state on
+    // the client card and the «Клієнти» row; drop them via the shared fan-out.
+    invalidateClientViews(ref.invalidate);
     // BOTH mechanisms fire, and that is deliberate — they cover DIFFERENT
     // journeys and cannot conflict (mobile-perf MEDIUM, 2026-08-17 cycle 2):
     //
@@ -374,6 +389,13 @@ class _LeaveClientFeedbackScreenState
                     ? const _NotReviewable(popResult: true)
                     : _Form(
                         booking: booking,
+                        // CLI-D20 — the strip opens the client card on top;
+                        // back returns to this form with its input intact.
+                        onOpenClient: clientCardOpener(
+                          context,
+                          base: widget.clientCardBase?.call(booking.salonId),
+                          ref: clientRefOfBooking(booking),
+                        ),
                         comment: _comment,
                         rating: _rating,
                         submitting: submitting,
@@ -506,8 +528,8 @@ class _LoadingFormState extends State<_LoadingForm>
   }
 }
 
-/// Silhouette of [ClientFeedbackCard] — a round avatar well + name/role/
-/// context line wells.
+/// Silhouette of the client strip ([BookingCounterpartyHeader]) — a round
+/// avatar well + name / visit line wells.
 class _ClientCardWell extends StatelessWidget {
   const _ClientCardWell();
 
@@ -516,22 +538,23 @@ class _ClientCardWell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // M569 — the strip's geometry (`MasterStripShell`): 12 dp padding, the
+    // 48 dp avatar, a md gap, then the name + visit sub-line (2 dp apart), so
+    // the real strip replaces this without the form shifting.
     return NeumorphicCard(
       color: _cardColor,
-      padding: const EdgeInsets.all(VelvetSpacing.md),
+      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
       child: Row(
         children: <Widget>[
           const _Well(width: 48, height: 48, radius: 24),
-          const SizedBox(width: VelvetSpacing.sm),
+          const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 _Well(width: _fraction(context, 0.4), height: 15),
-                const SizedBox(height: VelvetSpacing.xs),
-                _Well(width: _fraction(context, 0.22), height: 12),
-                const SizedBox(height: VelvetSpacing.xs),
+                const SizedBox(height: 2),
                 _Well(width: _fraction(context, 0.5), height: 12),
               ],
             ),
@@ -631,6 +654,7 @@ class _Well extends StatelessWidget {
 class _Form extends StatelessWidget {
   const _Form({
     required this.booking,
+    this.onOpenClient,
     required this.comment,
     required this.rating,
     required this.submitting,
@@ -640,9 +664,10 @@ class _Form extends StatelessWidget {
   });
 
   final Booking booking;
+  final VoidCallback? onOpenClient;
   final TextEditingController comment;
   // Scoped via [ValueListenableBuilder] around `_RatingCard` and the submit
-  // CTA below — a star tap must not rebuild `ClientFeedbackCard` or
+  // CTA below — a star tap must not rebuild the client strip or
   // `_CommentCard` (mobile-perf LOW).
   final ValueNotifier<int> rating;
   final bool submitting;
@@ -653,11 +678,6 @@ class _Form extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String? clientName = booking.clientName;
-    final String name = clientName ?? l10n.bookingDetailGuestClient;
-    final String roleLabel = booking.isGuestBooking
-        ? l10n.bookingDetailGuestBookingLabel
-        : l10n.clientReviewRoleLabel;
     final String visitContext =
         '${booking.serviceName} · ${formatFullDate(booking.startAt)}';
 
@@ -676,11 +696,25 @@ class _Form extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                ClientFeedbackCard(
-                  name: name,
-                  roleLabel: roleLabel,
-                  visitContext: visitContext,
-                  semanticsLabel: '$name, $visitContext',
+                // M569 (CLI-101 / CLI-D20) — the ONE shared client strip of
+                // every provider booking page (avatar or monogram, name, ★
+                // for every client kind, no kind label), the visit line as
+                // its sub-line (CLI-D20: no second client header widget).
+                BookingCounterpartyHeader(
+                  booking: booking,
+                  // Provider-only screen: every route that mounts it sits
+                  // behind a provider role gate (`/master/*`, `/staff/*`,
+                  // `/salon/*`), so the viewer is always the provider — the
+                  // client branch of the header can never apply here.
+                  viewer: BookingViewerRole.provider,
+                  onOpenClient: onOpenClient,
+                  clientDetails: Text(
+                    visitContext,
+                    style: VelvetText.feedbackMutedSm,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  clientSemanticsDetail: visitContext,
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
                 ValueListenableBuilder<int>(
@@ -824,10 +858,13 @@ class _CommentCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: VelvetSpacing.xs),
-          _CommentFooterRow(
-            controller: controller,
-            maxChars: maxChars,
-            privacyNote: l10n.clientReviewCommentPrivacyNote,
+          _CommentFooterRow(controller: controller, maxChars: maxChars),
+          // M545 (CLI-93) — other providers read the comment anonymously.
+          const SizedBox(height: VelvetSpacing.xs),
+          Text(
+            l10n.clientReviewCommentAnonNotice,
+            key: const Key('leave-client-feedback-anon-notice'),
+            style: VelvetText.feedbackMutedSm,
           ),
         ],
       ),
@@ -835,30 +872,18 @@ class _CommentCard extends StatelessWidget {
   }
 }
 
-/// The privacy reminder + live `$length / 2000` counter, on one row — the
-/// thing that makes this comment field visibly different from the CLIENT's
-/// own leave-review comment. Scoped to a [ValueListenableBuilder] on the
+/// The live `$length / 2000` counter, right-aligned under the field. The
+/// privacy reminder lives once, in `clientReviewCommentAnonNotice` below it
+/// (CLI-93). Scoped to a [ValueListenableBuilder] on the
 /// shared [TextEditingController] so a keystroke rebuilds only this leaf row —
 /// never the client card, star input, or submit CTA (mobile-perf, mirrors
 /// `LeaveReviewScreen._CommentCounter`).
 class _CommentFooterRow extends StatelessWidget {
-  const _CommentFooterRow({
-    required this.controller,
-    required this.maxChars,
-    required this.privacyNote,
-  });
+  const _CommentFooterRow({required this.controller, required this.maxChars});
 
   final TextEditingController controller;
   final int maxChars;
-  final String privacyNote;
 
-  // `VelvetText.feedbackMutedSm` is already the muted 11sp variant of the
-  // feedback base style, so it renders identically to the previous
-  // `VelvetText.feedback(BrandColors.muted)` plus a manual size override —
-  // that manual override was redundant (the base is already 11sp) and is
-  // exactly the pattern `scripts/forbid_inline_fontsize.sh` disallows.
-  // Reusing the cached token avoids both the redundancy and the gate.
-  static final TextStyle _noteStyle = VelvetText.feedbackMutedSm;
   static final TextStyle _fullStyle = VelvetText.feedbackCounter.copyWith(
     color: BrandColors.error,
   );
@@ -878,24 +903,9 @@ class _CommentFooterRow extends StatelessWidget {
         final TextStyle counterStyle = length >= maxChars
             ? _fullStyle
             : (length > 0 ? _activeStyle : _emptyStyle);
-        return Row(
-          children: <Widget>[
-            const Icon(
-              Icons.visibility_off_rounded,
-              size: 13,
-              color: BrandColors.muted,
-            ),
-            const SizedBox(width: VelvetSpacing.xs),
-            Expanded(
-              child: Text(
-                privacyNote,
-                key: const Key('leave-client-feedback-privacy-note'),
-                style: _noteStyle,
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.xs),
-            Text('$length / $maxChars', style: counterStyle),
-          ],
+        return Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: Text('$length / $maxChars', style: counterStyle),
         );
       },
     );

@@ -49,6 +49,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../master/domain/master.dart';
 import '../../services/domain/master_service.dart';
+import '../../clients/domain/client_summary.dart';
 import 'create_master_booking_request.dart';
 
 part 'booking_confirm_args.freezed.dart';
@@ -131,7 +132,7 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// every CREATE call site (client or walk-in) and on a CLIENT's own
     /// reschedule; non-null only when a PROVIDER rescheduled a booking with a
     /// registered client identity to show. Consumed by this screen to render
-    /// [GuestIdentityCard.identity] in the same visual slot the walk-in
+    /// a `BookingClientStrip` in the same visual slot the walk-in
     /// [guest] card occupies, then forwarded onto [BookingSuccessArgs] for
     /// the terminal done screen.
     String? rescheduleClientName,
@@ -167,5 +168,16 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// onto [BookingSuccessArgs.returnRoute] by this screen's `_submit`. See
     /// that field's doc. `null` on every existing call site.
     String? returnRoute,
+
+    /// M569 (CLI-101 / CLI-D20) — the provider's client-card list base
+    /// (`RouteNames.masterClients` / `salonMasterClients` /
+    /// `RouteNames.salonClients(salonId)`) the confirm / done client strips
+    /// open the card under, and [clientCardRef] — the RESCHEDULE target's
+    /// card handle (a walk-in create carries its picked client on
+    /// `WalkInGuest.clientRef` instead). Forwarded unchanged picker →
+    /// confirm → done. ADDITIVE: `null` (every other path) keeps the strips
+    /// inert. In memory only (route `extra`).
+    String? clientCardBase,
+    ClientRef? clientCardRef,
   }) = _BookingConfirmArgs;
 }

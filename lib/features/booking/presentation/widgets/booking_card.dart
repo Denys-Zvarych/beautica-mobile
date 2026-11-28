@@ -88,7 +88,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/category_icon_glyph.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -341,6 +341,7 @@ class _BookingCardState extends State<BookingCard> {
             categoryKey: _b.categoryKey,
             categoryName: _b.categoryName,
           ),
+          iconCategoryKey: _b.categoryKey,
           text: _b.serviceName,
           price: _b.showsPrice ? _b.priceLabel : null,
           dimmed: _isDead,
@@ -706,6 +707,7 @@ class _ServiceLine extends StatelessWidget {
     required this.text,
     required this.price,
     required this.dimmed,
+    this.iconCategoryKey,
   });
 
   final String bookingId;
@@ -715,6 +717,10 @@ class _ServiceLine extends StatelessWidget {
   /// booking's category could not be resolved (no key AND no name); the
   /// slot still reserves [_iconSize] so the row doesn't reflow.
   final String? iconAsset;
+
+  /// Wire slug behind [iconAsset] — remote icon lookup (M542). `null` =
+  /// bundled [iconAsset] only.
+  final String? iconCategoryKey;
   final String text;
 
   /// The already-formatted price locked in at booking — «650 ₴» or the band
@@ -750,8 +756,9 @@ class _ServiceLine extends StatelessWidget {
             height: _iconSize,
             child: iconAsset == null
                 ? null
-                : AppIcon(
+                : CategoryIconGlyph(
                     iconAsset!,
+                    categoryKey: iconCategoryKey,
                     size: _iconSize,
                     color: dimmed ? BrandColors.faint : BrandColors.accent,
                   ),

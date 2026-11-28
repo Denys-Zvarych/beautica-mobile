@@ -12,9 +12,11 @@
 // On submit the dialog calls [ServiceRepository.suggestServiceType]. On success
 // it pops returning `true` so the caller can show the success VelvetSnack (the
 // dialog itself never shows the success confirmation). On 400 it maps
-// [ValidationFailure.fieldErrors] to the inline name-field error; on 429/other
-// failures it shows an inline error VelvetSnack on its own still-mounted
-// context and stays open so the user can correct or retry.
+// [ValidationFailure.fieldErrors] to the inline name-field error; on 409 it
+// maps the typed `data.code` (DUPLICATE_PENDING / CATEGORY_BUSY / TYPE_EXISTS,
+// else a generic conflict) to its own copy; on 429/other failures it shows an
+// inline error VelvetSnack on its own still-mounted context and stays open so
+// the user can correct or retry.
 //
 // Styling is 1:1 with category_request_dialog.dart (VelvetTouch neumorphic):
 // NeumorphicCard surface, NeumorphicInset field wells, NeumorphicButton CTA, and
@@ -121,6 +123,26 @@ class _ServiceTypeSuggestionDialogState
 
   bool _isValid(AppLocalizations l10n) => _nameError(l10n) == null;
 
+  // --- Conflict copy --------------------------------------------------------
+
+  /// `data.code` values of a 409 from `POST /service-types/suggest`
+  /// (docs/specs/services.md § 10).
+  static const String _kDuplicatePendingCode = 'DUPLICATE_PENDING';
+  static const String _kCategoryBusyCode = 'CATEGORY_BUSY';
+  static const String _kTypeExistsCode = 'TYPE_EXISTS';
+
+  /// Localized copy for a suggest 409 by its typed [code]. A missing or
+  /// unknown code is a generic conflict — never the server-error copy.
+  /// Every branch leaves the dialog open with the name intact, so a
+  /// [_kCategoryBusyCode] can simply be resubmitted.
+  static String _conflictMessage(String? code, AppLocalizations l10n) =>
+      switch (code) {
+        _kDuplicatePendingCode => l10n.serviceTypeSuggestErrDuplicatePending,
+        _kCategoryBusyCode => l10n.serviceTypeSuggestErrCategoryBusy,
+        _kTypeExistsCode => l10n.serviceTypeSuggestErrTypeExists,
+        _ => l10n.serviceTypeSuggestErrConflict,
+      };
+
   // --- Submit ---------------------------------------------------------------
 
   Future<void> _handleSubmit(AppLocalizations l10n) async {
@@ -178,7 +200,17 @@ class _ServiceTypeSuggestionDialogState
           }
         }
         setState(() => _submitting = false);
-        final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
+        final message = switch (e) {
+          // A 409 is a statement about the catalog, never a server fault: read
+          // its typed `data.code` through the shared [ServerFailure.errorCode]
+          // reader (same mechanism as the invite flow in auth_notifier.dart).
+          ServerFailure(statusCode: 409, :final errorCode) => _conflictMessage(
+            errorCode,
+            l10n,
+          ),
+          Failure() => e.userMessage(context),
+          _ => l10n.errUnknown,
+        };
         // The dialog stays OPEN on this branch (no field mapped the error), so
         // this is the dialog's own still-mounted context — the snack renders on
         // the app's root overlay, above the dialog barrier, and the dialog

@@ -103,6 +103,7 @@ export 'package:beautica_api/src/model/api_response_page_response_booking_detail
 export 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_client_list_item_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_client_own_rating_response.dart';
+export 'package:beautica_api/src/model/api_response_page_response_client_review_comment_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_client_visit_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_favorite_master_response.dart';
 export 'package:beautica_api/src/model/api_response_page_response_favorite_salon_response.dart';
@@ -170,7 +171,9 @@ export 'package:beautica_api/src/model/city_response.dart';
 export 'package:beautica_api/src/model/client_authored_review_response.dart';
 export 'package:beautica_api/src/model/client_card_response.dart';
 export 'package:beautica_api/src/model/client_list_item_response.dart';
+export 'package:beautica_api/src/model/client_list_removal_request.dart';
 export 'package:beautica_api/src/model/client_own_rating_response.dart';
+export 'package:beautica_api/src/model/client_review_comment_response.dart';
 export 'package:beautica_api/src/model/client_review_response.dart';
 export 'package:beautica_api/src/model/client_visit_response.dart';
 export 'package:beautica_api/src/model/contact_support_request.dart';
@@ -240,6 +243,7 @@ export 'package:beautica_api/src/model/page_response_booking_detail_response.dar
 export 'package:beautica_api/src/model/page_response_booking_response.dart';
 export 'package:beautica_api/src/model/page_response_client_list_item_response.dart';
 export 'package:beautica_api/src/model/page_response_client_own_rating_response.dart';
+export 'package:beautica_api/src/model/page_response_client_review_comment_response.dart';
 export 'package:beautica_api/src/model/page_response_client_visit_response.dart';
 export 'package:beautica_api/src/model/page_response_favorite_master_response.dart';
 export 'package:beautica_api/src/model/page_response_favorite_salon_response.dart';

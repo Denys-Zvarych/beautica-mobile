@@ -110,6 +110,7 @@ Class | Method | HTTP request | Description
 [*ClientControllerApi*](doc/ClientControllerApi.md) | [**getPassport**](doc/ClientControllerApi.md#getpassport) | **GET** /api/v1/clients/me/passport | 
 [*ClientControllerApi*](doc/ClientControllerApi.md) | [**getTimeline**](doc/ClientControllerApi.md#gettimeline) | **GET** /api/v1/clients/me/timeline | 
 [*ClientReviewControllerApi*](doc/ClientReviewControllerApi.md) | [**create**](doc/ClientReviewControllerApi.md#create) | **POST** /api/v1/client-reviews | 
+[*ClientReviewControllerApi*](doc/ClientReviewControllerApi.md) | [**deleteOwn**](doc/ClientReviewControllerApi.md#deleteown) | **DELETE** /api/v1/client-reviews/{reviewId} | 
 [*DashboardControllerApi*](doc/DashboardControllerApi.md) | [**getRevenueSummary**](doc/DashboardControllerApi.md#getrevenuesummary) | **GET** /api/v1/dashboard/revenue | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**registerToken**](doc/DeviceControllerApi.md#registertoken) | **POST** /api/v1/devices/token | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**unregisterToken**](doc/DeviceControllerApi.md#unregistertoken) | **DELETE** /api/v1/devices/token | 
@@ -161,19 +162,27 @@ Class | Method | HTTP request | Description
 [*PhoneOtpControllerApi*](doc/PhoneOtpControllerApi.md) | [**send**](doc/PhoneOtpControllerApi.md#send) | **POST** /api/v1/book/otp/send | 
 [*PhoneOtpControllerApi*](doc/PhoneOtpControllerApi.md) | [**verify**](doc/PhoneOtpControllerApi.md#verify) | **POST** /api/v1/book/otp/verify | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestCard**](doc/ProviderClientControllerApi.md#getmyguestcard) | **GET** /api/v1/masters/me/clients/guests/{bookingId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestComments**](doc/ProviderClientControllerApi.md#getmyguestcomments) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestRatings**](doc/ProviderClientControllerApi.md#getmyguestratings) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyGuestVisits**](doc/ProviderClientControllerApi.md#getmyguestvisits) | **GET** /api/v1/masters/me/clients/guests/{bookingId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserCard**](doc/ProviderClientControllerApi.md#getmyusercard) | **GET** /api/v1/masters/me/clients/users/{userId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserComments**](doc/ProviderClientControllerApi.md#getmyusercomments) | **GET** /api/v1/masters/me/clients/users/{userId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserRatings**](doc/ProviderClientControllerApi.md#getmyuserratings) | **GET** /api/v1/masters/me/clients/users/{userId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getMyUserVisits**](doc/ProviderClientControllerApi.md#getmyuservisits) | **GET** /api/v1/masters/me/clients/users/{userId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestCard**](doc/ProviderClientControllerApi.md#getsalonguestcard) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestComments**](doc/ProviderClientControllerApi.md#getsalonguestcomments) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestRatings**](doc/ProviderClientControllerApi.md#getsalonguestratings) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonGuestVisits**](doc/ProviderClientControllerApi.md#getsalonguestvisits) | **GET** /api/v1/salons/{salonId}/clients/guests/{bookingId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserCard**](doc/ProviderClientControllerApi.md#getsalonusercard) | **GET** /api/v1/salons/{salonId}/clients/users/{userId} | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserComments**](doc/ProviderClientControllerApi.md#getsalonusercomments) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/comments | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserRatings**](doc/ProviderClientControllerApi.md#getsalonuserratings) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/ratings | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**getSalonUserVisits**](doc/ProviderClientControllerApi.md#getsalonuservisits) | **GET** /api/v1/salons/{salonId}/clients/users/{userId}/visits | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**listMyClients**](doc/ProviderClientControllerApi.md#listmyclients) | **GET** /api/v1/masters/me/clients | 
 [*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**listSalonClients**](doc/ProviderClientControllerApi.md#listsalonclients) | **GET** /api/v1/salons/{salonId}/clients | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**removeMyClient**](doc/ProviderClientControllerApi.md#removemyclient) | **POST** /api/v1/masters/me/clients/removals | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**removeSalonClient**](doc/ProviderClientControllerApi.md#removesalonclient) | **POST** /api/v1/salons/{salonId}/clients/removals | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**restoreMyClient**](doc/ProviderClientControllerApi.md#restoremyclient) | **POST** /api/v1/masters/me/clients/removals/restore | 
+[*ProviderClientControllerApi*](doc/ProviderClientControllerApi.md) | [**restoreSalonClient**](doc/ProviderClientControllerApi.md#restoresalonclient) | **POST** /api/v1/salons/{salonId}/clients/removals/restore | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**availability**](doc/PublicBookingControllerApi.md#availability) | **GET** /api/v1/book/{slug}/availability | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**book**](doc/PublicBookingControllerApi.md#book) | **POST** /api/v1/book/{slug}/booking | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**bookableDays**](doc/PublicBookingControllerApi.md#bookabledays) | **GET** /api/v1/book/{slug}/bookable-days | 
@@ -308,6 +317,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePageResponseBookingResponse](doc/ApiResponsePageResponseBookingResponse.md)
  - [ApiResponsePageResponseClientListItemResponse](doc/ApiResponsePageResponseClientListItemResponse.md)
  - [ApiResponsePageResponseClientOwnRatingResponse](doc/ApiResponsePageResponseClientOwnRatingResponse.md)
+ - [ApiResponsePageResponseClientReviewCommentResponse](doc/ApiResponsePageResponseClientReviewCommentResponse.md)
  - [ApiResponsePageResponseClientVisitResponse](doc/ApiResponsePageResponseClientVisitResponse.md)
  - [ApiResponsePageResponseFavoriteMasterResponse](doc/ApiResponsePageResponseFavoriteMasterResponse.md)
  - [ApiResponsePageResponseFavoriteSalonResponse](doc/ApiResponsePageResponseFavoriteSalonResponse.md)
@@ -375,7 +385,9 @@ Class | Method | HTTP request | Description
  - [ClientAuthoredReviewResponse](doc/ClientAuthoredReviewResponse.md)
  - [ClientCardResponse](doc/ClientCardResponse.md)
  - [ClientListItemResponse](doc/ClientListItemResponse.md)
+ - [ClientListRemovalRequest](doc/ClientListRemovalRequest.md)
  - [ClientOwnRatingResponse](doc/ClientOwnRatingResponse.md)
+ - [ClientReviewCommentResponse](doc/ClientReviewCommentResponse.md)
  - [ClientReviewResponse](doc/ClientReviewResponse.md)
  - [ClientVisitResponse](doc/ClientVisitResponse.md)
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
@@ -445,6 +457,7 @@ Class | Method | HTTP request | Description
  - [PageResponseBookingResponse](doc/PageResponseBookingResponse.md)
  - [PageResponseClientListItemResponse](doc/PageResponseClientListItemResponse.md)
  - [PageResponseClientOwnRatingResponse](doc/PageResponseClientOwnRatingResponse.md)
+ - [PageResponseClientReviewCommentResponse](doc/PageResponseClientReviewCommentResponse.md)
  - [PageResponseClientVisitResponse](doc/PageResponseClientVisitResponse.md)
  - [PageResponseFavoriteMasterResponse](doc/PageResponseFavoriteMasterResponse.md)
  - [PageResponseFavoriteSalonResponse](doc/PageResponseFavoriteSalonResponse.md)

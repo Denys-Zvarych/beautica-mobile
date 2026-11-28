@@ -148,7 +148,7 @@ abstract final class RouteNames {
   static String bookingDetail(String bookingId) =>
       '$clientBookings/${Uri.encodeComponent(bookingId)}';
 
-  /// Phase 14.6 — «ВІДГУК ПРО МАЙСТРА» (leave-review), nested under
+  /// Phase 14.6 — «Відгук про майстра» (leave-review), nested under
   /// [bookingDetail] so it pushes onto the Записи branch's own navigator. It is
   /// BOTH the detail screen's `canReview` entry target AND the backend 18.5
   /// `reviewUrl` push deep-link target. CLIENT-only via the `/bookings` prefix
@@ -1084,30 +1084,16 @@ abstract final class RouteNames {
   /// [LeaveClientFeedbackScreen] [clientReview] and [salonMasterClientReview]
   /// render.
   ///
-  /// ⚠ AUDIENCE (Phase 320, narrowed — this doc asserted the opposite until
-  /// then): only an OWNER-AS-MASTER reaches this route, i.e. a `SALON_OWNER`
-  /// who personally performed the booking. `Booking.providerCanReviewClient`
-  /// is computed server-side by
-  /// `BookingService#computeProviderCanReviewClient`
-  /// (`booking/service/BookingService.java` — read at backend `a0df4cf`),
-  /// whose provider-authority leg is now the SINGLE term
-  /// `isPerformingMasterOfBooking(...)`, behind an `isOwningClientViewer`
-  /// cost gate that cannot change the answer. The former
-  /// `|| hasProviderAuthorityOverBooking(...)` disjunct — which admitted the
-  /// salon's owner and the assigned `SALON_ADMIN` regardless of who performed
-  /// the service — is GONE. Per the locked product decision, an owner or
-  /// admin may still COMPLETE a booking; only the master who performed it may
-  /// rate its client.
-  ///
-  /// ⚠ STILL NOT OPTIONAL. The route's audience shrank; its necessity did
-  /// not. An owner who IS the performing master still gets
-  /// `providerCanReviewClient: true`, and views that booking through the
-  /// salon board's [salonStaffBookingDetail] mount. Without this route
+  /// ⚠ AUDIENCE (B547 / REV-D06, superseding Phase 320's "owner-as-master
+  /// only"): the salon's OWNER and ADMIN reach this route — in a salon the
+  /// owner, the admin or the SALON_MASTER who performed the booking may rate
+  /// its client, one salon-side rating per booking (first writer wins, the
+  /// second gets 409), as the server's `Booking.providerCanReviewClient` says.
+  /// The SALON_MASTER uses [salonMasterClientReview]. Without this route
   /// `clientReviewRouteBuilder` falls back to [clientReview]
   /// (`/master/bookings/:id/review`), whose INDEPENDENT_MASTER-only gate in
   /// `auth_redirect.dart` bounces them clean out of the salon shell to
-  /// `/salons/mine` — the exact dead-end tap [salonStaffBookingDetail] itself
-  /// exists to remove, for a real reachable user.
+  /// `/salons/mine`.
   ///
   /// `BookingDetailScreen._providerActions` renders the CTA above the
   /// `bookingTransitionsEnabledProvider` gate, so read-only-ness does not

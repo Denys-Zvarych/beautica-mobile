@@ -14,12 +14,26 @@
 // (which that file's shared `_router()` does not), so the walk-in
 // destination test can assert on a REAL resolved page.
 
+import 'dart:async';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart'
+    show debugMediaCacheManager;
+import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip_shell.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
     show WalkInGuest;
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
+    show walkInGuestFrom;
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -30,7 +44,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 const Master _kMaster = Master(
   id: 'master-1',
@@ -106,6 +122,12 @@ GoRouter _router() => GoRouter(
       path: RouteNames.ownerMasterBookings,
       builder: (context, state) => const _OwnerMasterBookingsStub(),
     ),
+    // M569 — the client-card stub the strips push (user + guest paths).
+    GoRoute(
+      path: '${RouteNames.masterClients}/:kind/:id',
+      builder: (context, state) =>
+          Scaffold(body: Text('card-stub:${state.uri}')),
+    ),
   ],
 );
 
@@ -139,9 +161,13 @@ BookingSuccessArgs _args({
   returnRoute: returnRoute,
 );
 
-Future<GoRouter> _pump(WidgetTester tester, BookingSuccessArgs args) async {
+Future<GoRouter> _pump(
+  WidgetTester tester,
+  BookingSuccessArgs args, {
+  List<Object> overrides = const <Object>[],
+}) async {
   final GoRouter router = _router();
-  await tester.pumpRoutedApp(router);
+  await tester.pumpRoutedApp(router, overrides: overrides);
   router.go(RouteNames.bookingSuccess, extra: args);
   await tester.pumpAndSettle();
   return router;
@@ -533,7 +559,7 @@ void main() {
 
     // mobile-qa (client-identity parity, 2026-08-22) — the RESCHEDULE-path
     // counterpart of the guest-identity-card group above. REUSE-FIRST: same
-    // `GuestIdentityCard` widget (via its new `.identity` constructor), same
+    // client card (`BookingClientStrip`, 2026-11-14), same
     // key-naming convention (`booking-success-client-card` mirrors
     // `booking-success-guest-card`), gated the same way (present only when
     // its own arg is non-null). Both groups are independent `if`s on the
@@ -681,4 +707,367 @@ void main() {
       );
     });
   });
+
+  // 2026-11-25 (BOOK-79/80) — the done screen's walk-in card is the shared
+  // `BookingClientStrip.walkIn`: a picked client's photo + ★, and the
+  // monogram + «—» once the typed identity diverged from the pick
+  // (`walkInGuestFrom`, the same composition the guest step routes on).
+  group('walk-in client strip — picked vs typed (2026-11-25)', () {
+    const ClientPrefill picked = ClientPrefill(
+      firstName: _kPickedFirst,
+      lastName: _kPickedLast,
+      phone: _kPickedPhone,
+      avatarUrl: _kPickedAvatar,
+      rating: _kPickedRating,
+      ratingCount: _kPickedRatingCount,
+    );
+    final Finder card = find.byKey(const Key('booking-success-guest-card'));
+    Finder inReadout(String text) => find.descendant(
+      of: find.descendant(of: card, matching: find.byType(MasterRatingReadout)),
+      matching: find.text(text),
+    );
+
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+    });
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+    });
+
+    testWidgets('a picked client shows its photo and ★ rating', (tester) async {
+      final WalkInGuest guest = walkInGuestFrom(
+        firstName: _kPickedFirst,
+        lastName: _kPickedLast,
+        phone: _kPickedPhone,
+        picked: picked,
+      );
+      await _pump(tester, _args(isWalkIn: true, guest: guest));
+
+      expect(tester.widget(card), isA<BookingClientStrip>());
+      expect(renderedImageUrls(tester, within: card), <String>[_kPickedAvatar]);
+      expect(inReadout(_kPickedRating.toStringAsFixed(1)), findsOneWidget);
+      expect(inReadout('($_kPickedRatingCount)'), findsOneWidget);
+    });
+
+    testWidgets('a typed name that diverged from the pick shows initials and '
+        '«—», no photo', (tester) async {
+      final WalkInGuest guest = walkInGuestFrom(
+        firstName: _kTypedFirst,
+        lastName: _kPickedLast,
+        phone: _kPickedPhone,
+        picked: picked,
+      );
+      await _pump(tester, _args(isWalkIn: true, guest: guest));
+
+      expect(card, findsOneWidget);
+      expect(renderedImageUrls(tester, within: card), isEmpty);
+      expect(
+        find.descendant(of: card, matching: find.text(_kTypedInitials)),
+        findsOneWidget,
+      );
+      expect(inReadout(MasterStrip.noRatingLabel), findsOneWidget);
+      expect(inReadout(_kPickedRating.toStringAsFixed(1)), findsNothing);
+    });
+
+    // M569 (CLI-D20) — the card handle the review / confirm strips tap into
+    // rides the SAME «still the picked client» gate as the photo + ★: an
+    // edited name or phone has no card yet, so the strip must go inert.
+    test('clientRef survives only while name, surname and phone are '
+        'unchanged', () {
+      const ClientPrefill withRef = ClientPrefill(
+        firstName: _kPickedFirst,
+        lastName: _kPickedLast,
+        phone: _kPickedPhone,
+        ref: ClientRef.registered('u-oksana'),
+      );
+      ClientRef? refOf({
+        String first = _kPickedFirst,
+        String phone = _kPickedPhone,
+      }) => walkInGuestFrom(
+        firstName: first,
+        lastName: _kPickedLast,
+        phone: phone,
+        picked: withRef,
+      ).clientRef;
+
+      expect(refOf(), const ClientRef.registered('u-oksana'));
+      expect(refOf(first: _kTypedFirst), isNull, reason: 'edited name');
+      expect(refOf(phone: '+380671234568'), isNull, reason: 'edited phone');
+    });
+  });
+  // M569 (CLI-101 / CLI-D20) — the done screen's client strips: ★ for a
+  // walk-in reschedule target, and the tap into the client card.
+  group('M569 done-screen client strip', () {
+    Booking createdBooking({String? clientId}) {
+      final DateTime start = DateTime.utc(2020, 7, 14, 12);
+      return Booking(
+        id: 'b-new',
+        masterId: _kMaster.id,
+        masterFirstName: _kMaster.firstName,
+        masterLastName: _kMaster.lastName,
+        masterType: 'INDEPENDENT_MASTER',
+        clientId: clientId,
+        clientFirstName: _kGuest.name,
+        clientLastName: _kGuest.surname,
+        serviceId: _kService.id,
+        serviceName: _kService.name,
+        durationMinutes: 60,
+        price: 500,
+        startAt: start,
+        endAt: start.add(const Duration(minutes: 60)),
+        status: BookingStatus.confirmed,
+        canReview: false,
+      );
+    }
+
+    String cardText(ClientRef ref) =>
+        'card-stub:${switch (ref) {
+          RegisteredClientRef(:final String userId) => RouteNames.clientCardUser(RouteNames.masterClients, userId),
+          GuestClientRef(:final String bookingId) => RouteNames.clientCardGuest(RouteNames.masterClients, bookingId),
+        }}';
+
+    testWidgets('reschedule done for a walk-in shows its ★ (CLI-101)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _args(
+          isReschedule: true,
+          isWalkIn: true,
+          rescheduleClientName: 'Марта Дяченко',
+        ).copyWith(rescheduleClientRating: 4.6, rescheduleClientReviewCount: 2),
+      );
+      final Finder strip = find.byKey(
+        const Key('booking-success-client-strip'),
+      );
+      expect(find.descendant(of: strip, matching: find.text('4.6')), findsOne);
+    });
+
+    testWidgets('reschedule done: tap pushes the card, back returns here', (
+      tester,
+    ) async {
+      final GoRouter router = await _pump(
+        tester,
+        _args(
+          isReschedule: true,
+          rescheduleClientName: 'Марта Дяченко',
+        ).copyWith(
+          clientCardBase: RouteNames.masterClients,
+          clientCardRef: const ClientRef.registered('c-42'),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('booking-success-client-strip')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(cardText(const ClientRef.registered('c-42'))),
+        findsOneWidget,
+      );
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+    });
+
+    testWidgets('walk-in done: a picked client opens their own card', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _args(
+          isWalkIn: true,
+          guest: _kGuest.copyWith(clientRef: const ClientRef.guest('b-old')),
+        ).copyWith(
+          clientCardBase: RouteNames.masterClients,
+          createdBookingId: 'b-new',
+        ),
+      );
+      await tester.tap(find.byKey(const Key('booking-success-guest-strip')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(cardText(const ClientRef.guest('b-old'))),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('walk-in done: a hand-typed phone attached to an account '
+        '(CLI-62) opens the USER card, read from the created booking only on '
+        'tap (owner 2026-11-28)', (tester) async {
+      int reads = 0;
+      await _pump(
+        tester,
+        _args(isWalkIn: true, guest: _kGuest).copyWith(
+          clientCardBase: RouteNames.masterClients,
+          createdBookingId: 'b-new',
+        ),
+        overrides: <Object>[
+          bookingDetailProvider('b-new').overrideWith((ref) async {
+            reads++;
+            return createdBooking(clientId: 'u-7');
+          }),
+        ],
+      );
+      expect(reads, 0, reason: 'no GET /bookings/{id} on mount');
+      await tester.tap(find.byKey(const Key('booking-success-guest-strip')));
+      await tester.pumpAndSettle();
+      expect(reads, 1);
+      expect(
+        find.text(cardText(const ClientRef.registered('u-7'))),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('walk-in done: a double tap reads the booking once and opens '
+        'one card', (tester) async {
+      int reads = 0;
+      final Completer<Booking> pending = Completer<Booking>();
+      await _pump(
+        tester,
+        _args(isWalkIn: true, guest: _kGuest).copyWith(
+          clientCardBase: RouteNames.masterClients,
+          createdBookingId: 'b-new',
+        ),
+        overrides: <Object>[
+          bookingDetailProvider('b-new').overrideWith((ref) {
+            reads++;
+            return pending.future;
+          }),
+        ],
+      );
+      final Finder strip = find.byKey(const Key('booking-success-guest-strip'));
+      await tester.tap(strip);
+      await tester.pump();
+      expect(
+        tester.widget<MasterStripShell>(strip).onTap,
+        isNull,
+        reason: 'busy while the booking is read',
+      );
+      await tester.tap(strip, warnIfMissed: false);
+      pending.complete(createdBooking());
+      await tester.pumpAndSettle();
+      expect(reads, 1);
+      expect(
+        find.text(cardText(const ClientRef.guest('b-new'))),
+        findsOneWidget,
+      );
+    });
+
+    // mobile-perf (M569) — `ref.read(bookingDetailProvider(id).future)` is a
+    // one-off read of an autoDispose family with no listener: the card must
+    // still open when the GET spans many frames (a slow network), not only
+    // when it resolves within the frame of the tap.
+    testWidgets('walk-in done: a slow read (many frames) still opens the card '
+        'exactly once', (tester) async {
+      int reads = 0;
+      final Completer<Booking> pending = Completer<Booking>();
+      await _pump(
+        tester,
+        _args(isWalkIn: true, guest: _kGuest).copyWith(
+          clientCardBase: RouteNames.masterClients,
+          createdBookingId: 'b-new',
+        ),
+        overrides: <Object>[
+          bookingDetailProvider('b-new').overrideWith((ref) {
+            reads++;
+            return pending.future;
+          }),
+        ],
+      );
+      await tester.tap(find.byKey(const Key('booking-success-guest-strip')));
+      for (int i = 0; i < 10; i++) {
+        // fixed-wait-ok: deliberately spans many frames while the GET is
+        // pending — the point is that the read outlives an autoDispose pass.
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      pending.complete(createdBooking(clientId: 'u-9'));
+      await tester.pumpAndSettle();
+      expect(reads, 1, reason: 'one GET, no re-read after an autoDispose');
+      expect(
+        find.text(cardText(const ClientRef.registered('u-9'))),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('walk-in done: a failed read shows the error snack and stays '
+        'on the done screen', (tester) async {
+      await _pump(
+        tester,
+        _args(isWalkIn: true, guest: _kGuest).copyWith(
+          clientCardBase: RouteNames.masterClients,
+          createdBookingId: 'b-new',
+        ),
+        overrides: <Object>[
+          bookingDetailProvider(
+            'b-new',
+          ).overrideWith((ref) async => throw const NotFoundFailure()),
+        ],
+      );
+      await tester.tap(find.byKey(const Key('booking-success-guest-strip')));
+      await tester.pumpAndSettle();
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingSuccessScreen)),
+      );
+      expect(find.text(l10n.errNotFound), findsOneWidget);
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      expect(
+        tester
+            .widget<MasterStripShell>(
+              find.byKey(const Key('booking-success-guest-strip')),
+            )
+            .onTap,
+        isNotNull,
+        reason: 'tappable again after the failure',
+      );
+      // Wait until the snack has dismissed itself (its dwell timer fired),
+      // so no timer is pending at teardown.
+      await tester.pumpUntilGone(find.text(l10n.errNotFound));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('walk-in done: an unattached hand-typed guest opens the guest '
+        'card anchored on the created booking', (tester) async {
+      await _pump(
+        tester,
+        _args(isWalkIn: true, guest: _kGuest).copyWith(
+          clientCardBase: RouteNames.masterClients,
+          createdBookingId: 'b-new',
+        ),
+        overrides: <Object>[
+          bookingDetailProvider(
+            'b-new',
+          ).overrideWith((ref) async => createdBooking()),
+        ],
+      );
+      await tester.tap(find.byKey(const Key('booking-success-guest-strip')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(cardText(const ClientRef.guest('b-new'))),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('no card base → the strip stays inert', (tester) async {
+      await _pump(tester, _args(isWalkIn: true, guest: _kGuest));
+      expect(
+        tester
+            .widget<MasterStripShell>(
+              find.byKey(const Key('booking-success-guest-strip')),
+            )
+            .onTap,
+        isNull,
+      );
+    });
+  });
 }
+
+// Fixture data for the picked-vs-typed group (named, never a literal at a
+// finder call site).
+const String _kPickedFirst = 'Оксана';
+const String _kPickedLast = 'Мельник';
+const String _kPickedPhone = '+380671234567';
+const String _kPickedAvatar = 'https://media.test/avatars/u-oksana.png';
+const double _kPickedRating = 4.5;
+const int _kPickedRatingCount = 3;
+const String _kTypedFirst = 'Олена';
+const String _kTypedInitials = 'ОМ';

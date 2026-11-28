@@ -1,7 +1,8 @@
 // Client-profile audit (2026-11-22) — the ONE fan-out for "a write changed
 // what the provider's client views show": the «Клієнти» list rows («Наст.»,
 // «Ост.», «Заблоковано»), the client card (tag, rating) and its visit
-// timeline («Наступний візит», status badges).
+// timeline («Наступний візит», status badges) and the «Рейтинг клієнта»
+// comments list.
 //
 // Called by every booking mutation helper in
 // `booking/application/booking_calendar_invalidation.dart` (complete / decline
@@ -19,6 +20,7 @@
 import 'package:flutter_riverpod/misc.dart' show ProviderOrFamily;
 
 import 'package:beautica_mobile/features/clients/application/client_card_controller.dart';
+import 'package:beautica_mobile/features/clients/application/client_comments_controller.dart';
 import 'package:beautica_mobile/features/clients/application/client_list_controller.dart';
 import 'package:beautica_mobile/features/clients/application/client_visits_controller.dart';
 
@@ -27,4 +29,6 @@ void invalidateClientViews(void Function(ProviderOrFamily) invalidate) {
   invalidate(clientListControllerProvider);
   invalidate(clientCardProvider);
   invalidate(clientVisitsControllerProvider);
+  // M545 — a client review may add a comment to «Рейтинг клієнта».
+  invalidate(clientCommentsControllerProvider);
 }

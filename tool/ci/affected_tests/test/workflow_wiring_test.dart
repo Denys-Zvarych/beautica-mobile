@@ -19,6 +19,7 @@ import '../bin/gen_integration_entry.dart' as entrygen;
 ///   goldens, apk, coverage), the shared flutter-setup action, the shard
 ///   outputs, and tests-ran across shards.
 void main() {
+  _tc9();
   final wfFile = File(
     p.normalize(
       p.join(
@@ -210,11 +211,13 @@ void main() {
       expect(e2e, contains("const pre400CommitSha = '$pre400Sha';"));
     });
 
-    test('runs on every non-noop event, like gates (no path gate)', () {
+    test('runs on every non-noop event, exactly like gates: the job itself '
+        'has no selector_needed condition (phase 566 L7)', () {
       final job = jobs['selector-tests'] as YamlMap;
       final gates = jobs['gates'] as YamlMap;
-      expect(job['if'], gates['if']);
-      expect(job.containsKey('needs'), isFalse, reason: 'off plan path');
+      final c = job['if'].toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+      expect(c, gates['if'].toString().replaceAll(RegExp(r'\s+'), ' ').trim());
+      expect(job['needs'], 'plan');
     });
 
     test('same uncached Dart as the selector step (D8)', () {
@@ -906,7 +909,9 @@ void main() {
       expect((m['env'] as YamlMap)['LCOV_VERSION'], '2.0-4ubuntu2');
       expect(
         (jobs['coverage'] as YamlMap)['runs-on'],
-        'ubuntu-24.04',
+        r"${{ (github.event_name != 'pull_request' || "
+        r'github.event.pull_request.head.repo.full_name == github.repository) '
+        r"&& vars.CI_RUNNER_LINUX || 'ubuntu-24.04' }}",
         reason: 'the lcov pin is noble-only; ubuntu-latest (ubuntu26) lacks it',
       );
       final run = m['run'].toString();
@@ -920,10 +925,16 @@ void main() {
       final job = jobs['apk'] as YamlMap;
       final strat = job['strategy'] as YamlMap;
       expect(strat['fail-fast'], isFalse);
-      expect(((strat['matrix'] as YamlMap)['variant'] as YamlList).toList(), [
-        'debug',
-        'release',
-      ]);
+      // Phase 566 L5 (Q2): only a draft non-promotion PR without full-ci
+      // drops the debug leg; ready PRs, push and dispatch build both.
+      expect(
+        (strat['matrix'] as YamlMap)['variant'],
+        r'''${{ fromJSON(github.event_name == 'pull_request' && '''
+        r'''github.event.pull_request.draft && '''
+        r'''github.event.pull_request.base.ref != 'main' && '''
+        r'''!contains(github.event.pull_request.labels.*.name, 'full-ci') && '''
+        "'[\"release\"]' || '[\"debug\",\"release\"]') }}",
+      );
       expect(needsOfJob(job), ['plan', 'gates-fast']); // N2
       var secretSteps = 0;
       for (final st in steps('apk')) {
@@ -963,11 +974,9 @@ void main() {
         'pipeline_e2e file carries e2e + exactly one of e2e-a / e2e-b', () {
       final strat = (jobs['selector-tests'] as YamlMap)['strategy'] as YamlMap;
       expect(strat['fail-fast'], isFalse);
-      expect(((strat['matrix'] as YamlMap)['leg'] as YamlList).toList(), [
-        'fast',
-        'e2e-a',
-        'e2e-b',
-      ]);
+      // 566 L7: all three legs unless selector_needed=false (then fast only).
+      expect((strat['matrix'] as YamlMap)['leg'], _tc9LegExpr);
+      expect(_tc9LegExpr, contains("""'["fast","e2e-a","e2e-b"]'"""));
       expect(
         (step('selector-tests', 'Selector dart test')['env'] as YamlMap)['LEG'],
         r'${{ matrix.leg }}',
@@ -1291,18 +1300,38 @@ void main() {
       final ids = [for (final s in steps('integration')) s['id']];
       expect(ids.where((i) => '$i'.startsWith('it-part')), isEmpty);
       expect(wfFile.readAsStringSync(), isNot(contains('all_tests_part')));
-      for (final n in [
+      // The Choose step runs `dart` (Flutter setup) in selective mode; Java and
+      // the Gradle cache only once it picked `selected` (566 perf P2).
+      expect(
+        cond(step('integration', 'Set up Flutter, pub get, codegen')),
+        "needs.plan.outputs.mode == 'selective'",
+      );
+      const afterChoose = [
         'Set up Java 17',
-        'Set up Flutter, pub get, codegen',
         'Restore Gradle cache',
-      ]) {
+        'Enable KVM',
+        'Install Android SDK platform',
+      ];
+      final inames = [for (final s in steps('integration')) s['name']];
+      for (final n in afterChoose) {
         expect(
-          cond(step('integration', n)),
-          "needs.plan.outputs.mode == 'selective'",
+          inames.indexOf(n),
+          greaterThan(
+            inames.indexOf(
+              'Choose integration entry (selected flows or the full suite)',
+            ),
+          ),
+          reason: n,
+        );
+        expect(
+          inames.indexOf(n),
+          lessThan(
+            inames.indexOf('Pre-build the integration APK — selected flows'),
+          ),
           reason: n,
         );
       }
-      for (final n in ['Enable KVM', 'Install Android SDK platform']) {
+      for (final n in afterChoose) {
         expect(
           cond(step('integration', n)),
           "steps.entry.outputs.entry == 'selected'",
@@ -1348,6 +1377,47 @@ void main() {
       expect(go('selective', '').$1, isNot(0));
       expect(go('selective', 'none').$1, isNot(0));
       expect(go('selective', 'parts\nentry=selected').$1, isNot(0));
+    });
+
+    test('566 L3 Publish integration entry (real bash): parts + '
+        'it_fanout=false => deferred; selected never deferred; empty '
+        'it_fanout = parts (old planner)', () {
+      final run = byId('out')['run'].toString();
+      expect(
+        (byId('out')['env'] as YamlMap)['IT_FANOUT'],
+        r'${{ needs.plan.outputs.it_fanout }}',
+      );
+      final d = Directory.systemTemp.createTempSync('it_out566_');
+      addTearDown(() => d.deleteSync(recursive: true));
+      (int, String, String) go(String mode, String entry, String fanout) {
+        final o = File(p.join(d.path, 'o'))..writeAsStringSync('');
+        final sum = File(p.join(d.path, 's'))..writeAsStringSync('');
+        final r = Process.runSync(
+          'bash',
+          ['-c', run],
+          environment: {
+            'MODE': mode,
+            'ENTRY': entry,
+            'IT_FANOUT': fanout,
+            'GITHUB_OUTPUT': o.path,
+            'GITHUB_STEP_SUMMARY': sum.path,
+          },
+        );
+        return (
+          r.exitCode,
+          o.readAsStringSync().trim(),
+          sum.readAsStringSync(),
+        );
+      }
+
+      expect(go('full', '', 'false').$2, 'entry=deferred');
+      expect(go('full', '', 'false').$3, contains('fan-out deferred'));
+      expect(go('selective', 'parts', 'false').$2, 'entry=deferred');
+      expect(go('selective', 'selected', 'false').$2, 'entry=selected');
+      expect(go('full', '', 'true').$2, 'entry=parts');
+      expect(go('full', '', '').$2, 'entry=parts');
+      expect(go('selective', 'parts', '').$2, 'entry=parts');
+      expect(go('selective', 'none', 'false').$1, isNot(0));
     });
 
     test('integration-shard: an 8-leg matrix 1..N (N = the generator\'s '
@@ -1679,6 +1749,36 @@ void main() {
       expect(go('cancelled', 'parts', 'success'), isNot(0));
       expect(go('success', '', 'success'), isNot(0));
       expect(go('success', 'none', 'success'), isNot(0));
+      // Phase 566 L3: no IT_FANOUT in the env => `deferred` fails closed.
+      expect(go('success', 'deferred', 'skipped'), isNot(0));
+    });
+
+    test('566 L3 fan-in verdict (real bash): deferred is green only with '
+        'it_fanout=false; parts / selected unchanged', () {
+      final st = ((jobs['integration-verify'] as YamlMap)['steps'] as YamlList)
+          .cast<YamlMap>()
+          .single;
+      expect(
+        (st['env'] as YamlMap)['IT_FANOUT'],
+        r'${{ needs.plan.outputs.it_fanout }}',
+      );
+      final run = st['run'].toString();
+      int go(String entry, String shards, String fanout) => Process.runSync(
+        'bash',
+        ['-c', run],
+        environment: {
+          'INTEGRATION': 'success',
+          'ENTRY': entry,
+          'SHARDS': shards,
+          'IT_FANOUT': fanout,
+        },
+      ).exitCode;
+      expect(go('deferred', 'skipped', 'false'), 0);
+      expect(go('deferred', 'skipped', 'true'), isNot(0));
+      expect(go('deferred', 'skipped', ''), isNot(0));
+      expect(go('parts', 'skipped', 'false'), isNot(0));
+      expect(go('parts', 'success', 'false'), 0);
+      expect(go('selected', 'skipped', 'false'), 0);
     });
 
     const attemptScript =
@@ -2060,7 +2160,11 @@ void main() {
       // 0 is falsy in Actions expressions, so `cond && 0 || 1` always yields 1 (shallow
       // clone, base missing, every PR forced FULL). The truthy branch must come first.
       final depth = (tree['with'] as YamlMap)['fetch-depth'].toString();
-      expect(depth, r"${{ github.event_name != 'pull_request' && 1 || 0 }}");
+      // Phase 566 L1: push needs `before` too; only dispatch stays shallow.
+      expect(
+        depth,
+        r"${{ github.event_name == 'workflow_dispatch' && 1 || 0 }}",
+      );
       expect(
         depth,
         isNot(matches(RegExp(r'&&\s*0\s*\|\|'))),
@@ -2128,8 +2232,16 @@ void main() {
       final g = step('plan', 'Guard - CI machinery changes force full');
       expect(g['id'], 'guard');
       expect(g['working-directory'], 'pr');
-      expect(cond(g), "github.event_name == 'pull_request'");
+      expect(
+        cond(g),
+        "github.event_name == 'pull_request' || github.event_name == 'push'",
+      );
       expect((g['env'] as YamlMap).keys.toSet(), {'BASE_SHA', 'HEAD_SHA'});
+      expect(
+        (g['env'] as YamlMap)['BASE_SHA'],
+        r"${{ github.event_name == 'pull_request' && "
+        r"github.event.pull_request.base.sha || steps.plan.outputs.base }}",
+      );
       final lines = [
         for (final l in g['run'].toString().split('\n'))
           if (l.trim().isNotEmpty) l.trim(),
@@ -2143,7 +2255,8 @@ void main() {
         "# none, so refuse to run the PR's copy and run everything.",
         'echo "::warning::ci_paths_guard bootstrap: base lacks the script, '
             'forcing full"',
-        r'{ echo "mode=full"; echo "run_all=true"; } | tee -a "$GITHUB_OUTPUT"',
+        r'{ echo "mode=full"; echo "run_all=true"; echo "selector_needed=true"; } '
+            r'| tee -a "$GITHUB_OUTPUT"',
         'fi',
       ]);
       expect(g['run'].toString(), isNot(contains('pr/tool/ci')));
@@ -2204,6 +2317,772 @@ void main() {
 
   // Phase 402 D14: a workflow comment is <= 3 lines (what/why + a
   // `# why: docs/ci/<topic>.md#<anchor>` pointer); narratives live in docs/ci.
+  group('566 CI-minutes levers', () {
+    String flat(Object? o) =>
+        o.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    test('pull_request.types carries ready_for_review (L3)', () {
+      final on = wf['on'] as YamlMap;
+      final types = ((on['pull_request'] as YamlMap)['types'] as YamlList)
+          .toList();
+      expect(types, [
+        'opened',
+        'synchronize',
+        'reopened',
+        'labeled',
+        'ready_for_review',
+      ]);
+    });
+
+    test('Scope 8a: every integration-shard emulator attempt runs '
+        'tool/ci/ensure_adb.sh as pre-emulator-launch-script; the script, '
+        'its doc anchor and every `why:` pointer near it resolve', () {
+      final root = wfFile.parent.parent.parent.path;
+      List<String> missing(YamlMap shardJob) => [
+        for (final st in (shardJob['steps'] as YamlList).cast<YamlMap>())
+          if (st['uses'].toString().startsWith(
+                'reactivecircus/android-emulator-runner@',
+              ) &&
+              (st['with'] as YamlMap)['pre-emulator-launch-script'] !=
+                  'bash tool/ci/ensure_adb.sh')
+            st['name'].toString(),
+      ];
+      final shard = jobs['integration-shard'] as YamlMap;
+      final emu = [
+        for (final st in (shard['steps'] as YamlList).cast<YamlMap>())
+          if (st['uses'].toString().startsWith(
+            'reactivecircus/android-emulator-runner@',
+          ))
+            st['name'].toString(),
+      ];
+      expect(emu, [
+        'Run integration tests — shard (attempt 1)',
+        'Run integration tests — shard (attempt 2)',
+        'Run integration tests — shard (attempt 3)',
+      ]);
+      expect(missing(shard), isEmpty);
+      // Falsified: dropping the hook from one attempt is red.
+      final src = wfFile.readAsStringSync();
+      const hook =
+          '          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh\n';
+      // 3 shard + 1 integration-profile + 2 patrol attempts.
+      expect(hook.allMatches(src).length, 6);
+      final cut =
+          loadYaml(
+                src.replaceFirst(
+                  '          # why: docs/ci/emulator-integration.md#emulator-device-loss\n'
+                      '          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan\n'
+                      '          # Repairs a platform-tools install left without adb (else boot poll + 35-min idle).\n'
+                      '          # why: docs/ci/emulator-integration.md#adb-missing\n'
+                      '$hook',
+                  '          # why: docs/ci/emulator-integration.md#emulator-device-loss\n'
+                      '          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -camera-back none -gpu guest -feature -Vulkan\n',
+                ),
+              )
+              as YamlMap;
+      expect(
+        missing((cut['jobs'] as YamlMap)['integration-shard'] as YamlMap),
+        hasLength(1),
+      );
+      final script = File(p.join(root, 'tool', 'ci', 'ensure_adb.sh'));
+      expect(script.existsSync(), isTrue);
+      expect(
+        Process.runSync('test', ['-x', script.path]).exitCode,
+        0,
+        reason: 'ensure_adb.sh must be executable',
+      );
+      final doc = File(
+        p.join(root, 'docs', 'ci', 'emulator-integration.md'),
+      ).readAsStringSync();
+      expect(doc, contains('<a id="adb-missing"></a>'));
+      final ptr = RegExp(r'why: docs/ci/([\w.-]+\.md)#([\w-]+)\s*$');
+      final whys = [
+        for (final l in [
+          ...script.readAsLinesSync(),
+          ...src.split('\n').where((l) => l.contains('#adb-missing')),
+        ])
+          if (l.contains('why:')) l,
+      ];
+      expect(
+        whys.length,
+        10,
+        reason: 'script + 3 shard + 3 entry + 1 profile + 2 patrol attempts',
+      );
+      for (final l in whys) {
+        final m = ptr.firstMatch(l);
+        expect(m, isNotNull, reason: l);
+        final f = File(p.join(root, 'docs', 'ci', m![1]));
+        expect(
+          f.existsSync() &&
+              f.readAsStringSync().contains('<a id="${m[2]}"></a>'),
+          isTrue,
+          reason: l,
+        );
+      }
+    });
+
+    test('Scope 8a: every `integration` entry (selected-flow) emulator '
+        'attempt runs the BASE-owned trusted/ ensure_adb.sh, skipped only '
+        'when the base predates it, never swallowing its failure', () {
+      const entryHook =
+          r't="$GITHUB_WORKSPACE/trusted/tool/ci/ensure_adb.sh"; '
+          r'test ! -f "$t" || bash "$t"';
+      List<String> emu(YamlMap job) => [
+        for (final st in (job['steps'] as YamlList).cast<YamlMap>())
+          if (st['uses'].toString().startsWith(
+            'reactivecircus/android-emulator-runner@',
+          ))
+            st['name'].toString(),
+      ];
+      List<String> missing(YamlMap job) => [
+        for (final st in (job['steps'] as YamlList).cast<YamlMap>())
+          if (st['uses'].toString().startsWith(
+                'reactivecircus/android-emulator-runner@',
+              ) &&
+              (st['with'] as YamlMap)['pre-emulator-launch-script'] !=
+                  entryHook)
+            st['name'].toString(),
+      ];
+      final entry = jobs['integration'] as YamlMap;
+      expect(emu(entry), [
+        'Run integration tests — selected flows (attempt 1)',
+        'Run integration tests — selected flows (attempt 2)',
+        'Run integration tests — selected flows (attempt 3)',
+      ]);
+      expect(missing(entry), isEmpty);
+      // The hook must not mask a failed repair (no `|| true`).
+      expect(entryHook, isNot(contains('|| true')));
+      // Executed like the action does (`sh -c <line>`): no trusted copy -> 0
+      // (skip); trusted copy failing -> its rc; trusted copy ok -> 0.
+      final ws = Directory.systemTemp.createTempSync('entry_hook');
+      addTearDown(() => ws.deleteSync(recursive: true));
+      int run() => Process.runSync(
+        'sh',
+        ['-c', entryHook],
+        environment: {'GITHUB_WORKSPACE': ws.path},
+      ).exitCode;
+      expect(run(), 0, reason: 'base without ensure_adb.sh -> skip');
+      final t = File(p.join(ws.path, 'trusted', 'tool', 'ci', 'ensure_adb.sh'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('exit 7\n');
+      expect(run(), 7, reason: 'trusted guard failure must fail the attempt');
+      t.writeAsStringSync('exit 0\n');
+      expect(run(), 0);
+      // Falsified: dropping the hook from one entry attempt is red.
+      final src = wfFile.readAsStringSync();
+      final line = '          pre-emulator-launch-script: $entryHook\n';
+      expect(line.allMatches(src).length, 3);
+      final cut = loadYaml(src.replaceFirst(line, '')) as YamlMap;
+      expect(
+        missing((cut['jobs'] as YamlMap)['integration'] as YamlMap),
+        hasLength(1),
+      );
+    });
+
+    test('Scope 8a: EVERY android-emulator-runner step in EVERY workflow '
+        'carries the adb-missing hook in the form its job\'s script: trusts '
+        '(base-owned trusted/ for `integration`, PR tree elsewhere)', () {
+      const trustedHook =
+          r't="$GITHUB_WORKSPACE/trusted/tool/ci/ensure_adb.sh"; '
+          r'test ! -f "$t" || bash "$t"';
+      const prHook = 'bash tool/ci/ensure_adb.sh';
+      // Jobs whose emulator script: runs base-owned trusted/ code.
+      const trustedJobs = {'integration'};
+      List<String> missing(String file, YamlMap doc) {
+        final out = <String>[];
+        ((doc['jobs'] as YamlMap?) ?? YamlMap()).forEach((name, job) {
+          for (final st
+              in ((job as YamlMap)['steps'] as YamlList? ?? YamlList())
+                  .cast<YamlMap>()) {
+            if (!st['uses'].toString().startsWith(
+              'reactivecircus/android-emulator-runner@',
+            )) {
+              continue;
+            }
+            final want = trustedJobs.contains(name) ? trustedHook : prHook;
+            final got = (st['with'] as YamlMap?)?['pre-emulator-launch-script'];
+            if (got != want) out.add('$file/$name: ${st['name']}');
+          }
+        });
+        return out;
+      }
+
+      final dir = wfFile.parent;
+      final files =
+          dir
+              .listSync()
+              .whereType<File>()
+              .where((f) => RegExp(r'\.ya?ml$').hasMatch(f.path))
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path));
+      var steps = 0;
+      for (final f in files) {
+        final src = f.readAsStringSync();
+        steps += 'reactivecircus/android-emulator-runner@'
+            .allMatches(src)
+            .length;
+        final doc = loadYaml(src);
+        if (doc is! YamlMap) continue;
+        expect(missing(p.basename(f.path), doc), isEmpty);
+      }
+      // Guards against the scan silently matching nothing.
+      expect(steps, 9, reason: '3 entry + 3 shard + 1 profile + 2 patrol');
+      // Falsified: dropping the integration-profile hook is red.
+      final src = wfFile.readAsStringSync();
+      const profileHook =
+          '          profile: pixel_6\n'
+          '          # Repairs a platform-tools install left without adb (else boot poll + long idle).\n'
+          '          # why: docs/ci/emulator-integration.md#adb-missing\n'
+          '          pre-emulator-launch-script: bash tool/ci/ensure_adb.sh\n'
+          '          # AOT, asserts stripped.';
+      expect(profileHook.allMatches(src).length, 1);
+      final cut =
+          loadYaml(
+                src.replaceFirst(
+                  profileHook,
+                  '          profile: pixel_6\n          # AOT, asserts stripped.',
+                ),
+              )
+              as YamlMap;
+      expect(missing('pr-validate.yml', cut), [
+        'pr-validate.yml/integration-profile: '
+            'Run logout flow in profile mode on emulator',
+      ]);
+    });
+
+    test('every secret/keystore decode writes under \$RUNNER_TEMP and is '
+        'deleted by a later if: always() step in the same job', () {
+      final decode = RegExp(r'base64 (?:--decode|-d)[\s\\]*>\s*"([^"]+)"');
+      List<String> violations(YamlMap jobsMap) {
+        final out = <String>[];
+        var decodes = 0;
+        jobsMap.forEach((name, job) {
+          final steps = ((job as YamlMap)['steps'] as YamlList? ?? YamlList())
+              .cast<YamlMap>()
+              .toList();
+          for (var i = 0; i < steps.length; i++) {
+            final run = (steps[i]['run'] ?? '').toString();
+            for (final m in decode.allMatches(run)) {
+              decodes++;
+              final path = m[1]!;
+              if (!path.startsWith(r'$RUNNER_TEMP/')) {
+                out.add('$name: ${steps[i]['name']} decodes to $path');
+              }
+              final cleaned = steps
+                  .skip(i + 1)
+                  .any(
+                    (s) =>
+                        (s['if'] ?? '').toString().startsWith('always()') &&
+                        (s['run'] ?? '').toString().contains('rm -f "$path"'),
+                  );
+              if (!cleaned) {
+                out.add('$name: $path has no later always() rm -f');
+              }
+            }
+          }
+        });
+        if (decodes == 0) out.add('no decode found (regex rotted?)');
+        return out;
+      }
+
+      expect(violations(jobs), isEmpty);
+      final sign = step('apk', 'Build APK (release, signed)')['env'] as YamlMap;
+      expect(
+        sign['BEAUTICA_KEYSTORE_PATH'],
+        r'${{ runner.temp }}/beautica-release.jks',
+      );
+      final rm = step('apk', 'Remove release keystore');
+      expect(cond(rm), 'always()');
+      // Falsified: workspace decode target, or no cleanup step, is red.
+      final src = wfFile.readAsStringSync();
+      final toWs = src.replaceFirst(
+        r'> "$RUNNER_TEMP/beautica-release.jks"',
+        r'> "$GITHUB_WORKSPACE/beautica-release.jks"',
+      );
+      expect(toWs, isNot(src));
+      expect(
+        violations((loadYaml(toWs) as YamlMap)['jobs'] as YamlMap),
+        hasLength(2),
+      );
+      const rmStep =
+          '      - name: Remove release keystore\n'
+          '        if: always()\n'
+          '        run: rm -f "\$RUNNER_TEMP/beautica-release.jks"\n';
+      expect(rmStep.allMatches(src).length, 1);
+      expect(
+        violations(
+          (loadYaml(src.replaceFirst(rmStep, '')) as YamlMap)['jobs']
+              as YamlMap,
+        ),
+        hasLength(1),
+      );
+    });
+
+    test('plan: it_fanout / selector_needed outputs, push diff inputs, '
+        'guard on push', () {
+      final outs = (jobs['plan'] as YamlMap)['outputs'] as YamlMap;
+      expect(outs['it_fanout'], r'${{ steps.plan.outputs.it_fanout }}');
+      expect(
+        outs['selector_needed'],
+        r"${{ steps.sel.outputs.mode == 'full' && 'true' || "
+        r'steps.guard.outputs.selector_needed || '
+        r'steps.plan.outputs.selector_needed }}',
+      );
+      final env =
+          step('plan', 'Compute plan (planner from the BASE commit)')['env']
+              as YamlMap;
+      expect(env['EVENT_BEFORE'], r'${{ github.event.before }}');
+      expect(env['PR_DRAFT'], r'${{ github.event.pull_request.draft }}');
+      expect(env['PR_BASE_REF'], r'${{ github.event.pull_request.base.ref }}');
+      expect(env['PR_HEAD_REF'], r'${{ github.event.pull_request.head.ref }}');
+      expect(
+        env['HEAD_SHA'],
+        r"${{ (github.event.pull_request.number || github.event_name == "
+        r"'push') && steps.tree.outputs.sha || '' }}",
+      );
+      expect(
+        cond(step('plan', 'Guard - CI machinery changes force full')),
+        contains("github.event_name == 'push'"),
+      );
+    });
+
+    test('selector-tests needs plan; selector_needed shapes only the e2e '
+        'legs of the matrix; ci-gate never relaxes on it (L7)', () {
+      final job = jobs['selector-tests'] as YamlMap;
+      expect(job['needs'], 'plan');
+      expect(flat(job['if']), isNot(contains('selector_needed')));
+      expect(
+        ((job['strategy'] as YamlMap)['matrix'] as YamlMap)['leg'],
+        _tc9LegExpr,
+      );
+      final ev = step('ci-gate', 'Evaluate needs (fail closed)');
+      expect((ev['env'] as YamlMap).containsKey('SELECTOR_NEEDED'), isFalse);
+    });
+
+    test('apk: release only on a DRAFT non-promotion PR without full-ci, '
+        'both legs otherwise (L5, Q2); the expression evaluates as intended', () {
+      final m =
+          ((jobs['apk'] as YamlMap)['strategy'] as YamlMap)['matrix']
+              as YamlMap;
+      final expr = m['variant'].toString();
+      final pr = RegExp(r"&& '(\[[^']*\])'").firstMatch(expr)!.group(1)!;
+      final other = RegExp(r"\|\| '(\[[^']*\])'").firstMatch(expr)!.group(1)!;
+      expect(jsonDecode(pr), ['release']);
+      expect(jsonDecode(other), ['debug', 'release']);
+      expect(
+        expr,
+        r'''${{ fromJSON(github.event_name == 'pull_request' && '''
+        r'''github.event.pull_request.draft && '''
+        r'''github.event.pull_request.base.ref != 'main' && '''
+        r'''!contains(github.event.pull_request.labels.*.name, 'full-ci') && '''
+        "'[\"release\"]' || '[\"debug\",\"release\"]') }}",
+        reason: 'legs() below models exactly this expression',
+      );
+      List<String> legs({
+        String event = 'pull_request',
+        bool draft = false,
+        String base = 'dev',
+        List<String> labels = const [],
+      }) =>
+          event == 'pull_request' &&
+              draft &&
+              base != 'main' &&
+              !labels.contains('full-ci')
+          ? ['release']
+          : ['debug', 'release'];
+      expect(legs(draft: true), ['release']);
+      expect(legs(), ['debug', 'release'], reason: 'ready PR (Q2)');
+      expect(legs(draft: true, base: 'main'), ['debug', 'release']);
+      expect(legs(draft: true, labels: ['full-ci']), ['debug', 'release']);
+      expect(legs(event: 'push'), ['debug', 'release']);
+      expect(legs(event: 'workflow_dispatch'), ['debug', 'release']);
+    });
+
+    test('apk: Gradle cache RESTORE (integration key, same pin) before the '
+        'builds, no save (L6a); plan / selector still uncached (D8)', () {
+      final apk = ((jobs['apk'] as YamlMap)['steps'] as YamlList)
+          .cast<YamlMap>()
+          .toList();
+      final restore = step('apk', 'Restore Gradle cache');
+      final itRestore =
+          ((jobs['integration-shard'] as YamlMap)['steps'] as YamlList)
+              .cast<YamlMap>()
+              .singleWhere((s) => s['id'] == 'gradle-cache');
+      expect(restore['uses'], itRestore['uses']);
+      expect(
+        (restore['with'] as YamlMap)['key'],
+        (itRestore['with'] as YamlMap)['key'],
+      );
+      expect(
+        (restore['with'] as YamlMap)['path'],
+        (itRestore['with'] as YamlMap)['path'],
+      );
+      for (final st in apk) {
+        final u = (st['uses'] ?? '').toString();
+        expect(
+          u,
+          isNot(startsWith('actions/cache/save')),
+          reason: '${st['name']}',
+        );
+        expect(
+          u,
+          isNot(matches(RegExp(r'^actions/cache@'))),
+          reason: '${st['name']}',
+        );
+      }
+      final names = [for (final st in apk) st['name']];
+      for (final b in [
+        'Build APK (debug)',
+        'Build APK (release, compile check, no secrets)',
+        'Build APK (release, signed)',
+      ]) {
+        expect(
+          names.indexOf('Restore Gradle cache'),
+          lessThan(names.indexOf(b)),
+        );
+      }
+      for (final j in ['plan', 'selector-tests']) {
+        for (final st
+            in ((jobs[j] as YamlMap)['steps'] as YamlList).cast<YamlMap>()) {
+          expect(
+            (st['uses'] ?? '').toString(),
+            isNot(startsWith('actions/cache')),
+            reason: '$j: ${st['name']}',
+          );
+        }
+      }
+    });
+
+    // L8 + Q9 (security HIGH): a fork PR never reaches a self-hosted runner.
+    const forkGuard =
+        "(github.event_name != 'pull_request' || "
+        'github.event.pull_request.head.repo.full_name == github.repository)';
+    List<String> runsOnViolations(Map<dynamic, dynamic> js) {
+      const kvm = {
+        'integration',
+        'integration-shard',
+        'integration-profile',
+        'patrol',
+      };
+      final out = <String>[];
+      for (final e in js.entries) {
+        final v = kvm.contains(e.key) ? 'CI_RUNNER_KVM' : 'CI_RUNNER_LINUX';
+        final img = e.key == 'coverage' ? 'ubuntu-24.04' : 'ubuntu-latest';
+        final want = '\${{ $forkGuard && vars.$v || \'$img\' }}';
+        final got = (e.value as Map)['runs-on'].toString();
+        if (got != want) out.add('${e.key}: $got');
+      }
+      return out;
+    }
+
+    test('every runs-on is the fork-guarded repo variable with today\'s '
+        'image as fallback (L8, Q9): KVM for the emulator jobs, LINUX '
+        'otherwise, ubuntu-24.04 only for coverage', () {
+      expect(runsOnViolations(jobs), isEmpty);
+      // Every workflow file: no `vars.CI_RUNNER_*` without the fork guard.
+      for (final f in wfFile.parent.listSync().whereType<File>()) {
+        if (!f.path.endsWith('.yml') && !f.path.endsWith('.yaml')) continue;
+        final t = f.readAsStringSync();
+        final all = RegExp(r'vars\.CI_RUNNER_\w+').allMatches(t).length;
+        final guarded = RegExp(
+          '${RegExp.escape(forkGuard)} && vars\\.CI_RUNNER_\\w+',
+        ).allMatches(t).length;
+        expect(guarded, all, reason: p.basename(f.path));
+      }
+    });
+
+    test('runs-on falsification: dropping the fork guard (or swapping the '
+        'variable / fallback) on ONE job is caught', () {
+      Map<dynamic, dynamic> mutate(String job, String Function(String) f) => {
+        for (final e in jobs.entries)
+          e.key: e.key == job
+              ? {
+                  ...Map<dynamic, dynamic>.from(e.value as Map),
+                  'runs-on': f((e.value as Map)['runs-on'].toString()),
+                }
+              : e.value,
+      };
+      String unguard(String r) => r.replaceFirst('$forkGuard && ', '');
+      expect(runsOnViolations(mutate('unit', unguard)), [
+        "unit: \${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}",
+      ]);
+      expect(runsOnViolations(mutate('patrol', unguard)), hasLength(1));
+      expect(runsOnViolations(mutate('coverage', unguard)), hasLength(1));
+      expect(
+        runsOnViolations(
+          mutate('patrol', (r) => r.replaceFirst('_KVM', '_LINUX')),
+        ),
+        hasLength(1),
+      );
+      expect(
+        runsOnViolations(
+          mutate('coverage', (r) => r.replaceFirst('24.04', 'latest')),
+        ),
+        hasLength(1),
+      );
+      expect(
+        runsOnViolations(
+          mutate(
+            'ci-gate',
+            (r) => r.replaceFirst("!= 'pull_request'", "== 'push'"),
+          ),
+        ),
+        hasLength(1),
+      );
+    });
+
+    test('ci-gate: pull-requests: read + the live draft re-check env '
+        '(L3/Q3) and the promotion refs (L11/Q1)', () {
+      final cg = jobs['ci-gate'] as YamlMap;
+      final perms = cg['permissions'] as YamlMap;
+      expect(perms.keys.toSet(), {'actions', 'contents', 'pull-requests'});
+      expect(perms['pull-requests'], 'read');
+      final env =
+          step('ci-gate', 'Evaluate needs (fail closed)')['env'] as YamlMap;
+      expect(env['EVENT_NAME'], r'${{ github.event_name }}');
+      expect(env['GH_TOKEN'], r'${{ github.token }}');
+      expect(env['GH_REPO'], r'${{ github.repository }}');
+      expect(env['PR_NUMBER'], r'${{ github.event.pull_request.number }}');
+      expect(env['PR_BASE_REF'], r'${{ github.event.pull_request.base.ref }}');
+      expect(env['PR_HEAD_REF'], r'${{ github.event.pull_request.head.ref }}');
+      expect(env['NEEDS_JSON'], r'${{ toJSON(needs) }}');
+      // gate.sh reads it_fanout / entry from NEEDS_JSON: both jobs are needed.
+      expect(needsOfJob(cg), containsAll(['plan', 'integration']));
+    });
+
+    // website-security: the fork guard keys on event_name == 'pull_request', so a
+    // `pull_request_target` run (fork code possible) would pass it. Such a
+    // workflow must use only literal GitHub-hosted labels, never an expression.
+    const hosted = {'ubuntu-latest', 'ubuntu-24.04', 'ubuntu-22.04'};
+    List<String> prtViolations(String name, Object? doc) {
+      final w = doc as Map;
+      final on = w['on'] ?? w[true];
+      final triggers = on is Map
+          ? on.keys.map((k) => '$k').toSet()
+          : on is List
+          ? on.map((k) => '$k').toSet()
+          : {'$on'};
+      if (!triggers.contains('pull_request_target')) return const [];
+      return [
+        for (final e
+            in ((w['jobs'] ?? const <Object?, Object?>{}) as Map).entries)
+          if (!hosted.contains((e.value as Map)['runs-on']))
+            '$name/${e.key}: ${(e.value as Map)['runs-on']}',
+      ];
+    }
+
+    test('pull_request_target workflows run ONLY on literal GitHub-hosted '
+        'labels (the fork guard does not cover that event); falsified', () {
+      var prt = 0;
+      for (final f in wfFile.parent.listSync().whereType<File>()) {
+        if (!f.path.endsWith('.yml') && !f.path.endsWith('.yaml')) continue;
+        final doc = loadYaml(f.readAsStringSync());
+        final w = doc as Map;
+        final on = w['on'] ?? w[true];
+        if (on is Map && on.containsKey('pull_request_target')) prt++;
+        expect(prtViolations(p.basename(f.path), doc), isEmpty);
+      }
+      expect(prt, greaterThanOrEqualTo(1), reason: 'promotion-source.yml');
+      // pr-validate (vars-routed) must never gain the trigger.
+      expect((wf['on'] as Map).containsKey('pull_request_target'), isFalse);
+      // Falsify: a vars label or a guarded expression in a prt workflow is red.
+      for (final bad in [
+        r"${{ vars.CI_RUNNER_LINUX || 'ubuntu-latest' }}",
+        '\${{ $forkGuard && vars.CI_RUNNER_LINUX || \'ubuntu-latest\' }}',
+        'self-hosted',
+      ]) {
+        expect(
+          prtViolations('x.yml', {
+            'on': {'pull_request_target': null},
+            'jobs': {
+              'a': {'runs-on': 'ubuntu-latest'},
+              'b': {'runs-on': bad},
+            },
+          }),
+          ['x.yml/b: $bad'],
+        );
+      }
+      expect(
+        prtViolations('y.yml', {
+          'on': {'pull_request': null},
+          'jobs': {
+            'b': {'runs-on': r'${{ vars.X }}'},
+          },
+        }),
+        isEmpty,
+      );
+    });
+
+    test(
+      'integration entry step hands --fanout=false to the generator only '
+      'on an explicit it_fanout=false (old base generator never sees it)',
+      () {
+        final e = ((jobs['integration'] as YamlMap)['steps'] as YamlList)
+            .cast<YamlMap>()
+            .singleWhere((s) => s['id'] == 'entry');
+        expect(
+          (e['env'] as YamlMap)['IT_FANOUT'],
+          r'${{ needs.plan.outputs.it_fanout }}',
+        );
+        final run = e['run'].toString();
+        expect(
+          run,
+          contains(
+            r'fo=(); [ "${IT_FANOUT:-}" = false ] && fo=(--fanout=false)',
+          ),
+        );
+        expect(run, contains(r'"${fo[@]}"'));
+      },
+    );
+  }, skip: skip);
+
+  // QA 566 (owner rule: the optimization must not lose quality). The draft /
+  // fan-out / selector levers may only reach the jobs they are meant for.
+  group('566 QA invariants', () {
+    String flat(Object? o) =>
+        o.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    // Every scalar leaf of a job as "<job>/<path>" -> text (comments dropped).
+    Map<String, String> leaves(Object? node, String at) {
+      final out = <String, String>{};
+      if (node is YamlMap) {
+        for (final e in node.entries) {
+          out.addAll(leaves(e.value, '$at/${e.key}'));
+        }
+      } else if (node is YamlList) {
+        for (var i = 0; i < node.length; i++) {
+          final v = node[i];
+          final id = v is YamlMap ? (v['id'] ?? v['name'] ?? i) : i;
+          out.addAll(leaves(v, '$at[$id]'));
+        }
+      } else if (node != null) {
+        out[at] = node.toString();
+      }
+      return out;
+    }
+
+    Set<String> where(RegExp re) => {
+      for (final e in jobs.entries)
+        for (final l in leaves(e.value, '${e.key}').entries)
+          if (re.hasMatch(l.value)) l.key,
+    };
+
+    test('(4) it_fanout reaches ONLY the integration entry/publish steps and '
+        'integration-verify: unit, tz-sweeps, goldens, apk, selector-tests, '
+        'tests-ran, patrol and every if: ignore it', () {
+      expect(where(RegExp('it_fanout|IT_FANOUT')), {
+        'plan/outputs/it_fanout',
+        'integration/steps[entry]/env/IT_FANOUT',
+        'integration/steps[entry]/run',
+        'integration/steps[out]/env/IT_FANOUT',
+        'integration/steps[out]/run',
+        'integration-verify/steps[Verify the integration verdict]/env/IT_FANOUT',
+        'integration-verify/steps[Verify the integration verdict]/run',
+      });
+    });
+
+    test('(4) the draft flag is read ONLY by the planner step: no job or step '
+        'condition looks at draft / ready_for_review', () {
+      expect(where(RegExp(r'pull_request\.draft|PR_DRAFT')), {
+        'plan/steps[plan]/env/PR_DRAFT',
+        // L5 (Q2): only a draft drops the debug APK leg.
+        'apk/strategy/matrix/variant',
+      });
+      expect(
+        where(
+          RegExp('ready_for_review|draft'),
+        ).where((k) => k.endsWith('/if') || k.endsWith(']/if')),
+        isEmpty,
+      );
+    });
+
+    test('(1)(2) selector_needed reaches ONLY the selector-tests leg matrix; '
+        'the guard overrides the planner, never the reverse', () {
+      expect(where(RegExp('selector_needed|SELECTOR_NEEDED')), {
+        'plan/outputs/selector_needed',
+        // bootstrap guard branch (base lacks the guard): forced full => true.
+        'plan/steps[guard]/run',
+        'selector-tests/strategy/matrix/leg',
+      });
+      expect(
+        ((jobs['plan'] as YamlMap)['outputs'] as YamlMap)['selector_needed'],
+        r"${{ steps.sel.outputs.mode == 'full' && 'true' || "
+        r'steps.guard.outputs.selector_needed || '
+        r'steps.plan.outputs.selector_needed }}',
+      );
+      expect(
+        flat((jobs['selector-tests'] as YamlMap)['if']),
+        "(github.event.action != 'labeled' || github.event.label.name == "
+        "'full-ci' || github.event.label.name == 'run-patrol')",
+      );
+    });
+
+    test(
+      '(1) nightly = workflow_dispatch of pr-validate on main, and the '
+      'planner sees github.event_name verbatim (=> full, fan-out, selector)',
+      () {
+        final on = wf['on'] as YamlMap;
+        expect(on.containsKey('workflow_dispatch'), isTrue);
+        final nightly = File(
+          p.join(wfFile.parent.path, 'nightly.yml'),
+        ).readAsStringSync();
+        expect(
+          nightly,
+          contains(
+            'gh workflow run pr-validate.yml --ref main -f reason=nightly',
+          ),
+        );
+        final env =
+            step('plan', 'Compute plan (planner from the BASE commit)')['env']
+                as YamlMap;
+        expect(env['EVENT_NAME'], r'${{ github.event_name }}');
+        // A FULL verdict publishes `parts` (fan-out) unless it_fanout=false.
+        final ent = ((jobs['integration'] as YamlMap)['steps'] as YamlList)
+            .cast<YamlMap>()
+            .singleWhere((s) => s['id'] == 'out');
+        expect(
+          (ent['env'] as YamlMap)['MODE'],
+          r'${{ needs.plan.outputs.mode }}',
+        );
+      },
+    );
+
+    test('(2) empty plan outputs (old/bootstrap planner) keep today: entry '
+        'fans out, all 3 selector legs run (gate side: plan_sh_test.sh)', () {
+      final st = jobs['selector-tests'] as YamlMap;
+      final leg = ((st['strategy'] as YamlMap)['matrix'] as YamlMap)['leg'];
+      expect(leg, contains("selector_needed == 'false' && '[\"fast\"]'"));
+      expect(leg, isNot(contains("selector_needed == 'true'")));
+      final run = ((jobs['integration'] as YamlMap)['steps'] as YamlList)
+          .cast<YamlMap>()
+          .singleWhere((s) => s['id'] == 'out')['run']
+          .toString();
+      final d = Directory.systemTemp.createTempSync('qa566_');
+      addTearDown(() => d.deleteSync(recursive: true));
+      String go(Map<String, String> env) {
+        final o = File(p.join(d.path, 'o'))..writeAsStringSync('');
+        final r = Process.runSync(
+          'bash',
+          ['-c', run],
+          environment: {...env, 'GITHUB_OUTPUT': o.path},
+          includeParentEnvironment: false,
+        );
+        expect(r.exitCode, 0, reason: '${r.stdout}${r.stderr}');
+        return o.readAsStringSync().trim();
+      }
+
+      // IT_FANOUT absent entirely (not even empty) = parts.
+      expect(
+        go({'MODE': 'full', 'ENTRY': '', 'PATH': '/usr/bin:/bin'}),
+        'entry=parts',
+      );
+      expect(
+        go({'MODE': 'selective', 'ENTRY': 'parts', 'PATH': '/usr/bin:/bin'}),
+        'entry=parts',
+      );
+    });
+  }, skip: skip);
+
   group('phase 402 D14 comment hygiene', () {
     test('no run of more than 4 consecutive comment lines', () {
       final offenders = longCommentRuns(wfFile.readAsStringSync(), 4);
@@ -2334,3 +3213,274 @@ String? tagViolation(String src) {
 
 Iterable<String> _quoted(String s) =>
     RegExp(r"""['"]([^'"]*)['"]""").allMatches(s).map((m) => m.group(1)!);
+
+// Phase 566 TC-9 (L7, Q2): the selector-tests FAST leg runs on every event;
+// only the two e2e legs (e2e-a, e2e-b) are conditional, on selector_needed.
+// Red if the fast leg becomes conditional, or if any e2e-leg file (or a file
+// it imports) reads a repo path outside `.github/**` + `tool/ci/**`.
+const _tc9LegExpr =
+    r'''${{ fromJSON(needs.plan.outputs.selector_needed == 'false' && '["fast"]' || '["fast","e2e-a","e2e-b"]') }}''';
+const _tc9Allowed = ['.github/*', 'tool/ci/*'];
+
+void _tc9() {
+  final here = Directory.current.path; // tool/ci/affected_tests
+  final mobile = p.normalize(p.join(here, '..', '..', '..'));
+  final planFile = File(p.join(mobile, 'tool', 'ci', 'plan.sh'));
+  final wfPath = p.join(mobile, '.github', 'workflows', 'pr-validate.yml');
+  final skip = planFile.existsSync() && File(wfPath).existsSync()
+      ? false
+      : 'not inside the beautica-mobile tree';
+
+  List<String> arms(String plan) {
+    final body = RegExp(
+      r'is_e2e_leg_input\(\) \{\n  case "\$1" in\n([\s\S]*?)\n  esac',
+    ).firstMatch(plan)!.group(1)!;
+    return [
+      for (final l in body.split('\n'))
+        for (final g in l.trim().split(')').first.split('|'))
+          if (g.trim().isNotEmpty) g.trim(),
+    ];
+  }
+
+  bool covered(List<String> globs, String path) => globs.any(
+    (g) => g.endsWith('/*')
+        ? path.startsWith(g.substring(0, g.length - 1))
+        : g == path,
+  );
+
+  YamlMap selectorJob(String yaml) =>
+      ((loadYaml(yaml) as YamlMap)['jobs'] as YamlMap)['selector-tests']
+          as YamlMap;
+
+  // Violations of "the fast leg is unconditional" for a selector-tests job.
+  List<String> fastLegViolations(YamlMap job) {
+    final bad = <String>[];
+    final cond = job['if']?.toString() ?? '';
+    if (RegExp('selector_needed|matrix').hasMatch(cond)) {
+      bad.add('job if: $cond');
+    }
+    final strategy = job['strategy'] as YamlMap?;
+    final leg = (strategy?['matrix'] as YamlMap?)?['leg']?.toString();
+    final m = RegExp(
+      r"^\$\{\{ fromJSON\(needs\.plan\.outputs\.selector_needed == 'false' && '(\[[^']*\])' \|\| '(\[[^']*\])'\) \}\}$",
+    ).firstMatch(leg ?? '');
+    if (m == null) {
+      bad.add('matrix.leg not the pinned L7 shape: $leg');
+    } else {
+      final off = (jsonDecode(m.group(1)!) as List).cast<String>();
+      final on = (jsonDecode(m.group(2)!) as List).cast<String>();
+      if (!off.contains('fast')) bad.add('fast missing when not needed');
+      if (!on.contains('fast')) bad.add('fast missing when needed');
+      if (!on.toSet().containsAll(['fast', 'e2e-a', 'e2e-b'])) {
+        bad.add('needed branch lacks a leg: $on');
+      }
+      if (off.any((l) => l != 'fast')) bad.add('e2e leg ran unconditionally');
+    }
+    for (final st in (job['steps'] as YamlList).cast<YamlMap>()) {
+      final c = st['if']?.toString() ?? '';
+      if (RegExp(r'selector_needed|matrix\.leg').hasMatch(c)) {
+        bad.add('step ${st['name']} if: $c');
+      }
+    }
+    return bad;
+  }
+
+  // The e2e-leg sources: every test file tagged `e2e`, plus the files they
+  // import transitively (relative imports only; packages come from the
+  // tool/ci/affected_tests lockfile).
+  Map<String, String> e2eSources() {
+    final out = <String, String>{};
+    final tagged = RegExp(r"^@Tags\(\[[^\]]*'e2e'", multiLine: true);
+    final todo = [
+      for (final f in Directory(p.join(here, 'test')).listSync())
+        if (f is File &&
+            f.path.endsWith('_test.dart') &&
+            tagged.hasMatch(f.readAsStringSync()))
+          p.normalize(f.path),
+    ];
+    final rel = RegExp(r"^(?:import|export|part) '([^':]+)'", multiLine: true);
+    while (todo.isNotEmpty) {
+      final f = todo.removeLast();
+      if (out.containsKey(f)) continue;
+      final src = File(f).readAsStringSync();
+      out[f] = src;
+      for (final m in rel.allMatches(src)) {
+        todo.add(p.normalize(p.join(p.dirname(f), m.group(1)!)));
+      }
+    }
+    return out;
+  }
+
+  // Repo paths ("<a>/<b>/x" or a root file) a set of sources reads through the
+  // repo root (Directory.current/../../..). Anything the scanner cannot
+  // classify is `unknown` (red): a new kind of read cannot slip past.
+  ({Set<String> reads, List<String> unknown}) scan(Map<String, String> srcs) {
+    final reads = <String>{};
+    final unknown = <String>[];
+    const rootExpr =
+        r"p\.normalize\(\s*p\.join\(\s*Directory\.current\.path,\s*'\.\.',\s*'\.\.',\s*'\.\.',?\s*\),?\s*\)";
+    final rootDef = RegExp('(?:final|var)\\s+(\\w+)\\s*=\\s*$rootExpr');
+    final segRe = RegExp(r"^\s*,\s*'([^']+)'(?:\s*,\s*'([^']+)')?");
+    void seg(String name, String after, int line) {
+      final m = segRe.firstMatch(after);
+      if (m == null) {
+        unknown.add('$name:$line: repo root used without a literal path');
+        return;
+      }
+      final top = m.group(1)!;
+      reads.add(
+        top.contains('.') && !top.startsWith('.')
+            ? top
+            : '$top/${m.group(2) ?? 'x'}/x',
+      );
+    }
+
+    for (final e in srcs.entries) {
+      final name = p.relative(e.key, from: here);
+      final src = e.value;
+      int lineOf(int off) => '\n'.allMatches(src.substring(0, off)).length + 1;
+      String head(String s) => s.substring(0, s.length < 200 ? s.length : 200);
+      if (!p.isWithin(p.join(mobile, 'tool', 'ci'), e.key)) {
+        unknown.add('$name: e2e source outside tool/ci');
+      }
+      if (RegExp(r"^import 'package:beautica", multiLine: true).hasMatch(src)) {
+        unknown.add('$name: imports the app package');
+      }
+      final vars = {
+        for (final m in rootDef.allMatches(src)) m.group(1)!,
+        if (src.contains('Pipeline(this.mobile')) 'mobile',
+      };
+      // Every climb out of tool/ci/affected_tests must be the root expression.
+      final roots = RegExp(rootExpr).allMatches(src).toList();
+      if (RegExp(r"'\.\.'").allMatches(src).length != roots.length * 3) {
+        unknown.add('$name: a `..` path outside the repo-root expression');
+      }
+      for (final r in roots) {
+        final pre = src.substring(0, r.start);
+        if (RegExp(r'(?:final|var)\s+\w+\s*=\s*$').hasMatch(pre)) continue;
+        if (RegExp(r'p\.join\(\s*$').hasMatch(pre)) {
+          seg(name, head(src.substring(r.end)), lineOf(r.start));
+        } else {
+          unknown.add('$name:${lineOf(r.start)}: inline repo root use');
+        }
+      }
+      for (final v in vars) {
+        if (RegExp('\\\$\\{?$v\\b').hasMatch(src)) {
+          unknown.add('$name: interpolates $v into a string');
+        }
+        final use = RegExp('(?<=[(,:]\\s*)\\b$v\\b(\\.path)?(?=\\s*[,)])');
+        for (final m in use.allMatches(src)) {
+          final pre = src.substring(0, m.start);
+          final tail = head(src.substring(m.end));
+          final line = lineOf(m.start);
+          if (RegExp(r'p\.join\(\s*$').hasMatch(pre)) {
+            seg(name, tail, line);
+          } else if (RegExp(r'Pipeline\(\s*$').hasMatch(pre)) {
+            // Links tool/ci scripts into its workspace, runs .github steps.
+            reads.addAll(['tool/ci/x', '.github/x']);
+          } else if (RegExp(r"'-C',\s*$").hasMatch(pre) &&
+              RegExp(r"^\s*,\s*'show',\s*'\$\w+:\.github/").hasMatch(tail)) {
+            reads.add('.github/x');
+          } else if (RegExp(r'from:\s*$').hasMatch(pre)) {
+            continue; // p.relative(..., from: root): no read
+          } else {
+            unknown.add('$name:$line: unclassified use of $v');
+          }
+        }
+      }
+    }
+    return (reads: reads, unknown: unknown);
+  }
+
+  group('566 TC-9 L7: fast leg unconditional, e2e inputs = CI machinery', () {
+    test('selector-tests: the fast leg runs on every event; only the e2e '
+        'legs depend on selector_needed', () {
+      final job = selectorJob(File(wfPath).readAsStringSync());
+      expect(fastLegViolations(job), isEmpty);
+    });
+
+    test('plan.sh e2e-leg inputs are exactly .github/* + tool/ci/*, and every '
+        'repo path the e2e legs (and their imports) read is covered', () {
+      expect(arms(planFile.readAsStringSync()).toSet(), _tc9Allowed.toSet());
+      final srcs = e2eSources();
+      // Non-vacuous: the four tagged files plus their support imports.
+      expect(
+        srcs.keys.map(p.basename),
+        containsAll([
+          'pipeline_e2e_integration_test.dart',
+          'pipeline_e2e_sharding_test.dart',
+          'pipeline_e2e_test.dart',
+          'pipeline_e2e_audit1_test.dart',
+          'support_pipeline.dart',
+          'support.dart',
+          'gen_integration_entry.dart',
+        ]),
+      );
+      final s = scan(srcs);
+      expect(s.unknown, isEmpty, reason: 'classify the new read in _tc9');
+      expect(s.reads, containsAll(['.github/x', 'tool/ci/x']));
+      expect([
+        for (final r in s.reads)
+          if (!covered(_tc9Allowed, r)) r,
+      ], isEmpty);
+    });
+
+    test('falsified: a conditional fast leg, an unconditional e2e leg, or an '
+        'e2e read outside CI machinery is red', () {
+      final yaml = File(wfPath).readAsStringSync();
+      // Mutates the selector-tests job only (other jobs share its `if:`).
+      YamlMap mutate(String from, String to) {
+        final at = yaml.indexOf('\n  selector-tests:\n');
+        expect(at, greaterThan(0));
+        expect(yaml.indexOf(from, at), greaterThan(at), reason: from);
+        return selectorJob(yaml.replaceFirst(from, to, at));
+      }
+
+      const offBranch = """selector_needed == 'false' && '["fast"]'""";
+      for (final m in [
+        mutate(offBranch, """selector_needed == 'false' && '[]'"""),
+        mutate(
+          offBranch,
+          """selector_needed == 'false' && '["fast","e2e-a"]'""",
+        ),
+        mutate(
+          "github.event.label.name == 'run-patrol')\n    timeout",
+          "github.event.label.name == 'run-patrol')\n"
+              "      && needs.plan.outputs.selector_needed != 'false'\n"
+              '    timeout',
+        ),
+      ]) {
+        expect(fastLegViolations(m), isNotEmpty);
+      }
+      expect(
+        arms(
+          planFile.readAsStringSync().replaceFirst(
+            '.github/* | tool/ci/*)',
+            '.github/* | tool/ci/* | lib/*)',
+          ),
+        ).toSet(),
+        isNot(_tc9Allowed.toSet()),
+      );
+      final fake = p.join(here, 'test', 'fake_e2e_test.dart');
+      const def =
+          "final mobile = p.normalize(p.join(Directory.current.path, '..', '..', '..'));\n";
+      bool red(String src) {
+        final s = scan({fake: src});
+        return s.unknown.isNotEmpty ||
+            s.reads.any((r) => !covered(_tc9Allowed, r));
+      }
+
+      for (final bad in [
+        "${def}f(File(p.join(mobile, 'lib', 'a.dart')));\n",
+        "${def}f(Directory(mobile));\n",
+        "${def}f('\$mobile/test');\n",
+        "f(p.join(p.normalize(p.join(Directory.current.path, '..', '..', '..')), 'lib'));\n",
+        "f(p.join(Directory.current.path, '..', 'x'));\n",
+        "import 'package:beautica/main.dart';\n",
+      ]) {
+        expect(red(bad), isTrue, reason: bad);
+      }
+      expect(red("${def}f(p.join(mobile, 'tool', 'ci', 'x'));\n"), isFalse);
+    });
+  }, skip: skip);
+}

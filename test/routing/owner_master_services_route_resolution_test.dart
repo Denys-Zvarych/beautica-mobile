@@ -60,6 +60,10 @@ import 'package:beautica_mobile/features/booking/presentation/master_archive_scr
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
 import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
+    show ClientStep;
+import 'package:beautica_mobile/features/clients/data/client_repository.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/features/booking/presentation/walk_in_service_step_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -231,6 +235,41 @@ class _PerUserMasterProfile extends MasterProfile {
       reviewCount: 0,
       type: MasterType.salonOwner,
       salonId: _kSalonId,
+    );
+  }
+}
+
+/// M553 QA — the owner's `GET /masters/me` held on [gate]: the window in
+/// which `/owner/master/bookings/new` does not yet know the owner's salon.
+class _GatedOwnerMasterProfile extends MasterProfile {
+  static Completer<Master> gate = Completer<Master>();
+
+  @override
+  Future<Master> build() => gate.future;
+}
+
+/// M553 QA — records the scope of every client-list read the picker makes;
+/// answers an empty page.
+class _ScopeRecordingClientRepo implements ClientRepository {
+  final List<ClientListScope> listScopes = <ClientListScope>[];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Future<PageResponse<ClientSummary>> list(
+    ClientListScope scope, {
+    String? q,
+    int page = 0,
+    int size = kClientPageSize,
+    CancelToken? cancelToken,
+  }) async {
+    listScopes.add(scope);
+    return const PageResponse<ClientSummary>(
+      items: <ClientSummary>[],
+      page: 0,
+      totalPages: 1,
+      totalElements: 0,
     );
   }
 }
@@ -1213,6 +1252,62 @@ void main() {
             .servicesRoute,
         RouteNames.ownerMasterBookingNewServices,
       );
+      await drainBookingsTtl(tester);
+    });
+
+    // M553 (BOOK-79, D1) — the owner-master guest step's picker is bound to
+    // the owner's OWN salon, resolved from the master profile; until that
+    // resolves the step renders with no picker at all (never `me()`, which
+    // 403s for an owner, and never a blank salon id).
+    testWidgets('M553: /owner/master/bookings/new shows NO picker while the '
+        'master profile loads; once it resolves the picker lists '
+        'salon(<own salon>) — never me()', (tester) async {
+      _GatedOwnerMasterProfile.gate = Completer<Master>();
+      final _ScopeRecordingClientRepo clients = _ScopeRecordingClientRepo();
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        masterProfile: _GatedOwnerMasterProfile.new,
+        extraOverrides: <Object>[
+          ...bookingOverrides(),
+          clientRepositoryProvider.overrideWithValue(clients),
+        ],
+      );
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterBookingNew);
+      await pumpUntilFound(tester, find.byType(WalkInGuestStepScreen));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<WalkInGuestStepScreen>(find.byType(WalkInGuestStepScreen))
+            .onPickClient,
+        isNull,
+        reason: 'no salon id yet → no launcher',
+      );
+      expect(find.byKey(ClientStep.pickClientKey), findsNothing);
+      expect(clients.listScopes, isEmpty);
+
+      _GatedOwnerMasterProfile.gate.complete(
+        const Master(
+          id: _kOwnerMasterRowId,
+          firstName: 'Олена',
+          lastName: 'Ковальчук',
+          reviewCount: 0,
+          type: MasterType.salonOwner,
+          salonId: _kSalonId,
+        ),
+      );
+      await pumpUntilFound(tester, find.byKey(ClientStep.pickClientKey));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(ClientStep.pickClientKey));
+      await tester.pumpAndSettle();
+
+      expect(clients.listScopes, isNotEmpty);
+      expect(clients.listScopes.toSet(), <ClientListScope>{
+        const ClientListScope.salon(salonId: _kSalonId),
+      });
       await drainBookingsTtl(tester);
     });
 

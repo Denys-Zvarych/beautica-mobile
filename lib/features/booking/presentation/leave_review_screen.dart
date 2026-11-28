@@ -1,4 +1,4 @@
-// Phase 14.6 — «ВІДГУК ПРО МАЙСТРА», the CLIENT leave-review screen.
+// Phase 14.6 — «Відгук про майстра», the CLIENT leave-review screen.
 //
 // Ported from the approved preview
 // `docs/signup-designs/MasterFeedbackScreen/lib/screens/master_feedback_screen.dart`,
@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/review/presentation/review_surface_inva
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../application/booking_detail_notifier.dart';
 import '../application/leave_review_notifier.dart';
@@ -50,7 +51,7 @@ import 'widgets/master_profile_tap.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/star_rating_input.dart';
 
-/// The «ВІДГУК ПРО МАЙСТРА» screen for the booking identified by [bookingId].
+/// The «Відгук про майстра» screen for the booking identified by [bookingId].
 class LeaveReviewScreen extends ConsumerStatefulWidget {
   const LeaveReviewScreen({super.key, required this.bookingId});
 
@@ -164,9 +165,16 @@ class _LeaveReviewScreenState extends ConsumerState<LeaveReviewScreen> {
       body: SafeArea(
         child: Column(
           children: <Widget>[
-            _TopBar(
+            // The app's shared header (owner 2026-11-27): same 48 dp bar and
+            // `VelvetText.pageTitle` as every other screen, on the form and
+            // on the already-reviewed state alike — no local restyle.
+            VelvetTopBar(
               title: l10n.reviewScreenTitle,
-              backLabel: l10n.reviewBackSemantics,
+              backKey: const Key('leave-review-back'),
+              backSemanticLabel: l10n.reviewBackSemantics,
+              onBack: () {
+                if (context.canPop()) context.pop();
+              },
             ),
             Expanded(
               child: async.when(
@@ -457,58 +465,6 @@ class _CommentCounter extends StatelessWidget {
             : (length > 0 ? _activeStyle : _emptyStyle);
         return Text('$length / $maxChars', style: style);
       },
-    );
-  }
-}
-
-/// The top bar: a raised back affordance on the left and the centred, tracked
-/// screen title.
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.title, required this.backLabel});
-
-  final String title;
-  final String backLabel;
-
-  static final TextStyle _titleStyle = VelvetText.subheading().copyWith(
-    letterSpacing: 1.4,
-    fontWeight: FontWeight.w700,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.sm,
-        VelvetSpacing.lg,
-        VelvetSpacing.sm,
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          Align(
-            alignment: Alignment.centerLeft,
-            child: NeumorphicIconButton(
-              key: const Key('leave-review-back'),
-              icon: Icons.arrow_back_ios_new_rounded,
-              semanticLabel: backLabel,
-              onTap: () {
-                if (context.canPop()) context.pop();
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 56),
-            child: Text(
-              title,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: _titleStyle,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

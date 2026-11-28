@@ -86,6 +86,8 @@
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../clients/domain/client_summary.dart';
+
 part 'create_master_booking_request.freezed.dart';
 
 /// The E.164 shape the backend's `chk_bookings_guest_phone_format` DB CHECK
@@ -166,5 +168,28 @@ abstract class WalkInGuest with _$WalkInGuest {
     required String name,
     required String surname,
     required String phone,
+
+    /// DISPLAY-ONLY — the picked existing client's photo and ★ readout for
+    /// the walk-in review card, set only while the typed identity still is
+    /// the picked client (`walkInGuestFrom`). NEVER on the wire:
+    /// `HttpBookingRepository.createMasterBooking` maps name/surname/phone
+    /// only. In memory only (route `extra`), never in a path/query/log.
+    /// ADDITIVE: absent → the monogram + «—» fallback.
+    String? avatarUrl,
+    double? rating,
+    @Default(0) int ratingCount,
+
+    /// DISPLAY-ONLY (M569, CLI-D20) — the picked client's card handle, set
+    /// under the SAME "typed identity still is the picked client" rule as
+    /// [avatarUrl] (`walkInGuestFrom`): `null` for a hand-typed or edited
+    /// client, whose review strip is then inert. NEVER on the wire.
+    ClientRef? clientRef,
   }) = _WalkInGuest;
+
+  const WalkInGuest._();
+
+  /// PII redaction — a walk-in guest's name, phone, photo and rating never
+  /// reach a log or an error message (mirrors `ClientPrefill.toString`).
+  @override
+  String toString() => 'WalkInGuest()';
 }

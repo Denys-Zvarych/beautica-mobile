@@ -42,7 +42,11 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_str
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_avatar_badge.dart'
     show MasterAvatarBadge;
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
-    show StepIndicator;
+    show ClientStep, StepIndicator;
+import 'package:beautica_mobile/features/clients/domain/client_prefill.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip_shell.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -528,7 +532,10 @@ SalonStaffMember _staffRowOf(SalonMasterSummary m) => SalonStaffMember(
 // Router + pump helper
 // ---------------------------------------------------------------------------
 
-GoRouter _router() => GoRouter(
+GoRouter _router({
+  Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
+  ClientPrefill? initialPrefill,
+}) => GoRouter(
   initialLocation: '/root',
   routes: <RouteBase>[
     GoRoute(
@@ -537,8 +544,18 @@ GoRouter _router() => GoRouter(
     ),
     GoRoute(
       path: '/salon-test-target',
+      builder: (context, state) => SalonCreateBookingScreen(
+        salonId: _kSalonId,
+        onPickClient: onPickClient,
+        initialPrefill: initialPrefill,
+      ),
+    ),
+    // ADDITIVE (M569) — the salon client-card stub the confirm step's client
+    // strip pushes (user + guest paths); unused by every earlier test.
+    GoRoute(
+      path: '${RouteNames.salonClients(_kSalonId)}/:kind/:id',
       builder: (context, state) =>
-          const SalonCreateBookingScreen(salonId: _kSalonId),
+          Scaffold(body: Text('card-stub:${state.uri}')),
     ),
   ],
 );
@@ -565,8 +582,19 @@ Future<GoRouter> _pump(
   /// the caller then supplies the repository + auth via [extraOverrides].
   /// Every existing call site leaves it `true` and pumps byte-identically.
   bool fakeRoster = true,
+
+  /// ADDITIVE (M553) — the route's client-picker launcher; `null` (every
+  /// pre-M553 call site) pumps the step exactly as before.
+  Future<ClientPrefill?> Function(BuildContext context)? onPickClient,
+
+  /// ADDITIVE (M543) — the client-card launch's prefill; `null` (every
+  /// pre-M543 call site) pumps the step exactly as before.
+  ClientPrefill? initialPrefill,
 }) async {
-  final GoRouter router = _router();
+  final GoRouter router = _router(
+    onPickClient: onPickClient,
+    initialPrefill: initialPrefill,
+  );
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
@@ -2811,4 +2839,300 @@ void _passAGroup() {
       );
     });
   });
+
+  // M553 (BOOK-79) — the route's picker launcher reaches the client step.
+  group('M553 client picker', () {
+    testWidgets('no launcher → no picker control', (tester) async {
+      await _pump(tester);
+      expect(find.byKey(ClientStep.pickClientKey), findsNothing);
+    });
+
+    testWidgets('a launcher → picker in the step; the pick prefills the '
+        'fields and «Далі» (not scrolled) advances to the service step', (
+      tester,
+    ) async {
+      int calls = 0;
+      await _pump(
+        tester,
+        onPickClient: (BuildContext _) async {
+          calls++;
+          return const ClientPrefill(
+            firstName: 'Оксана',
+            lastName: 'Мельник',
+            phone: '+380671234567',
+          );
+        },
+      );
+      expect(find.byKey(ClientStep.pickClientKey), findsOneWidget);
+
+      await tester.tap(find.byKey(ClientStep.pickClientKey));
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+      // i18n-finder-ok: the prefilled client name is data, not UI copy
+      expect(find.text('Оксана'), findsOneWidget);
+      expect(find.text('+380 67 123 45 67'), findsOneWidget);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('mcb_service_card_salon-svc-1')), findsOne);
+    });
+
+    testWidgets('with a launcher, manual entry + «Далі» still work without '
+        'scrolling (the link sits in the heading row)', (tester) async {
+      await _pump(tester, onPickClient: (BuildContext _) async => null);
+      await _fillClientStepAndAdvance(tester);
+      expect(find.byKey(const Key('mcb_service_card_salon-svc-1')), findsOne);
+    });
+  });
+
+  // M543 + user 2026-11-26 (BOOK-80 / CLI-80) — a COMPLETE client-card
+  // prefill opens the wizard on `service` (client step skipped, back pops to
+  // the card); an incomplete one prefills the client step once, as before.
+  group('M543 initialPrefill', () {
+    String text(WidgetTester tester, String key) => tester
+        .widget<NeumorphicTextField>(find.byKey(Key(key)))
+        .controller
+        .text;
+
+    const Key firstName = Key('master-create-booking-first-name');
+    const Key next = Key('master-create-booking-client-next');
+    const Key back = Key('salon-create-booking-back');
+    const Key serviceCard = Key('mcb_service_card_salon-svc-1');
+
+    testWidgets('complete prefill → opens on the service step; back pops '
+        'the wizard to the card', (tester) async {
+      final GoRouter router = await _pump(
+        tester,
+        initialPrefill: const ClientPrefill(
+          firstName: 'Оксана',
+          lastName: 'Мельник',
+          phone: '+380671234567',
+        ),
+      );
+      expect(find.byKey(serviceCard), findsOne);
+      expect(find.byKey(firstName), findsNothing);
+
+      await tester.tap(find.byKey(back));
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+      expect(router.state.uri.path, '/root');
+    });
+
+    for (final (String label, ClientPrefill incomplete)
+        in <(String, ClientPrefill)>[
+          (
+            'no phone (CLI-E10)',
+            const ClientPrefill(firstName: 'Оксана', lastName: 'Мельник'),
+          ),
+          (
+            'first name only (legacy display-name fallback)',
+            const ClientPrefill(firstName: 'Оксана', phone: '+380671234567'),
+          ),
+          (
+            'surname only',
+            const ClientPrefill(lastName: 'Мельник', phone: '+380671234567'),
+          ),
+          (
+            'non-UA phone',
+            const ClientPrefill(
+              firstName: 'Оксана',
+              lastName: 'Мельник',
+              phone: '+48601234567',
+            ),
+          ),
+        ]) {
+      testWidgets('$label → opens on the client step, prefilled, no picked '
+          'chip', (tester) async {
+        await _pump(tester, initialPrefill: incomplete);
+        expect(find.byKey(serviceCard), findsNothing);
+        expect(
+          text(tester, 'master-create-booking-first-name'),
+          incomplete.firstName ?? '',
+        );
+        expect(
+          text(tester, 'master-create-booking-last-name'),
+          incomplete.lastName ?? '',
+        );
+        expect(find.byKey(ClientStep.pickedChipKey), findsNothing);
+      });
+    }
+
+    testWidgets('incomplete prefill: type the phone → next → back → the '
+        'client step again, with the edits kept (applied once)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        initialPrefill: const ClientPrefill(
+          firstName: 'Оксана',
+          lastName: 'Мельник',
+        ),
+      );
+      await tester.enterText(find.byKey(firstName), 'Олена');
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-phone')),
+        '0671234567',
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(next));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(next));
+      await tester.pumpAndSettle();
+      expect(find.byKey(serviceCard), findsOne);
+
+      await tester.tap(find.byKey(back));
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonCreateBookingScreen), findsOne);
+      expect(text(tester, 'master-create-booking-first-name'), 'Олена');
+      expect(text(tester, 'master-create-booking-last-name'), 'Мельник');
+    });
+
+    // User 2026-11-26 — the bookings «+» entry (no prefill) is unchanged:
+    // the client step first, with «Обрати з моїх клієнтів»; picking a
+    // complete client fills the fields and never skips the step.
+    testWidgets('«+» entry (no prefill) → the client step with the picker; '
+        'a picked complete client stays on the client step', (tester) async {
+      await _pump(
+        tester,
+        onPickClient: (BuildContext _) async => const ClientPrefill(
+          firstName: 'Оксана',
+          lastName: 'Мельник',
+          phone: '+380671234567',
+        ),
+      );
+      expect(find.byKey(firstName), findsOne);
+      expect(find.byKey(serviceCard), findsNothing);
+      expect(find.byKey(ClientStep.pickClientKey), findsOne);
+
+      await tester.tap(find.byKey(ClientStep.pickClientKey));
+      await tester.pumpAndSettle();
+      expect(text(tester, 'master-create-booking-first-name'), 'Оксана');
+      expect(find.byKey(serviceCard), findsNothing);
+
+      await tester.tap(find.byKey(back));
+      await tester.pumpAndSettle();
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+    });
+  });
+
+  // M569 (CLI-101 / CLI-D20) — the review (confirm) step's client strip opens
+  // the salon client card ON the step itself, but only for a client picked
+  // from «Мої клієнти» whose name, surname and phone are unchanged; a typed
+  // or edited client has no card yet, so the strip is inert.
+  group('M569 confirm-step client strip tap', () {
+    const ClientRef pickedRef = ClientRef.registered('u-oksana');
+    const Key strip = Key('master-create-booking-guest-strip');
+    const Key next = Key('master-create-booking-client-next');
+
+    Future<void> pickAndDriveToConfirm(
+      WidgetTester tester, {
+      String? editedFirstName,
+    }) async {
+      await _pump(
+        tester,
+        slotRepository: _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        ),
+        onPickClient: (BuildContext _) async => const ClientPrefill(
+          firstName: _kPickFirst,
+          lastName: _kPickLast,
+          phone: _kPickPhone,
+          ref: pickedRef,
+        ),
+      );
+      await tester.tap(find.byKey(ClientStep.pickClientKey));
+      await tester.pumpAndSettle();
+      if (editedFirstName != null) {
+        await tester.enterText(
+          find.byKey(const Key('master-create-booking-first-name')),
+          editedFirstName,
+        );
+        await tester.pump();
+      }
+      await tester.ensureVisible(find.byKey(next));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(next));
+      await tester.pumpAndSettle();
+      await _pickService(tester);
+      await _pickDateAndAdvance(tester);
+      await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          Key(
+            'salon-tile-slot-chip-master-a-${_kSlot.startAt.toIso8601String()}',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(strip), findsOneWidget);
+    }
+
+    testWidgets('a picked, unchanged client: tap opens their salon card; '
+        'back returns to the confirm step', (tester) async {
+      await pickAndDriveToConfirm(tester);
+      await tester.ensureVisible(find.byKey(strip));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(strip));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'card-stub:${RouteNames.clientCardUser(RouteNames.salonClients(_kSalonId), 'u-oksana')}',
+        ),
+        findsOneWidget,
+      );
+
+      Navigator.of(tester.element(find.byType(Scaffold).last)).pop();
+      await tester.pumpAndSettle();
+      expect(find.byKey(strip), findsOneWidget);
+    });
+
+    testWidgets(
+      'a picked client whose name was edited is inert (no card yet)',
+      (tester) async {
+        await pickAndDriveToConfirm(tester, editedFirstName: _kTypedFirst);
+        expect(
+          tester.widget<MasterStripShell>(find.byKey(strip)).onTap,
+          isNull,
+        );
+      },
+    );
+
+    testWidgets('a hand-typed client is inert', (tester) async {
+      await _pump(
+        tester,
+        slotRepository: _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+          },
+        ),
+      );
+      await _driveToMasters(tester);
+      await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          Key(
+            'salon-tile-slot-chip-master-a-${_kSlot.startAt.toIso8601String()}',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<MasterStripShell>(find.byKey(strip)).onTap, isNull);
+    });
+  });
 }
+
+// M569 fixture identity (named, never a literal at a finder).
+const String _kPickFirst = 'Oksana';
+const String _kPickLast = 'Melnyk';
+const String _kPickPhone = '+380671234567';
+const String _kTypedFirst = 'Olena';

@@ -127,10 +127,10 @@ import 'widgets/booking_recap.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/client_booking_conflict_dialog.dart';
-import 'widgets/guest_identity_card.dart';
 import 'widgets/master_profile_tap.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/reschedule_limit_dialog.dart';
+import 'client_card_opener.dart';
 
 /// Booking flow final review — the single-visit confirm-and-submit screen.
 class BookingConfirmScreen extends ConsumerStatefulWidget {
@@ -252,6 +252,9 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
     // if/else-if STRUCTURE below as the real guarantee — that structural
     // guarantee is what this phase actually ships; see the phase doc's
     // Status section for this recorded deviation.
+    // M569 — the walk-in branch's first created booking, the done screen's
+    // client-card source; `null` on every other branch.
+    String? createdBookingId;
     try {
       if (rescheduleId != null) {
         // Captured BEFORE the write, from whatever `bookingDetailProvider
@@ -498,6 +501,7 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // `master_create_booking_notifier.dart`'s doc.
           return;
         }
+        createdBookingId = created.items.firstOrNull?.bookingId;
       } else {
         final String? comment = _comment.text.trim().isEmpty
             ? null
@@ -632,6 +636,10 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // Phase 383 (24.1f) — the walk-in «Готово» landing, forwarded
           // verbatim; `null` everywhere but the owner master-mode chain.
           returnRoute: widget.args.returnRoute,
+          // M569 — the done screen's client strip opens the same card.
+          clientCardBase: widget.args.clientCardBase,
+          clientCardRef: widget.args.clientCardRef,
+          createdBookingId: createdBookingId,
         ),
       );
     } on RescheduleLimitReachedFailure {
@@ -777,8 +785,18 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     rescheduleClientRating: widget.args.rescheduleClientRating,
                     rescheduleClientReviewCount:
                         widget.args.rescheduleClientReviewCount,
-                    rescheduleTargetIsWalkIn:
-                        widget.args.rescheduleTargetIsWalkIn,
+                    // M569 (CLI-101 / CLI-D20) — the client strip's route
+                    // into the card: the reschedule target's, or a walk-in's
+                    // picked-and-unchanged client (`WalkInGuest.clientRef`).
+                    // `null` (no card base on this chain, or a hand-typed /
+                    // edited walk-in) keeps the strip inert.
+                    onOpenClient: clientCardOpener(
+                      context,
+                      base: widget.args.clientCardBase,
+                      ref:
+                          widget.args.guest?.clientRef ??
+                          widget.args.clientCardRef,
+                    ),
                     // The reschedule endpoint takes only the new start — a
                     // note-to-master input would be silently ignored, so it is
                     // hidden on the reschedule path. Also hidden on the
@@ -830,7 +848,7 @@ class _ConfirmBody extends StatelessWidget {
     this.rescheduleClientInitials,
     this.rescheduleClientRating,
     this.rescheduleClientReviewCount,
-    this.rescheduleTargetIsWalkIn = false,
+    this.onOpenClient,
   });
 
   final Master master;
@@ -886,9 +904,9 @@ class _ConfirmBody extends StatelessWidget {
   final double? rescheduleClientRating;
   final int? rescheduleClientReviewCount;
 
-  /// `BookingConfirmArgs.rescheduleTargetIsWalkIn` — a guest/walk-in client
-  /// gets the guest qualifier and no rating, as on «Деталі запису».
-  final bool rescheduleTargetIsWalkIn;
+  /// M569 — the client strip's tap into the client card (walk-in or
+  /// reschedule); `null` = inert.
+  final VoidCallback? onOpenClient;
 
   @override
   Widget build(BuildContext context) {
@@ -920,16 +938,26 @@ class _ConfirmBody extends StatelessWidget {
         children: <Widget>[
           // FIX 1 (audit-fix cycle 3, 2026-08-21) — the walk-in guest
           // identity, occupying the visual slot the hidden master card would
-          // otherwise take. REUSE-FIRST: the SAME `GuestIdentityCard` the
-          // terminal success screen renders (promoted from that screen's own
-          // inline card — see that widget's file header) — no second
-          // hand-copied implementation. `null` on every client/reschedule
-          // call site, so those paths render byte-identically (no extra
-          // card, no extra gap).
-          if (guest != null) ...<Widget>[
-            GuestIdentityCard(
+          // otherwise take. `null` on every client/reschedule call site, so
+          // those paths render byte-identically (no extra card, no extra gap).
+          //
+          // 2026-11-25 — the walk-in guest now renders through the SAME
+          // [BookingClientStrip] as the reschedule branch below (photo + ★ of
+          // a picked existing client, monogram + «—» for a hand-typed one;
+          // the phone as its sub-line) instead of the bare label card.
+          if (guest case final WalkInGuest g) ...<Widget>[
+            BookingClientStrip.walkIn(
               key: const Key('booking-confirm-guest-card'),
-              guest: guest!,
+              firstName: g.name,
+              lastName: g.surname,
+              phone: g.phone,
+              avatarUrl: g.avatarUrl,
+              rating: g.rating,
+              reviewCount: g.ratingCount,
+              topLabel: l10n.masterCreateBookingGuestLabel,
+              shellKey: const Key('booking-confirm-guest-strip'),
+              avatarImageKey: const Key('booking-confirm-guest-avatar-photo'),
+              onTap: onOpenClient,
             ),
             const SizedBox(height: VelvetSpacing.md),
           ] else if (rescheduleClientName != null) ...<Widget>[
@@ -942,8 +970,9 @@ class _ConfirmBody extends StatelessWidget {
             //
             // CLIENT STRIP PARITY (2026-11-14) — now the SAME
             // [BookingClientStrip] «Деталі запису» shows the client in
-            // (photo / monogram, ★ rating, guest qualifier), with the shipped
-            // «Клієнт» caption on top, instead of a bare label card.
+            // (photo / monogram, ★ rating — for a walk-in too, CLI-101), with
+            // the shipped «Клієнт» caption on top, instead of a bare label
+            // card. M569: tap → the client card (CLI-D20).
             BookingClientStrip(
               key: const Key('booking-confirm-client-card'),
               name: rescheduleClientName,
@@ -951,10 +980,10 @@ class _ConfirmBody extends StatelessWidget {
               initials: rescheduleClientInitials,
               rating: rescheduleClientRating,
               reviewCount: rescheduleClientReviewCount ?? 0,
-              isGuest: rescheduleTargetIsWalkIn,
               topLabel: l10n.bookingClientLabel,
               shellKey: const Key('booking-confirm-client-strip'),
               avatarImageKey: const Key('booking-confirm-client-avatar-photo'),
+              onTap: onOpenClient,
             ),
             const SizedBox(height: VelvetSpacing.md),
           ],
