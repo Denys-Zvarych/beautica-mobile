@@ -470,7 +470,8 @@ List<Object> _slotTimeOverrides({
 
 // ── 2026-11-14 — PROVIDER reschedule client strip (`BookingClientStrip`):
 // a registered client (photo + ★ rating) and the walk-in fallback (initials,
-// no rating, no kind label — CLI-100), on both the confirm and the done screen.
+// its phone-keyed ★ since M569 / CLI-101, no kind label — CLI-100), on both
+// the confirm and the done screen.
 // Seeded exactly as `reschedule_navigation.dart` seeds a provider reschedule
 // (`hideMasterIdentity: true` + the client-strip fields).
 
@@ -487,8 +488,9 @@ BookingConfirmArgs _confirmArgsProviderClient({required bool walkIn}) =>
       rescheduleClientName: walkIn ? 'Ірина Гуменюк' : 'Марта Дяченко',
       rescheduleClientInitials: walkIn ? 'ІГ' : 'МД',
       rescheduleClientAvatarUrl: walkIn ? null : kGoldenAllowedUrl,
-      rescheduleClientRating: walkIn ? null : 4.6,
-      rescheduleClientReviewCount: walkIn ? null : 7,
+      // M569 (CLI-101): a walk-in shows its phone-keyed ★ too.
+      rescheduleClientRating: walkIn ? 4.2 : 4.6,
+      rescheduleClientReviewCount: walkIn ? 3 : 7,
     );
 
 BookingSuccessArgs _successArgsProviderClient({required bool walkIn}) =>
@@ -502,8 +504,9 @@ BookingSuccessArgs _successArgsProviderClient({required bool walkIn}) =>
       rescheduleClientName: walkIn ? 'Ірина Гуменюк' : 'Марта Дяченко',
       rescheduleClientInitials: walkIn ? 'ІГ' : 'МД',
       rescheduleClientAvatarUrl: walkIn ? null : kGoldenAllowedUrl,
-      rescheduleClientRating: walkIn ? null : 4.6,
-      rescheduleClientReviewCount: walkIn ? null : 7,
+      // M569 (CLI-101): a walk-in shows its phone-keyed ★ too.
+      rescheduleClientRating: walkIn ? 4.2 : 4.6,
+      rescheduleClientReviewCount: walkIn ? 3 : 7,
     );
 
 /// Lets the fake-cache avatar finish its real-time decode (see

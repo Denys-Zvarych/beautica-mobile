@@ -761,6 +761,9 @@ class SlotTimeScreen extends ConsumerWidget {
         // Phase 383 — forwarded verbatim; `null` everywhere but the owner
         // master-mode walk-in chain.
         returnRoute: args.returnRoute,
+        // M569 — forwarded verbatim; `null` keeps the confirm strip inert.
+        clientCardBase: args.clientCardBase,
+        clientCardRef: args.clientCardRef,
       ),
     );
   }

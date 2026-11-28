@@ -111,6 +111,7 @@ import 'widgets/client_review_section.dart';
 import 'widgets/complete_booking_dialog.dart';
 import 'booking_cancel_navigation.dart';
 import 'reschedule_navigation.dart';
+import 'client_card_opener.dart';
 
 /// «Деталі запису» for the booking identified by [bookingId].
 class BookingDetailScreen extends ConsumerStatefulWidget {
@@ -444,6 +445,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         // Rides the whole picker → confirm chain so the SUBMIT can drop this
         // board's dot set too; `null` on every non-salon mount.
         salonId: widget.salonId,
+        // M569 (CLI-101) — the confirm / done client strips open the same
+        // card this screen's strip does; `null` keeps them inert.
+        clientCardBase: _clientCardBaseFor(booking),
       ),
     );
   }
@@ -581,25 +585,22 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// `null` (inert strip) when this mount has no card base, the viewer is not
   /// a provider, or the client cannot have a card (anonymised / detached —
   /// `BookingDisplayX.clientCardReachable`). Registered → `…/user/{clientId}`,
-  /// guest → `…/guest/{bookingId}` (CLI-42).
+  /// guest → `…/guest/{bookingId}` (CLI-42). M569: the shared
+  /// [clientCardOpener] (promoted from this method's former body).
   VoidCallback? _openClientFor(Booking booking, BookingViewerRole viewer) {
-    if (!viewer.isProvider || !booking.clientCardReachable) return null;
-    final String? base = widget.clientCardBase?.call(
-      widget.salonId ?? booking.salonId,
+    if (!viewer.isProvider) return null;
+    return clientCardOpener(
+      context,
+      base: _clientCardBaseFor(booking),
+      ref: clientRefOfBooking(booking),
+      popBackToCard: widget.openedFromClientCard,
     );
-    if (base == null) return null;
-    final String? clientId = booking.clientId;
-    final String path = clientId == null
-        ? RouteNames.clientCardGuest(base, booking.id)
-        : RouteNames.clientCardUser(base, clientId);
-    return () {
-      if (widget.openedFromClientCard && context.canPop()) {
-        context.pop();
-        return;
-      }
-      context.pushOnce<void>(path);
-    };
   }
+
+  /// This mount's resolved client-card list base for [booking] (`null` =
+  /// no card route on this mount).
+  String? _clientCardBaseFor(Booking booking) =>
+      widget.clientCardBase?.call(widget.salonId ?? booking.salonId);
 
   @override
   Widget build(BuildContext context) {

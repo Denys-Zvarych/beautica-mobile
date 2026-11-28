@@ -48,7 +48,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
-import '../test/helpers/asset_star_finder.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
@@ -185,12 +184,12 @@ void main() {
   // M568 / CLI-100 — a STAFF walk-in (`clientId: null` on the wire, staff-typed
   // name resolved server-side) is indistinguishable from a LINK guest to the
   // app, so neither the detail strip nor the compose header may carry a
-  // client-kind label. The guest's other effects stay: no ★ readout on the
-  // strip even when the wire carries a rating.
+  // client-kind label. M569 (CLI-101): the walk-in's phone-keyed ★ shows on
+  // both, through the ONE shared client strip.
   testWidgets(
     'PROVIDER opens a COMPLETED STAFF walk-in booking: the client strip shows '
-    'the name with no «Запис за посиланням» and no rating, and the compose '
-    'screen shows the generic «Клієнт» role label',
+    'the name with no «Запис за посиланням» and its ★ rating, and the compose '
+    'screen heads with the same shared strip',
     (tester) async {
       final fb = FakeBackend()
         ..currentRole = UserRole.independentMaster
@@ -198,6 +197,20 @@ void main() {
         ..bookingProviderCanReviewClient = true
         ..bookingClientIsGuest = true
         ..bookingClientAvgRating = 4.5;
+      // M569 (CLI-D20) — the guest card anchored on this booking (CLI-42),
+      // which both strips open.
+      const String guestCardName = 'Guest card M569';
+      fb.clientCards['booking-1'] = <String, dynamic>{
+        'kind': 'GUEST',
+        'guestBookingId': 'booking-1',
+        'displayName': guestCardName,
+        'blocked': false,
+        'ratingAvg': 4.5,
+        'ratingCount': 2,
+        'ratingDistribution': <Map<String, int>>[],
+      };
+      fb.clientVisits['booking-1'] = <Map<String, dynamic>>[];
+      fb.wireClientCard();
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
 
@@ -221,28 +234,75 @@ void main() {
         reason: 'no client-kind label on a walk-in detail',
       );
       expect(
-        find.descendant(of: strip, matching: findAssetStar()),
-        findsNothing,
-        reason: 'a guest/walk-in strip never shows a rating',
-      );
-      expect(
         find.descendant(of: strip, matching: find.text('4.5')),
-        findsNothing,
+        findsOneWidget,
+        reason: 'CLI-101: a walk-in strip shows its phone-keyed ★ too',
       );
+
+      // CLI-D20 — the detail strip opens the guest's card; back returns.
+      Future<void> openCardAndBack(Finder from, Type back) async {
+        await AppHarness.tapVisible(tester, from);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(ClientCardScreen.nameKey),
+        );
+        await AppHarness.settle(tester);
+        expect(
+          tester.widget<Text>(find.byKey(ClientCardScreen.nameKey)).data,
+          guestCardName,
+          reason: 'the strip opens the card of THIS booking\'s guest',
+        );
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(ClientCardScreen.backKey),
+        );
+        await AppHarness.pumpUntilGone(tester, find.byType(ClientCardScreen));
+        await AppHarness.settle(tester);
+        expect(find.byType(back), findsOneWidget);
+      }
+
+      await openCardAndBack(strip, BookingDetailScreen);
 
       await tester.ensureVisible(cta);
       await AppHarness.settle(tester);
       await tester.tap(cta);
       await AppHarness.settle(tester);
       expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
-      final AppLocalizations l10n = l10nOf(tester, LeaveClientFeedbackScreen);
-      expect(find.text(walkInName), findsOneWidget);
-      expect(find.text(l10n.clientReviewRoleLabel), findsOneWidget);
+      final Finder composeStrip = find.descendant(
+        of: find.byType(LeaveClientFeedbackScreen),
+        matching: find.byKey(const Key('booking-detail-client-strip')),
+      );
+      expect(composeStrip, findsOneWidget);
+      expect(
+        find.descendant(of: composeStrip, matching: find.text(walkInName)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: composeStrip, matching: find.text('4.5')),
+        findsOneWidget,
+      );
       expect(
         // i18n-finder-ok: asserts the removed UA copy never renders (CLI-100)
         find.text('Запис за посиланням'),
         findsNothing,
         reason: 'no client-kind label on the walk-in compose header',
+      );
+
+      // CLI-D20 — the compose strip opens the same card; back returns to the
+      // compose form with its input intact.
+      await tester.enterText(
+        find.byKey(const Key('leave-client-feedback-comment')),
+        'draft-m569',
+      );
+      await AppHarness.settle(tester);
+      await openCardAndBack(composeStrip, LeaveClientFeedbackScreen);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('leave-client-feedback-comment')),
+          matching: find.text('draft-m569'),
+        ),
+        findsOneWidget,
+        reason: 'back from the card keeps the compose draft',
       );
     },
   );

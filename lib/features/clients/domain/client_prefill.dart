@@ -12,6 +12,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'package:beautica_mobile/features/clients/domain/client_card.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 
 part 'client_prefill.freezed.dart';
 
@@ -39,6 +40,11 @@ abstract class ClientPrefill with _$ClientPrefill {
     /// unrated) and its rating count.
     double? rating,
     @Default(0) int ratingCount,
+
+    /// M569 — the picked card's handle, so the walk-in review / confirm /
+    /// done strips can open that card again (CLI-D20). Display-only, like
+    /// [avatarUrl]; `null` when the prefill did not come from a card.
+    ClientRef? ref,
   }) = _ClientPrefill;
 
   const ClientPrefill._();
@@ -61,6 +67,7 @@ abstract class ClientPrefill with _$ClientPrefill {
       avatarUrl: card.avatarUrl,
       rating: card.displayRating,
       ratingCount: card.ratingCount,
+      ref: card.ref,
     );
   }
 
@@ -68,5 +75,5 @@ abstract class ClientPrefill with _$ClientPrefill {
       part == null || part.trim().isEmpty ? null : part;
 
   @override
-  String toString() => 'ClientPrefill()';
+  String toString() => 'ClientPrefill(${ref?.runtimeType})';
 }

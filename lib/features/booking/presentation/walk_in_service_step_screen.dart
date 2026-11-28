@@ -52,6 +52,7 @@ class WalkInServiceStepScreen extends ConsumerStatefulWidget {
     required this.guest,
     this.returnRoute,
     this.seed,
+    this.clientCardBase,
   });
 
   final WalkInGuest guest;
@@ -61,6 +62,12 @@ class WalkInServiceStepScreen extends ConsumerStatefulWidget {
   /// `RouteNames.masterBookings`; the owner master-mode mount passes
   /// `RouteNames.ownerMasterBookings`.
   final String? returnRoute;
+
+  /// M569 (CLI-101 / CLI-D20) — the role's client-card list base, forwarded
+  /// as [BookingSlotPickerArgs.clientCardBase] so the walk-in confirm / done
+  /// client strips can open the client's card. `null` (the default) keeps
+  /// them inert.
+  final String? clientCardBase;
 
   /// Phase 487 — the empty week-grid tap's hint, read by the route from its
   /// `at` query parameter and seeded onto [BookingSlotPickerArgs.seed].
@@ -146,6 +153,7 @@ class _WalkInServiceStepScreenState
         guest: widget.guest,
         hideMasterIdentity: true,
         returnRoute: widget.returnRoute,
+        clientCardBase: widget.clientCardBase,
         // Phase 487 — `null` on the unseeded path, so the args stay equal to
         // today's.
         seed: widget.seed,

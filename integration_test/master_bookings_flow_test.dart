@@ -302,8 +302,12 @@ void main() {
     },
   );
 
+  // M569 (CLI-101): the ★ readout shows for EVERY client kind — a guest's
+  // rating is phone-keyed (REV-D04 / B546), so an unrated guest reads «★ —»
+  // exactly like an unreviewed registered client.
   testWidgets(
-    'PROVIDER view of a GUEST booking: the strip shows no ★ and no em-dash',
+    'PROVIDER view of an UNRATED GUEST booking: the strip shows the ★ with the '
+    'em-dash and never 0.0 (CLI-101)',
     (tester) async {
       final fb = FakeBackend()
         ..currentRole = UserRole.independentMaster
@@ -312,8 +316,41 @@ void main() {
 
       expect(
         find.descendant(of: strip, matching: findAssetStar()),
+        findsOneWidget,
+        reason: 'a guest carries a phone-keyed rating readout (CLI-101)',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text(_kEmDash)),
+        findsOneWidget,
+        reason: 'an unrated guest reads «★ —»',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text(_kZeroRating)),
         findsNothing,
-        reason: 'a guest has no account to be rated',
+        reason: 'a zero rating must never be printed',
+      );
+    },
+  );
+
+  testWidgets(
+    'PROVIDER view of a RATED GUEST booking: the strip shows the ★ and the '
+    'phone-keyed rating, no em-dash (CLI-101 / B546)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingClientIsGuest = true
+        ..bookingClientAvgRating = 4.5
+        ..bookingClientReviewCount = 2;
+      final Finder strip = await openProviderDetail(tester, fb);
+
+      expect(
+        find.descendant(of: strip, matching: findAssetStar()),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text(_kClientRating)),
+        findsOneWidget,
+        reason: 'the guest rating rides clientAvgRating on the wire',
       );
       expect(
         find.descendant(of: strip, matching: find.text(_kEmDash)),

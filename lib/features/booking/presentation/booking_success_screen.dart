@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -34,6 +35,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
+import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -41,6 +43,10 @@ import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
+
+import '../application/booking_detail_notifier.dart';
+import '../domain/booking.dart';
 import '../domain/booking_success_args.dart';
 import '../domain/create_master_booking_request.dart' show WalkInGuest;
 import 'widgets/booking_recap.dart';
@@ -50,6 +56,7 @@ import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
 import 'widgets/booking_client_strip.dart';
+import 'client_card_opener.dart';
 
 /// Phase 383 (security) — the ONLY routes a walk-in success «Готово» may
 /// honour from [BookingSuccessArgs.returnRoute]; anything else falls back to
@@ -168,10 +175,63 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
     super.dispose();
   }
 
+  /// M569 — `true` while [_resolveAndOpenClient] reads the created booking;
+  /// the strip is inert meanwhile, so a double tap fires one read.
+  bool _resolvingClient = false;
+
+  /// M569 (CLI-101 / CLI-D20) — the client strip's tap into the client card.
+  ///
+  /// Known up front: the picked walk-in client (`WalkInGuest.clientRef`) or
+  /// the reschedule target (`clientCardRef`) — opened directly. A hand-typed
+  /// walk-in is resolved ON TAP from the created booking (`GET /bookings/{id}`,
+  /// never on mount — owner 2026-11-28): a phone that matches a CLIENT account
+  /// is attached at creation (CLI-62), so the guest card anchored on that
+  /// booking would not exist. `null` (inert) when the chain carries no card
+  /// base or nothing to resolve from.
+  VoidCallback? _openClientCard(BuildContext context) {
+    final BookingSuccessArgs args = widget.args;
+    final String? base = args.clientCardBase;
+    if (base == null) return null;
+    final ClientRef? known = args.guest?.clientRef ?? args.clientCardRef;
+    if (known != null) {
+      return clientCardOpener(context, base: base, ref: known);
+    }
+    final String? createdId = args.createdBookingId;
+    if (createdId == null || _resolvingClient) return null;
+    return () => _resolveAndOpenClient(base, createdId);
+  }
+
+  Future<void> _resolveAndOpenClient(String base, String createdId) async {
+    if (_resolvingClient) return;
+    setState(() => _resolvingClient = true);
+    try {
+      final Booking created = await ref.read(
+        bookingDetailProvider(createdId).future,
+      );
+      if (!mounted) return;
+      clientCardOpener(
+        context,
+        base: base,
+        ref: clientRefOfBooking(created),
+      )?.call();
+    } on Object catch (e) {
+      if (!mounted) return;
+      showErrorSnack(
+        context,
+        e is Failure
+            ? e.userMessage(context)
+            : AppLocalizations.of(context).errUnknown,
+      );
+    } finally {
+      if (mounted) setState(() => _resolvingClient = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final DateTime startAt = widget.args.startAt;
+    final VoidCallback? openClient = _openClientCard(context);
 
     // Phase 263 D1 — three-way copy switch. Precedence is reschedule > walk-in
     // > client create, matched in that ORDER.
@@ -306,6 +366,7 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
               topLabel: l10n.masterCreateBookingGuestLabel,
               shellKey: const Key('booking-success-guest-strip'),
               avatarImageKey: const Key('booking-success-guest-avatar-photo'),
+              onTap: openClient,
             ),
         // CLIENT IDENTITY PARITY (2026-08-22) — the RESCHEDULE-path
         // counterpart of the walk-in guest card just above: a PROVIDER
@@ -318,9 +379,9 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         //
         // CLIENT STRIP PARITY (2026-11-14) — now the SAME [BookingClientStrip]
         // «Деталі запису» and the confirm screen show the client in (photo /
-        // monogram, ★ rating; no rating and no kind label for a walk-in —
-        // `isWalkIn` is `rescheduleTargetIsWalkIn` on this path), with the
-        // shipped «Клієнт» caption.
+        // monogram, ★ rating for every client kind, a walk-in included —
+        // CLI-101; no kind label), with the shipped «Клієнт» caption. M569:
+        // tap → the client card on top (CLI-D20).
         if (widget.args.rescheduleClientName != null)
           BookingClientStrip(
             key: const Key('booking-success-client-card'),
@@ -329,10 +390,10 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
             initials: widget.args.rescheduleClientInitials,
             rating: widget.args.rescheduleClientRating,
             reviewCount: widget.args.rescheduleClientReviewCount ?? 0,
-            isGuest: widget.args.isWalkIn,
             topLabel: l10n.bookingClientLabel,
             shellKey: const Key('booking-success-client-strip'),
             avatarImageKey: const Key('booking-success-client-avatar-photo'),
+            onTap: openClient,
           ),
         // ONE visit recap: the shared address, the single window, the ordered
         // service list + «Разом» total, with the whole-visit calendar export as

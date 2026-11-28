@@ -1287,12 +1287,12 @@ void main() {
     });
 
     testWidgets('a STAFF walk-in (null clientId, named) shows its name with no '
-        'client-kind label, NO rating even when the wire carries one, and '
-        'name-only semantics (CLI-100, M568)', (tester) async {
+        'client-kind label and its phone-keyed ★ rating, spoken like any '
+        'rated client (CLI-100, M568, CLI-101)', (tester) async {
       final SemanticsHandle handle = tester.ensureSemantics();
       // A walk-in arrives exactly like a LINK guest (null clientId, staff-
-      // typed name); a stale rating on the wire must still stay hidden —
-      // `isGuest` keeps every non-label effect.
+      // typed name); since B546 its rating is the phone-keyed guest rating,
+      // shown like any client's (M569 retired the `isGuest` hiding).
       await _pump(
         tester,
         _booking(
@@ -1322,32 +1322,48 @@ void main() {
       );
       expect(
         find.descendant(of: strip, matching: findAssetStar()),
-        findsNothing,
+        findsOneWidget,
       );
       expect(
         find.descendant(of: strip, matching: find.text('4.6')),
-        findsNothing,
+        findsOneWidget,
       );
+      final AppLocalizations l10n = _l10n(tester);
       expect(
         tester.getSemantics(strip).label,
-        _l10n(tester).bookingDetailClientSemantics(walkIn),
+        l10n.bookingDetailClientRatedSemantics(
+          walkIn,
+          '4.6',
+          l10n.salonReviewCountLabel(3),
+        ),
       );
       handle.dispose();
     });
 
-    testWidgets('a guest booking shows NO rating at all', (tester) async {
+    testWidgets('an unrated guest booking shows the «—» readout (CLI-101)', (
+      tester,
+    ) async {
       await _pump(
         tester,
         _booking(clientId: null),
         role: UserRole.independentMaster,
       );
       expect(
-        find.descendant(of: strip, matching: findAssetStar()),
-        findsNothing,
+        find.descendant(of: strip, matching: find.text('—')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a LINK guest with 3 ratings shows the ★ readout (CLI-101; '
+        'hidden before M569)', (tester) async {
+      await _pump(
+        tester,
+        _booking(clientId: null, clientAvgRating: 4.2, clientReviewCount: 3),
+        role: UserRole.independentMaster,
       );
       expect(
-        find.descendant(of: strip, matching: find.text('—')),
-        findsNothing,
+        find.descendant(of: strip, matching: find.text('4.2')),
+        findsOneWidget,
       );
     });
   });

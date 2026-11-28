@@ -77,6 +77,8 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip_shell.dart';
+import 'package:beautica_mobile/features/clients/domain/client_summary.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -768,6 +770,12 @@ GoRouter _router() => GoRouter(
       path: RouteNames.contactSupport,
       builder: (context, state) =>
           const SizedBox.shrink(key: Key('test-contact-support')),
+    ),
+    // M569 — the client-card stub the strips push (user + guest paths).
+    GoRoute(
+      path: '${RouteNames.masterClients}/:kind/:id',
+      builder: (context, state) =>
+          Scaffold(body: Text('card-stub:${state.uri}')),
     ),
   ],
 );
@@ -2801,10 +2809,8 @@ void main() {
         );
       });
 
-      testWidgets('should_showGuestQualifierAndNoRating_when_walkInTarget — '
-          'a walk-in client gets the booking card\'s guest fallback', (
-        tester,
-      ) async {
+      testWidgets('should_showNoQualifierButRating_when_walkInTarget — '
+          'a walk-in client shows its phone-keyed ★ (CLI-101)', (tester) async {
         final fake = _RecordingRescheduleRepository();
         final router = _router();
         await tester.pumpRoutedApp(
@@ -2822,6 +2828,8 @@ void main() {
             extra: _rescheduleArgsWithClientName().copyWith(
               rescheduleTargetIsWalkIn: true,
               rescheduleClientInitials: 'МД',
+              rescheduleClientRating: 4.6,
+              rescheduleClientReviewCount: 2,
             ),
           ),
         );
@@ -2840,8 +2848,8 @@ void main() {
           findsNothing,
         );
         expect(
-          find.descendant(of: card, matching: find.byType(MasterRatingReadout)),
-          findsNothing,
+          find.descendant(of: card, matching: find.text('4.6')),
+          findsOneWidget,
         );
       });
 
@@ -4193,6 +4201,106 @@ void main() {
       );
       expect(locationOf(router), RouteNames.bookingConfirm);
       expect(appointments.rescheduleItemCalls, hasLength(1));
+    });
+  });
+
+  // M569 (CLI-101 / CLI-D20) — the confirm screen's client strips open the
+  // client card on top; back returns to the confirm step.
+  group('M569 client strip tap → client card', () {
+    Future<GoRouter> pushConfirm(
+      WidgetTester tester,
+      BookingConfirmArgs args,
+    ) async {
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWith(
+            (_) => _RecordingRescheduleRepository(),
+          ),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+        ],
+      );
+      unawaited(router.push(RouteNames.bookingConfirm, extra: args));
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets('reschedule: tap pushes the target\'s card, back returns to '
+        'the confirm step', (tester) async {
+      final GoRouter router = await pushConfirm(
+        tester,
+        _rescheduleArgsWithClientName().copyWith(
+          clientCardBase: RouteNames.masterClients,
+          clientCardRef: const ClientRef.registered('c-42'),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('booking-confirm-client-strip')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'card-stub:${RouteNames.clientCardUser(RouteNames.masterClients, 'c-42')}',
+        ),
+        findsOneWidget,
+      );
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+    });
+
+    testWidgets('reschedule without a card base stays inert', (tester) async {
+      await pushConfirm(
+        tester,
+        _rescheduleArgsWithClientName().copyWith(
+          clientCardRef: const ClientRef.guest('booking-1'),
+        ),
+      );
+      expect(
+        tester
+            .widget<MasterStripShell>(
+              find.byKey(const Key('booking-confirm-client-strip')),
+            )
+            .onTap,
+        isNull,
+      );
+    });
+
+    testWidgets('walk-in: a picked, unchanged client opens their card', (
+      tester,
+    ) async {
+      await pushConfirm(
+        tester,
+        _walkInConfirmArgs().copyWith(
+          guest: _kGuest.copyWith(clientRef: const ClientRef.guest('b-old')),
+          clientCardBase: RouteNames.masterClients,
+        ),
+      );
+      await tester.tap(find.byKey(const Key('booking-confirm-guest-strip')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'card-stub:${RouteNames.clientCardGuest(RouteNames.masterClients, 'b-old')}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('walk-in: a hand-typed / edited client (no clientRef) is '
+        'inert even with a card base', (tester) async {
+      await pushConfirm(
+        tester,
+        _walkInConfirmArgs().copyWith(clientCardBase: RouteNames.masterClients),
+      );
+      expect(
+        tester
+            .widget<MasterStripShell>(
+              find.byKey(const Key('booking-confirm-guest-strip')),
+            )
+            .onTap,
+        isNull,
+      );
     });
   });
 }

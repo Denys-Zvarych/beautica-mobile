@@ -218,6 +218,7 @@ void main() {
         firstName: 'Оксана',
         lastName: 'Мельник',
         phone: '+380671234567',
+        ref: _u1,
       ),
     );
     expect(repo.cardCalls, hasLength(1), reason: 'the card is read once');
@@ -236,7 +237,7 @@ void main() {
     await tester.tap(find.byKey(const Key('client-row-u1')));
     await tester.pumpAndSettle();
 
-    expect(r.value, const ClientPrefill(firstName: 'Оксана Мельник'));
+    expect(r.value, const ClientPrefill(firstName: 'Оксана Мельник', ref: _u1));
     expect(r.value?.phone, isNull);
   });
 
@@ -290,7 +291,11 @@ void main() {
     expect(r.done, isTrue);
     expect(
       r.value,
-      const ClientPrefill(firstName: 'Ірина Коваль', phone: '+380631234567'),
+      const ClientPrefill(
+        firstName: 'Ірина Коваль',
+        phone: '+380631234567',
+        ref: _g1,
+      ),
     );
     expect(repo.cardCalls, hasLength(2));
   });
@@ -318,7 +323,7 @@ void main() {
           lastName: 'Мельник',
         ),
       ),
-      const ClientPrefill(lastName: 'Мельник'),
+      const ClientPrefill(lastName: 'Мельник', ref: _u1),
     );
     expect(
       ClientPrefill.fromCard(
@@ -329,14 +334,14 @@ void main() {
           lastName: 'Мельник',
         ),
       ),
-      const ClientPrefill(lastName: 'Мельник'),
+      const ClientPrefill(lastName: 'Мельник', ref: _u1),
       reason: 'a blank first name with a surname is still surname-only',
     );
     expect(
       ClientPrefill.fromCard(
         const ClientCard(ref: _g1, displayName: 'Ірина К.', firstName: 'Ірина'),
       ),
-      const ClientPrefill(firstName: 'Ірина'),
+      const ClientPrefill(firstName: 'Ірина', ref: _g1),
     );
   });
 
@@ -349,7 +354,7 @@ void main() {
     );
     expect(
       ClientPrefill.fromCard(const ClientCard(ref: _g1)),
-      const ClientPrefill(),
+      const ClientPrefill(ref: _g1),
       reason: 'a nameless card prefills no name (never an empty string)',
     );
     expect(
@@ -361,7 +366,7 @@ void main() {
           displayName: 'Ірина',
         ),
       ),
-      const ClientPrefill(firstName: 'Ірина'),
+      const ClientPrefill(firstName: 'Ірина', ref: _g1),
       reason: 'a blank part counts as absent',
     );
     expect(

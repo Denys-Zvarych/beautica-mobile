@@ -1,4 +1,4 @@
-// mobile-qa (Phase 14.6 — «ВІДГУК ПРО МАЙСТРА» leave-review) — behavioural
+// mobile-qa (Phase 14.6 — «Відгук про майстра» leave-review) — behavioural
 // suite for [LeaveReviewScreen] and the booking-detail entry CTA.
 //
 // The screen is the CLIENT's review form. This suite proves the state machine
@@ -46,6 +46,8 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_str
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -592,6 +594,32 @@ void main() {
         // …and the form (its stars + submit) is NOT.
         expect(find.byKey(const Key('leave-review-stars')), findsNothing);
         expect(find.byKey(const Key('leave-review-submit')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the already-reviewed state heads with the shared VelvetTopBar title '
+      'style (owner 2026-11-27) and its back pops',
+      (tester) async {
+        await pumpReview(
+          tester,
+          detail: (ref) async => _booking(canReview: false),
+        );
+        final String title = _l10n(tester).reviewScreenTitle;
+        expect(
+          find.descendant(
+            of: find.byType(VelvetTopBar),
+            matching: find.text(title),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester.widget<Text>(find.text(title)).style,
+          VelvetText.pageTitle,
+        );
+        await tester.tap(find.byKey(const Key('leave-review-back')));
+        await tester.pumpAndSettle();
+        expect(find.byType(LeaveReviewScreen), findsNothing);
       },
     );
 

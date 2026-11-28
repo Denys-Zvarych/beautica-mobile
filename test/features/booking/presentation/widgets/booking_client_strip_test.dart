@@ -5,6 +5,8 @@
 import 'package:beautica_mobile/core/media/beautica_image.dart'
     show debugMediaCacheManager;
 import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip_shell.dart';
@@ -67,16 +69,13 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('a guest shows NO client-kind label and NO ★ readout', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const BookingClientStrip(name: 'Ірина', isGuest: true),
-      );
+    testWidgets('an unrated guest shows NO client-kind label and the «—» '
+        'readout (CLI-101)', (tester) async {
+      await tester.pumpApp(const BookingClientStrip(name: 'Ірина'));
       // CLI-100 (M568): the former «Запис за посиланням» qualifier is gone.
       // i18n-finder-ok: asserts the removed UA copy never renders
       expect(find.text('Запис за посиланням'), findsNothing);
-      expect(find.text('—'), findsNothing);
+      expect(_inReadout(MasterStrip.noRatingLabel), findsOneWidget);
       final MasterStripShell shell = tester.widget<MasterStripShell>(
         find.byType(MasterStripShell),
       );
@@ -106,7 +105,6 @@ void main() {
       await tester.pumpApp(
         const BookingClientStrip(
           name: 'Ірина',
-          isGuest: true,
           details: Text('Ост.: 7 лис', key: _detailsKey),
         ),
       );
@@ -278,6 +276,88 @@ void main() {
       expect(label, contains('власний підпис'));
       expect(label, isNot(contains(_kPhone)));
       handle.dispose();
+    });
+  });
+
+  // M569 (CLI-101): ★ for every client kind, the additive `details`, and the
+  // walk-in strip's additive `onTap`.
+  group('M569 — one client strip on every provider booking page', () {
+    Booking guestBooking({int? reviewCount, double? avg}) {
+      final DateTime start = DateTime.utc(2020, 7, 14, 12);
+      return Booking(
+        id: 'b-guest',
+        masterId: 'm1',
+        masterFirstName: 'Софія',
+        masterLastName: 'Бондар',
+        masterType: 'INDEPENDENT_MASTER',
+        clientFirstName: _kFirst,
+        clientLastName: _kLast,
+        clientAvgRating: avg,
+        clientReviewCount: reviewCount,
+        serviceId: 's1',
+        serviceName: 'Манікюр',
+        durationMinutes: 60,
+        price: 500,
+        startAt: start,
+        endAt: start.add(const Duration(minutes: 60)),
+        status: BookingStatus.completed,
+        canReview: false,
+      );
+    }
+
+    testWidgets('fromBooking: a LINK guest with 3 ratings shows the ★ readout '
+        '(was hidden before M569)', (tester) async {
+      await tester.pumpApp(
+        BookingClientStrip.fromBooking(
+          guestBooking(avg: _kRating, reviewCount: _kRatingCount),
+        ),
+      );
+      expect(_inReadout(_kRating.toStringAsFixed(1)), findsOneWidget);
+    });
+
+    testWidgets('fromBooking: an unrated guest shows «—»', (tester) async {
+      await tester.pumpApp(BookingClientStrip.fromBooking(guestBooking()));
+      expect(_inReadout(MasterStrip.noRatingLabel), findsOneWidget);
+    });
+
+    testWidgets(
+      'fromBooking: details render as the sub-line; none by default',
+      (tester) async {
+        await tester.pumpApp(
+          BookingClientStrip.fromBooking(
+            guestBooking(),
+            details: const Text('visit', key: _detailsKey),
+          ),
+        );
+        expect(find.byKey(_detailsKey), findsOneWidget);
+        await tester.pumpApp(BookingClientStrip.fromBooking(guestBooking()));
+        final MasterStripShell shell = tester.widget<MasterStripShell>(
+          find.byType(MasterStripShell),
+        );
+        expect(shell.middleLine, isNull);
+      },
+    );
+
+    testWidgets('walkIn: onTap makes the strip tappable; absent → inert', (
+      tester,
+    ) async {
+      int taps = 0;
+      await tester.pumpApp(
+        BookingClientStrip.walkIn(
+          firstName: _kFirst,
+          lastName: _kLast,
+          onTap: () => taps++,
+        ),
+      );
+      await tester.tap(_shell);
+      expect(taps, 1);
+      await tester.pumpApp(
+        BookingClientStrip.walkIn(firstName: _kFirst, lastName: _kLast),
+      );
+      expect(
+        tester.widget<MasterStripShell>(find.byType(MasterStripShell)).onTap,
+        isNull,
+      );
     });
   });
 }

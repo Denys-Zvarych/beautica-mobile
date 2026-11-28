@@ -66,6 +66,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_client_strip.dart';
+
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 import '../../../helpers/asset_star_finder.dart';
@@ -379,8 +381,23 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
       await tester.pumpAndSettle();
 
-      expect(findAssetStar(color: BrandColors.accent), findsNWidgets(5));
-      expect(findAssetStar(color: BrandColors.faint), findsNothing);
+      // Scoped to the rating input: since M569 the client strip above it
+      // carries its own ★ readout (CLI-101), which is not part of the input.
+      final Finder stars = find.byKey(const Key('leave-client-feedback-stars'));
+      expect(
+        find.descendant(
+          of: stars,
+          matching: findAssetStar(color: BrandColors.accent),
+        ),
+        findsNWidgets(5),
+      );
+      expect(
+        find.descendant(
+          of: stars,
+          matching: findAssetStar(color: BrandColors.faint),
+        ),
+        findsNothing,
+      );
       expect(find.text(_l10n(tester).clientReviewRatingLabel5), findsOneWidget);
     });
 
@@ -1109,8 +1126,8 @@ void main() {
     );
 
     testWidgets(
-      'a guest booking renders the «Гість» fallback name and the same «Клієнт» '
-      'role label as any client (CLI-100)',
+      'a guest booking renders the «Гість» fallback name in the shared client '
+      'strip, no role label (CLI-100 / CLI-101)',
       (tester) async {
         await pumpFeedback(
           tester,
@@ -1123,15 +1140,15 @@ void main() {
 
         final AppLocalizations l10n = _l10n(tester);
         expect(find.text(l10n.bookingDetailGuestClient), findsOneWidget);
-        expect(find.text(l10n.clientReviewRoleLabel), findsOneWidget);
+        expect(find.byKey(BookingClientStrip.defaultShellKey), findsOneWidget);
         // i18n-finder-ok: asserts the removed UA copy never renders
         expect(find.text('Запис за посиланням'), findsNothing);
       },
     );
 
     testWidgets(
-      'a STAFF walk-in (null clientId, named) shows its name and the generic '
-      '«Клієнт» role label — never «Запис за посиланням» (CLI-100, M568)',
+      'a STAFF walk-in (null clientId, named) shows its name in the shared '
+      'client strip — never «Запис за посиланням» (CLI-100, M568, CLI-101)',
       (tester) async {
         // A walk-in reaches the app exactly like a LINK guest: null clientId
         // with the staff-typed name resolved server-side (BOOK-17). The app
@@ -1145,10 +1162,9 @@ void main() {
           ),
         );
 
-        final AppLocalizations l10n = _l10n(tester);
         // i18n-finder-ok: test fixture name, not app copy
         expect(find.text('Ірина Шевчук'), findsOneWidget);
-        expect(find.text(l10n.clientReviewRoleLabel), findsOneWidget);
+        expect(find.byKey(BookingClientStrip.defaultShellKey), findsOneWidget);
         // i18n-finder-ok: asserts the removed UA copy never renders
         expect(find.text('Запис за посиланням'), findsNothing);
         expect(

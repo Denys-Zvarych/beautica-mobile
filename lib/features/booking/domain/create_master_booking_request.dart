@@ -86,6 +86,8 @@
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../clients/domain/client_summary.dart';
+
 part 'create_master_booking_request.freezed.dart';
 
 /// The E.164 shape the backend's `chk_bookings_guest_phone_format` DB CHECK
@@ -176,6 +178,12 @@ abstract class WalkInGuest with _$WalkInGuest {
     String? avatarUrl,
     double? rating,
     @Default(0) int ratingCount,
+
+    /// DISPLAY-ONLY (M569, CLI-D20) — the picked client's card handle, set
+    /// under the SAME "typed identity still is the picked client" rule as
+    /// [avatarUrl] (`walkInGuestFrom`): `null` for a hand-typed or edited
+    /// client, whose review strip is then inert. NEVER on the wire.
+    ClientRef? clientRef,
   }) = _WalkInGuest;
 
   const WalkInGuest._();
